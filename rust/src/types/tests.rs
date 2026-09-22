@@ -18,7 +18,7 @@ use super::{
     MemoryConfiguration, NamedProviderConfig, PermissionResponseCapability, ProviderConfig,
     ProviderModelConfig, ReasoningSummary, ResumeSessionConfig, SessionConfig, SessionEvent,
     SessionId, SystemMessageConfig, Tool, ToolBinaryResult, ToolResult, ToolResultExpanded,
-    ToolResultResponse, ensure_attachment_display_names,
+    ToolResultResponse, TrustWorkingDirectory, ensure_attachment_display_names,
 };
 use crate::generated::session_events::TypedSessionEvent;
 
@@ -311,6 +311,57 @@ fn tool_result_expanded_deserializes_tool_references() {
     assert_eq!(
         expanded.tool_references.as_deref(),
         Some(["alpha".to_string(), "beta".to_string()].as_slice())
+    );
+}
+
+#[test]
+fn workspace_trust_serializes_explicit_scopes() {
+    for (scope, expected) in [
+        (TrustWorkingDirectory::Session, "session"),
+        (TrustWorkingDirectory::User, "user"),
+    ] {
+        assert_eq!(serde_json::to_value(scope).unwrap(), json!(expected));
+        let config = SessionConfig::default()
+            .with_working_directory(std::env::temp_dir())
+            .with_trust_working_directory(scope);
+        assert_eq!(config.trust_working_directory, Some(scope));
+        assert!(format!("{config:?}").contains("trust_working_directory"));
+        let (wire, _) = config.clone().into_wire(None).unwrap();
+        let json = serde_json::to_value(wire).unwrap();
+        assert_eq!(json["trustWorkingDirectory"], expected);
+        assert!(json.get("trust_working_directory").is_none());
+    }
+    assert!(serde_json::from_value::<TrustWorkingDirectory>(json!("always")).is_err());
+}
+
+#[test]
+fn workspace_trust_is_omitted_without_explicit_consent() {
+    for discovery in [None, Some(false), Some(true)] {
+        let mut config = SessionConfig::default().with_working_directory(std::env::temp_dir());
+        config.enable_config_discovery = discovery;
+        assert_eq!(config.trust_working_directory, None);
+        let (wire, _) = config.into_wire(None).unwrap();
+        assert!(
+            serde_json::to_value(wire)
+                .unwrap()
+                .get("trustWorkingDirectory")
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn workspace_trust_is_not_a_resume_wire_option() {
+    let (wire, _) = ResumeSessionConfig::new(SessionId::from("resume-trust"))
+        .with_working_directory(std::env::temp_dir())
+        .with_enable_config_discovery(true)
+        .into_wire()
+        .unwrap();
+    assert!(
+        serde_json::to_value(wire)
+            .unwrap()
+            .get("trustWorkingDirectory")
+            .is_none()
     );
 }
 

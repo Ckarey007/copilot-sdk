@@ -3247,6 +3247,21 @@ export interface SessionConfigBase {
  */
 export interface SessionConfig extends SessionConfigBase {
     /**
+     * Declares working-directory trust that the host has already obtained.
+     * Requires an explicit, absolute, nonblank `workingDirectory`. Omitted by default;
+     * enabling `enableConfigDiscovery` does not grant consent.
+     *
+     * `"session"` trusts only the created session without persisting a user trust entry.
+     * `"user"` persists trust in the effective configuration home after successful
+     * initialization. Session-scoped trust is not persisted for cold resume.
+     *
+     * Create-only: not supported by `resumeSession`. The runtime rejects unsupported
+     * session filesystem providers and remains authoritative for trust and policy
+     * enforcement; runtime errors reject `createSession`.
+     */
+    trustWorkingDirectory?: "session" | "user";
+
+    /**
      * Optional custom session ID. If not provided, the server generates one.
      */
     sessionId?: string;

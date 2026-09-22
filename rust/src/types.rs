@@ -2006,6 +2006,26 @@ pub enum AskUserVariant {
     Elicitation,
 }
 
+/// Scope of working-directory trust already obtained by the host.
+///
+/// This declaration is create-only. It is not a resume option:
+///
+/// ```compile_fail
+/// use github_copilot_sdk::{ResumeSessionConfig, SessionId, TrustWorkingDirectory};
+///
+/// let config = ResumeSessionConfig::new(SessionId::from("existing-session"))
+///     .with_trust_working_directory(TrustWorkingDirectory::Session);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum TrustWorkingDirectory {
+    /// Trust only the created session, without persisting a user trust entry.
+    Session,
+    /// Persist trust in the effective configuration home after successful initialization.
+    User,
+}
+
 /// Configuration for creating a new session via the `session.create` RPC.
 ///
 /// All fields are optional — the CLI applies sensible defaults.
@@ -2334,6 +2354,16 @@ pub struct SessionConfig {
     /// Working directory for the session. Tool operations resolve
     /// relative paths against this directory.
     pub working_directory: Option<PathBuf>,
+    /// Declares working-directory trust that the host has already obtained.
+    ///
+    /// Requires an explicit, absolute, nonblank [`working_directory`](Self::working_directory).
+    /// The runtime rejects unsupported session filesystem providers and remains
+    /// authoritative for trust and policy enforcement. Enabling configuration
+    /// discovery does not grant consent. `None` (the default) declares no trust.
+    ///
+    /// Session-scoped trust is not persisted for cold resume. User-scoped trust
+    /// is saved in the effective configuration home after successful initialization.
+    pub trust_working_directory: Option<TrustWorkingDirectory>,
     /// Additional directories the agent may access beyond the working directory.
     /// Relative paths resolve against the session working directory. Re-supply
     /// them when resuming a session.
@@ -2582,6 +2612,7 @@ impl std::fmt::Debug for SessionConfig {
             .field("memory", &self.memory)
             .field("config_directory", &self.config_directory)
             .field("working_directory", &self.working_directory)
+            .field("trust_working_directory", &self.trust_working_directory)
             .field("additional_directories", &self.additional_directories)
             .field(
                 "github_token",
@@ -2725,6 +2756,7 @@ impl Default for SessionConfig {
             memory: None,
             config_directory: None,
             working_directory: None,
+            trust_working_directory: None,
             additional_directories: None,
             github_token: None,
             github_token_provider: None,
@@ -2903,6 +2935,7 @@ impl SessionConfig {
             memory: self.memory,
             config_dir: self.config_directory,
             working_directory: self.working_directory,
+            trust_working_directory: self.trust_working_directory,
             additional_directories: self.additional_directories,
             github_token: self.github_token,
             github_token_provider_registration_id: None,
@@ -3550,6 +3583,15 @@ impl SessionConfig {
     /// relative paths against this directory.
     pub fn with_working_directory(mut self, dir: impl Into<PathBuf>) -> Self {
         self.working_directory = Some(dir.into());
+        self
+    }
+
+    /// Declare trust already obtained by the host for the explicit working directory.
+    ///
+    /// See [`trust_working_directory`](Self::trust_working_directory) for runtime
+    /// requirements and persistence semantics.
+    pub fn with_trust_working_directory(mut self, trust: TrustWorkingDirectory) -> Self {
+        self.trust_working_directory = Some(trust);
         self
     }
 

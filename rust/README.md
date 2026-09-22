@@ -39,6 +39,38 @@ tool name is `<server-key>-<tool-name>`. For `available_tools` and
 or the raw `mcp:<server-key>-<tool-name>` form. For `custom_agents[].tools`
 and `default_agent.excluded_tools`, use `<server-key>-<tool-name>` directly.
 
+## Workspace trust
+
+`SessionConfig::trust_working_directory` is an optional, create-only declaration of
+trust your host has already obtained. Leave it unset by default. Enabling
+`enable_config_discovery` enables discovery, not consent, and does not grant trust.
+Existing runtime trust decisions and policy gates still apply.
+
+```rust,no_run
+use github_copilot_sdk::{Client, SessionConfig, TrustWorkingDirectory};
+
+# async fn example(client: &Client) -> Result<(), github_copilot_sdk::Error> {
+// After the user explicitly chose to trust this directory for this session:
+let session = client.create_session(
+    SessionConfig::default()
+        .with_working_directory("/absolute/path/to/project") // Use a host OS absolute path.
+        .with_trust_working_directory(TrustWorkingDirectory::Session)
+        .with_enable_config_discovery(true),
+).await?;
+# Ok(())
+# }
+```
+
+`TrustWorkingDirectory::Session` is temporary and does not persist a user trust
+entry. Use `TrustWorkingDirectory::User` only after a separate choice to persist
+trust; the runtime saves it in the effective configuration home (including a
+`config_directory` override) after successful initialization. Trust requires an
+explicit, absolute, nonblank `working_directory`. RPC session filesystem providers
+are unsupported; runtime validation errors are returned from `create_session`.
+`ResumeSessionConfig` has no trust option: a cold resume requires persisted trust
+in that configuration home or another supported trust flow. Node.js exposes the
+equivalent create-only `trustWorkingDirectory: "session" | "user"` option.
+
 ## Architecture
 
 ```text

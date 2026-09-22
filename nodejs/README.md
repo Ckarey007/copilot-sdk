@@ -374,6 +374,7 @@ Create a new conversation session.
 - `infiniteSessions?: InfiniteSessionConfig` - Configure automatic context compaction (see below)
 - `workingDirectory?: string` - Working directory for the session (default: runtime process cwd).
 - `refreshCustomInstructions?: boolean` - Invalidates the process-wide custom-instruction discovery cache before creating this session, so instruction-file edits made in the same runtime are read again. Defaults to `false` (cache reuse). Other sessions in this runtime may observe updated instructions on later turns or discovery. This does not watch files or enable disabled instruction loading. Available on `SessionConfig`, not `ResumeSessionConfig`.
+- `trustWorkingDirectory?: "session" | "user"` - Create-only declaration of workspace trust already obtained by the host. Omitted by default; see below.
 - `enableSessionStore?: boolean` - Enables the cross-session store for search and retrieval across sessions. When unset in `"copilot-cli"` mode, the runtime default applies (enabled). In `"empty"` mode, defaults to disabled.
 - `enableGitHubCacheStore?: boolean` - Requests the read-only GitHub cache store (`github-cache-store` capability) on create or resume. The runtime registers the `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is also on. Defaults to disabled in every mode.
 - `gitHubTokenProvider?: GitHubTokenProvider` - Acquires rotating, session-scoped GitHub tokens. Token results require a positive `expiresIn` value in seconds remaining when the callback completes; production tokens typically last eight hours. Cannot be combined with `gitHubToken`.
@@ -397,6 +398,29 @@ const session = await client.createSession({
 ```
 
 Initial acquisition runs during session creation or resume. Cancellation, provider errors, and invalid token responses reject that operation instead of falling back to ambient authentication. Idle sessions refresh only before their next credential-consuming operation; there is no background refresh timer.
+
+**Workspace trust**
+
+Only set `trustWorkingDirectory` after your host has obtained explicit consent for
+the directory and scope. `enableConfigDiscovery` enables discovery, not consent;
+omitting trust preserves existing runtime trust decisions and policy gates.
+
+```typescript
+// After the user explicitly chose to trust this directory for this session:
+const session = await client.createSession({
+    workingDirectory: "/absolute/path/to/project", // Use an absolute path on your host OS.
+    trustWorkingDirectory: "session",
+    enableConfigDiscovery: true,
+});
+```
+
+`"session"` is temporary and does not persist a user trust entry. Use `"user"` only
+after a separate choice to persist trust; the runtime saves it in the effective
+configuration home (including a `configDirectory` override) after successful
+initialization. Trust requires an explicit, absolute, nonblank `workingDirectory`.
+RPC session filesystem providers are unsupported; runtime validation errors reject
+`createSession`. This option is not available on `ResumeSessionConfig`: a cold resume
+requires persisted trust in that configuration home or another supported trust flow.
 
 ##### `resumeSession(sessionId: string, config?: ResumeSessionConfig): Promise<CopilotSession>`
 

@@ -29,7 +29,7 @@ use crate::types::{
     CustomAgentConfig, DefaultAgentConfig, ExtensionInfo, GitHubMcpToolConfig,
     ImageGenerationConfig, InfiniteSessionConfig, LargeToolOutputConfig, McpServerConfig,
     MemoryConfiguration, NamedProviderConfig, ProviderConfig, ProviderModelConfig, SessionId,
-    SessionLimitsConfig, SystemMessageConfig, Tool, ToolSearchConfig,
+    SessionLimitsConfig, SystemMessageConfig, Tool, ToolSearchConfig, TrustWorkingDirectory,
 };
 
 /// Wire representation of a slash command (name + description only). The
@@ -195,6 +195,8 @@ pub(crate) struct SessionCreateWire {
     pub config_dir: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub working_directory: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trust_working_directory: Option<TrustWorkingDirectory>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub additional_directories: Option<Vec<PathBuf>>,
     #[serde(rename = "gitHubToken", skip_serializing_if = "Option::is_none")]

@@ -41,7 +41,8 @@ use github_copilot_sdk::types::{
     ToolInvocation, ToolResult,
 };
 use github_copilot_sdk::{
-    AgentMode, Attachment, Client, ContextTier, ErrorKind, MessageSource, ProtocolErrorKind, tool,
+    AgentMode, Attachment, Client, ContextTier, ErrorKind, MessageSource, ProtocolErrorKind,
+    TrustWorkingDirectory, tool,
 };
 use serde_json::Value;
 use tokio::io::{AsyncWrite, AsyncWriteExt, duplex};
@@ -1427,6 +1428,107 @@ async fn create_session_sends_correct_rpc() {
     let session = timeout(TIMEOUT, create_handle).await.unwrap().unwrap();
     assert_eq!(session.id(), session_id.as_str());
     assert_eq!(session.workspace_path(), Some(Path::new("/ws")));
+}
+
+#[tokio::test]
+async fn workspace_trust_create_forwards_scopes_and_omits_unset() {
+    for (scope, expected) in [
+        (Some(TrustWorkingDirectory::Session), Some("session")),
+        (Some(TrustWorkingDirectory::User), Some("user")),
+        (None, None),
+    ] {
+        let (client, mut server_read, mut server_write) = make_client();
+        let working_directory = std::env::temp_dir().join("synthetic-workspace");
+        let mut config = SessionConfig::default()
+            .with_working_directory(working_directory.clone())
+            .with_enable_config_discovery(true);
+        config.trust_working_directory = scope;
+        let create = tokio::spawn(async move { client.create_session(config).await });
+        let request = timeout(TIMEOUT, read_framed(&mut server_read))
+            .await
+            .unwrap();
+        assert_eq!(request["method"], "session.create");
+        assert_eq!(
+            request["params"]["workingDirectory"],
+            serde_json::json!(working_directory)
+        );
+        assert_eq!(
+            request["params"].get("trustWorkingDirectory"),
+            expected.map(|value| serde_json::json!(value)).as_ref()
+        );
+        let session_id = requested_session_id(&request).to_string();
+        server_respond_create(&mut server_write, &request, &session_id).await;
+        timeout(TIMEOUT, create).await.unwrap().unwrap().unwrap();
+    }
+}
+
+#[tokio::test]
+async fn workspace_trust_preserves_runtime_errors() {
+    for (cwd, message) in [
+        (
+            None,
+            "trustWorkingDirectory requires a nonblank workingDirectory.",
+        ),
+        (
+            Some("   ".into()),
+            "trustWorkingDirectory requires a nonblank workingDirectory.",
+        ),
+        (
+            Some("relative".into()),
+            "trustWorkingDirectory requires an absolute workingDirectory.",
+        ),
+        (
+            Some(std::env::temp_dir()),
+            "trustWorkingDirectory is not supported with an RPC session filesystem provider.",
+        ),
+    ] {
+        let (client, read, write) = make_client();
+        let mut server = FakeServer {
+            read,
+            write,
+            session_id: String::new(),
+        };
+        let mut config =
+            SessionConfig::default().with_trust_working_directory(TrustWorkingDirectory::Session);
+        config.working_directory = cwd;
+        let create = tokio::spawn(async move { client.create_session(config).await });
+        let request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+        assert_eq!(request["method"], "session.create");
+        assert_eq!(request["params"]["trustWorkingDirectory"], "session");
+        server.respond_error(&request, -32602, message).await;
+        let error = timeout(TIMEOUT, create)
+            .await
+            .unwrap()
+            .unwrap()
+            .err()
+            .expect("runtime trust validation must reject creation");
+        assert_eq!(error.kind(), &ErrorKind::Rpc { code: -32602 });
+        assert!(error.to_string().contains(message), "{error}");
+    }
+}
+
+#[tokio::test]
+async fn workspace_trust_is_not_sent_on_resume() {
+    use github_copilot_sdk::ResumeSessionConfig;
+
+    let (client, mut server_read, mut server_write) = make_client();
+    let resume = tokio::spawn(async move {
+        client
+            .resume_session(
+                ResumeSessionConfig::new(SessionId::from("resume-trust"))
+                    .with_working_directory(std::env::temp_dir())
+                    .with_enable_config_discovery(true),
+            )
+            .await
+    });
+    let request = timeout(TIMEOUT, read_framed(&mut server_read))
+        .await
+        .unwrap();
+    assert_eq!(request["method"], "session.resume");
+    assert!(request["params"].get("trustWorkingDirectory").is_none());
+    server_respond_create(&mut server_write, &request, "resume-trust").await;
+    respond_to_reload(&mut server_read, &mut server_write).await;
+    timeout(TIMEOUT, resume).await.unwrap().unwrap().unwrap();
 }
 
 #[tokio::test]
