@@ -27697,9 +27697,10 @@ public partial class GitHubTokenAcquireResultToken : GitHubTokenAcquireResult
     [JsonPropertyName("accessToken")]
     public required string AccessToken { get; set; }
 
-    /// <summary>Remaining token lifetime in seconds when callback execution completes. Session providers require more than one hour; hosting providers require at least 120 seconds.</summary>
+    /// <summary>Remaining token lifetime in seconds when callback execution completes. Required for session providers, with more than one hour remaining. Hosting providers may omit this field when lifetime is unknown; when supplied it must be at least 120 seconds. Hosting always refreshes periodically and revalidates credentials. Zero, null, and invalid lifetimes are rejected, not treated as unknown.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("expiresIn")]
-    public required long ExpiresIn { get; set; }
+    public long? ExpiresIn { get; set; }
 
     /// <summary>OAuth token type. Defaults to bearer when omitted.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

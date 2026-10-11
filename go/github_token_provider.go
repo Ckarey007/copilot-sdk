@@ -44,6 +44,22 @@ type GitHubToken struct {
 	ExpiresIn int64
 }
 
+// GitHubTokenUnknownExpiry is a freshly acquired hosting bearer whose issuer
+// supplies no lifetime metadata. It is valid only for AhpHostOptions providers;
+// normal session providers still require GitHubToken with a known lifetime.
+type GitHubTokenUnknownExpiry struct {
+	AccessToken string
+	TokenType   *string
+}
+
+func (t GitHubTokenUnknownExpiry) String() string {
+	return "GitHubTokenUnknownExpiry{AccessToken:<redacted>}"
+}
+
+func (t GitHubTokenUnknownExpiry) GoString() string {
+	return t.String()
+}
+
 // String returns a redacted description that never includes the access token.
 func (t GitHubToken) String() string {
 	tokenType := ""
@@ -62,13 +78,20 @@ func (t GitHubToken) GoString() string {
 //
 // Experimental: GitHubTokenProviderResult may change or be removed.
 type GitHubTokenProviderResult struct {
-	Cancelled bool
-	Token     *GitHubToken
+	Cancelled          bool
+	Token              *GitHubToken
+	TokenUnknownExpiry *GitHubTokenUnknownExpiry
 }
 
 // GitHubTokenResult returns a successful token-provider result.
 func GitHubTokenResult(token *GitHubToken) *GitHubTokenProviderResult {
 	return &GitHubTokenProviderResult{Token: token}
+}
+
+// GitHubTokenUnknownExpiryResult does not assign a synthetic expiry. Hosting
+// continues periodic acquisition and authentication/owner revalidation.
+func GitHubTokenUnknownExpiryResult(token *GitHubTokenUnknownExpiry) *GitHubTokenProviderResult {
+	return &GitHubTokenProviderResult{TokenUnknownExpiry: token}
 }
 
 // GitHubTokenCancelled returns a result indicating that token acquisition was cancelled.
@@ -79,7 +102,8 @@ func GitHubTokenCancelled() *GitHubTokenProviderResult {
 // GitHubTokenProvider acquires session- or host-scoped GitHub tokens on demand.
 // Cancellation, errors, and invalid token responses never fall back to ambient
 // authentication. Sessions require more than one hour of validity; hosting
-// credentials require at least 120 seconds.
+// credentials require at least 120 seconds when their lifetime is known, or
+// GitHubTokenUnknownExpiryResult when the issuer provides no lifetime metadata.
 //
 // Experimental: GitHubTokenProvider may change or be removed.
 type GitHubTokenProvider func(args GitHubTokenProviderArgs) (*GitHubTokenProviderResult, error)

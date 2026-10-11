@@ -5316,9 +5316,12 @@ func (GitHubTokenAcquireResultCancelled) Kind() GitHubTokenAcquireResultKind {
 type GitHubTokenAcquireResultToken struct {
 	// GitHub access token acquired by the SDK host.
 	AccessToken string `json:"accessToken"`
-	// Remaining token lifetime in seconds when callback execution completes. Session providers
-	// require more than one hour; hosting providers require at least 120 seconds.
-	ExpiresIn int64 `json:"expiresIn"`
+	// Remaining token lifetime in seconds when callback execution completes. Required for
+	// session providers, with more than one hour remaining. Hosting providers may omit this
+	// field when lifetime is unknown; when supplied it must be at least 120 seconds. Hosting
+	// always refreshes periodically and revalidates credentials. Zero, null, and invalid
+	// lifetimes are rejected, not treated as unknown.
+	ExpiresIn *int64 `json:"expiresIn,omitempty"`
 	// OAuth token type. Defaults to bearer when omitted.
 	TokenType *string `json:"tokenType,omitempty"`
 }

@@ -49,7 +49,9 @@ type AhpHostOptions struct {
 	// GitHubEnvironment registers the host with Mission Control; Name and ComputeID are required.
 	GitHubEnvironment *rpc.HostGitHubEnvironmentOptions
 	// GitHubTokenProvider supplies refreshable hosting credentials. It must return
-	// a bearer valid for at least 120 seconds; errors never fall back to ambient auth.
+	// a bearer with unknown lifetime or at least 120 seconds remaining; errors
+	// never fall back to ambient auth. Use GitHubTokenUnknownExpiryResult only
+	// when the issuer supplies no lifetime metadata, never for an expired token.
 	// The callback belongs to this host and receives no SessionID.
 	GitHubTokenProvider              GitHubTokenProvider
 	CreateSession                    func(context.Context, AhpSessionCreateRequest) (*Session, error)
@@ -142,7 +144,7 @@ func (c *Client) StartAhpHost(ctx context.Context, options *AhpHostOptions) (*Ah
 	hostID := uuid.NewString()
 	if opts.GitHubTokenProvider != nil {
 		environment := *opts.GitHubEnvironment
-		opts.credentialProviderRegistrationID = c.registerGitHubTokenProvider(opts.GitHubTokenProvider)
+		opts.credentialProviderRegistrationID = c.registerScopedGitHubTokenProvider(opts.GitHubTokenProvider, true)
 		environment.CredentialProviderRegistrationID = String(opts.credentialProviderRegistrationID)
 		opts.GitHubEnvironment = &environment
 	}

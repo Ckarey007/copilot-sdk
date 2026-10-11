@@ -167,13 +167,29 @@ identity boundary. The native build selects this capability with
 credentials. Other integrations can supply an opaque
 `credentialProviderRegistrationId` through the generated RPC contract and
 handle `gitHubToken.getToken` on the same SDK connection. Hosting callbacks have
-no session ID and must return a bearer valid for at least 120 seconds. The
-runtime requests refreshes through the owning connection, rechecks authentication
+no session ID. When the issuer supplies lifetime metadata, return a bearer
+valid for at least 120 seconds using the existing `GitHubTokenResult`.
+When a fresh bearer has no lifetime metadata, Go provides
+`GitHubTokenUnknownExpiryResult(&GitHubTokenUnknownExpiry{AccessToken: token})`.
+This host-only result omits `expiresIn`; it does not invent a lifetime.
+An explicit zero, negative, fractional, null, or malformed expiry is rejected,
+not treated as unknown. Do not discard a known expiry to select this result.
+The runtime requests refreshes through the owning connection, rechecks authentication
 and remote-control policy, and never substitutes ambient authentication after a
 provider error. Go unregisters the callback on startup failure, host exit, or
 connection loss. Persist a server-side mint policy, not callback bearer tokens.
 Session-scoped token callbacks retain their existing greater-than-one-hour
-validity requirement.
+validity requirement and reject unknown lifetime, including before a cloud
+session has an assigned ID.
+
+Both hosting result forms use the same 30-second refresh cadence and 15-second
+callback timeout. Every initial credential still passes authentication and
+remote-control admission before hosting starts, and every refresh revalidates
+the bound owner and origin. Unknown lifetime is not a promise that the token
+will remain valid until the next poll. Provider cancellation or an invalid
+credential ends hosting; transient acquisition or revalidation failures pause
+the Mission Control bearer rather than continuing with a cached credential.
+The existing session credential update method does not update host credentials.
 
 `COPILOT_MC_BASE_URL` is an origin, not an API path. It accepts HTTPS or HTTP
 loopback, and rejects credentials, paths, queries, and fragments without falling

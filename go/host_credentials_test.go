@@ -112,3 +112,84 @@ func TestAhpHostCredentialProviderRequiresUnambiguousEnvironment(t *testing.T) {
 		}
 	}
 }
+
+func TestAhpHostUnknownExpiryIsExplicitAndHostScoped(t *testing.T) {
+	unknown := GitHubTokenUnknownExpiryResult(&GitHubTokenUnknownExpiry{AccessToken: "synthetic-bearer"})
+	knownLifetime, zeroLifetime := int64(120), int64(0)
+	for _, test := range []struct {
+		name      string
+		hosting   bool
+		sessionID *string
+		result    *GitHubTokenProviderResult
+		expiry    *int64
+		wantError bool
+	}{
+		{name: "unknown hosting lifetime", hosting: true, result: unknown},
+		{name: "known hosting lifetime", hosting: true, result: GitHubTokenResult(&GitHubToken{AccessToken: "synthetic-bearer", ExpiresIn: 120}), expiry: &knownLifetime},
+		{name: "zero remains explicit for native rejection", hosting: true, result: GitHubTokenResult(&GitHubToken{AccessToken: "synthetic-bearer"}), expiry: &zeroLifetime},
+		{name: "session without assigned ID", result: unknown, wantError: true},
+		{name: "session with assigned ID", result: unknown, sessionID: String("session"), wantError: true},
+		{name: "host registration cannot issue a session token", hosting: true, result: unknown, sessionID: String("session"), wantError: true},
+		{name: "ambiguous lifetime", hosting: true, result: &GitHubTokenProviderResult{Token: &GitHubToken{ExpiresIn: 120}, TokenUnknownExpiry: unknown.TokenUnknownExpiry}, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client, server, _ := ahpFixture(t)
+			var registration string
+			provider := func(GitHubTokenProviderArgs) (*GitHubTokenProviderResult, error) { return test.result, nil }
+			if test.hosting {
+				server.SetRequestHandler("host.start", jsonrpc2.RequestHandlerFor(func(params *rpc.HostStartRequest) (*rpc.HostStartResult, *jsonrpc2.Error) {
+					registration = *params.GitHubEnvironment.CredentialProviderRegistrationID
+					return &rpc.HostStartResult{HostID: params.HostID}, nil
+				}))
+				if _, err := client.StartAhpHost(t.Context(), &AhpHostOptions{
+					GitHubEnvironment:   &rpc.HostGitHubEnvironmentOptions{Name: "managed", ComputeID: "allocation"},
+					GitHubTokenProvider: provider,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				registration = client.registerGitHubTokenProvider(provider)
+			}
+			adapter := &gitHubTokenAdapter{client: client}
+			result, err := adapter.GetToken(&rpc.GitHubTokenAcquireRequest{
+				RegistrationID: registration, SessionID: test.sessionID,
+			})
+			if test.wantError {
+				if err == nil {
+					t.Fatal("accepted an unknown lifetime outside its hosting contract")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := json.Marshal(result)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var wire map[string]json.RawMessage
+			if err := json.Unmarshal(data, &wire); err != nil {
+				t.Fatal(err)
+			}
+			expiry, present := wire["expiresIn"]
+			if test.expiry == nil {
+				if present {
+					t.Fatal("unknown lifetime was serialized as a fabricated expiry or null")
+				}
+			} else {
+				if !present || string(expiry) != fmt.Sprint(*test.expiry) {
+					t.Fatalf("expected explicit lifetime %d, got %s", *test.expiry, expiry)
+				}
+			}
+		})
+	}
+}
+
+func TestAhpHostUnknownExpiryFormattingRedactsCredentials(t *testing.T) {
+	token := GitHubTokenUnknownExpiry{AccessToken: "synthetic-secret"}
+	for _, formatted := range []string{fmt.Sprint(token), fmt.Sprintf("%#v", token)} {
+		if formatted != "GitHubTokenUnknownExpiry{AccessToken:<redacted>}" {
+			t.Fatal("unknown-expiry token formatting did not redact credentials")
+		}
+	}
+}

@@ -164,7 +164,7 @@ type Client struct {
 	sessions                           map[string]*Session
 	sessionsMux                        sync.Mutex
 	ahp                                ahpHostState
-	gitHubTokenProviders               map[string]GitHubTokenProvider
+	gitHubTokenProviders               map[string]gitHubTokenProviderRegistration
 	gitHubTokenProvidersMux            sync.RWMutex
 	requestAdapter                     *copilotRequestAdapter
 	requestAdapterMux                  sync.Mutex
@@ -242,7 +242,7 @@ func NewClient(options *ClientOptions) *Client {
 		options:              opts,
 		state:                stateDisconnected,
 		sessions:             make(map[string]*Session),
-		gitHubTokenProviders: make(map[string]GitHubTokenProvider),
+		gitHubTokenProviders: make(map[string]gitHubTokenProviderRegistration),
 		actualHost:           "localhost",
 		isExternalServer:     false,
 		useStdio:             true,
@@ -2683,15 +2683,24 @@ func (c *Client) setupNotificationHandler() {
 }
 
 func (c *Client) registerGitHubTokenProvider(provider GitHubTokenProvider) string {
+	return c.registerScopedGitHubTokenProvider(provider, false)
+}
+
+type gitHubTokenProviderRegistration struct {
+	provider GitHubTokenProvider
+	hosting  bool
+}
+
+func (c *Client) registerScopedGitHubTokenProvider(provider GitHubTokenProvider, hosting bool) string {
 	if provider == nil {
 		return ""
 	}
 	registrationID := uuid.NewString()
 	c.gitHubTokenProvidersMux.Lock()
 	if c.gitHubTokenProviders == nil {
-		c.gitHubTokenProviders = make(map[string]GitHubTokenProvider)
+		c.gitHubTokenProviders = make(map[string]gitHubTokenProviderRegistration)
 	}
-	c.gitHubTokenProviders[registrationID] = provider
+	c.gitHubTokenProviders[registrationID] = gitHubTokenProviderRegistration{provider: provider, hosting: hosting}
 	c.gitHubTokenProvidersMux.Unlock()
 	return registrationID
 }
@@ -2707,7 +2716,7 @@ func (c *Client) unregisterGitHubTokenProvider(registrationID string) {
 
 func (c *Client) clearGitHubTokenProviders() {
 	c.gitHubTokenProvidersMux.Lock()
-	c.gitHubTokenProviders = make(map[string]GitHubTokenProvider)
+	c.gitHubTokenProviders = make(map[string]gitHubTokenProviderRegistration)
 	c.gitHubTokenProvidersMux.Unlock()
 }
 
@@ -2788,13 +2797,13 @@ func (a *gitHubTokenAdapter) GetToken(request *rpc.GitHubTokenAcquireRequest) (r
 		return nil, fmt.Errorf("missing GitHub token acquire request")
 	}
 	a.client.gitHubTokenProvidersMux.RLock()
-	provider := a.client.gitHubTokenProviders[request.RegistrationID]
+	registration := a.client.gitHubTokenProviders[request.RegistrationID]
 	a.client.gitHubTokenProvidersMux.RUnlock()
-	if provider == nil {
+	if registration.provider == nil {
 		return nil, fmt.Errorf("unknown GitHub token provider registration ID %q", request.RegistrationID)
 	}
 
-	result, err := provider(GitHubTokenProviderArgs{
+	result, err := registration.provider(GitHubTokenProviderArgs{
 		Host:      request.Host,
 		SessionID: request.SessionID,
 		Reason:    request.Reason,
@@ -2805,13 +2814,22 @@ func (a *gitHubTokenAdapter) GetToken(request *rpc.GitHubTokenAcquireRequest) (r
 	if result != nil && result.Cancelled {
 		return &rpc.GitHubTokenAcquireResultCancelled{}, nil
 	}
+	if result != nil && result.TokenUnknownExpiry != nil {
+		if !registration.hosting || request.SessionID != nil || result.Token != nil {
+			return nil, fmt.Errorf("unknown token lifetime requires a hosting provider and no expiry-bearing token")
+		}
+		return &rpc.GitHubTokenAcquireResultToken{
+			AccessToken: result.TokenUnknownExpiry.AccessToken,
+			TokenType:   result.TokenUnknownExpiry.TokenType,
+		}, nil
+	}
 	if result == nil || result.Token == nil {
 		return nil, fmt.Errorf("GitHub token provider returned neither a token nor cancellation")
 	}
 	return &rpc.GitHubTokenAcquireResultToken{
 		AccessToken: result.Token.AccessToken,
 		TokenType:   result.Token.TokenType,
-		ExpiresIn:   result.Token.ExpiresIn,
+		ExpiresIn:   &result.Token.ExpiresIn,
 	}, nil
 }
 

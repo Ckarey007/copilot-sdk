@@ -155,7 +155,7 @@ func newInstallationConfirmationHarness(t *testing.T, handler InstallationConfir
 			InstallationConfirmationHandler: handler,
 		},
 		sessions:             make(map[string]*Session),
-		gitHubTokenProviders: make(map[string]GitHubTokenProvider),
+		gitHubTokenProviders: make(map[string]gitHubTokenProviderRegistration),
 		state:                stateConnected,
 	}
 	client.setupNotificationHandler()

@@ -8615,8 +8615,9 @@ pub struct GitHubTokenAcquireRequest {
 pub struct GitHubTokenAcquireResultToken {
     /// GitHub access token acquired by the SDK host.
     pub access_token: String,
-    /// Remaining token lifetime in seconds when callback execution completes. Session providers require more than one hour; hosting providers require at least 120 seconds.
-    pub expires_in: i64,
+    /// Remaining token lifetime in seconds when callback execution completes. Required for session providers, with more than one hour remaining. Hosting providers may omit this field when lifetime is unknown; when supplied it must be at least 120 seconds. Hosting always refreshes periodically and revalidates credentials. Zero, null, and invalid lifetimes are rejected, not treated as unknown.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_in: Option<i64>,
     /// GitHub credential response variant discriminator.
     pub kind: GitHubTokenAcquireResultTokenKind,
     /// OAuth token type. Defaults to bearer when omitted.

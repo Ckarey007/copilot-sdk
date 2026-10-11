@@ -67,7 +67,7 @@ impl GitHubToken {
     fn into_wire(self) -> GitHubTokenAcquireResultToken {
         GitHubTokenAcquireResultToken {
             access_token: self.access_token,
-            expires_in: self.expires_in_seconds,
+            expires_in: Some(self.expires_in_seconds),
             kind: Default::default(),
             token_type: self.token_type,
         }
