@@ -19,6 +19,9 @@ on:
       sdk-home:
         required: true
         type: string
+      runtime-source:
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -99,9 +102,9 @@ jobs:
           retention-days: 7
 
   dotnet-darwin-arm64:
-    name: ".NET (macos-26-xlarge-agent-runtime, default, CAPI)"
+    name: ".NET (${{ inputs.runtime-source == 'published' && 'macos-26' || 'macos-26-xlarge-agent-runtime' }}, default, CAPI)"
     if: inputs.platform == 'all' || inputs.platform == 'darwin-arm64'
-    runs-on: macos-26-xlarge-agent-runtime
+    runs-on: ${{ inputs.runtime-source == 'published' && 'macos-26' || 'macos-26-xlarge-agent-runtime' }}
     timeout-minutes: 30
     defaults:
       run:
@@ -147,14 +150,18 @@ jobs:
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: dotnet-test-diagnostics-macos-26-xlarge-default-capi-${{ github.run_attempt }}
+          name: dotnet-test-diagnostics-${{ inputs.runtime-source == 'published' && 'macos-26' || 'macos-26-xlarge' }}-default-capi-${{ github.run_attempt }}
           path: ${{ inputs.sdk-home }}/dotnet/TestResults/
           if-no-files-found: warn
           retention-days: 7
 
   dotnet-win32-x64:
-    name: ".NET (windows-latest, default, CAPI)"
+    name: ".NET (windows-latest, ${{ matrix.framework == 'all' && 'default' || matrix.framework }}, CAPI)"
     if: inputs.platform == 'all' || inputs.platform == 'win32-x64'
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: ${{ fromJSON(inputs.runtime-source == 'published' && '["net8.0","net472"]' || '["all"]') }}
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
@@ -164,6 +171,7 @@ jobs:
     env:
       COPILOT_SDK_E2E_BACKEND: capi
       DOTNET_TEST_RUNTIME: win-x64
+      DOTNET_TEST_FRAMEWORK: ${{ matrix.framework != 'all' && matrix.framework || '' }}
       DOTNET_TEST_RESULTS_DIRECTORY: TestResults/subprocess
     steps:
       - uses: actions/checkout@v7
@@ -203,7 +211,7 @@ jobs:
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: dotnet-test-diagnostics-windows-latest-default-capi-${{ github.run_attempt }}
+          name: dotnet-test-diagnostics-windows-latest-${{ matrix.framework == 'all' && 'default' || matrix.framework }}-capi-${{ github.run_attempt }}
           path: ${{ inputs.sdk-home }}/dotnet/TestResults/
           if-no-files-found: warn
           retention-days: 7
