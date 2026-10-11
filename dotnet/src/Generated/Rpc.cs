@@ -385,6 +385,14 @@ public sealed class HostGitHubEnvironmentOptions
     [JsonPropertyName("computeId")]
     public string ComputeId { get; set; } = string.Empty;
 
+    /// <summary>Opaque SDK registration for a refreshable hosting credential. Tokens are requested only from the owning SDK connection through gitHubToken.getToken and must remain valid for at least 120 seconds. Omitting this uses the runtime's existing authentication.</summary>
+    [JsonPropertyName("credentialProviderRegistrationId")]
+    public string? CredentialProviderRegistrationId { get; set; }
+
+    /// <summary>Registration kind. Defaults to user-local; managed kinds adopt the preallocated environment identified by the authenticated owner and computeId.</summary>
+    [JsonPropertyName("kind")]
+    public HostEnvironmentKind? Kind { get; set; }
+
     /// <summary>Human-readable environment display name.</summary>
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
@@ -392,6 +400,10 @@ public sealed class HostGitHubEnvironmentOptions
     /// <summary>Require sealed, connection-bound authentication (default true), independent of listener address. False permits unsealed direct credentials and unbound sealed relay credentials; use only when the caller fully controls and trusts the direct transport. Relay token encryption remains mandatory.</summary>
     [JsonPropertyName("requireConnectionBinding")]
     public bool? RequireConnectionBinding { get; set; }
+
+    /// <summary>Runtime authentication principal, independent of Mission Control's routing owner. Defaults to user. github-app requires a separately built managed-hosting runtime and a managed-sandbox registration; ordinary runtime builds reject it.</summary>
+    [JsonPropertyName("runtimePrincipal")]
+    public HostRuntimePrincipal? RuntimePrincipal { get; set; }
 }
 
 /// <summary>Local WebSocket transport options.</summary>
@@ -27685,7 +27697,7 @@ public partial class GitHubTokenAcquireResultToken : GitHubTokenAcquireResult
     [JsonPropertyName("accessToken")]
     public required string AccessToken { get; set; }
 
-    /// <summary>Remaining token lifetime in seconds when callback execution completes. It must exceed the one-hour preflight refresh threshold.</summary>
+    /// <summary>Remaining token lifetime in seconds when callback execution completes. Session providers require more than one hour; hosting providers require at least 120 seconds.</summary>
     [JsonPropertyName("expiresIn")]
     public required long ExpiresIn { get; set; }
 
@@ -27720,7 +27732,7 @@ public sealed class GitHubTokenAcquireRequest
     [JsonPropertyName("registrationId")]
     public string RegistrationId { get; set; } = string.Empty;
 
-    /// <summary>Session receiving the token. Absent only before a cloud session has been assigned its id.</summary>
+    /// <summary>Session receiving the token. Absent for hosting credentials and before a cloud session has been assigned its id.</summary>
     [JsonPropertyName("sessionId")]
     public string? SessionId { get; set; }
 }
@@ -28097,6 +28109,135 @@ public readonly struct EnvironmentKind : IEquatable<EnvironmentKind>
         public override void Write(Utf8JsonWriter writer, EnvironmentKind value, JsonSerializerOptions options)
         {
             GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(EnvironmentKind));
+        }
+    }
+}
+
+
+/// <summary>Compute kinds supported by attached environment registration.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct HostEnvironmentKind : IEquatable<HostEnvironmentKind>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="HostEnvironmentKind"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="HostEnvironmentKind"/>.</param>
+    [JsonConstructor]
+    public HostEnvironmentKind(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="HostEnvironmentKind"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>An ordinary user-managed local host.</summary>
+    public static HostEnvironmentKind UserLocal { get; } = new("user-local");
+
+    /// <summary>A preallocated GitHub-managed sandbox.</summary>
+    public static HostEnvironmentKind ManagedSandbox { get; } = new("managed-sandbox");
+
+    /// <summary>A preallocated GitHub-managed cloud agent host.</summary>
+    public static HostEnvironmentKind ManagedCca { get; } = new("managed-cca");
+
+    /// <summary>Returns a value indicating whether two <see cref="HostEnvironmentKind"/> instances are equivalent.</summary>
+    public static bool operator ==(HostEnvironmentKind left, HostEnvironmentKind right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="HostEnvironmentKind"/> instances are not equivalent.</summary>
+    public static bool operator !=(HostEnvironmentKind left, HostEnvironmentKind right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is HostEnvironmentKind other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(HostEnvironmentKind other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{HostEnvironmentKind}"/> for serializing <see cref="HostEnvironmentKind"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<HostEnvironmentKind>
+    {
+        /// <inheritdoc />
+        public override HostEnvironmentKind Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, HostEnvironmentKind value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(HostEnvironmentKind));
+        }
+    }
+}
+
+
+/// <summary>Authentication principal used by the attached AHP host.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct HostRuntimePrincipal : IEquatable<HostRuntimePrincipal>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="HostRuntimePrincipal"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="HostRuntimePrincipal"/>.</param>
+    [JsonConstructor]
+    public HostRuntimePrincipal(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="HostRuntimePrincipal"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>Authenticate every connection as the host's single GitHub user.</summary>
+    public static HostRuntimePrincipal User { get; } = new("user");
+
+    /// <summary>Authenticate the provisioned GitHub App using the managed host's existing sandbox admission.</summary>
+    public static HostRuntimePrincipal GitHubApp { get; } = new("github-app");
+
+    /// <summary>Returns a value indicating whether two <see cref="HostRuntimePrincipal"/> instances are equivalent.</summary>
+    public static bool operator ==(HostRuntimePrincipal left, HostRuntimePrincipal right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="HostRuntimePrincipal"/> instances are not equivalent.</summary>
+    public static bool operator !=(HostRuntimePrincipal left, HostRuntimePrincipal right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is HostRuntimePrincipal other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(HostRuntimePrincipal other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{HostRuntimePrincipal}"/> for serializing <see cref="HostRuntimePrincipal"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<HostRuntimePrincipal>
+    {
+        /// <inheritdoc />
+        public override HostRuntimePrincipal Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, HostRuntimePrincipal value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(HostRuntimePrincipal));
         }
     }
 }

@@ -2444,30 +2444,38 @@ export function generateRpcClass(
         className === "McpOauthRequiredStaticClientConfig"
             ? {
                 fieldNames: ["clientId", "clientSecret", "publicClient", "grantType"],
-                omittedField: "scope",
+                omittedFields: ["scope"],
                 description: "Creates a static OAuth client configuration without an explicit scope.",
             }
             : className === "ManagedSettingsResolveParams"
               ? {
                   fieldNames: ["selectionId", "gitHubToken", "clientName"],
-                  omittedField: "workingDirectory",
+                  omittedFields: ["workingDirectory"],
                   description: "Creates managed-settings resolution parameters without a working directory.",
               }
             : className === "SessionFsSetProviderCapabilities"
               ? {
                   fieldNames: ["sqlite"],
-                  omittedField: "binary",
+                  omittedFields: ["binary"],
                   description: "Creates provider capabilities without binary reads.",
               }
               : className === "HostGitHubEnvironmentOptions"
                 ? {
                     fieldNames: ["name", "computeId"],
-                    omittedField: "requireConnectionBinding",
+                    omittedFields: ["kind", "credentialProviderRegistrationId", "runtimePrincipal", "requireConnectionBinding"],
                     description: "Creates environment options using the default connection-binding policy.",
                 }
                 : undefined;
-    if (legacyConstructor) {
-        const legacyFieldNames = legacyConstructor.fieldNames;
+    const legacyConstructors = legacyConstructor ? [legacyConstructor] : [];
+    if (className === "HostGitHubEnvironmentOptions" && fields.length > 3) {
+        legacyConstructors.push({
+            fieldNames: ["name", "computeId", "requireConnectionBinding"],
+            omittedFields: ["kind", "credentialProviderRegistrationId", "runtimePrincipal"],
+            description: "Creates user-local environment options with the selected connection-binding policy.",
+        });
+    }
+    for (const constructor of legacyConstructors) {
+        const legacyFieldNames = constructor.fieldNames;
         const legacyFields = legacyFieldNames.map((fieldName) => {
             const field = fields.find((candidate) => candidate.javaName === fieldName);
             if (!field) {
@@ -2476,13 +2484,13 @@ export function generateRpcClass(
             return field;
         });
         const omittedFields = fields.filter((field) => !legacyFieldNames.includes(field.javaName));
-        if (omittedFields.length !== 1 || omittedFields[0].javaName !== legacyConstructor.omittedField) {
+        if (omittedFields.length === 0 || omittedFields.some((field) => !constructor.omittedFields.includes(field.javaName))) {
             throw new Error(`Unexpected compatibility fields for ${className}`);
         }
 
         lines.push(``);
         lines.push(`    /**`);
-        lines.push(`     * ${legacyConstructor.description}`);
+        lines.push(`     * ${constructor.description}`);
         lines.push(`     *`);
         for (const field of legacyFields) {
             const description = (field.description || field.propName)
@@ -2496,7 +2504,7 @@ export function generateRpcClass(
             lines.push(`        ${field.javaType} ${field.javaName}${index < legacyFields.length - 1 ? "," : ""}`);
         });
         lines.push(`    ) {`);
-        lines.push(`        this(${legacyFieldNames.join(", ")}, null);`);
+        lines.push(`        this(${fields.map((field) => legacyFieldNames.includes(field.javaName) ? field.javaName : "null").join(", ")});`);
         lines.push(`    }`);
     }
 

@@ -146,6 +146,53 @@ These management operations are experimental and do not require a running host.
 Discovery returns safe metadata, not host-side relay credentials. GitHub-managed
 environments cannot be deleted through this API.
 
+### Managed registration and refreshable credentials
+
+The experimental `githubEnvironment.kind` defaults to `user-local`.
+`managed-sandbox` and `managed-cca` omit user-local managed settings from
+registration. The authenticated control credential determines ownership; these
+options cannot select or override a tenant. A controller adopting an existing
+environment supplies its stable compute identity and a credential authorized
+for that allocation. Namespaced compute identities retain their wire value and
+use an encoded, isolated catalog directory.
+
+`runtimePrincipal: "github-app"` requires a `managed-sandbox` environment and a
+separately built managed-hosting runtime. Ordinary artifacts reject that
+principal. Managed artifacts retain the existing GitHub App attestation and
+sandbox admission checks; the App principal is not an installation-level
+identity boundary. The native build selects this capability with
+`--define=managed_hosting=true` on the `//src/native/runtime:runtime` Bazel target.
+
+**Go** exposes `AhpHostOptions.GitHubTokenProvider` for refreshable control
+credentials. Other integrations can supply an opaque
+`credentialProviderRegistrationId` through the generated RPC contract and
+handle `gitHubToken.getToken` on the same SDK connection. Hosting callbacks have
+no session ID and must return a bearer valid for at least 120 seconds. The
+runtime requests refreshes through the owning connection, rechecks authentication
+and remote-control policy, and never substitutes ambient authentication after a
+provider error. Go unregisters the callback on startup failure, host exit, or
+connection loss. Persist a server-side mint policy, not callback bearer tokens.
+Session-scoped token callbacks retain their existing greater-than-one-hour
+validity requirement.
+
+`COPILOT_MC_BASE_URL` is an origin, not an API path. It accepts HTTPS or HTTP
+loopback, and rejects credentials, paths, queries, and fragments without falling
+back to the production default. Local validation must explicitly set its local
+origin before starting the runtime.
+
+Installation credentials alone do not establish remote-control entitlement.
+The existing server-to-server auth metadata lacks that entitlement outside the
+established sandbox path. This prototype does not add a trusted installation
+policy source or bypass that rejection.
+
+> [!WARNING]
+> AHP workspace resources and watchers still use the host filesystem. SDK
+> SessionFS providers do not automatically redirect these operations to remote
+> workers. The native catalog and repository materialization also use local
+> storage and Git; neither invokes a remote session callback. Preserve the supplied session
+> creation/resume configuration and permission callbacks; replacing them is not
+> a filesystem routing solution.
+
 ## Application-owned sessions
 
 Application session factories optionally handle fresh AHP

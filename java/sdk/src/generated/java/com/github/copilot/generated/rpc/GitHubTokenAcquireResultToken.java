@@ -36,7 +36,7 @@ public final class GitHubTokenAcquireResultToken extends GitHubTokenAcquireResul
     @JsonProperty("tokenType")
     private String tokenType;
 
-    /** Remaining token lifetime in seconds when callback execution completes. It must exceed the one-hour preflight refresh threshold. */
+    /** Remaining token lifetime in seconds when callback execution completes. Session providers require more than one hour; hosting providers require at least 120 seconds. */
     @JsonProperty("expiresIn")
     private Long expiresIn;
 

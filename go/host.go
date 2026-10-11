@@ -48,10 +48,15 @@ type AhpHostOptions struct {
 	LocalServer *rpc.HostLocalServerOptions
 	// GitHubEnvironment registers the host with Mission Control; Name and ComputeID are required.
 	GitHubEnvironment *rpc.HostGitHubEnvironmentOptions
-	CreateSession     func(context.Context, AhpSessionCreateRequest) (*Session, error)
-	ResumeSession     func(context.Context, AhpSessionResumeRequest) (*Session, error)
-	OnSessionReleased func(*Session) error
-	OnExit            func(AhpHostExit) error
+	// GitHubTokenProvider supplies refreshable hosting credentials. It must return
+	// a bearer valid for at least 120 seconds; errors never fall back to ambient auth.
+	// The callback belongs to this host and receives no SessionID.
+	GitHubTokenProvider              GitHubTokenProvider
+	CreateSession                    func(context.Context, AhpSessionCreateRequest) (*Session, error)
+	ResumeSession                    func(context.Context, AhpSessionResumeRequest) (*Session, error)
+	OnSessionReleased                func(*Session) error
+	OnExit                           func(AhpHostExit) error
+	credentialProviderRegistrationID string
 }
 
 // AhpHost is an experimental listener owned by one SDK connection.
@@ -114,6 +119,12 @@ func (c *Client) StartAhpHost(ctx context.Context, options *AhpHostOptions) (*Ah
 	if options == nil || (options.LocalServer == nil && options.GitHubEnvironment == nil) {
 		return nil, errors.New("AHP hosting requires localServer or githubEnvironment")
 	}
+	if options.GitHubTokenProvider != nil && options.GitHubEnvironment == nil {
+		return nil, errors.New("hosting GitHubTokenProvider requires GitHubEnvironment")
+	}
+	if options.GitHubTokenProvider != nil && options.GitHubEnvironment.CredentialProviderRegistrationID != nil {
+		return nil, errors.New("hosting credential provider and registration ID cannot be combined")
+	}
 	if err := c.ensureConnected(ctx); err != nil {
 		return nil, err
 	}
@@ -129,6 +140,12 @@ func (c *Client) StartAhpHost(ctx context.Context, options *AhpHostOptions) (*Ah
 	hostRPC := c.RPC.Host
 	c.startStopMux.RUnlock()
 	hostID := uuid.NewString()
+	if opts.GitHubTokenProvider != nil {
+		environment := *opts.GitHubEnvironment
+		opts.credentialProviderRegistrationID = c.registerGitHubTokenProvider(opts.GitHubTokenProvider)
+		environment.CredentialProviderRegistrationID = String(opts.credentialProviderRegistrationID)
+		opts.GitHubEnvironment = &environment
+	}
 	c.ahp.mu.Lock()
 	if c.ahp.hosts == nil {
 		c.ahp.hosts = make(map[string]AhpHostOptions)
@@ -188,6 +205,9 @@ func (c *Client) releaseAhpHost(hostID string) (AhpHostOptions, bool) {
 		}
 	}
 	c.ahp.mu.Unlock()
+	if options.credentialProviderRegistrationID != "" {
+		c.unregisterGitHubTokenProvider(options.credentialProviderRegistrationID)
+	}
 	for _, id := range handoffs {
 		c.releaseAhpSession(&rpc.HostSessionReleasedNotification{HostID: hostID, HandoffID: id})
 	}

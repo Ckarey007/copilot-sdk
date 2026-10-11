@@ -2072,7 +2072,7 @@ export type GitHubTokenAcquireResult =
        */
       tokenType?: string;
       /**
-       * Remaining token lifetime in seconds when callback execution completes. It must exceed the one-hour preflight refresh threshold.
+       * Remaining token lifetime in seconds when callback execution completes. Session providers require more than one hour; hosting providers require at least 120 seconds.
        */
       expiresIn: number;
       /**
@@ -2204,6 +2204,32 @@ export type HistoryRewindOutcome =
   | "checkpoint-cleanup-failed"
   /** Files and conversation were rewound, but obsolete file snapshots could not be removed; only conversation-and-files rewinds produce this. */
   | "snapshot-prune-failed";
+/**
+ * Compute kinds supported by attached environment registration.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "HostEnvironmentKind".
+ */
+/** @experimental */
+export type HostEnvironmentKind =
+  /** An ordinary user-managed local host. */
+  | "user-local"
+  /** A preallocated GitHub-managed sandbox. */
+  | "managed-sandbox"
+  /** A preallocated GitHub-managed cloud agent host. */
+  | "managed-cca";
+/**
+ * Authentication principal used by the attached AHP host.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "HostRuntimePrincipal".
+ */
+/** @experimental */
+export type HostRuntimePrincipal =
+  /** Authenticate every connection as the host's single GitHub user. */
+  | "user"
+  /** Authenticate the provisioned GitHub App using the managed host's existing sandbox admission. */
+  | "github-app";
 
 /** @experimental */
 export type HostExitReason =
@@ -12393,7 +12419,7 @@ export interface GitHubTokenAcquireRequest {
    */
   host: string;
   /**
-   * Session receiving the token. Absent only before a cloud session has been assigned its id.
+   * Session receiving the token. Absent for hosting credentials and before a cloud session has been assigned its id.
    */
   sessionId?: string;
   reason: GitHubTokenAcquireReason;
@@ -13203,6 +13229,12 @@ export interface HostGitHubEnvironmentOptions {
    * Stable application installation identity, reused across host restarts.
    */
   computeId: string;
+  kind?: HostEnvironmentKind;
+  /**
+   * Opaque SDK registration for a refreshable hosting credential. Tokens are requested only from the owning SDK connection through gitHubToken.getToken and must remain valid for at least 120 seconds. Omitting this uses the runtime's existing authentication.
+   */
+  credentialProviderRegistrationId?: string;
+  runtimePrincipal?: HostRuntimePrincipal;
   /**
    * Require sealed, connection-bound authentication (default true), independent of listener address. False permits unsealed direct credentials and unbound sealed relay credentials; use only when the caller fully controls and trusts the direct transport. Relay token encryption remains mandatory.
    */

@@ -24,8 +24,8 @@ const (
 type GitHubTokenProviderArgs struct {
 	// Host is the effective GitHub host for which a token is needed.
 	Host string
-	// SessionID identifies the session receiving the token. It is nil before a
-	// cloud session has been assigned an ID.
+	// SessionID identifies the session receiving the token. It is nil for
+	// hosting credentials and before a cloud session has been assigned an ID.
 	SessionID *string
 	// Reason indicates whether this is the initial token or a refresh.
 	Reason GitHubTokenRequestReason
@@ -76,9 +76,10 @@ func GitHubTokenCancelled() *GitHubTokenProviderResult {
 	return &GitHubTokenProviderResult{Cancelled: true}
 }
 
-// GitHubTokenProvider acquires session-scoped GitHub tokens on demand. Initial
-// cancellation, errors, and invalid token responses reject session creation or
-// resume instead of falling back to ambient authentication.
+// GitHubTokenProvider acquires session- or host-scoped GitHub tokens on demand.
+// Cancellation, errors, and invalid token responses never fall back to ambient
+// authentication. Sessions require more than one hour of validity; hosting
+// credentials require at least 120 seconds.
 //
 // Experimental: GitHubTokenProvider may change or be removed.
 type GitHubTokenProvider func(args GitHubTokenProviderArgs) (*GitHubTokenProviderResult, error)

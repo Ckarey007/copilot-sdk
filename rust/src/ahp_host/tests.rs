@@ -133,6 +133,9 @@ async fn github_and_combined_transports_preserve_optional_results() {
                 name: "SDK host".into(),
                 compute_id: "compute".into(),
                 require_connection_binding: Some(local),
+                kind: None,
+                credential_provider_registration_id: None,
+                runtime_principal: None,
             });
         if local {
             options = options.with_local_server(Default::default());

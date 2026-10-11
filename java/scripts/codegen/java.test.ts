@@ -62,6 +62,24 @@ test("host environment options preserve the legacy two-argument constructor", ()
     );
 });
 
+test("managed host fields preserve both shipped environment constructors", () => {
+    const source = generateRpcClass("HostGitHubEnvironmentOptions", {
+        type: "object",
+        properties: {
+            name: { type: "string" },
+            computeId: { type: "string" },
+            kind: { type: "string" },
+            credentialProviderRegistrationId: { type: "string" },
+            runtimePrincipal: { type: "string" },
+            requireConnectionBinding: { type: ["boolean", "null"] },
+        },
+        required: ["name", "computeId"],
+    }).code;
+    assert.match(source, /this\(name, computeId, null, null, null, null\);/);
+    assert.match(source, /public HostGitHubEnvironmentOptions\(\s*String name,\s*String computeId,\s*Boolean requireConnectionBinding\s*\)/s);
+    assert.match(source, /this\(name, computeId, null, null, null, requireConnectionBinding\);/);
+});
+
 test("arbitrary handoff maps accept scalar and structured JSON values", () => {
     const result = schemaTypeToJava(
         { type: "object", additionalProperties: true },

@@ -29,7 +29,7 @@ public record GitHubTokenAcquireRequest(
     @JsonProperty("registrationId") String registrationId,
     /** Effective GitHub host for which the callback must return a token. */
     @JsonProperty("host") String host,
-    /** Session receiving the token. Absent only before a cloud session has been assigned its id. */
+    /** Session receiving the token. Absent for hosting credentials and before a cloud session has been assigned its id. */
     @JsonProperty("sessionId") String sessionId,
     /** Why the runtime is requesting a GitHub credential. */
     @JsonProperty("reason") GitHubTokenAcquireReason reason

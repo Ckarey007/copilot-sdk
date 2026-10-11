@@ -29,6 +29,12 @@ public record HostGitHubEnvironmentOptions(
     @JsonProperty("name") String name,
     /** Stable application installation identity, reused across host restarts. */
     @JsonProperty("computeId") String computeId,
+    /** Registration kind. Defaults to user-local; managed kinds adopt the preallocated environment identified by the authenticated owner and computeId. */
+    @JsonProperty("kind") HostEnvironmentKind kind,
+    /** Opaque SDK registration for a refreshable hosting credential. Tokens are requested only from the owning SDK connection through gitHubToken.getToken and must remain valid for at least 120 seconds. Omitting this uses the runtime's existing authentication. */
+    @JsonProperty("credentialProviderRegistrationId") String credentialProviderRegistrationId,
+    /** Runtime authentication principal, independent of Mission Control's routing owner. Defaults to user. github-app requires a separately built managed-hosting runtime and a managed-sandbox registration; ordinary runtime builds reject it. */
+    @JsonProperty("runtimePrincipal") HostRuntimePrincipal runtimePrincipal,
     /** Require sealed, connection-bound authentication (default true), independent of listener address. False permits unsealed direct credentials and unbound sealed relay credentials; use only when the caller fully controls and trusts the direct transport. Relay token encryption remains mandatory. */
     @JsonProperty("requireConnectionBinding") Boolean requireConnectionBinding
 ) {
@@ -43,6 +49,21 @@ public record HostGitHubEnvironmentOptions(
         String name,
         String computeId
     ) {
-        this(name, computeId, null);
+        this(name, computeId, null, null, null, null);
+    }
+
+    /**
+     * Creates user-local environment options with the selected connection-binding policy.
+     *
+     * @param name Human-readable environment display name.
+     * @param computeId Stable application installation identity, reused across host restarts.
+     * @param requireConnectionBinding Require sealed, connection-bound authentication (default true), independent of listener address. False permits unsealed direct credentials and unbound sealed relay credentials; use only when the caller fully controls and trusts the direct transport. Relay token encryption remains mandatory.
+     */
+    public HostGitHubEnvironmentOptions(
+        String name,
+        String computeId,
+        Boolean requireConnectionBinding
+    ) {
+        this(name, computeId, null, null, null, requireConnectionBinding);
     }
 }
