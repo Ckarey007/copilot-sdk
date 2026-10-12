@@ -114,6 +114,7 @@ from .session import (
     ElicitationHandler,
     ExitPlanModeHandler,
     GitHubMcpToolConfig,
+    ImageGenerationConfig,
     InfiniteSessionConfig,
     LargeToolOutputConfig,
     McpAuthHandler,
@@ -1751,6 +1752,9 @@ class CopilotClient:
         self._ffi_host: FfiRuntimeHost | None = None
         self._inprocess_runtime_path: str | None = None
         self._inprocess_cli_entrypoint: str | None = None
+        self._cli_login_sync_integration_id = (
+            os.environ.get("GITHUB_COPILOT_INTEGRATION_ID", "").strip() or None
+        )
 
         if isinstance(connection, UriRuntimeConnection):
             if connection.connection_token is not None and len(connection.connection_token) == 0:
@@ -2359,6 +2363,7 @@ class CopilotClient:
         tools: list[Tool] | None = None,
         system_message: SystemMessageConfig | None = None,
         tool_search: ToolSearchConfig | None = None,
+        image_generation: ImageGenerationConfig | None = None,
         available_tools: list[str] | ToolSet | None = None,
         excluded_tools: list[str] | ToolSet | None = None,
         on_user_input_request: UserInputHandler | None = None,
@@ -2568,6 +2573,8 @@ class CopilotClient:
                 already running. This does not change global MCP settings.
             infinite_sessions: Infinite session configuration.
             memory: Session memory configuration.
+            image_generation: **Experimental.** Image generation opt-in. Not persisted; re-supply
+                after runtime restart. See :class:`ImageGenerationConfig`.
             cloud: Creates a remote session in the cloud instead of a local
                 session. Optionally associates repository metadata with the
                 cloud session.
@@ -2715,6 +2722,8 @@ class CopilotClient:
 
         if tool_search is not None:
             payload["toolSearch"] = _tool_search_to_wire(tool_search)
+        if image_generation is not None:
+            payload["imageGeneration"] = dict(image_generation)
 
         if available_tools is not None:
             payload["availableTools"] = available_tools
@@ -3239,6 +3248,7 @@ class CopilotClient:
         tools: list[Tool] | None = None,
         system_message: SystemMessageConfig | None = None,
         tool_search: ToolSearchConfig | None = None,
+        image_generation: ImageGenerationConfig | None = None,
         available_tools: list[str] | ToolSet | None = None,
         excluded_tools: list[str] | ToolSet | None = None,
         on_user_input_request: UserInputHandler | None = None,
@@ -3444,6 +3454,8 @@ class CopilotClient:
                 already running. This does not change global MCP settings.
             infinite_sessions: Infinite session configuration.
             memory: Session memory configuration.
+            image_generation: **Experimental.** Image generation opt-in. Omission preserves a
+                resident session's setting; re-supply after runtime restart.
             on_event: Callback for session events.
             enable_mcp_apps: **Experimental.** Opt into MCP Apps (SEP-1865) UI
                 passthrough on resume. This parameter is part of an experimental
@@ -3589,6 +3601,8 @@ class CopilotClient:
             payload["systemMessage"] = wire_system_message
         if tool_search is not None:
             payload["toolSearch"] = _tool_search_to_wire(tool_search)
+        if image_generation is not None:
+            payload["imageGeneration"] = dict(image_generation)
         if available_tools is not None:
             payload["availableTools"] = available_tools
         if excluded_tools is not None:
@@ -4800,6 +4814,8 @@ class CopilotClient:
             args.extend(["--session-idle-timeout", str(opts.session_idle_timeout_seconds)])
         if opts.enable_remote_sessions:
             args.append("--remote")
+        if self._cli_login_sync_integration_id is not None:
+            args.append(f"--cli-login-sync-integration-id={self._cli_login_sync_integration_id}")
 
         environment: dict[str, str] = {}
         if opts.github_token:

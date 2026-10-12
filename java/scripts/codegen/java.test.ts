@@ -24,6 +24,64 @@ import {
 } from "./java.js";
 import { RPC_VARIANT_OWNERS } from "./rpc-variant-owners.js";
 
+test("managed permission contexts share the session-event model in RPC inputs and outputs", () => {
+    const generated = "../../sdk/src/generated/java/com/github/copilot/generated/";
+    for (const name of ["ManagedSettingsResolveResult", "ManagedSettingsPermissionsEvaluateParams"]) {
+        const source = fs.readFileSync(new URL(`${generated}rpc/${name}.java`, import.meta.url), "utf8");
+        assert.match(source, /import com\.github\.copilot\.generated\.ManagedPermissionsContext;/);
+        assert.match(source, /ManagedPermissionsContext (?:context|permissionsContext)/);
+    }
+    assert.equal(fs.existsSync(new URL(`${generated}rpc/ManagedPermissionsContext.java`, import.meta.url)), false);
+    const event = fs.readFileSync(new URL(`${generated}SessionManagedSettingsResolvedEvent.java`, import.meta.url), "utf8");
+    assert.match(event, /ManagedPermissionsContext permissionsContext/);
+});
+
+test("managed permission requests and results reuse one named operation and kind", async () => {
+    const files = await renderRpcTypes({
+        definitions: {
+            ManagedPermissionOperation: {
+                anyOf: [{
+                    type: "object",
+                    properties: { kind: { type: "string", const: "url" }, url: { type: "string" } },
+                    required: ["kind", "url"],
+                }],
+            },
+            ManagedPermissionEvaluation: {
+                type: "object",
+                properties: { operation: { $ref: "#/definitions/ManagedPermissionOperation" } },
+                required: ["operation"],
+            },
+        },
+        server: {
+            managedSettings: {
+                permissions: {
+                    evaluate: {
+                        rpcMethod: "managedSettings.permissions.evaluate",
+                        params: {
+                            type: "object",
+                            properties: { operations: { type: "array", items: { $ref: "#/definitions/ManagedPermissionOperation" } } },
+                            required: ["operations"],
+                        },
+                        result: {
+                            type: "object",
+                            properties: { results: { type: "array", items: { $ref: "#/definitions/ManagedPermissionEvaluation" } } },
+                            required: ["results"],
+                        },
+                    },
+                },
+            },
+        },
+    }, {});
+    const operation = generatedFile(files, "ManagedPermissionOperation");
+    assert.ok(operation);
+    assert.match(operation, /record ManagedPermissionOperation\(/);
+    assert.match(operation, /ManagedPermissionOperationKind kind/);
+    assert.match(operation, /enum ManagedPermissionOperationKind/);
+    assert.match(operation, /URL\("url"\)/);
+    assert.match(generatedFile(files, "ManagedSettingsPermissionsEvaluateParams")!, /List<ManagedPermissionOperation> operations/);
+    assert.match(generatedFile(files, "ManagedPermissionEvaluation")!, /ManagedPermissionOperation operation/);
+});
+
 test("wrapper Javadoc preserves the operation contract ahead of parameter documentation", () => {
     const tree = buildNamespaceTree({
         reconcile: {
@@ -118,6 +176,35 @@ test("preserves whole-event deprecation through a referenced event envelope", ()
     assert.equal(variants.length, 1);
     assert.equal(variants[0].deprecated, true);
     assert.match(renderEventVariantClass(variants[0], "com.github.copilot.generated"), /@Deprecated/);
+});
+
+test("preserves whole-event experimental stability through a referenced event envelope", () => {
+    const schema: JSONSchema7 = {
+        definitions: {
+            SessionEvent: { anyOf: [{ $ref: "#/definitions/ExperimentalEvent" }] },
+            ExperimentalEvent: {
+                type: "object",
+                stability: "experimental",
+                properties: {
+                    type: { const: "session.experimental" },
+                    data: { $ref: "#/definitions/ExperimentalData" },
+                },
+            } as JSONSchema7,
+            ExperimentalData: { type: "object", properties: { phase: { type: "string" } } },
+        },
+    };
+    const variants = extractEventVariants(schema);
+    assert.equal(variants.length, 1);
+    assert.equal(variants[0].stability, "experimental");
+    const source = renderEventVariantClass(variants[0], "com.github.copilot.generated");
+    assert.match(
+        source,
+        /@CopilotExperimental\n(?:@[^\n]*\n)*public final class SessionExperimentalEvent\b/,
+    );
+    assert.match(
+        source,
+        /    @CopilotExperimental\n(?:    @[^\n]*\n)*    public record SessionExperimentalEventData\b/,
+    );
 });
 
 for (const referencedData of [false, true]) {

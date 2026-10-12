@@ -1343,7 +1343,34 @@ export function schemaTypeToJava(
         const name = schema.$ref.replace(/^#\/definitions\//, "");
         const resolved = resolution.definitions[name];
         if (resolved) {
+            if (
+                name === "ManagedPermissionsContext"
+                && generatedSessionEventTypeNames.has(name)
+                && crossSchemaDefinitions.get("session-events.schema.json")?.[name]
+            ) {
+                imports.add(`com.github.copilot.generated.${name}`);
+                return { javaType: name, imports };
+            }
             const directUnion = unionVariants(resolved);
+            if (name === "ManagedPermissionOperation" && directUnion) {
+                const variants = resolveAnyOfVariants(directUnion, resolution.definitions);
+                const [variant] = variants;
+                if (variants.length === 1 && variant?.properties) {
+                    const kind = variant.properties.kind;
+                    if (!kind || typeof kind !== "object" || typeof kind.const !== "string") {
+                        throw new Error("Expected a string discriminator for ManagedPermissionOperation.kind");
+                    }
+                    resolution.standaloneTypes.set(name, {
+                        ...resolved,
+                        ...variant,
+                        properties: {
+                            ...variant.properties,
+                            kind: { ...kind, enum: [kind.const] },
+                        },
+                    });
+                    return { javaType: name, imports };
+                }
+            }
             if (directUnion && ["InstallationReview", "McpInstallationReview", "SkillInstallationReview"].includes(name)) {
                 const variants = resolveAnyOfVariants(directUnion, resolution.definitions);
                 if (variants.length > 1 && findDiscriminator(variants)) {
@@ -1545,7 +1572,8 @@ export function extractEventVariants(schema: JSONSchema7): EventVariant[] {
                 className: `${baseName}Event`,
                 dataSchema: dataSchema ?? null,
                 description: resolved.description,
-                stability: (variant as unknown as Record<string, unknown>).stability as string | undefined,
+                stability: ((resolved as unknown as Record<string, unknown>).stability
+                    ?? (variant as unknown as Record<string, unknown>).stability) as string | undefined,
                 deprecated: (resolved as unknown as Record<string, unknown>).deprecated === true,
                 dataDeprecated: dataSchema !== undefined && "deprecated" in dataSchema && dataSchema.deprecated === true,
             };
@@ -1917,7 +1945,7 @@ export function renderEventVariantClass(variant: EventVariant, packageName: stri
     }
     if (variant.stability === "experimental") {
         lines.push(` *`);
-        lines.push(` * @apiNote This method is experimental and may change in a future version.`);
+        lines.push(` * @apiNote This event type is experimental and may change in a future version.`);
     }
     lines.push(` * @since 1.0.0`);
     lines.push(` */`);
@@ -1950,6 +1978,10 @@ export function renderEventVariantClass(variant: EventVariant, packageName: stri
             : `    /** Data payload for {@link ${variant.className}}. */`);
         if (variant.dataDeprecated) {
             lines.push(`    @Deprecated`);
+        }
+        if (variant.stability === "experimental" || isSchemaExperimental(variant.dataSchema)) {
+            allImports.add("com.github.copilot.CopilotExperimental");
+            lines.push(`    @CopilotExperimental`);
         }
         lines.push(`    @JsonIgnoreProperties(ignoreUnknown = true)`);
         lines.push(`    @JsonInclude(JsonInclude.Include.NON_NULL)`);
