@@ -39,12 +39,12 @@ For services outside GitHub Actions:
    }
    ```
 
-1. Pass the resulting `ghs_` token to the runtime as `COPILOT_GITHUB_TOKEN`.
+1. Pass the resulting `ghs_` token to the SDK's `gitHubToken`, `github_token`, or equivalent option.
 
 The organization must be enabled for Copilot requests from GitHub App installations. Installation tokens expire after one hour.
 
-> [!WARNING]
-> Do not pass an installation token through the SDK's `gitHubToken`, `github_token`, or equivalent option. That option is for user tokens. Installation tokens must use the runtime environment authentication path.
+> [!NOTE]
+> No signed-in user is required. `useLoggedInUser: false` turns off automatic credential discovery, including environment variable tokens such as `COPILOT_GITHUB_TOKEN`, so pass the installation token through the SDK's explicit token option.
 
 ## Configure the runtime
 
@@ -61,10 +61,7 @@ if (!token) throw new Error("INSTALLATION_TOKEN is required");
 
 const client = new CopilotClient({
     connection: RuntimeConnection.forStdio(),
-    env: {
-        ...process.env,
-        COPILOT_GITHUB_TOKEN: token,
-    },
+    gitHubToken: token,
     useLoggedInUser: false,
 });
 ```
@@ -80,7 +77,7 @@ from copilot import CopilotClient, RuntimeConnection
 
 client = CopilotClient(
     connection=RuntimeConnection.for_stdio(),
-    env={**os.environ, "COPILOT_GITHUB_TOKEN": os.environ["INSTALLATION_TOKEN"]},
+    github_token=os.environ["INSTALLATION_TOKEN"],
     use_logged_in_user=False,
 )
 ```
@@ -106,7 +103,7 @@ func main() {
 	}
 	client := copilot.NewClient(&copilot.ClientOptions{
 		Connection:      copilot.StdioConnection{},
-		Env:             append(os.Environ(), "COPILOT_GITHUB_TOKEN="+token),
+		GitHubToken:     token,
 		UseLoggedInUser: copilot.Bool(false),
 	})
 	_ = client
@@ -124,7 +121,7 @@ fn main() {
     let token = std::env::var("INSTALLATION_TOKEN").expect("INSTALLATION_TOKEN is required");
     let options = ClientOptions::new()
         .with_transport(Transport::Stdio)
-        .with_env([("COPILOT_GITHUB_TOKEN", token)])
+        .with_github_token(token)
         .with_use_logged_in_user(false);
     drop(options);
 }
@@ -135,20 +132,15 @@ fn main() {
 <summary><strong>.NET</strong></summary>
 
 ```csharp
-using System.Collections;
 using GitHub.Copilot;
 
 var token = Environment.GetEnvironmentVariable("INSTALLATION_TOKEN")
     ?? throw new InvalidOperationException("INSTALLATION_TOKEN is required");
-var environment = Environment.GetEnvironmentVariables()
-    .Cast<DictionaryEntry>()
-    .ToDictionary(entry => (string)entry.Key, entry => entry.Value?.ToString() ?? "");
-environment["COPILOT_GITHUB_TOKEN"] = token;
 
 await using var client = new CopilotClient(new CopilotClientOptions
 {
     Connection = RuntimeConnection.ForStdio(),
-    Environment = environment,
+    GitHubToken = token,
     UseLoggedInUser = false,
 });
 ```
@@ -160,16 +152,13 @@ await using var client = new CopilotClient(new CopilotClientOptions
 ```java
 import com.github.copilot.CopilotClient;
 import com.github.copilot.rpc.CopilotClientOptions;
-import java.util.HashMap;
 import java.util.Objects;
 
-var environment = new HashMap<>(System.getenv());
 var token = Objects.requireNonNull(
     System.getenv("INSTALLATION_TOKEN"), "INSTALLATION_TOKEN is required");
-environment.put("COPILOT_GITHUB_TOKEN", token);
 
 try (var client = new CopilotClient(new CopilotClientOptions()
-        .setEnvironment(environment)
+        .setGitHubToken(token)
         .setUseLoggedInUser(false))) {
     // Use the client.
 }
@@ -177,11 +166,11 @@ try (var client = new CopilotClient(new CopilotClientOptions()
 
 </details>
 
-For in-process FFI, set `COPILOT_GITHUB_TOKEN` in the host environment before loading the runtime; per-client environment options are not supported. For an existing runtime URI, set it on that runtime process.
+For in-process FFI, use the same token option; environment variable tokens in the host process are ignored when `useLoggedInUser` is false. For an existing runtime URI, set `COPILOT_GITHUB_TOKEN` on that runtime process.
 
 ## Refresh tokens
 
-Mint a new installation token before the current token expires. For a child process, restart the SDK client with the new environment. For an in-process or existing runtime, restart the host runtime with the new token.
+Mint a new installation token before the current token expires. For a child process, restart the SDK client with the new token. For an in-process or existing runtime, restart the host runtime with the new token.
 
 ## Billing
 
@@ -193,7 +182,7 @@ Usage is attributed and billed to the organization that owns the GitHub App inst
 |---|---|
 | `401 Unauthorized` | The token may be expired or invalid. Mint a new installation token. |
 | `403` stating that Copilot requests with GitHub App installation access tokens are not enabled | Confirm the organization supports GitHub App installation authentication for Copilot. |
-| `403 Resource not accessible by integration` or an error mentioning user information | Confirm the installation token is in `COPILOT_GITHUB_TOKEN`, not the SDK's explicit token option. |
+| `No GitHub OAuth token or Copilot HMAC key provided` or `Not authenticated` | Confirm the installation token is passed through the SDK's explicit token option. With `useLoggedInUser: false`, the runtime ignores `COPILOT_GITHUB_TOKEN` and other environment variable tokens. |
 | `403 Forbidden` from the Copilot API | Confirm the installation has the organization **Copilot Requests** permission, then mint a new token. |
 | Requested model is unavailable | Confirm the organization's Copilot policy allows the model and the bundled runtime supports it. |
 | Wrong account billed | Confirm the installation belongs to the intended organization. |
