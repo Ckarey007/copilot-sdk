@@ -2666,6 +2666,7 @@ func (c *Client) setupNotificationHandler() {
 		handlers.GitHubTelemetry = &gitHubTelemetryAdapter{callback: c.options.OnGitHubTelemetry}
 	}
 	rpc.RegisterClientGlobalAPIHandlers(c.client, handlers)
+	c.client.SetRequestContextHandler("hostWorkspace.execute", c.handleHostWorkspaceExecute)
 	if c.options.InstallationConfirmationHandler != nil {
 		adapter := newInstallationConfirmationAdapter(c.options.InstallationConfirmationHandler, c.client.ConnectionClosed())
 		c.installationConfirmationAdapterMux.Lock()

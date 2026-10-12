@@ -385,7 +385,7 @@ public sealed class HostGitHubEnvironmentOptions
     [JsonPropertyName("computeId")]
     public string ComputeId { get; set; } = string.Empty;
 
-    /// <summary>Opaque SDK registration for a refreshable hosting credential. Tokens are requested only from the owning SDK connection through gitHubToken.getToken and must remain valid for at least 120 seconds. Omitting this uses the runtime's existing authentication.</summary>
+    /// <summary>Opaque SDK registration for a refreshable hosting credential. Tokens are requested only from the owning SDK connection through gitHubToken.getToken. A supplied lifetime must be at least 120 seconds; omission explicitly means unknown lifetime with bounded periodic refresh. Omitting this registration uses the runtime's existing authentication.</summary>
     [JsonPropertyName("credentialProviderRegistrationId")]
     public string? CredentialProviderRegistrationId { get; set; }
 
@@ -454,6 +454,10 @@ public sealed class HostStartRequest
     /// <summary>Ask the owning SDK application to materialize AHP sessions.</summary>
     [JsonPropertyName("sessionFactory")]
     public bool? SessionFactory { get; set; }
+
+    /// <summary>Opt in to the owning application's remote workspace. Requires both session factories; durable session state remains independent.</summary>
+    [JsonPropertyName("workspaceProvider")]
+    public bool? WorkspaceProvider { get; set; }
 }
 
 /// <summary>Empty acknowledgement for a completed host lifecycle operation.</summary>
@@ -532,6 +536,36 @@ internal sealed class HostGetConfigurationResult
     /// <summary>Whether session materialization is delegated to the owning application.</summary>
     [JsonPropertyName("sessionFactory")]
     public bool SessionFactory { get; set; }
+
+    /// <summary>Workspace callbacks are confined to the owning SDK connection and never replace durable session-state IO.</summary>
+    [JsonPropertyName("workspaceProvider")]
+    public bool? WorkspaceProvider { get; set; }
+}
+
+/// <summary>Successful payloads use the corresponding workspace/AHP result shape. An error carries no usable result.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class HostWorkspaceResult
+{
+    /// <summary>Safe allowlisted failure classification; omission indicates a successful payload.</summary>
+    [JsonPropertyName("error")]
+    public HostWorkspaceErrorCode? Error { get; set; }
+
+    /// <summary>Serialized operation result; ignored when an error is present.</summary>
+    [JsonPropertyName("payload")]
+    public string Payload { get; set; } = string.Empty;
+}
+
+/// <summary>A supervised child's request. The runtime supplies host identity rather than accepting it from the child.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class HostWorkspaceRequest
+{
+    /// <summary>Selects the workspace/AHP parameter and result shapes carried by the serialized payload.</summary>
+    [JsonPropertyName("operation")]
+    public HostWorkspaceOperation Operation { get; set; }
+
+    /// <summary>Serialized operation parameters preserve AHP integer offsets and opaque etags without an untyped numeric projection.</summary>
+    [JsonPropertyName("payload")]
+    public string Payload { get; set; } = string.Empty;
 }
 
 /// <summary>Empty acknowledgement for a completed host lifecycle operation.</summary>
@@ -27738,6 +27772,40 @@ public sealed class GitHubTokenAcquireRequest
     public string? SessionId { get; set; }
 }
 
+/// <summary>Successful payloads use the corresponding workspace/AHP result shape. An error carries no usable result.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class HostWorkspaceExecuteResult
+{
+    /// <summary>Safe allowlisted failure classification; omission indicates a successful payload.</summary>
+    [JsonPropertyName("error")]
+    public HostWorkspaceErrorCode? Error { get; set; }
+
+    /// <summary>Serialized operation result; ignored when an error is present.</summary>
+    [JsonPropertyName("payload")]
+    public string Payload { get; set; } = string.Empty;
+}
+
+/// <summary>A bounded callback to the SDK connection that owns this host, including before any session exists.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class HostWorkspaceExecuteRequest
+{
+    /// <summary>Runtime-assigned host identity bound to this SDK connection; never supplied by a workspace client.</summary>
+    [JsonPropertyName("hostId")]
+    public string HostId { get; set; } = string.Empty;
+
+    /// <summary>Selects the workspace/AHP parameter and result shapes carried by the serialized payload.</summary>
+    [JsonPropertyName("operation")]
+    public HostWorkspaceOperation Operation { get; set; }
+
+    /// <summary>Serialized parameters and physical path guards, preserving integer offsets and opaque metadata.</summary>
+    [JsonPropertyName("payload")]
+    public string Payload { get; set; } = string.Empty;
+
+    /// <summary>Unique callback invocation identity; original AHP metadata remains inside the payload.</summary>
+    [JsonPropertyName("requestId")]
+    public string RequestId { get; set; } = string.Empty;
+}
+
 /// <summary>A response is meaningful only on the connection and request that issued its challenge.</summary>
 public sealed class InstallationsConfirmResult
 {
@@ -28239,6 +28307,174 @@ public readonly struct HostRuntimePrincipal : IEquatable<HostRuntimePrincipal>
         public override void Write(Utf8JsonWriter writer, HostRuntimePrincipal value, JsonSerializerOptions options)
         {
             GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(HostRuntimePrincipal));
+        }
+    }
+}
+
+
+/// <summary>Only these errors cross the workspace callback boundary; arbitrary provider diagnostics are not exposed.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct HostWorkspaceErrorCode : IEquatable<HostWorkspaceErrorCode>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="HostWorkspaceErrorCode"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="HostWorkspaceErrorCode"/>.</param>
+    [JsonConstructor]
+    public HostWorkspaceErrorCode(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="HostWorkspaceErrorCode"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>The operation parameters do not satisfy the workspace contract.</summary>
+    public static HostWorkspaceErrorCode InvalidParams { get; } = new("invalidParams");
+
+    /// <summary>The physical guard or authorization rejected access.</summary>
+    public static HostWorkspaceErrorCode PermissionDenied { get; } = new("permissionDenied");
+
+    /// <summary>The requested remote entry does not exist.</summary>
+    public static HostWorkspaceErrorCode NotFound { get; } = new("notFound");
+
+    /// <summary>An entry already exists where exclusive creation was requested.</summary>
+    public static HostWorkspaceErrorCode AlreadyExists { get; } = new("alreadyExists");
+
+    /// <summary>An etag or concurrent-state precondition failed.</summary>
+    public static HostWorkspaceErrorCode Conflict { get; } = new("conflict");
+
+    /// <summary>This provider does not support the requested operation.</summary>
+    public static HostWorkspaceErrorCode NotImplemented { get; } = new("notImplemented");
+
+    /// <summary>The provider failed without exposing private diagnostic details.</summary>
+    public static HostWorkspaceErrorCode Internal { get; } = new("internal");
+
+    /// <summary>Returns a value indicating whether two <see cref="HostWorkspaceErrorCode"/> instances are equivalent.</summary>
+    public static bool operator ==(HostWorkspaceErrorCode left, HostWorkspaceErrorCode right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="HostWorkspaceErrorCode"/> instances are not equivalent.</summary>
+    public static bool operator !=(HostWorkspaceErrorCode left, HostWorkspaceErrorCode right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is HostWorkspaceErrorCode other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(HostWorkspaceErrorCode other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{HostWorkspaceErrorCode}"/> for serializing <see cref="HostWorkspaceErrorCode"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<HostWorkspaceErrorCode>
+    {
+        /// <inheritdoc />
+        public override HostWorkspaceErrorCode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, HostWorkspaceErrorCode value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(HostWorkspaceErrorCode));
+        }
+    }
+}
+
+
+/// <summary>The closed operation set for host-scoped remote workspace IO. Watchers and process/Git execution are intentionally absent.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct HostWorkspaceOperation : IEquatable<HostWorkspaceOperation>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="HostWorkspaceOperation"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="HostWorkspaceOperation"/>.</param>
+    [JsonConstructor]
+    public HostWorkspaceOperation(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="HostWorkspaceOperation"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>Declare immutable canonical remote roots and exclusions before host admission.</summary>
+    public static HostWorkspaceOperation Describe { get; } = new("describe");
+
+    /// <summary>Resolve paths and optionally discover project identity within the declared boundaries.</summary>
+    public static HostWorkspaceOperation Resolve { get; } = new("resolve");
+
+    /// <summary>Read remote file content with the requested encoding.</summary>
+    public static HostWorkspaceOperation Read { get; } = new("read");
+
+    /// <summary>Write through a physical guard while preserving offsets, modes, etags and create-only behavior.</summary>
+    public static HostWorkspaceOperation Write { get; } = new("write");
+
+    /// <summary>Inspect remote entry metadata and optional etag.</summary>
+    public static HostWorkspaceOperation Stat { get; } = new("stat");
+
+    /// <summary>List entries in an authorized remote directory.</summary>
+    public static HostWorkspaceOperation List { get; } = new("list");
+
+    /// <summary>Copy a file while checking both source and destination guards.</summary>
+    public static HostWorkspaceOperation Copy { get; } = new("copy");
+
+    /// <summary>Move an entry while enforcing subtree exclusions at both paths.</summary>
+    public static HostWorkspaceOperation Move { get; } = new("move");
+
+    /// <summary>Delete an authorized entry without crossing excluded subtrees.</summary>
+    public static HostWorkspaceOperation Delete { get; } = new("delete");
+
+    /// <summary>Create the authorized directory and missing parent directories.</summary>
+    public static HostWorkspaceOperation Mkdir { get; } = new("mkdir");
+
+    /// <summary>Check requested remote read and write access independently.</summary>
+    public static HostWorkspaceOperation Access { get; } = new("access");
+
+    /// <summary>Returns a value indicating whether two <see cref="HostWorkspaceOperation"/> instances are equivalent.</summary>
+    public static bool operator ==(HostWorkspaceOperation left, HostWorkspaceOperation right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="HostWorkspaceOperation"/> instances are not equivalent.</summary>
+    public static bool operator !=(HostWorkspaceOperation left, HostWorkspaceOperation right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is HostWorkspaceOperation other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(HostWorkspaceOperation other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{HostWorkspaceOperation}"/> for serializing <see cref="HostWorkspaceOperation"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<HostWorkspaceOperation>
+    {
+        /// <inheritdoc />
+        public override HostWorkspaceOperation Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, HostWorkspaceOperation value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(HostWorkspaceOperation));
         }
     }
 }
@@ -43944,6 +44180,19 @@ public sealed class ServerHostApi
         return await CopilotClient.InvokeRpcAsync<HostGetConfigurationResult>(_rpc, "host.getConfiguration", [], cancellationToken);
     }
 
+    /// <summary>Routes a remote workspace operation only from its supervised child to its owning SDK connection.</summary>
+    /// <param name="operation">Selects the workspace/AHP parameter and result shapes carried by the serialized payload.</param>
+    /// <param name="payload">Serialized operation parameters preserve AHP integer offsets and opaque etags without an untyped numeric projection.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Successful payloads use the corresponding workspace/AHP result shape. An error carries no usable result.</returns>
+    internal async Task<HostWorkspaceResult> WorkspaceAsync(HostWorkspaceOperation operation, string payload, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+
+        var request = new HostWorkspaceRequest { Operation = operation, Payload = payload };
+        return await CopilotClient.InvokeRpcAsync<HostWorkspaceResult>(_rpc, "host.workspace", [request], cancellationToken);
+    }
+
     /// <summary>Reports a supervised hosting participant's bound AHP endpoint after its SDK handshake.</summary>
     /// <param name="address">Actual bound WebSocket URL.</param>
     /// <param name="token">Configured secret token, absent when authentication is disabled.</param>
@@ -52089,6 +52338,17 @@ public interface IGitHubTokenHandler
     Task<GitHubTokenAcquireResult> GetTokenAsync(GitHubTokenAcquireRequest request, CancellationToken cancellationToken = default);
 }
 
+/// <summary>Handles `hostWorkspace` client global API methods.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public interface IHostWorkspaceHandler
+{
+    /// <summary>Executes one bounded operation for an explicitly remote workspace on its owning SDK connection. No local filesystem fallback is permitted. The provider must enforce the native canonical-path guard and physical IO preconditions on hands.</summary>
+    /// <param name="request">A bounded callback to the SDK connection that owns this host, including before any session exists.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Successful payloads use the corresponding workspace/AHP result shape. An error carries no usable result.</returns>
+    Task<HostWorkspaceExecuteResult> ExecuteAsync(HostWorkspaceExecuteRequest request, CancellationToken cancellationToken = default);
+}
+
 /// <summary>Handles `installations` client global API methods.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public interface IInstallationsHandler
@@ -52117,6 +52377,9 @@ public sealed class ClientGlobalApiHandlers
 
     /// <summary>Optional handler for GitHubToken client global API methods.</summary>
     public IGitHubTokenHandler? GitHubToken { get; set; }
+
+    /// <summary>Optional handler for HostWorkspace client global API methods.</summary>
+    public IHostWorkspaceHandler? HostWorkspace { get; set; }
 
     /// <summary>Optional handler for Installations client global API methods.</summary>
     public IInstallationsHandler? Installations { get; set; }
@@ -52162,6 +52425,11 @@ internal static class ClientGlobalApiRegistration
         {
             var handler = handlers.GitHubToken ?? throw new InvalidOperationException("No gitHubToken client-global handler registered");
             return await handler.GetTokenAsync(request, cancellationToken);
+        }), singleObjectParam: true);
+        rpc.SetLocalRpcMethod("hostWorkspace.execute", (Func<HostWorkspaceExecuteRequest, CancellationToken, ValueTask<HostWorkspaceExecuteResult>>)(async (request, cancellationToken) =>
+        {
+            var handler = handlers.HostWorkspace ?? throw new InvalidOperationException("No hostWorkspace client-global handler registered");
+            return await handler.ExecuteAsync(request, cancellationToken);
         }), singleObjectParam: true);
         rpc.SetLocalRpcMethod("installations.confirm", (Func<InstallationsConfirmRequest, CancellationToken, ValueTask<InstallationsConfirmResult>>)(async (request, cancellationToken) =>
         {
@@ -52959,6 +53227,10 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(HostSessionSummary))]
 [JsonSerializable(typeof(HostStartRequest))]
 [JsonSerializable(typeof(HostStartResult))]
+[JsonSerializable(typeof(HostWorkspaceExecuteRequest))]
+[JsonSerializable(typeof(HostWorkspaceExecuteResult))]
+[JsonSerializable(typeof(HostWorkspaceRequest))]
+[JsonSerializable(typeof(HostWorkspaceResult))]
 [JsonSerializable(typeof(IDictionary<string, JsonElement>))]
 [JsonSerializable(typeof(IDictionary<string, string>))]
 [JsonSerializable(typeof(IList<AccountAllUsers>))]

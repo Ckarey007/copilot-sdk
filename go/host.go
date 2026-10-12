@@ -54,11 +54,15 @@ type AhpHostOptions struct {
 	// when the issuer supplies no lifetime metadata, never for an expired token.
 	// The callback belongs to this host and receives no SessionID.
 	GitHubTokenProvider              GitHubTokenProvider
+	WorkspaceProvider                *AhpWorkspaceProvider
 	CreateSession                    func(context.Context, AhpSessionCreateRequest) (*Session, error)
 	ResumeSession                    func(context.Context, AhpSessionResumeRequest) (*Session, error)
 	OnSessionReleased                func(*Session) error
 	OnExit                           func(AhpHostExit) error
 	credentialProviderRegistrationID string
+	workspaceContext                 context.Context
+	workspaceCancel                  context.CancelFunc
+	workspaceSlots                   chan struct{}
 }
 
 // AhpHost is an experimental listener owned by one SDK connection.
@@ -124,6 +128,10 @@ func (c *Client) StartAhpHost(ctx context.Context, options *AhpHostOptions) (*Ah
 	if options.GitHubTokenProvider != nil && options.GitHubEnvironment == nil {
 		return nil, errors.New("hosting GitHubTokenProvider requires GitHubEnvironment")
 	}
+	if options.WorkspaceProvider != nil && (options.CreateSession == nil || options.ResumeSession == nil ||
+		options.WorkspaceProvider.Describe == nil || options.WorkspaceProvider.Resolve == nil) {
+		return nil, errors.New("remote workspace requires Describe, Resolve, CreateSession and ResumeSession")
+	}
 	if options.GitHubTokenProvider != nil && options.GitHubEnvironment.CredentialProviderRegistrationID != nil {
 		return nil, errors.New("hosting credential provider and registration ID cannot be combined")
 	}
@@ -142,6 +150,12 @@ func (c *Client) StartAhpHost(ctx context.Context, options *AhpHostOptions) (*Ah
 	hostRPC := c.RPC.Host
 	c.startStopMux.RUnlock()
 	hostID := uuid.NewString()
+	if opts.WorkspaceProvider != nil {
+		provider := *opts.WorkspaceProvider
+		opts.WorkspaceProvider = &provider
+		opts.workspaceContext, opts.workspaceCancel = context.WithCancel(context.WithoutCancel(ctx))
+		opts.workspaceSlots = make(chan struct{}, 8)
+	}
 	if opts.GitHubTokenProvider != nil {
 		environment := *opts.GitHubEnvironment
 		opts.credentialProviderRegistrationID = c.registerScopedGitHubTokenProvider(opts.GitHubTokenProvider, true)
@@ -165,6 +179,9 @@ func (c *Client) StartAhpHost(ctx context.Context, options *AhpHostOptions) (*Ah
 	if opts.ResumeSession != nil {
 		params.ResumeFactory = Bool(true)
 	}
+	if opts.WorkspaceProvider != nil {
+		params.WorkspaceProvider = Bool(true)
+	}
 	type startResult struct {
 		info *rpc.HostStartResult
 		err  error
@@ -183,6 +200,9 @@ func (c *Client) StartAhpHost(ctx context.Context, options *AhpHostOptions) (*Ah
 		info := result.info
 		return &AhpHost{HostID: info.HostID, URL: info.URL, Token: info.Token, PID: info.Pid, EnvironmentID: info.EnvironmentID, rpc: hostRPC}, nil
 	case <-ctx.Done():
+		if opts.workspaceCancel != nil {
+			opts.workspaceCancel()
+		}
 		// Wait for registration before disposing: an early dispose can miss the listener.
 		go func() {
 			defer c.releaseAhpHost(hostID)
@@ -207,6 +227,9 @@ func (c *Client) releaseAhpHost(hostID string) (AhpHostOptions, bool) {
 		}
 	}
 	c.ahp.mu.Unlock()
+	if options.workspaceCancel != nil {
+		options.workspaceCancel()
+	}
 	if options.credentialProviderRegistrationID != "" {
 		c.unregisterGitHubTokenProvider(options.credentialProviderRegistrationID)
 	}

@@ -44,6 +44,8 @@ pub mod rpc_methods {
     pub const HOST_GETENVIRONMENTCREDENTIALS: &str = "host.getEnvironmentCredentials";
     /// `host.getConfiguration`
     pub const HOST_GETCONFIGURATION: &str = "host.getConfiguration";
+    /// `host.workspace`
+    pub const HOST_WORKSPACE: &str = "host.workspace";
     /// `host.ready`
     pub const HOST_READY: &str = "host.ready";
     /// `ping`
@@ -9314,7 +9316,7 @@ pub struct HooksDiscoverResult {
 pub struct HostGitHubEnvironmentOptions {
     /// Stable application installation identity, reused across host restarts.
     pub compute_id: String,
-    /// Opaque SDK registration for a refreshable hosting credential. Tokens are requested only from the owning SDK connection through gitHubToken.getToken and must remain valid for at least 120 seconds. Omitting this uses the runtime's existing authentication.
+    /// Opaque SDK registration for a refreshable hosting credential. Tokens are requested only from the owning SDK connection through gitHubToken.getToken. A supplied lifetime must be at least 120 seconds; omission explicitly means unknown lifetime with bounded periodic refresh. Omitting this registration uses the runtime's existing authentication.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credential_provider_registration_id: Option<String>,
     /// Registration kind. Defaults to user-local; managed kinds adopt the preallocated environment identified by the authenticated owner and computeId.
@@ -9373,6 +9375,9 @@ pub struct HostConfiguration {
     pub resume_factory: bool,
     /// Whether session materialization is delegated to the owning application.
     pub session_factory: bool,
+    /// Workspace callbacks are confined to the owning SDK connection and never replace durable session-state IO.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_provider: Option<bool>,
 }
 
 /// Stops a connection-owned listener and joins its teardown.
@@ -9752,6 +9757,8 @@ pub struct HostStartOptions {
     legacy: HostStartRequest,
     #[serde(skip_serializing_if = "Option::is_none")]
     compute_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_provider: Option<bool>,
 }
 
 impl HostStartOptions {
@@ -9766,6 +9773,7 @@ impl HostStartOptions {
                 resume_factory: None,
             },
             compute_id: None,
+            workspace_provider: None,
         }
     }
 
@@ -9798,6 +9806,12 @@ impl HostStartOptions {
         self.compute_id = Some(value.into());
         self
     }
+
+    /// Opt in to the owning application's remote workspace. Requires both session factories; durable session state remains independent.
+    pub fn workspace_provider(mut self, value: bool) -> Self {
+        self.workspace_provider = Some(value);
+        self
+    }
 }
 
 /// Listener readiness, returned only after binding and the supervised participant's SDK handshake.
@@ -9825,6 +9839,62 @@ pub struct HostStartResult {
     /// Actual bound WebSocket URL, including the allocated port.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+}
+
+/// A supervised child's request. The runtime supplies host identity rather than accepting it from the child.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostWorkspaceCallRequest {
+    /// Selects the workspace/AHP parameter and result shapes carried by the serialized payload.
+    pub operation: HostWorkspaceOperation,
+    /// Serialized operation parameters preserve AHP integer offsets and opaque etags without an untyped numeric projection.
+    pub payload: String,
+}
+
+/// A bounded callback to the SDK connection that owns this host, including before any session exists.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostWorkspaceExecuteRequest {
+    /// Runtime-assigned host identity bound to this SDK connection; never supplied by a workspace client.
+    pub host_id: String,
+    /// Selects the workspace/AHP parameter and result shapes carried by the serialized payload.
+    pub operation: HostWorkspaceOperation,
+    /// Serialized parameters and physical path guards, preserving integer offsets and opaque metadata.
+    pub payload: String,
+    /// Unique callback invocation identity; original AHP metadata remains inside the payload.
+    pub request_id: RequestId,
+}
+
+/// Successful payloads use the corresponding workspace/AHP result shape. An error carries no usable result.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostWorkspaceExecuteResult {
+    /// Safe allowlisted failure classification; omission indicates a successful payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<HostWorkspaceErrorCode>,
+    /// Serialized operation result; ignored when an error is present.
+    pub payload: String,
 }
 
 /// Catalogue identity retained from a bound candidate or plan at installation time.
@@ -30342,6 +30412,27 @@ pub struct HostGetConfigurationResult {
     pub resume_factory: bool,
     /// Whether session materialization is delegated to the owning application.
     pub session_factory: bool,
+    /// Workspace callbacks are confined to the owning SDK connection and never replace durable session-state IO.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_provider: Option<bool>,
+}
+
+/// Successful payloads use the corresponding workspace/AHP result shape. An error carries no usable result.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostWorkspaceResult {
+    /// Safe allowlisted failure classification; omission indicates a successful payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<HostWorkspaceErrorCode>,
+    /// Serialized operation result; ignored when an error is present.
+    pub payload: String,
 }
 
 /// Empty acknowledgement for a completed host lifecycle operation.
@@ -41963,6 +42054,92 @@ pub enum HostExitReason {
     /// The runtime is shutting down.
     #[serde(rename = "runtimeShutdown")]
     RuntimeShutdown,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// The closed operation set for host-scoped remote workspace IO. Watchers and process/Git execution are intentionally absent.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostWorkspaceOperation {
+    /// Declare immutable canonical remote roots and exclusions before host admission.
+    #[serde(rename = "describe")]
+    Describe,
+    /// Resolve paths and optionally discover project identity within the declared boundaries.
+    #[serde(rename = "resolve")]
+    Resolve,
+    /// Read remote file content with the requested encoding.
+    #[serde(rename = "read")]
+    Read,
+    /// Write through a physical guard while preserving offsets, modes, etags and create-only behavior.
+    #[serde(rename = "write")]
+    Write,
+    /// Inspect remote entry metadata and optional etag.
+    #[serde(rename = "stat")]
+    Stat,
+    /// List entries in an authorized remote directory.
+    #[serde(rename = "list")]
+    List,
+    /// Copy a file while checking both source and destination guards.
+    #[serde(rename = "copy")]
+    Copy,
+    /// Move an entry while enforcing subtree exclusions at both paths.
+    #[serde(rename = "move")]
+    Move,
+    /// Delete an authorized entry without crossing excluded subtrees.
+    #[serde(rename = "delete")]
+    Delete,
+    /// Create the authorized directory and missing parent directories.
+    #[serde(rename = "mkdir")]
+    Mkdir,
+    /// Check requested remote read and write access independently.
+    #[serde(rename = "access")]
+    Access,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Only these errors cross the workspace callback boundary; arbitrary provider diagnostics are not exposed.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostWorkspaceErrorCode {
+    /// The operation parameters do not satisfy the workspace contract.
+    #[serde(rename = "invalidParams")]
+    InvalidParams,
+    /// The physical guard or authorization rejected access.
+    #[serde(rename = "permissionDenied")]
+    PermissionDenied,
+    /// The requested remote entry does not exist.
+    #[serde(rename = "notFound")]
+    NotFound,
+    /// An entry already exists where exclusive creation was requested.
+    #[serde(rename = "alreadyExists")]
+    AlreadyExists,
+    /// An etag or concurrent-state precondition failed.
+    #[serde(rename = "conflict")]
+    Conflict,
+    /// This provider does not support the requested operation.
+    #[serde(rename = "notImplemented")]
+    NotImplemented,
+    /// The provider failed without exposing private diagnostic details.
+    #[serde(rename = "internal")]
+    Internal,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]

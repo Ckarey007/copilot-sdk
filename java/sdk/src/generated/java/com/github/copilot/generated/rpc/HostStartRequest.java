@@ -50,6 +50,10 @@ public final class HostStartRequest {
     @JsonProperty("computeId")
     private String computeId;
 
+    /** Opt in to the owning application's remote workspace. Requires both session factories; durable session state remains independent. */
+    @JsonProperty("workspaceProvider")
+    private Boolean workspaceProvider;
+
     /**
      * Creates a request with its required inputs.
      *
@@ -114,6 +118,15 @@ public final class HostStartRequest {
     }
 
     /**
+     * Returns the {@code workspaceProvider} property.
+     *
+     * @return Opt in to the owning application's remote workspace. Requires both session factories; durable session state remains independent.
+     */
+    public Boolean getWorkspaceProvider() {
+        return workspaceProvider;
+    }
+
+    /**
      * Sets the {@code localServer} property.
      *
      * @param value Enables a local WebSocket listener.
@@ -165,6 +178,17 @@ public final class HostStartRequest {
      */
     public HostStartRequest setComputeId(String value) {
         this.computeId = value;
+        return this;
+    }
+
+    /**
+     * Sets the {@code workspaceProvider} property.
+     *
+     * @param value Opt in to the owning application's remote workspace. Requires both session factories; durable session state remains independent.
+     * @return this request
+     */
+    public HostStartRequest setWorkspaceProvider(Boolean value) {
+        this.workspaceProvider = value;
         return this;
     }
 }

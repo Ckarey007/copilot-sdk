@@ -22,7 +22,9 @@ const (
 //
 // Experimental: GitHubTokenProviderArgs may change or be removed.
 type GitHubTokenProviderArgs struct {
-	// Host is the effective GitHub host for which a token is needed.
+	// Host is copied from the runtime without SDK normalization. Hosting uses
+	// auth_manager_config.github_host, defaulting to https://github.com.
+	// Validate it against the configured GitHub origin before minting.
 	Host string
 	// SessionID identifies the session receiving the token. It is nil for
 	// hosting credentials and before a cloud session has been assigned an ID.

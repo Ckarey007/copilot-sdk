@@ -129,6 +129,17 @@ public final class ServerHostApi {
     }
 
     /**
+     * Routes a remote workspace operation only from its supervised child to its owning SDK connection.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    CompletableFuture<HostWorkspaceExecuteResult> workspace(HostWorkspaceParams params) {
+        return caller.invoke("host.workspace", params, HostWorkspaceExecuteResult.class);
+    }
+
+    /**
      * Reports a supervised hosting participant's bound AHP endpoint after its SDK handshake.
      *
      * @apiNote This method is experimental and may change in a future version.

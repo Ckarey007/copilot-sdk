@@ -14,7 +14,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { promisify } from "util";
 import { COPILOT_CLI_VERSION } from "../../nodejs/src/cliVersion.js";
-import { ensureCopilotPackage } from "../../nodejs/scripts/releaseArtifacts.js";
 import { findRuntimeRoot } from "../runtime-layout.mjs";
 import { extensibleEnumValues } from "./extensible-enums.js";
 
@@ -115,7 +114,9 @@ export async function resolveCopilotSchemaPaths(
             "COPILOT_CLI_SCHEMA_DIR is required when COPILOT_RUNTIME_SOURCE=checkout; generate the runtime schemas and select their directory explicitly.",
         );
     } else {
-        const acquirePackage = options.acquirePackage ?? ensureCopilotPackage;
+        const acquirePackage =
+            options.acquirePackage ??
+            (await import("../../nodejs/scripts/releaseArtifacts.js")).ensureCopilotPackage;
         schemaDirectory = path.join(await acquirePackage(COPILOT_CLI_VERSION), "schemas");
     }
 

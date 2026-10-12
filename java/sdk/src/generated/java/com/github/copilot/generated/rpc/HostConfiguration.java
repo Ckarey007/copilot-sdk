@@ -32,6 +32,8 @@ record HostConfiguration(
     /** Whether session materialization is delegated to the owning application. */
     @JsonProperty("sessionFactory") Boolean sessionFactory,
     /** Whether app-owned durable sessions are resumed by the owning application. */
-    @JsonProperty("resumeFactory") Boolean resumeFactory
+    @JsonProperty("resumeFactory") Boolean resumeFactory,
+    /** Workspace callbacks are confined to the owning SDK connection and never replace durable session-state IO. */
+    @JsonProperty("workspaceProvider") Boolean workspaceProvider
 ) {
 }

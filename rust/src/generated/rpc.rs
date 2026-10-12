@@ -1789,6 +1789,37 @@ impl<'a> ClientRpcHost<'a> {
         Ok(serde_json::from_value(_value)?)
     }
 
+    /// Routes a remote workspace operation only from its supervised child to its owning SDK connection.
+    ///
+    /// Wire method: `host.workspace`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - A supervised child's request. The runtime supplies host identity rather than accepting it from the child.
+    ///
+    /// # Returns
+    ///
+    /// Successful payloads use the corresponding workspace/AHP result shape. An error carries no usable result.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn workspace(
+        &self,
+        params: HostWorkspaceCallRequest,
+    ) -> Result<HostWorkspaceExecuteResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::HOST_WORKSPACE, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
     /// Reports a supervised hosting participant's bound AHP endpoint after its SDK handshake.
     ///
     /// Wire method: `host.ready`.

@@ -5810,6 +5810,9 @@ type HostConfiguration struct {
 	ResumeFactory bool `json:"resumeFactory"`
 	// Whether session materialization is delegated to the owning application.
 	SessionFactory bool `json:"sessionFactory"`
+	// Workspace callbacks are confined to the owning SDK connection and never replace durable
+	// session-state IO.
+	WorkspaceProvider *bool `json:"workspaceProvider,omitempty"`
 }
 
 // The resident session the application has materialized on its own connection.
@@ -5884,6 +5887,9 @@ type HostGetConfigurationResult struct {
 	ResumeFactory bool `json:"resumeFactory"`
 	// Whether session materialization is delegated to the owning application.
 	SessionFactory bool `json:"sessionFactory"`
+	// Workspace callbacks are confined to the owning SDK connection and never replace durable
+	// session-state IO.
+	WorkspaceProvider *bool `json:"workspaceProvider,omitempty"`
 }
 
 // Private credentials delivered only to a runtime-owned Mission Control hosting participant.
@@ -5908,8 +5914,9 @@ type HostGitHubEnvironmentOptions struct {
 	// Stable application installation identity, reused across host restarts.
 	ComputeID string `json:"computeId"`
 	// Opaque SDK registration for a refreshable hosting credential. Tokens are requested only
-	// from the owning SDK connection through gitHubToken.getToken and must remain valid for at
-	// least 120 seconds. Omitting this uses the runtime's existing authentication.
+	// from the owning SDK connection through gitHubToken.getToken. A supplied lifetime must be
+	// at least 120 seconds; omission explicitly means unknown lifetime with bounded periodic
+	// refresh. Omitting this registration uses the runtime's existing authentication.
 	CredentialProviderRegistrationID *string `json:"credentialProviderRegistrationId,omitempty"`
 	// Registration kind. Defaults to user-local; managed kinds adopt the preallocated
 	// environment identified by the authenticated owner and computeId.
@@ -6153,6 +6160,9 @@ type HostStartRequest struct {
 	ResumeFactory *bool `json:"resumeFactory,omitempty"`
 	// Ask the owning SDK application to materialize AHP sessions.
 	SessionFactory *bool `json:"sessionFactory,omitempty"`
+	// Opt in to the owning application's remote workspace. Requires both session factories;
+	// durable session state remains independent.
+	WorkspaceProvider *bool `json:"workspaceProvider,omitempty"`
 }
 
 // Listener readiness, returned only after binding and the supervised participant's SDK
@@ -6170,6 +6180,57 @@ type HostStartResult struct {
 	Token *string `json:"token,omitempty"`
 	// Actual bound WebSocket URL, including the allocated port.
 	URL *string `json:"url,omitempty"`
+}
+
+// A supervised child's request. The runtime supplies host identity rather than accepting it
+// from the child.
+// Experimental: HostWorkspaceCallRequest is part of an experimental API and may change or
+// be removed.
+type HostWorkspaceCallRequest struct {
+	// Selects the workspace/AHP parameter and result shapes carried by the serialized payload.
+	Operation HostWorkspaceOperation `json:"operation"`
+	// Serialized operation parameters preserve AHP integer offsets and opaque etags without an
+	// untyped numeric projection.
+	Payload string `json:"payload"`
+}
+
+// A bounded callback to the SDK connection that owns this host, including before any
+// session exists.
+// Experimental: HostWorkspaceExecuteRequest is part of an experimental API and may change
+// or be removed.
+type HostWorkspaceExecuteRequest struct {
+	// Runtime-assigned host identity bound to this SDK connection; never supplied by a
+	// workspace client.
+	HostID string `json:"hostId"`
+	// Selects the workspace/AHP parameter and result shapes carried by the serialized payload.
+	Operation HostWorkspaceOperation `json:"operation"`
+	// Serialized parameters and physical path guards, preserving integer offsets and opaque
+	// metadata.
+	Payload string `json:"payload"`
+	// Unique callback invocation identity; original AHP metadata remains inside the payload.
+	RequestID string `json:"requestId"`
+}
+
+// Successful payloads use the corresponding workspace/AHP result shape. An error carries no
+// usable result.
+// Experimental: HostWorkspaceExecuteResult is part of an experimental API and may change or
+// be removed.
+type HostWorkspaceExecuteResult struct {
+	// Safe allowlisted failure classification; omission indicates a successful payload.
+	Error *HostWorkspaceErrorCode `json:"error,omitempty"`
+	// Serialized operation result; ignored when an error is present.
+	Payload string `json:"payload"`
+}
+
+// Successful payloads use the corresponding workspace/AHP result shape. An error carries no
+// usable result.
+// Experimental: HostWorkspaceResult is part of an experimental API and may change or be
+// removed.
+type HostWorkspaceResult struct {
+	// Safe allowlisted failure classification; omission indicates a successful payload.
+	Error *HostWorkspaceErrorCode `json:"error,omitempty"`
+	// Serialized operation result; ignored when an error is present.
+	Payload string `json:"payload"`
 }
 
 // Catalogue identity retained from a bound candidate or plan at installation time.
@@ -24459,6 +24520,61 @@ const (
 	HostRuntimePrincipalUser HostRuntimePrincipal = "user"
 )
 
+// Only these errors cross the workspace callback boundary; arbitrary provider diagnostics
+// are not exposed.
+// Experimental: HostWorkspaceErrorCode is part of an experimental API and may change or be
+// removed.
+type HostWorkspaceErrorCode string
+
+const (
+	// An entry already exists where exclusive creation was requested.
+	HostWorkspaceErrorCodeAlreadyExists HostWorkspaceErrorCode = "alreadyExists"
+	// An etag or concurrent-state precondition failed.
+	HostWorkspaceErrorCodeConflict HostWorkspaceErrorCode = "conflict"
+	// The provider failed without exposing private diagnostic details.
+	HostWorkspaceErrorCodeInternal HostWorkspaceErrorCode = "internal"
+	// The operation parameters do not satisfy the workspace contract.
+	HostWorkspaceErrorCodeInvalidParams HostWorkspaceErrorCode = "invalidParams"
+	// The requested remote entry does not exist.
+	HostWorkspaceErrorCodeNotFound HostWorkspaceErrorCode = "notFound"
+	// This provider does not support the requested operation.
+	HostWorkspaceErrorCodeNotImplemented HostWorkspaceErrorCode = "notImplemented"
+	// The physical guard or authorization rejected access.
+	HostWorkspaceErrorCodePermissionDenied HostWorkspaceErrorCode = "permissionDenied"
+)
+
+// The closed operation set for host-scoped remote workspace IO. Watchers and process/Git
+// execution are intentionally absent.
+// Experimental: HostWorkspaceOperation is part of an experimental API and may change or be
+// removed.
+type HostWorkspaceOperation string
+
+const (
+	// Check requested remote read and write access independently.
+	HostWorkspaceOperationAccess HostWorkspaceOperation = "access"
+	// Copy a file while checking both source and destination guards.
+	HostWorkspaceOperationCopy HostWorkspaceOperation = "copy"
+	// Delete an authorized entry without crossing excluded subtrees.
+	HostWorkspaceOperationDelete HostWorkspaceOperation = "delete"
+	// Declare immutable canonical remote roots and exclusions before host admission.
+	HostWorkspaceOperationDescribe HostWorkspaceOperation = "describe"
+	// List entries in an authorized remote directory.
+	HostWorkspaceOperationList HostWorkspaceOperation = "list"
+	// Create the authorized directory and missing parent directories.
+	HostWorkspaceOperationMkdir HostWorkspaceOperation = "mkdir"
+	// Move an entry while enforcing subtree exclusions at both paths.
+	HostWorkspaceOperationMove HostWorkspaceOperation = "move"
+	// Read remote file content with the requested encoding.
+	HostWorkspaceOperationRead HostWorkspaceOperation = "read"
+	// Resolve paths and optionally discover project identity within the declared boundaries.
+	HostWorkspaceOperationResolve HostWorkspaceOperation = "resolve"
+	// Inspect remote entry metadata and optional etag.
+	HostWorkspaceOperationStat HostWorkspaceOperation = "stat"
+	// Write through a physical guard while preserving offsets, modes, etags and create-only
+	// behavior.
+	HostWorkspaceOperationWrite HostWorkspaceOperation = "write"
+)
+
 // Live indexed-search state for this session activation, never inferred from persisted
 // history.
 // Experimental: IndexedSearchState is part of an experimental API and may change or be
@@ -31241,6 +31357,30 @@ func (a *InternalServerHostAPI) ReleaseSession(ctx context.Context, params *Host
 		return nil, err
 	}
 	var result HostReleaseSessionResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Workspace routes a remote workspace operation only from its supervised child to its
+// owning SDK connection.
+//
+// RPC method: host.workspace.
+//
+// Parameters: A supervised child's request. The runtime supplies host identity rather than
+// accepting it from the child.
+//
+// Returns: Successful payloads use the corresponding workspace/AHP result shape. An error
+// carries no usable result.
+// Internal: Workspace is part of the SDK's internal handshake/plumbing; external callers
+// should not use it.
+func (a *InternalServerHostAPI) Workspace(ctx context.Context, params *HostWorkspaceCallRequest) (*HostWorkspaceExecuteResult, error) {
+	raw, err := a.client.Request(ctx, "host.workspace", params)
+	if err != nil {
+		return nil, err
+	}
+	var result HostWorkspaceExecuteResult
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, err
 	}
@@ -41468,6 +41608,23 @@ type HostHandler interface {
 	Shutdown(request *HostEmptyResult) (*HostShutdownResult, error)
 }
 
+// Experimental: HostWorkspaceHandler contains experimental APIs that may change or be
+// removed.
+type HostWorkspaceHandler interface {
+	// Executes one bounded operation for an explicitly remote workspace on its owning SDK
+	// connection. No local filesystem fallback is permitted. The provider must enforce the
+	// native canonical-path guard and physical IO preconditions on hands.
+	//
+	// RPC method: hostWorkspace.execute.
+	//
+	// Parameters: A bounded callback to the SDK connection that owns this host, including
+	// before any session exists.
+	//
+	// Returns: Successful payloads use the corresponding workspace/AHP result shape. An error
+	// carries no usable result.
+	Execute(request *HostWorkspaceExecuteRequest) (*HostWorkspaceExecuteResult, error)
+}
+
 // Experimental: InstallationsHandler contains experimental APIs that may change or be
 // removed.
 type InstallationsHandler interface {
@@ -41527,6 +41684,7 @@ type ClientGlobalAPIHandlers struct {
 	GitHubToken             GitHubTokenHandler
 	Hooks                   HooksHandler
 	Host                    HostHandler
+	HostWorkspace           HostWorkspaceHandler
 	Installations           InstallationsHandler
 	LlmInference            LlmInferenceHandler
 }
@@ -41683,6 +41841,24 @@ func RegisterClientGlobalAPIHandlers(client *jsonrpc2.Client, handlers *ClientGl
 			return nil, &jsonrpc2.Error{Code: -32603, Message: "No host client-global handler registered"}
 		}
 		result, err := handlers.Host.Shutdown(&request)
+		if err != nil {
+			return nil, clientGlobalHandlerError(err)
+		}
+		raw, err := json.Marshal(result)
+		if err != nil {
+			return nil, &jsonrpc2.Error{Code: -32603, Message: fmt.Sprintf("Failed to marshal response: %v", err)}
+		}
+		return raw, nil
+	})
+	client.SetRequestHandler("hostWorkspace.execute", func(params json.RawMessage) (json.RawMessage, *jsonrpc2.Error) {
+		var request HostWorkspaceExecuteRequest
+		if err := json.Unmarshal(params, &request); err != nil {
+			return nil, &jsonrpc2.Error{Code: -32602, Message: fmt.Sprintf("Invalid params: %v", err)}
+		}
+		if handlers == nil || handlers.HostWorkspace == nil {
+			return nil, &jsonrpc2.Error{Code: -32603, Message: "No hostWorkspace client-global handler registered"}
+		}
+		result, err := handlers.HostWorkspace.Execute(&request)
 		if err != nil {
 			return nil, clientGlobalHandlerError(err)
 		}

@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import {
     collectDefinitionCollections,
@@ -19,6 +19,10 @@ import {
     resolveCopilotSchemaPaths,
 } from "../../scripts/codegen/utils.ts";
 import { postProcessSchema } from "../../scripts/codegen/utils.ts";
+
+vi.mock("../scripts/releaseArtifacts.js", () => {
+    throw new Error("Release acquisition must not load for checkout or injected schema sources");
+});
 
 describe("codegen entrypoints", () => {
     it("recognizes Windows entrypoint paths case-insensitively", () => {
@@ -175,9 +179,6 @@ describe("shared schema definition codegen utilities", () => {
         ]);
 
         const paths = await resolveCopilotSchemaPaths({
-            acquirePackage: async () => {
-                throw new Error("published acquisition must not run");
-            },
             runtimeSource: "checkout",
             schemaDirectory,
         });

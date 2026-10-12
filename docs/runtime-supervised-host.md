@@ -71,8 +71,10 @@ await client.stop();
 `requireConnectionToken`. The hostname defaults to `127.0.0.1`; explicit
 non-loopback addresses are allowed. An omitted or zero port selects an available
 port; other values must be integers from 1 through 65535. The returned URL contains
-the actual bound address, including IPv6 brackets where needed. The host always
-uses the runtime's configured working directory, with no per-host override.
+the actual bound address, including IPv6 brackets where needed. The transport
+uses the runtime's local working directory. An explicit remote workspace provider
+can supply a separate per-host workspace namespace without changing that process
+directory.
 
 Connection-token authentication defaults on: supply a nonempty token or let the
 listener generate one. `requireConnectionToken: false` disables only that
@@ -174,6 +176,93 @@ When a fresh bearer has no lifetime metadata, Go provides
 This host-only result omits `expiresIn`; it does not invent a lifetime.
 An explicit zero, negative, fractional, null, or malformed expiry is rejected,
 not treated as unknown. Do not discard a known expiry to select this result.
+
+For hosting, `GitHubTokenProviderArgs.Host` is copied verbatim from the runtime's
+`auth_manager_config.github_host`, defaulting to `https://github.com`. The SDK does
+not normalize it to a hostname. Validate a received hostname or HTTPS origin
+against the configured GitHub origin before minting; do not accept arbitrary
+paths, ports, userinfo, or a different host. This is independent of the Mission
+Control API origin.
+
+Hosting refresh does **not** refresh session/model authentication. Ordinary
+session token providers still require a known lifetime greater than one hour.
+A bearer-only control provider does not resolve that separate requirement.
+
+### Host-scoped remote workspace
+
+`AhpHostOptions.WorkspaceProvider` is an explicit, experimental Go provider for
+the normal AHP workspace surface. It requires matching native runtime support,
+plus both `CreateSession` and `ResumeSession` factories. Default/local hosts remain
+unchanged. An older runtime must reject the option; never retry startup without
+it as a compatibility fallback.
+
+Keep the SDK runtime's process directory local. Durable `SessionFS` belongs to
+the brain's session-state namespace and may use application-owned storage;
+do not redirect it to the hands workspace. `WorkspaceProvider` describes and
+accesses that separate remote workspace. Materialize the repository on hands
+before startup.
+The factory must preserve the native request's working directories, session ID,
+permissions, authentication, and other session configuration.
+
+The typed `AhpWorkspaceProvider` callbacks are:
+
+* `Describe`: return canonical absolute `file://` roots and exclusions in the
+  hands namespace. Roots remain fixed for the host lifetime.
+* `Resolve`: return one result per requested path, in the same order. Enforce
+  `existing`, `create`, `mkdir`, subtree, and read/write-access resolution modes.
+  Enforce the supplied immutable `Roots` and `Excluded` boundaries during
+  resolution, before project discovery or following links outside the workspace.
+  When `DiscoverProject` is set, obtain repository identity from authorized
+  remote facts. Do not invent an empty identity to bypass repository policy.
+* `Read`, `Write`, `Stat`, `List`, `Copy`, `Move`, `Delete`, `Mkdir`, and `Access`:
+  implement the corresponding ordinary AHP resource operation. Every request
+  carries its original typed parameters, channel and metadata, together with a
+  native `AhpWorkspaceGuard`.
+
+The native host checks resolved containment, exclusions, directory identity and
+subtree boundaries before forwarding IO. The provider must repeat those checks
+on hands at execution time: a prior resolution is not a lease on a pathname.
+Writes must use the actual opened handle to check hard links and preconditions,
+honor atomic create-only behavior, compare opaque etags, and preserve truncate,
+append, insert and offset semantics. Do not silently replace these operations
+with an unguarded write or shell interpolation. A provider may strengthen
+concurrency protection; it must not claim protection against unrelated processes
+that it does not actually enforce.
+
+`AhpWorkspaceCall` carries the owning `HostID` and a per-invocation `RequestID`.
+The provider is installed before `host.start`, so discovery works without a
+session. Calls have a 25-second SDK deadline, at most eight concurrent SDK
+invocations per host, and cancellation tied to both the request and host
+lifetime. Providers must honor cancellation. The native boundary also enforces
+30-second waits. Cancellation does not roll back a mutation; never automatically
+retry an ambiguous failure.
+
+Use `AhpWorkspaceError` to return an allowlisted error code. Arbitrary provider
+diagnostics are not sent to AHP clients. Missing IO callbacks return
+`NotImplemented`. Provider failures and disconnects never select the brain's
+local filesystem.
+
+Remote roots and project discovery feed the ordinary host catalog. Publication
+resolves remote directories before entering ordered catalog/dispatch sections;
+it does not await workspace RPC while holding those locks. Native session IDs,
+factory callbacks and connection binding remain authoritative.
+
+Watchers, local terminals, worktree/Git-truth operations and project mutations
+other than discovery/addition are not supported by this provider. It does not
+redirect native model tools or automatically load remote repository instructions:
+applications must keep those operations on hands rather than enabling local
+tools. Unattended organization-principal admission remains unsupported, and
+hosting credentials do not solve session inference credential refresh.
+
+Native session construction is a separate integration boundary: explicitly
+supplied `allowedModels` still intersects repository policy through native local
+filesystem discovery, and `trustWorkingDirectory` is rejected with RPC
+`SessionFS`. This host provider does not replace those paths. Remote repository
+policy/context discovery therefore remains an integration blocker; do not drop
+requested policy or trust configuration to bypass it.
+
+### Hosting credential lifecycle
+
 The runtime requests refreshes through the owning connection, rechecks authentication
 and remote-control policy, and never substitutes ambient authentication after a
 provider error. Go unregisters the callback on startup failure, host exit, or
@@ -202,12 +291,11 @@ established sandbox path. This prototype does not add a trusted installation
 policy source or bypass that rejection.
 
 > [!WARNING]
-> AHP workspace resources and watchers still use the host filesystem. SDK
-> SessionFS providers do not automatically redirect these operations to remote
-> workers. The native catalog and repository materialization also use local
-> storage and Git; neither invokes a remote session callback. Preserve the supplied session
-> creation/resume configuration and permission callbacks; replacing them is not
-> a filesystem routing solution.
+> Without an explicit compatible `WorkspaceProvider`, AHP workspace resources
+> use the host filesystem. `SessionFS` alone never routes them to remote workers.
+> A remote provider does not materialize repositories, replace session/model
+> tools, or supply remote instruction discovery. Preserve the supplied session
+> creation/resume configuration and permission callbacks.
 
 ## Application-owned sessions
 

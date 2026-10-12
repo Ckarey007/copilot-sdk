@@ -2242,6 +2242,58 @@ export type HostExitReason =
   /** The runtime is shutting down. */
   | "runtimeShutdown";
 /**
+ * The closed operation set for host-scoped remote workspace IO. Watchers and process/Git execution are intentionally absent.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "HostWorkspaceOperation".
+ */
+/** @experimental */
+export type HostWorkspaceOperation =
+  /** Declare immutable canonical remote roots and exclusions before host admission. */
+  | "describe"
+  /** Resolve paths and optionally discover project identity within the declared boundaries. */
+  | "resolve"
+  /** Read remote file content with the requested encoding. */
+  | "read"
+  /** Write through a physical guard while preserving offsets, modes, etags and create-only behavior. */
+  | "write"
+  /** Inspect remote entry metadata and optional etag. */
+  | "stat"
+  /** List entries in an authorized remote directory. */
+  | "list"
+  /** Copy a file while checking both source and destination guards. */
+  | "copy"
+  /** Move an entry while enforcing subtree exclusions at both paths. */
+  | "move"
+  /** Delete an authorized entry without crossing excluded subtrees. */
+  | "delete"
+  /** Create the authorized directory and missing parent directories. */
+  | "mkdir"
+  /** Check requested remote read and write access independently. */
+  | "access";
+/**
+ * Only these errors cross the workspace callback boundary; arbitrary provider diagnostics are not exposed.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "HostWorkspaceErrorCode".
+ */
+/** @experimental */
+export type HostWorkspaceErrorCode =
+  /** The operation parameters do not satisfy the workspace contract. */
+  | "invalidParams"
+  /** The physical guard or authorization rejected access. */
+  | "permissionDenied"
+  /** The requested remote entry does not exist. */
+  | "notFound"
+  /** An entry already exists where exclusive creation was requested. */
+  | "alreadyExists"
+  /** An etag or concurrent-state precondition failed. */
+  | "conflict"
+  /** This provider does not support the requested operation. */
+  | "notImplemented"
+  /** The provider failed without exposing private diagnostic details. */
+  | "internal";
+/**
  * Only resource kinds with an implemented installation engine have a review variant.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -13187,6 +13239,10 @@ export interface HostConfiguration {
    * Whether app-owned durable sessions are resumed by the owning application.
    */
   resumeFactory: boolean;
+  /**
+   * Workspace callbacks are confined to the owning SDK connection and never replace durable session-state IO.
+   */
+  workspaceProvider?: boolean;
 }
 /**
  * Normalized local WebSocket listener settings.
@@ -13231,7 +13287,7 @@ export interface HostGitHubEnvironmentOptions {
   computeId: string;
   kind?: HostEnvironmentKind;
   /**
-   * Opaque SDK registration for a refreshable hosting credential. Tokens are requested only from the owning SDK connection through gitHubToken.getToken and must remain valid for at least 120 seconds. Omitting this uses the runtime's existing authentication.
+   * Opaque SDK registration for a refreshable hosting credential. Tokens are requested only from the owning SDK connection through gitHubToken.getToken. A supplied lifetime must be at least 120 seconds; omission explicitly means unknown lifetime with bounded periodic refresh. Omitting this registration uses the runtime's existing authentication.
    */
   credentialProviderRegistrationId?: string;
   runtimePrincipal?: HostRuntimePrincipal;
@@ -13605,6 +13661,10 @@ export interface HostStartRequest {
    * Ask the owning application to resume its durable AHP sessions.
    */
   resumeFactory?: boolean;
+  /**
+   * Opt in to the owning application's remote workspace. Requires both session factories; durable session state remains independent.
+   */
+  workspaceProvider?: boolean;
 }
 /**
  * Listener readiness, returned only after binding and the supervised participant's SDK handshake.
@@ -13634,6 +13694,56 @@ export interface HostStartResult {
    * Separate host process ID, when provided by a legacy runtime. Absent for in-process listeners.
    */
   pid?: number;
+}
+/**
+ * A supervised child's request. The runtime supplies host identity rather than accepting it from the child.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "HostWorkspaceCallRequest".
+ */
+/** @experimental */
+export interface HostWorkspaceCallRequest {
+  operation: HostWorkspaceOperation;
+  /**
+   * Serialized operation parameters preserve AHP integer offsets and opaque etags without an untyped numeric projection.
+   */
+  payload: string;
+}
+/**
+ * A bounded callback to the SDK connection that owns this host, including before any session exists.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "HostWorkspaceExecuteRequest".
+ */
+/** @experimental */
+export interface HostWorkspaceExecuteRequest {
+  /**
+   * Runtime-assigned host identity bound to this SDK connection; never supplied by a workspace client.
+   */
+  hostId: string;
+  /**
+   * Unique callback invocation identity; original AHP metadata remains inside the payload.
+   */
+  requestId: string;
+  operation: HostWorkspaceOperation;
+  /**
+   * Serialized parameters and physical path guards, preserving integer offsets and opaque metadata.
+   */
+  payload: string;
+}
+/**
+ * Successful payloads use the corresponding workspace/AHP result shape. An error carries no usable result.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "HostWorkspaceExecuteResult".
+ */
+/** @experimental */
+export interface HostWorkspaceExecuteResult {
+  /**
+   * Serialized operation result; ignored when an error is present.
+   */
+  payload: string;
+  error?: HostWorkspaceErrorCode;
 }
 /**
  * Catalogue identity retained from a bound candidate or plan at installation time.
@@ -31485,6 +31595,38 @@ export interface HostGetConfigurationResult {
    * Whether app-owned durable sessions are resumed by the owning application.
    */
   resumeFactory: boolean;
+  /**
+   * Workspace callbacks are confined to the owning SDK connection and never replace durable session-state IO.
+   */
+  workspaceProvider?: boolean;
+}
+/**
+ * Successful payloads use the corresponding workspace/AHP result shape. An error carries no usable result.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "HostWorkspaceResult".
+ */
+/** @experimental */
+export interface HostWorkspaceResult {
+  /**
+   * Serialized operation result; ignored when an error is present.
+   */
+  payload: string;
+  error?: HostWorkspaceErrorCode;
+}
+/**
+ * A supervised child's request. The runtime supplies host identity rather than accepting it from the child.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "HostWorkspaceRequest".
+ */
+/** @experimental */
+export interface HostWorkspaceRequest {
+  operation: HostWorkspaceOperation;
+  /**
+   * Serialized operation parameters preserve AHP integer offsets and opaque etags without an untyped numeric projection.
+   */
+  payload: string;
 }
 /**
  * Empty acknowledgement for a completed host lifecycle operation.
@@ -33172,6 +33314,15 @@ export function createInternalServerRpc(connection: MessageConnection) {
              */
             getConfiguration: async (): Promise<HostGetConfigurationResult> =>
                 connection.sendRequest("host.getConfiguration", {}),
+            /**
+             * Routes a remote workspace operation only from its supervised child to its owning SDK connection.
+             *
+             * @param params A supervised child's request. The runtime supplies host identity rather than accepting it from the child.
+             *
+             * @returns Successful payloads use the corresponding workspace/AHP result shape. An error carries no usable result.
+             */
+            workspace: async (params: HostWorkspaceRequest): Promise<HostWorkspaceResult> =>
+                connection.sendRequest("host.workspace", params),
             /**
              * Reports a supervised hosting participant's bound AHP endpoint after its SDK handshake.
              *
@@ -36750,6 +36901,19 @@ export interface GitHubTokenHandler {
     getToken(params: GitHubTokenAcquireRequest): Promise<GitHubTokenAcquireResult>;
 }
 
+/** Handler for `hostWorkspace` client global API methods. */
+/** @experimental */
+export interface HostWorkspaceHandler {
+    /**
+     * Executes one bounded operation for an explicitly remote workspace on its owning SDK connection. No local filesystem fallback is permitted. The provider must enforce the native canonical-path guard and physical IO preconditions on hands.
+     *
+     * @param params A bounded callback to the SDK connection that owns this host, including before any session exists.
+     *
+     * @returns Successful payloads use the corresponding workspace/AHP result shape. An error carries no usable result.
+     */
+    execute(params: HostWorkspaceExecuteRequest): Promise<HostWorkspaceExecuteResult>;
+}
+
 /** Handler for `installations` client global API methods. */
 /** @experimental */
 export interface InstallationsHandler {
@@ -36770,6 +36934,7 @@ export interface ClientGlobalApiHandlers {
     llmInference?: LlmInferenceHandler;
     gitHubTelemetry?: GitHubTelemetryHandler;
     gitHubToken?: GitHubTokenHandler;
+    hostWorkspace?: HostWorkspaceHandler;
     installations?: InstallationsHandler;
 }
 
@@ -36813,6 +36978,11 @@ export function registerClientGlobalApiHandlers(
         const handler = handlers.gitHubToken;
         if (!handler) throw new Error("No gitHubToken client-global handler registered");
         return handler.getToken(params);
+    });
+    connection.onRequest("hostWorkspace.execute", async (params: HostWorkspaceExecuteRequest) => {
+        const handler = handlers.hostWorkspace;
+        if (!handler) throw new Error("No hostWorkspace client-global handler registered");
+        return handler.execute(params);
     });
     connection.onRequest("installations.confirm", async (params: InstallationsConfirmRequest) => {
         const handler = handlers.installations;

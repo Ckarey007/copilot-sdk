@@ -31,7 +31,7 @@ public record HostGitHubEnvironmentOptions(
     @JsonProperty("computeId") String computeId,
     /** Registration kind. Defaults to user-local; managed kinds adopt the preallocated environment identified by the authenticated owner and computeId. */
     @JsonProperty("kind") HostEnvironmentKind kind,
-    /** Opaque SDK registration for a refreshable hosting credential. Tokens are requested only from the owning SDK connection through gitHubToken.getToken and must remain valid for at least 120 seconds. Omitting this uses the runtime's existing authentication. */
+    /** Opaque SDK registration for a refreshable hosting credential. Tokens are requested only from the owning SDK connection through gitHubToken.getToken. A supplied lifetime must be at least 120 seconds; omission explicitly means unknown lifetime with bounded periodic refresh. Omitting this registration uses the runtime's existing authentication. */
     @JsonProperty("credentialProviderRegistrationId") String credentialProviderRegistrationId,
     /** Runtime authentication principal, independent of Mission Control's routing owner. Defaults to user. github-app requires a separately built managed-hosting runtime and a managed-sandbox registration; ordinary runtime builds reject it. */
     @JsonProperty("runtimePrincipal") HostRuntimePrincipal runtimePrincipal,
