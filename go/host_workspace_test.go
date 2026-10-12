@@ -101,6 +101,50 @@ func TestAhpWorkspaceWritePreservesGuardAndExactOffsets(t *testing.T) {
 	}
 }
 
+func TestAhpWorkspaceCopyAndMovePreserveDestinationPreconditions(t *testing.T) {
+	fail, overwrite := true, false
+	for _, operation := range []string{"copy", "move"} {
+		for _, test := range []struct {
+			name string
+			flag *bool
+		}{{"omitted", nil}, {"refuse replacement", &fail}, {"allow replacement", &overwrite}} {
+			t.Run(operation+"/"+test.name, func(t *testing.T) {
+				called := false
+				mutate := func(_ context.Context, request AhpWorkspaceResourceRequest[AhpWorkspaceMoveParams]) error {
+					called = true
+					flag := request.Params.FailIfExists
+					if (flag == nil) != (test.flag == nil) || (test.flag != nil && *flag != *test.flag) {
+						t.Fatalf("lost destination precondition: %+v", request.Params)
+					}
+					if request.Params.Source != "file:///hands/repo/source" ||
+						request.Params.Destination != "file:///hands/repo/destination" ||
+						request.Params.Channel != "ahp-session:/canonical" {
+						t.Fatalf("lost move/copy parameters: %+v", request.Params)
+					}
+					return nil
+				}
+				client := workspaceTestClient(t, &AhpWorkspaceProvider{Copy: mutate, Move: mutate})
+				params := map[string]any{
+					"channel":     "ahp-session:/canonical",
+					"source":      "file:///hands/repo/source",
+					"destination": "file:///hands/repo/destination",
+				}
+				if test.flag != nil {
+					params["failIfExists"] = *test.flag
+				}
+				payload, err := json.Marshal(map[string]any{"params": params, "guard": map[string]any{}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				result := workspaceTestExecute(t, client, "host", operation, string(payload))
+				if !called || result.Error != nil || result.Payload != "{}" {
+					t.Fatalf("unexpected mutation result: %+v", result)
+				}
+			})
+		}
+	}
+}
+
 func TestAhpWorkspaceFailuresDoNotExposeProviderDiagnostics(t *testing.T) {
 	for _, test := range []struct {
 		name string

@@ -229,6 +229,16 @@ with an unguarded write or shell interpolation. A provider may strengthen
 concurrency protection; it must not claim protection against unrelated processes
 that it does not actually enforce.
 
+Offsets count bytes, not characters. With the default `truncate` mode, preserve
+the prefix before `Position` and replace the remainder with `Data`. `insert`
+splices data at that offset and shifts the tail. `append` counts `Position`
+backward from EOF: zero uses append semantics; a positive value inserts before
+that many trailing bytes. Reject negative offsets and offsets beyond the file.
+`CreateOnly` is only valid with `truncate` and cannot be combined with `IfMatch`.
+Both copy and move preserve `FailIfExists`; copy accepts files, not directories.
+`Stat` implements AHP `resourceResolve`. Its `FollowSymlinks=false` path mirrors
+the native conservative create-style resolver, which rejects a final symlink.
+
 `AhpWorkspaceCall` carries the owning `HostID` and a per-invocation `RequestID`.
 The provider is installed before `host.start`, so discovery works without a
 session. Calls have a 25-second SDK deadline, at most eight concurrent SDK

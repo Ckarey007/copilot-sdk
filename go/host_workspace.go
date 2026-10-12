@@ -189,14 +189,12 @@ type AhpWorkspaceListResult struct {
 
 type AhpWorkspaceMoveParams struct {
 	AhpWorkspaceResourceMetadata
-	Source      string `json:"source"`
-	Destination string `json:"destination"`
+	Source       string `json:"source"`
+	Destination  string `json:"destination"`
+	FailIfExists *bool  `json:"failIfExists,omitempty"`
 }
 
-type AhpWorkspaceCopyParams struct {
-	AhpWorkspaceMoveParams
-	FailIfExists *bool `json:"failIfExists,omitempty"`
-}
+type AhpWorkspaceCopyParams = AhpWorkspaceMoveParams
 
 type AhpWorkspaceDeleteParams struct {
 	AhpWorkspaceURIParams
