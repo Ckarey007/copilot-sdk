@@ -39,7 +39,7 @@ For services outside GitHub Actions:
    }
    ```
 
-1. Pass the resulting `ghs_` token to the SDK's `gitHubToken`, `github_token`, or equivalent option.
+1. Pass the resulting `ghs_` token to the SDK's `gitHubToken`, `github_token`, or equivalent option. For an existing runtime URI, set it as `COPILOT_GITHUB_TOKEN` on the runtime process instead.
 
 The organization must be enabled for Copilot requests from GitHub App installations. Installation tokens expire after one hour.
 
