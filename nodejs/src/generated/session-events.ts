@@ -217,9 +217,7 @@ export type RemediationAction =
   /** Review or widen the sandbox policy. The blocked path or host is named by the accompanying message or by the tool result the action arrived with. */
   | "review_sandbox_policy"
   /** Permit outbound network access in the sandbox policy. */
-  | "allow_sandbox_outbound"
-  /** Discard conversation history back through the blocked request before continuing. */
-  | "rewind_conversation";
+  | "allow_sandbox_outbound";
 /**
  * The session mode the agent is operating in
  */
@@ -589,38 +587,6 @@ export type ProviderQuotaCapacityState =
   /** Client-only compatibility placeholder when acquisitionStatus is unavailable or failed; not an observed service verdict. */
   | "unavailable";
 /**
- * Identity scope of a monthly usage reading.
- */
-export type ProviderMonthlyUsageScope =
-  /** Consumption of the authenticated user within the parent observation's service and returned cycle. */
-  | "user"
-  /** The service did not establish a recognized usage scope. */
-  | "unknown";
-/**
- * Availability of a service's monthly consumption reading.
- */
-export type ProviderMonthlyUsageState =
-  /** The service reported a usable consumption reading, including an explicit zero. */
-  | "available"
-  /** The service found no usage policy; no consumption amount is known. */
-  | "no_policy"
-  /** The read failed or its data could not be used; consumption is unknown. */
-  | "unavailable"
-  /** The service reported an unrecognized usage state. */
-  | "unknown";
-/**
- * Units explicitly reported by a quota provider.
- */
-export type ProviderQuotaUnit =
-  /** AI credits, not tokens or currency. */
-  | "ai_credits"
-  /** Requests charged against an entitlement. */
-  | "requests"
-  /** Model tokens. */
-  | "tokens"
-  /** The observation does not establish a quantity unit. */
-  | "unknown";
-/**
  * Timing and purpose of a provider quota observation.
  */
 export type ProviderQuotaObservationKind =
@@ -638,6 +604,18 @@ export type ProviderQuotaQuantityKind =
   | "advisory_balance"
   /** No quantity measurement, as with admission-only response headers. */
   | "none";
+/**
+ * Units explicitly reported by a quota provider.
+ */
+export type ProviderQuotaUnit =
+  /** AI credits, not tokens or currency. */
+  | "ai_credits"
+  /** Requests charged against an entitlement. */
+  | "requests"
+  /** Model tokens. */
+  | "tokens"
+  /** The observation does not establish a quantity unit. */
+  | "unknown";
 /**
  * What initiated a conversation compaction
  */
@@ -965,16 +943,6 @@ export type AssistantUsageApiEndpoint =
   /** WebSocket Responses API endpoint. */
   | "ws:/responses";
 /**
- * Content-Encoding applied to the request body sent on the wire
- */
-export type ModelCallRequestBodyEncoding =
-  /** The request body was sent uncompressed (including every WebSocket request). */
-  | "identity"
-  /** The request body was sent gzip-compressed. */
-  | "gzip"
-  /** The request body was sent zstd-compressed. */
-  | "zstd";
-/**
  * Transport used for a successful model call
  */
 export type AssistantUsageTransport =
@@ -982,34 +950,6 @@ export type AssistantUsageTransport =
   | "http"
   /** WebSocket transport. */
   | "websocket";
-/**
- * Normalized cause of the WebSocket failure that triggered the HTTP fallback
- */
-export type ModelCallWebSocketFallbackErrorKind =
-  /** DNS resolution of the WebSocket host failed. */
-  | "dns"
-  /** The TLS handshake or a TLS record failed. */
-  | "tls"
-  /** A WebSocket connect or read timed out. */
-  | "timeout"
-  /** The peer refused the TCP connection. */
-  | "connection_refused"
-  /** The connection was reset, aborted, or ended mid-stream without a close. */
-  | "connection_reset"
-  /** The peer closed the WebSocket. */
-  | "closed_by_peer"
-  /** The runtime closed the WebSocket itself. */
-  | "closed_locally"
-  /** The socket was already closed before it was used. */
-  | "not_connected"
-  /** The upgrade or request was rejected with an HTTP status. */
-  | "http_status"
-  /** A WebSocket protocol violation or an undecodable frame. */
-  | "protocol"
-  /** The WebSocket request could not be built. */
-  | "configuration"
-  /** A failure that maps onto none of the other kinds. */
-  | "other";
 /**
  * Why a WebSocket-capable model call was carried by the HTTP fallback
  */
@@ -2189,7 +2129,7 @@ export interface ErrorData {
    */
   errorCode?: string;
   /**
-   * Category of error (e.g., "authentication", "authorization", "policy", "quota", "rate_limit", "context_limit", "query")
+   * Category of error (e.g., "authentication", "authorization", "quota", "rate_limit", "context_limit", "query")
    */
   errorType: string;
   /**
@@ -2200,14 +2140,6 @@ export interface ErrorData {
    * GitHub request tracing ID (x-github-request-id header) for correlating with server-side logs
    */
   providerCallId?: string;
-  /**
-   * Sanitized provider-defined error parameter preserved from a structured upstream error envelope, when available.
-   */
-  providerErrorParam?: string;
-  /**
-   * Provider-defined error type preserved from a structured upstream error envelope, when available (for example, `invalid_request_error`).
-   */
-  providerErrorType?: string;
   remediation?: RemediationAction;
   /**
    * Copilot service request ID (x-copilot-service-request-id header) for CAPI log correlation
@@ -3937,7 +3869,6 @@ export interface ProviderQuotaState {
    * HTTP status from acquisition, when available.
    */
   httpStatus?: number;
-  monthlyUsage?: ProviderMonthlyUsage;
   observationKind?: ProviderQuotaObservationKind;
   /**
    * When the runtime observed this reading, not a charge timestamp or guarantee that consumption has settled.
@@ -4011,31 +3942,6 @@ export interface ProviderQuotaBudgetMetadata {
    * Whether service policy allows continued usage after exhaustion.
    */
   usageAllowedWhenExhausted: boolean;
-}
-/**
- * An authoritative monthly usage reading for the observation's provider, account, and service.
- */
-/** @experimental */
-export interface ProviderMonthlyUsage {
-  /**
-   * Nonnegative finite consumption reported by the service, preserving zero and fractions. Present only when state is available; never computed from tokens or balance differences.
-   */
-  consumedQuantity?: number;
-  /**
-   * Start of the service-reported monthly billing cycle, in UTC RFC 3339.
-   */
-  cycleStart?: string;
-  /**
-   * Service read time in UTC RFC 3339, not a ledger reconciliation watermark or confirmation of the latest inference charge.
-   */
-  queriedAt?: string;
-  /**
-   * End of the service-reported monthly billing cycle, in UTC RFC 3339.
-   */
-  resetOn?: string;
-  scope: ProviderMonthlyUsageScope;
-  state: ProviderMonthlyUsageState;
-  unit: ProviderQuotaUnit;
 }
 /**
  * Session event "session.context_changed". Updated working directory and git context after the change
@@ -4399,10 +4305,6 @@ export interface CompactionCompleteCompactionTokensUsed {
    */
   outputTokens?: number;
   provider?: ModelProviderRef;
-  /**
-   * Number of model requests represented by this aggregated compaction usage
-   */
-  requestCount?: number;
 }
 /**
  * Per-request cost and usage data from the CAPI copilot_usage response field
@@ -4551,14 +4453,6 @@ export interface PermissionRecoveryData {
    */
   maxAttempts: number;
   onBlocked: PermissionRecoveryOnBlocked;
-  /**
-   * Subagent identifier that owns this recovery episode when the request was delegated through a parent permission service
-   */
-  ownerAgentId?: string;
-  /**
-   * Root or child execution-session identifier that owns this recovery episode; omitted for legacy snapshots
-   */
-  ownerSessionId?: string;
   reason: PermissionRecoveryReason;
   status: PermissionRecoveryStatus;
 }
@@ -7127,14 +7021,9 @@ export interface AssistantUsageData {
    */
   rejectedPredictionTokens?: number;
   /**
-   * Serialized (uncompressed) byte length of the request body, before any Content-Encoding. A content-free size signal.
+   * Serialized (uncompressed) byte length of the request body. A content-free size signal.
    */
   requestBodyBytes?: number;
-  requestBodyEncoding?: ModelCallRequestBodyEncoding;
-  /**
-   * Byte length of the request body actually sent on the wire for the attempt that produced this outcome, after any Content-Encoding. Equals requestBodyBytes when the body was not compressed.
-   */
-  requestBodyWireBytes?: number;
   /**
    * Per-request treatment/eligibility signal returned by the Copilot API in the `X-GitHub-Copilot-Request-TE` response header for the associated model call; `false` when the header was absent or unparseable.
    */
@@ -7178,24 +7067,7 @@ export interface AssistantUsageData {
    * Milliseconds spent on the WebSocket attempt before falling back to HTTP
    */
   websocketFallbackAfterMs?: number;
-  /**
-   * WebSocket close code received before the HTTP fallback
-   */
-  websocketFallbackCloseCode?: number;
-  websocketFallbackErrorKind?: ModelCallWebSocketFallbackErrorKind;
   websocketFallbackReason?: ModelCallWebSocketFallbackReason;
-  /**
-   * Whether a WebSocket reconnect was attempted before falling back to HTTP
-   */
-  websocketFallbackReconnectAttempted?: boolean;
-  /**
-   * Whether the HTTP fallback started during this model call, rather than being inherited from an earlier call
-   */
-  websocketFallbackStartedThisCall?: boolean;
-  /**
-   * HTTP status of the WebSocket upgrade rejection or WebSocket API error that triggered the HTTP fallback
-   */
-  websocketFallbackStatusCode?: number;
 }
 /**
  * Ordered accounting identity assigned under the source session's emission lock.
@@ -7450,14 +7322,9 @@ export interface ModelCallFailureData {
    */
   reasoningEffort?: string;
   /**
-   * Serialized (uncompressed) byte length of the failed request body, before any Content-Encoding. A content-free size signal.
+   * Serialized (uncompressed) byte length of the failed request body. A content-free size signal.
    */
   requestBodyBytes?: number;
-  requestBodyEncoding?: ModelCallRequestBodyEncoding;
-  /**
-   * Byte length of the failed request body actually sent on the wire, after any Content-Encoding. Equals requestBodyBytes when the body was not compressed.
-   */
-  requestBodyWireBytes?: number;
   requestFingerprint?: ModelCallFailureRequestFingerprint;
   /**
    * Zero-based orchestrator retry index of the failed attempt
@@ -7481,24 +7348,7 @@ export interface ModelCallFailureData {
    * Milliseconds spent on the WebSocket attempt before falling back to HTTP
    */
   websocketFallbackAfterMs?: number;
-  /**
-   * WebSocket close code received before the HTTP fallback
-   */
-  websocketFallbackCloseCode?: number;
-  websocketFallbackErrorKind?: ModelCallWebSocketFallbackErrorKind;
   websocketFallbackReason?: ModelCallWebSocketFallbackReason;
-  /**
-   * Whether a WebSocket reconnect was attempted before falling back to HTTP
-   */
-  websocketFallbackReconnectAttempted?: boolean;
-  /**
-   * Whether the HTTP fallback started during this model call, rather than being inherited from an earlier call
-   */
-  websocketFallbackStartedThisCall?: boolean;
-  /**
-   * HTTP status of the WebSocket upgrade rejection or WebSocket API error that triggered the HTTP fallback
-   */
-  websocketFallbackStatusCode?: number;
 }
 /**
  * Content-free structural summary of the failing request for diagnosing malformed 4xx calls
@@ -9694,14 +9544,6 @@ export interface PermissionRequestedEvent {
  */
 export interface PermissionRequestedData {
   agentMode?: SessionMode;
-  /**
-   * Delegated agent that owns permission recovery when the owner session multiplexes remote agents. Absent otherwise.
-   */
-  ownerAgentId?: string;
-  /**
-   * Execution session that owns permission recovery for this request. Absent on historical events.
-   */
-  ownerSessionId?: string;
   permissionMode?: PermissionMode;
   permissionRequest: PermissionRequest;
   promptRequest?: PermissionPromptRequest;
@@ -12953,7 +12795,7 @@ export interface ManagedSettingsResolvedEvent {
 /** @experimental */
 export interface ManagedSettingsResolvedData {
   /**
-   * Whether an explicit enterprise policy restriction disables bypass-permissions ("yolo") mode for this session. Deny-wins across layers; an unresolved policy does not force this on by itself.
+   * Whether enterprise policy disables bypass-permissions ("yolo") mode for this session. Deny-wins across layers, and forced on when `failClosed` is true.
    */
   bypassPermissionsDisabled: boolean;
   /**
@@ -12965,7 +12807,7 @@ export interface ManagedSettingsResolvedData {
    */
   deviceManaged: boolean;
   /**
-   * Whether managed policy could not be determined (e.g. a failed server fetch) and unresolved-policy safeguards remain active. This does not by itself disable bypass-permissions; `bypassPermissionsDisabled` reports only an explicit policy restriction.
+   * Whether managed policy could not be determined (e.g. a failed server fetch) and the session fell back to the fail-closed restriction. When true, restrictions such as disabling bypass-permissions are enforced even though `settings` may be absent.
    */
   failClosed: boolean;
   /**
@@ -12976,7 +12818,6 @@ export interface ManagedSettingsResolvedData {
    * Whether at least two managed sources supplied permission allowlists, so enforcement intersects them and the flattened settings payload omits `permissions.allow`.
    */
   permissionsAllowIntersected?: boolean;
-  permissionsContext?: ManagedPermissionsContext;
   /**
    * Whether the policy-helper managed-settings layer was present. The policy helper is the weakest channel: it fills keys no enterprise source set and can never replace one.
    */
@@ -12994,19 +12835,6 @@ export interface ManagedSettingsResolvedData {
    */
   settings?: JsonValue;
   source: ManagedSettingsResolvedSource;
-}
-/**
- * Reusable managed permission evaluation context. Treat permissions as runtime-owned policy data and retain it verbatim; it includes source-aware composition metadata. This is a snapshot, not a capability or approval token; only use contexts obtained from trusted policy sources.
- */
-export interface ManagedPermissionsContext {
-  /**
-   * Policy could not be determined; evaluation must deny every operation.
-   */
-  failClosed: boolean;
-  /**
-   * Runtime-owned composed permissions object. Absent when no permission policy is configured.
-   */
-  permissions?: JsonValue;
 }
 /**
  * Session event "session.managed_settings_enforced". Runtime enforcement of enterprise managed settings: fires when the session blocks or caps a runtime action because enterprise policy governs it, so SDK clients can explain *why* an action was governed. Unlike `session.managed_settings_resolved` (which reports *what* is managed), this reports a concrete governed action — e.g. a user or host tried to turn on bypass permissions or Assisted Permissions while the corresponding policy disables it. Emitted live (not persisted to the session event log) on user/host-initiated attempts only, never for silent policy application. Marked experimental while the managed-settings surface stabilizes.

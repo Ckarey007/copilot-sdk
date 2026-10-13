@@ -39,7 +39,7 @@ public abstract class E2ETestBase : IClassFixture<E2ETestFixture>, IAsyncLifetim
 
         // Wire logger into the shared context so all clients created via Ctx.CreateClient get it.
         Ctx.Logger = Logger;
-        Ctx.DiagnosticsEnabled = snapshotCategory is "pending_work_resume" or "session" or "permissions";
+        Ctx.DiagnosticsEnabled = snapshotCategory is "pending_work_resume" or "session";
     }
 
     /// <summary>Logger that forwards warnings and above to xunit test output.</summary>

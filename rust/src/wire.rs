@@ -27,9 +27,9 @@ use crate::generated::session_events::ReasoningSummary;
 use crate::types::{
     AskUserVariant, CanvasProviderIdentity, CapiSessionOptions, CloudSessionOptions,
     CustomAgentConfig, DefaultAgentConfig, ExtensionInfo, GitHubMcpToolConfig,
-    ImageGenerationConfig, InfiniteSessionConfig, LargeToolOutputConfig, McpServerConfig,
-    MemoryConfiguration, NamedProviderConfig, ProviderConfig, ProviderModelConfig, SessionId,
-    SessionLimitsConfig, SystemMessageConfig, Tool, ToolSearchConfig,
+    InfiniteSessionConfig, LargeToolOutputConfig, McpServerConfig, MemoryConfiguration,
+    NamedProviderConfig, ProviderConfig, ProviderModelConfig, SessionId, SessionLimitsConfig,
+    SystemMessageConfig, Tool, ToolSearchConfig,
 };
 
 /// Wire representation of a slash command (name + description only). The
@@ -50,8 +50,6 @@ pub(crate) struct CommandWireDefinition {
 pub(crate) struct SessionCreateWire {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<SessionId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -139,10 +137,6 @@ pub(crate) struct SessionCreateWire {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skill_directories: Option<Vec<PathBuf>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent_directories: Option<Vec<PathBuf>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hook_directories: Option<Vec<PathBuf>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub instruction_directories: Option<Vec<PathBuf>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plugin_directories: Option<Vec<PathBuf>>,
@@ -150,8 +144,6 @@ pub(crate) struct SessionCreateWire {
     pub large_output: Option<LargeToolOutputConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_search: Option<ToolSearchConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub image_generation: Option<ImageGenerationConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disabled_skills: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -317,10 +309,6 @@ pub(crate) struct SessionResumeWire {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skill_directories: Option<Vec<PathBuf>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent_directories: Option<Vec<PathBuf>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hook_directories: Option<Vec<PathBuf>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub instruction_directories: Option<Vec<PathBuf>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plugin_directories: Option<Vec<PathBuf>>,
@@ -328,8 +316,6 @@ pub(crate) struct SessionResumeWire {
     pub large_output: Option<LargeToolOutputConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_search: Option<ToolSearchConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub image_generation: Option<ImageGenerationConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disabled_skills: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]

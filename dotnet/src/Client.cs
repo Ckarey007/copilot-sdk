@@ -403,7 +403,29 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
                         ffiEnvironment["COPILOT_DISABLE_KEYTAR"] = "1";
                     }
 
-                    var ffiArgs = BuildInProcessRuntimeArguments(_options);
+                    var ffiArgs = new List<string>();
+                    if (_options.LogLevel is { } logLevel && !string.IsNullOrEmpty(logLevel.Value))
+                    {
+                        ffiArgs.AddRange(["--log-level", logLevel.Value]);
+                    }
+                    if (!string.IsNullOrEmpty(_options.GitHubToken))
+                    {
+                        ffiArgs.AddRange(["--auth-token-env", "COPILOT_SDK_AUTH_TOKEN"]);
+                    }
+                    var useLoggedInUser = _options.UseLoggedInUser ?? string.IsNullOrEmpty(_options.GitHubToken);
+                    if (!useLoggedInUser)
+                    {
+                        ffiArgs.Add("--no-auto-login");
+                    }
+                    if (_options.SessionIdleTimeoutSeconds is > 0)
+                    {
+                        ffiArgs.AddRange(["--session-idle-timeout", _options.SessionIdleTimeoutSeconds.Value.ToString(CultureInfo.InvariantCulture)]);
+                    }
+                    if (_options.EnableRemoteSessions)
+                    {
+                        ffiArgs.Add("--remote");
+                    }
+
                     var explicitCliPath = System.Environment.GetEnvironmentVariable("COPILOT_CLI_PATH");
                     if (string.IsNullOrEmpty(explicitCliPath))
                     {
@@ -1262,7 +1284,6 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
             var request = new CreateSessionRequest(
                 config.Model,
                 localSessionId,
-                config.Name,
                 config.ClientName,
                 config.ReasoningEffort,
                 config.ReasoningSummary,
@@ -1322,13 +1343,10 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
                 Cloud: config.Cloud,
                 RefreshCustomInstructions: config.RefreshCustomInstructions,
                 InstructionDirectories: config.InstructionDirectories,
-                AgentDirectories: config.AgentDirectories,
-                HookDirectories: config.HookDirectories,
                 PluginDirectories: config.PluginDirectories,
                 DisabledMcpServers: config.DisabledMcpServers,
                 LargeOutput: config.LargeOutput,
                 ToolSearch: config.ToolSearch,
-                ImageGeneration: config.ImageGeneration,
                 Memory: config.Memory,
                 Canvases: config.Canvases,
                 RequestCanvasRenderer: config.RequestCanvasRenderer,
@@ -1597,13 +1615,10 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
                 RemoteSession: config.RemoteSession,
                 ContinuePendingWork: config.ContinuePendingWork,
                 InstructionDirectories: config.InstructionDirectories,
-                AgentDirectories: config.AgentDirectories,
-                HookDirectories: config.HookDirectories,
                 PluginDirectories: config.PluginDirectories,
                 DisabledMcpServers: config.DisabledMcpServers,
                 LargeOutput: config.LargeOutput,
                 ToolSearch: config.ToolSearch,
-                ImageGeneration: config.ImageGeneration,
                 Memory: config.Memory,
                 Canvases: config.Canvases,
                 RequestCanvasRenderer: config.RequestCanvasRenderer,
@@ -2564,40 +2579,6 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
         return GetBundledNativePath(OperatingSystem.IsWindows() ? "copilot.exe" : "copilot", out searchedPath);
     }
 
-    private static List<string> BuildInProcessRuntimeArguments(CopilotClientOptions options)
-    {
-        var args = new List<string>();
-        if (options.LogLevel is { } logLevel && !string.IsNullOrEmpty(logLevel.Value))
-        {
-            args.AddRange(["--log-level", logLevel.Value]);
-        }
-        if (!string.IsNullOrEmpty(options.GitHubToken))
-        {
-            args.AddRange(["--auth-token-env", "COPILOT_SDK_AUTH_TOKEN"]);
-        }
-        var useLoggedInUser = options.UseLoggedInUser ?? string.IsNullOrEmpty(options.GitHubToken);
-        if (!useLoggedInUser)
-        {
-            args.Add("--no-auto-login");
-        }
-        if (options.SessionIdleTimeoutSeconds is > 0)
-        {
-            args.AddRange(["--session-idle-timeout", options.SessionIdleTimeoutSeconds.Value.ToString(CultureInfo.InvariantCulture)]);
-        }
-        if (options.EnableRemoteSessions)
-        {
-            args.Add("--remote");
-        }
-
-        var cliLoginSyncIntegrationId =
-            System.Environment.GetEnvironmentVariable("GITHUB_COPILOT_INTEGRATION_ID")?.Trim();
-        if (!string.IsNullOrEmpty(cliLoginSyncIntegrationId))
-        {
-            args.Add($"--cli-login-sync-integration-id={cliLoginSyncIntegrationId}");
-        }
-        return args;
-    }
-
     private static string? GetBundledNativePath(string binaryName, out string searchedPath)
     {
         // Always use portable RID (e.g., linux-x64) to match the build-time placement,
@@ -3229,7 +3210,6 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
     internal record CreateSessionRequest(
         string? Model,
         string? SessionId,
-        string? Name,
         string? ClientName,
         string? ReasoningEffort,
         ReasoningSummary? ReasoningSummary,
@@ -3289,13 +3269,10 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
         CloudSessionOptions? Cloud = null,
         bool? RefreshCustomInstructions = null,
         IList<string>? InstructionDirectories = null,
-        IList<string>? AgentDirectories = null,
-        IList<string>? HookDirectories = null,
         IList<string>? PluginDirectories = null,
         [property: JsonPropertyName("disabledMcpServers")] IList<string>? DisabledMcpServers = null,
         LargeToolOutputConfig? LargeOutput = null,
         ToolSearchConfig? ToolSearch = null,
-        ImageGenerationConfig? ImageGeneration = null,
         MemoryConfiguration? Memory = null,
 #pragma warning disable GHCP001
         IList<CanvasDeclaration>? Canvases = null,
@@ -3414,13 +3391,10 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
         RemoteSessionMode? RemoteSession = null,
         bool? ContinuePendingWork = null,
         IList<string>? InstructionDirectories = null,
-        IList<string>? AgentDirectories = null,
-        IList<string>? HookDirectories = null,
         IList<string>? PluginDirectories = null,
         [property: JsonPropertyName("disabledMcpServers")] IList<string>? DisabledMcpServers = null,
         LargeToolOutputConfig? LargeOutput = null,
         ToolSearchConfig? ToolSearch = null,
-        ImageGenerationConfig? ImageGeneration = null,
         MemoryConfiguration? Memory = null,
 #pragma warning disable GHCP001
         IList<CanvasDeclaration>? Canvases = null,

@@ -1373,7 +1373,6 @@ class GitHubMcpToolConfig(TypedDict, total=False):
 class CustomAgentConfig(TypedDict, total=False):
     """Configuration for a custom agent."""
 
-    hooks: NotRequired[dict[str, list[dict[str, Any]]]]
     name: str  # Unique name of the custom agent
     display_name: NotRequired[str]  # Display name for UI purposes
     description: NotRequired[str]  # Description of what the agent does
@@ -1447,20 +1446,6 @@ class LargeToolOutputConfig(TypedDict, total=False):
     max_size_bytes: int
     # Directory to write temp files to. Defaults to the OS temp directory.
     output_directory: str
-
-
-class ImageGenerationConfig(TypedDict, total=False):
-    """**Experimental.** Opt in to an authorized Copilot image model.
-
-    This API may change or be removed in a future release.
-
-    Omission disables on create/cold resume and preserves resident state on
-    resume. Not persisted: re-supply after runtime restart. Policy, permissions,
-    offline mode, and tool filters still apply. BYOK is not supported.
-    """
-
-    enabled: bool
-    """True opts in; False disables image generation."""
 
 
 class ToolSearchConfig(TypedDict, total=False):

@@ -114,7 +114,6 @@ from .session import (
     ElicitationHandler,
     ExitPlanModeHandler,
     GitHubMcpToolConfig,
-    ImageGenerationConfig,
     InfiniteSessionConfig,
     LargeToolOutputConfig,
     McpAuthHandler,
@@ -1752,9 +1751,6 @@ class CopilotClient:
         self._ffi_host: FfiRuntimeHost | None = None
         self._inprocess_runtime_path: str | None = None
         self._inprocess_cli_entrypoint: str | None = None
-        self._cli_login_sync_integration_id = (
-            os.environ.get("GITHUB_COPILOT_INTEGRATION_ID", "").strip() or None
-        )
 
         if isinstance(connection, UriRuntimeConnection):
             if connection.connection_token is not None and len(connection.connection_token) == 0:
@@ -2355,7 +2351,6 @@ class CopilotClient:
         on_permission_request: _PermissionHandlerFn | None = None,
         model: str | None = None,
         session_id: str | None = None,
-        name: str | None = None,
         client_name: str | None = None,
         reasoning_effort: ReasoningEffort | None = None,
         reasoning_summary: ReasoningSummary | None = None,
@@ -2364,7 +2359,6 @@ class CopilotClient:
         tools: list[Tool] | None = None,
         system_message: SystemMessageConfig | None = None,
         tool_search: ToolSearchConfig | None = None,
-        image_generation: ImageGenerationConfig | None = None,
         available_tools: list[str] | ToolSet | None = None,
         excluded_tools: list[str] | ToolSet | None = None,
         on_user_input_request: UserInputHandler | None = None,
@@ -2409,8 +2403,6 @@ class CopilotClient:
         included_builtin_skills: list[str] | None = None,
         skill_directories: list[str] | None = None,
         skill_provider: SkillProvider | None = None,
-        agent_directories: list[str] | None = None,
-        hook_directories: list[str] | None = None,
         plugin_directories: list[str] | None = None,
         instruction_directories: list[str] | None = None,
         disabled_skills: list[str] | None = None,
@@ -2457,12 +2449,6 @@ class CopilotClient:
                 for the consumer to resolve via the pending permission RPC.
             model: The model to use for the session (e.g. ``"gpt-4"``).
             session_id: Optional session ID. If not provided, a UUID is generated.
-            name: Names the session at creation, as ``session.name.set`` would, and
-                is validated the same way: non-empty, no leading or trailing whitespace,
-                at most 100 UTF-16 units, no control characters, and no double quotes.
-                A name also makes the session persist from the start, so it can be listed
-                and resumed without ever running a turn. Local sessions only: cloud
-                creation rejects it.
             client_name: Optional client name for identification.
             reasoning_effort: Reasoning effort level for the model.
             reasoning_summary: Reasoning summary mode for supported models.
@@ -2563,32 +2549,18 @@ class CopilotClient:
             organization_custom_instructions: Organization-level custom instructions.
             enable_on_demand_instruction_discovery: Enables on-demand instruction file
                 discovery.
-            enable_file_hooks: Enables repository-origin file hooks from ``.github/hooks/``
-                and trusted repository-configured roots, not explicit hook_directories
-                or callback hooks.
+            enable_file_hooks: Enables file-based hooks from ``.github/hooks/``.
             enable_host_git_operations: Enables git operations on the host filesystem.
             enable_session_store: Enables the cross-session store.
             enable_skills: Enables skill loading.
-            skill_directories: Explicit discovery-only skill roots. No general filesystem
-                grant. Available without enable_config_discovery, subject to skill/managed
-                disables. Relative paths resolve once when supplied against the request's
-                effective working_directory; retained roots do not move on cwd changes.
-                None and omission are equivalent; [] clears only the explicit SDK roots.
+            skill_directories: Directories to search for skills.
             skill_provider: **Experimental.** Session-scoped provider for SDK-owned
                 skills. Providers are not persisted; re-supply the provider when
                 resuming the session. Synchronous providers run on the event loop,
                 so keep them fast or make them async. Not supported for cloud
                 sessions.
-            agent_directories: Explicit discovery-only agent roots, separate from
-                custom_agents. Same path and clearing rules as skill_directories. Available
-                without enable_config_discovery, subject to source/managed disables.
-            hook_directories: Explicit discovery-only file-hook roots, separate from callback
-                hooks. Same path and clearing rules as skill_directories. Available without
-                enable_config_discovery or enable_file_hooks (repository-origin hooks only);
-                hook and managed disables still apply.
-            instruction_directories: Explicit discovery-only instruction roots using existing
-                SDK formats. Same path and clearing rules as skill_directories. Available
-                without enable_config_discovery, subject to instruction/managed disables.
+            instruction_directories: Additional directories to search for custom
+                instruction files.
             disabled_skills: Skills to disable.
             disabled_mcp_servers: Exact MCP server names to disable only for this
                 session. Disabled servers are not started or authenticated on
@@ -2596,8 +2568,6 @@ class CopilotClient:
                 already running. This does not change global MCP settings.
             infinite_sessions: Infinite session configuration.
             memory: Session memory configuration.
-            image_generation: **Experimental.** Image generation opt-in. Not persisted; re-supply
-                after runtime restart. See :class:`ImageGenerationConfig`.
             cloud: Creates a remote session in the cloud instead of a local
                 session. Optionally associates repository metadata with the
                 cloud session.
@@ -2745,8 +2715,6 @@ class CopilotClient:
 
         if tool_search is not None:
             payload["toolSearch"] = _tool_search_to_wire(tool_search)
-        if image_generation is not None:
-            payload["imageGeneration"] = dict(image_generation)
 
         if available_tools is not None:
             payload["availableTools"] = available_tools
@@ -2923,12 +2891,8 @@ class CopilotClient:
             payload["hasSkillProvider"] = True
 
         # Add skill directories configuration if provided
-        if skill_directories is not None:
+        if skill_directories:
             payload["skillDirectories"] = skill_directories
-        if agent_directories is not None:
-            payload["agentDirectories"] = agent_directories
-        if hook_directories is not None:
-            payload["hookDirectories"] = hook_directories
 
         # Add plugin directories configuration if provided
         if plugin_directories:
@@ -2996,8 +2960,6 @@ class CopilotClient:
         )
         if local_session_id is not None:
             payload["sessionId"] = local_session_id
-        if name is not None:
-            payload["name"] = name
         github_token_provider_registration_id = self._register_github_token_provider(
             github_token_provider, local_session_id
         )
@@ -3277,7 +3239,6 @@ class CopilotClient:
         tools: list[Tool] | None = None,
         system_message: SystemMessageConfig | None = None,
         tool_search: ToolSearchConfig | None = None,
-        image_generation: ImageGenerationConfig | None = None,
         available_tools: list[str] | ToolSet | None = None,
         excluded_tools: list[str] | ToolSet | None = None,
         on_user_input_request: UserInputHandler | None = None,
@@ -3321,8 +3282,6 @@ class CopilotClient:
         included_builtin_skills: list[str] | None = None,
         skill_directories: list[str] | None = None,
         skill_provider: SkillProvider | None = None,
-        agent_directories: list[str] | None = None,
-        hook_directories: list[str] | None = None,
         plugin_directories: list[str] | None = None,
         instruction_directories: list[str] | None = None,
         disabled_skills: list[str] | None = None,
@@ -3467,31 +3426,17 @@ class CopilotClient:
             organization_custom_instructions: Organization-level custom instructions.
             enable_on_demand_instruction_discovery: Enables on-demand instruction file
                 discovery.
-            enable_file_hooks: Enables repository-origin file hooks from ``.github/hooks/``
-                and trusted repository-configured roots, not explicit hook_directories
-                or callback hooks.
+            enable_file_hooks: Enables file-based hooks from ``.github/hooks/``.
             enable_host_git_operations: Enables git operations on the host filesystem.
             enable_session_store: Enables the cross-session store.
             enable_skills: Enables skill loading.
-            skill_directories: Explicit discovery-only skill roots. No general filesystem
-                grant. Available without enable_config_discovery, subject to skill/managed
-                disables. Relative paths resolve once when supplied against the request's
-                effective working_directory; retained roots do not move on cwd changes.
-                None and omission are equivalent; [] clears only the explicit SDK roots.
+            skill_directories: Directories to search for skills.
             skill_provider: **Experimental.** Session-scoped provider for SDK-owned
                 skills. Providers are not persisted; callers must re-supply the
                 provider on resume. Synchronous providers run on the event loop,
                 so keep them fast or make them async.
-            agent_directories: Explicit discovery-only agent roots, separate from
-                custom_agents. Same path and clearing rules as skill_directories. Available
-                without enable_config_discovery, subject to source/managed disables.
-            hook_directories: Explicit discovery-only file-hook roots, separate from callback
-                hooks. Same path and clearing rules as skill_directories. Available without
-                enable_config_discovery or enable_file_hooks (repository-origin hooks only);
-                hook and managed disables still apply.
-            instruction_directories: Explicit discovery-only instruction roots using existing
-                SDK formats. Same path and clearing rules as skill_directories. Available
-                without enable_config_discovery, subject to instruction/managed disables.
+            instruction_directories: Additional directories to search for custom
+                instruction files.
             disabled_skills: Skills to disable.
             disabled_mcp_servers: Exact MCP server names to disable only for this
                 session. Disabled servers are not started or authenticated on
@@ -3499,8 +3444,6 @@ class CopilotClient:
                 already running. This does not change global MCP settings.
             infinite_sessions: Infinite session configuration.
             memory: Session memory configuration.
-            image_generation: **Experimental.** Image generation opt-in. Omission preserves a
-                resident session's setting; re-supply after runtime restart.
             on_event: Callback for session events.
             enable_mcp_apps: **Experimental.** Opt into MCP Apps (SEP-1865) UI
                 passthrough on resume. This parameter is part of an experimental
@@ -3646,8 +3589,6 @@ class CopilotClient:
             payload["systemMessage"] = wire_system_message
         if tool_search is not None:
             payload["toolSearch"] = _tool_search_to_wire(tool_search)
-        if image_generation is not None:
-            payload["imageGeneration"] = dict(image_generation)
         if available_tools is not None:
             payload["availableTools"] = available_tools
         if excluded_tools is not None:
@@ -3802,12 +3743,8 @@ class CopilotClient:
 
         if agent:
             payload["agent"] = agent
-        if skill_directories is not None:
+        if skill_directories:
             payload["skillDirectories"] = skill_directories
-        if agent_directories is not None:
-            payload["agentDirectories"] = agent_directories
-        if hook_directories is not None:
-            payload["hookDirectories"] = hook_directories
         if plugin_directories:
             payload["pluginDirectories"] = plugin_directories
         if instruction_directories is not None:
@@ -4612,8 +4549,6 @@ class CopilotClient:
             The custom agent configuration in camelCase wire format.
         """
         wire_agent: dict[str, Any] = {"name": agent.get("name"), "prompt": agent.get("prompt")}
-        if "hooks" in agent:
-            wire_agent["hooks"] = agent["hooks"]
         if "display_name" in agent:
             wire_agent["displayName"] = agent["display_name"]
         if "description" in agent:
@@ -4865,8 +4800,6 @@ class CopilotClient:
             args.extend(["--session-idle-timeout", str(opts.session_idle_timeout_seconds)])
         if opts.enable_remote_sessions:
             args.append("--remote")
-        if self._cli_login_sync_integration_id is not None:
-            args.append(f"--cli-login-sync-integration-id={self._cli_login_sync_integration_id}")
 
         environment: dict[str, str] = {}
         if opts.github_token:

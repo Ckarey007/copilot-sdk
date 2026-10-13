@@ -32,7 +32,7 @@ public sealed partial class ReplayProxy : IAsyncDisposable
             {
                 FileName = "node",
                 WorkingDirectory = Path.Join(FindRepoRoot(), "test", "harness"),
-                Arguments = "startup.mjs",
+                Arguments = "--import tsx server.ts",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -89,10 +89,7 @@ public sealed partial class ReplayProxy : IAsyncDisposable
             {
                 if (e.Data == null) return;
                 diagnostics.AppendError(e.Data);
-                if (!e.Data.StartsWith("[SDK proxy startup]", StringComparison.Ordinal))
-                {
-                    Console.Error.WriteLine(e.Data);
-                }
+                Console.Error.WriteLine(e.Data);
             };
 
             try

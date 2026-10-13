@@ -93,8 +93,7 @@ public sealed class RuntimeWrapperTests
         var nativeDirectory = Path.Combine(baseDirectory, "runtimes", rid, "native");
         Directory.CreateDirectory(nativeDirectory);
         var cliPath = Path.Combine(nativeDirectory, OperatingSystem.IsWindows() ? "copilot.exe" : "copilot");
-        // Nonempty invalid images can stall Windows process creation before it reports the launch error.
-        await File.WriteAllTextAsync(cliPath, string.Empty);
+        await File.WriteAllTextAsync(cliPath, "not an executable");
         await File.WriteAllTextAsync(Path.Combine(nativeDirectory, ".copilot-explicit-cli"), "explicit");
 
         try

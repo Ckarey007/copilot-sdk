@@ -13,11 +13,11 @@ use super::{
     AgentMode, Attachment, AttachmentLineRange, AttachmentSelectionPosition,
     AttachmentSelectionRange, AutoTier, AzureProviderOptions, CapiSessionOptions, ConnectionState,
     CopilotExpAssignmentResponse, CustomAgentConfig, DeliveryMode, ExpConfigEntry, ExpFlagValue,
-    ExtensionInfo, GitHubMcpToolConfig, GitHubReferenceType, ImageGenerationConfig,
-    InfiniteSessionConfig, LargeToolOutputConfig, McpServerConfig, McpStdioServerConfig,
-    MemoryConfiguration, NamedProviderConfig, PermissionResponseCapability, ProviderConfig,
-    ProviderModelConfig, ReasoningSummary, ResumeSessionConfig, SessionConfig, SessionEvent,
-    SessionId, SystemMessageConfig, Tool, ToolBinaryResult, ToolResult, ToolResultExpanded,
+    ExtensionInfo, GitHubMcpToolConfig, GitHubReferenceType, InfiniteSessionConfig,
+    LargeToolOutputConfig, McpServerConfig, McpStdioServerConfig, MemoryConfiguration,
+    NamedProviderConfig, PermissionResponseCapability, ProviderConfig, ProviderModelConfig,
+    ReasoningSummary, ResumeSessionConfig, SessionConfig, SessionEvent, SessionId,
+    SystemMessageConfig, Tool, ToolBinaryResult, ToolResult, ToolResultExpanded,
     ToolResultResponse, ensure_attachment_display_names,
 };
 use crate::generated::session_events::TypedSessionEvent;
@@ -133,55 +133,6 @@ fn custom_agent_config_omits_reasoning_effort_when_none() {
     let agent = CustomAgentConfig::new("default-agent", "prompt");
     let wire = serde_json::to_value(&agent).unwrap();
     assert!(wire.get("reasoningEffort").is_none());
-}
-
-#[test]
-fn custom_agent_config_hooks_round_trip() {
-    use indexmap::IndexMap;
-
-    let action: IndexMap<String, serde_json::Value> = IndexMap::from([
-        ("type".into(), json!("command")),
-        ("bash".into(), json!("echo scoped-hook")),
-        ("timeoutSec".into(), json!(10)),
-    ]);
-    let hooks = IndexMap::from([("preToolUse".into(), vec![action])]);
-    let agent = CustomAgentConfig::new("hook-agent", "prompt").with_hooks(hooks.clone());
-    assert_eq!(agent.hooks.as_ref(), Some(&hooks));
-
-    let wire = serde_json::to_value(&agent).unwrap();
-    assert_eq!(
-        wire["hooks"],
-        json!({"preToolUse": [{"type": "command", "bash": "echo scoped-hook", "timeoutSec": 10}]})
-    );
-    let restored: CustomAgentConfig = serde_json::from_value(wire).unwrap();
-    assert_eq!(restored.hooks, Some(hooks));
-}
-
-#[test]
-fn custom_agent_config_hooks_reject_non_object_actions() {
-    for action in [
-        json!(null),
-        json!(true),
-        json!(42),
-        json!("command"),
-        json!([]),
-    ] {
-        let result = serde_json::from_value::<CustomAgentConfig>(json!({
-            "name": "invalid-hook-agent",
-            "prompt": "prompt",
-            "hooks": {"preToolUse": [action]}
-        }));
-        assert!(
-            result.is_err(),
-            "expected non-object hook action {action} to fail, got {result:?}"
-        );
-    }
-}
-
-#[test]
-fn custom_agent_config_omits_hooks_when_unset() {
-    let wire = serde_json::to_value(CustomAgentConfig::new("plain-agent", "prompt")).unwrap();
-    assert!(wire.get("hooks").is_none());
 }
 
 #[test]
@@ -1995,41 +1946,4 @@ fn github_anchored_attachment_variants_round_trip() {
             "{expected_type} should re-deserialize to the same value"
         );
     }
-}
-#[test]
-fn image_generation_create_and_resume_wire_options() {
-    for enabled in [true, false] {
-        let config = ImageGenerationConfig::new().with_enabled(enabled);
-        let (create, _) = SessionConfig::default()
-            .with_image_generation(config.clone())
-            .into_wire(Some(SessionId::from("image-test")))
-            .unwrap();
-        let (resume, _) = ResumeSessionConfig::new(SessionId::from("image-test"))
-            .with_image_generation(config)
-            .into_wire()
-            .unwrap();
-        for wire in [
-            serde_json::to_value(create).unwrap(),
-            serde_json::to_value(resume).unwrap(),
-        ] {
-            assert_eq!(
-                wire["imageGeneration"],
-                serde_json::json!({"enabled": enabled})
-            );
-        }
-    }
-    let (create, _) = SessionConfig::default().into_wire(None).unwrap();
-    let (resume, _) = ResumeSessionConfig::new(SessionId::from("image-test"))
-        .into_wire()
-        .unwrap();
-    for wire in [
-        serde_json::to_value(create).unwrap(),
-        serde_json::to_value(resume).unwrap(),
-    ] {
-        assert!(wire.get("imageGeneration").is_none(), "{wire}");
-    }
-    assert_eq!(
-        serde_json::to_value(ImageGenerationConfig::new()).unwrap(),
-        serde_json::json!({})
-    );
 }

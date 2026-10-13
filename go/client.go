@@ -975,8 +975,6 @@ func (c *Client) CreateSession(ctx context.Context, config *SessionConfig) (*Ses
 	req.DefaultAgent = config.DefaultAgent
 	req.Agent = config.Agent
 	req.SkillDirectories = config.SkillDirectories
-	req.AgentDirectories = config.AgentDirectories
-	req.HookDirectories = config.HookDirectories
 	req.PluginDirectories = config.PluginDirectories
 	req.InstructionDirectories = config.InstructionDirectories
 	req.DisabledSkills = config.DisabledSkills
@@ -986,7 +984,6 @@ func (c *Client) CreateSession(ctx context.Context, config *SessionConfig) (*Ses
 	req.InfiniteSessions = config.InfiniteSessions
 	req.LargeOutput = config.LargeOutput
 	req.ToolSearch = config.ToolSearch
-	req.ImageGeneration = config.ImageGeneration
 	req.Memory = config.Memory
 	req.GitHubToken = config.GitHubToken
 	req.GitHubTokenProviderRegistrationID = registrationID
@@ -1081,7 +1078,6 @@ func (c *Client) CreateSession(ctx context.Context, config *SessionConfig) (*Ses
 		localSessionID = uuid.NewString()
 	}
 	req.SessionID = localSessionID
-	req.Name = config.Name
 
 	// unregisterSession removes only the session created by this call and stops
 	// its event consumer. The latter is essential on CreateSession error paths:
@@ -1459,8 +1455,6 @@ func (c *Client) ResumeSessionWithOptions(ctx context.Context, sessionID string,
 	req.DefaultAgent = config.DefaultAgent
 	req.Agent = config.Agent
 	req.SkillDirectories = config.SkillDirectories
-	req.AgentDirectories = config.AgentDirectories
-	req.HookDirectories = config.HookDirectories
 	req.PluginDirectories = config.PluginDirectories
 	req.InstructionDirectories = config.InstructionDirectories
 	req.DisabledSkills = config.DisabledSkills
@@ -1470,7 +1464,6 @@ func (c *Client) ResumeSessionWithOptions(ctx context.Context, sessionID string,
 	req.InfiniteSessions = config.InfiniteSessions
 	req.LargeOutput = config.LargeOutput
 	req.ToolSearch = config.ToolSearch
-	req.ImageGeneration = config.ImageGeneration
 	req.Memory = config.Memory
 	req.GitHubToken = config.GitHubToken
 	req.GitHubTokenProviderRegistrationID = registrationID
@@ -2431,8 +2424,7 @@ func (c *Client) startInProcess(ctx context.Context) error {
 		return errors.New("in-process runtime unavailable: build with the bundled embedded runtime or set COPILOT_CLI_PATH to a compatible runtime package")
 	}
 
-	integrationID := strings.TrimSpace(getEnvValue(c.options.Env, "GITHUB_COPILOT_INTEGRATION_ID"))
-	config := c.inProcessHostConfig(integrationID)
+	config := c.inProcessHostConfig()
 
 	host, err := createInProcessHost(runtimePath, cliEntrypoint, config)
 	if err != nil {
@@ -2470,7 +2462,7 @@ func (c *Client) startInProcess(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) inProcessHostConfig(cliLoginSyncIntegrationID string) inProcessHostConfig {
+func (c *Client) inProcessHostConfig() inProcessHostConfig {
 	args := make([]string, 0, 8)
 	if c.options.LogLevel != "" {
 		args = append(args, "--log-level", c.options.LogLevel)
@@ -2492,9 +2484,6 @@ func (c *Client) inProcessHostConfig(cliLoginSyncIntegrationID string) inProcess
 	}
 	if c.options.EnableRemoteSessions {
 		args = append(args, "--remote")
-	}
-	if cliLoginSyncIntegrationID != "" {
-		args = append(args, "--cli-login-sync-integration-id="+cliLoginSyncIntegrationID)
 	}
 
 	environment := make(map[string]string)

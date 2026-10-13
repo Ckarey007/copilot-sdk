@@ -4,13 +4,12 @@
 
 import { SessionCompactionCompleteEvent } from "@github/copilot/sdk";
 import { MemoryProvider, VirtualProvider } from "@platformatic/vfs";
-import { createHash, randomUUID } from "crypto";
+import { createHash } from "crypto";
 import { existsSync, mkdtempSync, realpathSync } from "fs";
-import { mkdir, readFile, readdir, rm, writeFile } from "fs/promises";
+import { mkdir, readFile, rm, writeFile } from "fs/promises";
 import { createServer } from "http";
 import { tmpdir } from "os";
 import { join } from "path";
-import { fileURLToPath } from "url";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { CopilotClient } from "../../src/client.js";
 import { getRuntimePlatform } from "../../src/runtimeArtifacts.js";
@@ -52,7 +51,6 @@ describe("Session Fs", async () => {
         createClient,
         env,
         openAiEndpoint,
-        workDir,
     } = await createSdkTestContext({
         copilotClientOptions: { sessionFs: sessionFsConfig },
     });
@@ -181,131 +179,6 @@ describe("Session Fs", async () => {
         expect(msg2?.data.content).toContain("300");
     });
 
-    it("should roll context through native tools.execute from an active SDK handler", async () => {
-        await openAiEndpoint.updateConfig({
-            filePath: fileURLToPath(
-                new URL(
-                    "../../../test/snapshots/session_fs/should_route_file_operations_through_the_session_fs_provider.yaml",
-                    import.meta.url
-                )
-            ),
-            workDir,
-            replayOnly: true,
-        });
-        const original = await client.createSession({
-            onPermissionRequest: approveAll,
-            createSessionFsProvider,
-            featureFlags: { CONTEXT_MANAGEMENT_TOOLS: false },
-        });
-        const sessionId = original.sessionId;
-        try {
-            expect(
-                (await original.sendAndWait({ prompt: "What is 100 + 200?" }))?.data.content
-            ).toContain("300");
-        } finally {
-            await original.disconnect();
-        }
-
-        // Resume a valid large user event so a fresh window can reclaim context.
-        const request: SessionEvent = {
-            id: randomUUID(),
-            timestamp: new Date().toISOString(),
-            parentId: null,
-            type: "user.message",
-            data: {
-                content:
-                    "Preserve SDK rollover state. " + "Rollover fixture context. ".repeat(3_000),
-                source: "user",
-            },
-        };
-        await provider.appendFile(
-            p(sessionId, `${sessionStatePath}/events.jsonl`),
-            JSON.stringify(request) + "\n"
-        );
-
-        let resumed: CopilotSession;
-        let innerResult: Awaited<ReturnType<CopilotSession["rpc"]["tools"]["execute"]>> | undefined;
-        resumed = await client.resumeSession(sessionId, {
-            onPermissionRequest: approveAll,
-            createSessionFsProvider,
-            featureFlags: { CONTEXT_MANAGEMENT_TOOLS: true },
-            continuePendingWork: false,
-            tools: [
-                defineTool("sdk_context_rollover", {
-                    description: "Roll context from an active SDK tool handler",
-                    isTerminal: true,
-                    defer: "never",
-                    handler: async () => {
-                        innerResult = await resumed.rpc.tools.execute({
-                            name: "new_context",
-                            arguments: {},
-                            toolCallId: "sdk-context-rollover-native",
-                        });
-                        return JSON.stringify(innerResult);
-                    },
-                }),
-            ],
-        });
-        try {
-            await resumed.rpc.tools.initializeAndValidate();
-            expect((await resumed.rpc.tools.getCurrentMetadata()).tools).toEqual(
-                expect.arrayContaining([expect.objectContaining({ name: "new_context" })])
-            );
-            const remaining = await resumed.rpc.tools.execute({
-                name: "get_context_remaining",
-                arguments: {},
-            });
-            expect(remaining, JSON.stringify(remaining)).toMatchObject({ resultType: "success" });
-            expect(JSON.parse(remaining.textResultForLlm)).toMatchObject({
-                context_window: { number: 1, previous_window_id: null },
-            });
-            const checkpoint = await resumed.rpc.tools.execute({
-                name: "session_artifacts",
-                arguments: {
-                    operation: "append",
-                    path: "checkpoint.md",
-                    content: "\nPreserve SDK rollover state.",
-                },
-            });
-            expect(checkpoint, JSON.stringify(checkpoint)).toMatchObject({ resultType: "success" });
-
-            const outerResult = await resumed.rpc.tools.execute({
-                name: "sdk_context_rollover",
-                arguments: {},
-                toolCallId: "sdk-context-rollover-handler",
-            });
-            expect(outerResult, JSON.stringify(outerResult)).toMatchObject({
-                resultType: "success",
-            });
-            expect(innerResult, JSON.stringify(innerResult)).toMatchObject({
-                resultType: "success",
-            });
-            await expect
-                .poll(async () =>
-                    (await resumed.getEvents()).filter(
-                        (event) => event.type === "session.context_cleared"
-                    )
-                )
-                .toEqual([
-                    expect.objectContaining({
-                        data: expect.objectContaining({
-                            initialMessage: expect.stringContaining("Preserve SDK rollover state."),
-                        }),
-                    }),
-                ]);
-            const next = await resumed.rpc.tools.execute({
-                name: "get_context_remaining",
-                arguments: {},
-            });
-            expect(next, JSON.stringify(next)).toMatchObject({ resultType: "success" });
-            expect(JSON.parse(next.textResultForLlm)).toMatchObject({
-                context_window: { number: 2, previous_window_id: expect.any(String) },
-            });
-        } finally {
-            await resumed.disconnect();
-        }
-    });
-
     it("should reject setProvider when sessions already exist", async () => {
         const tcpConnectionToken = "session-fs-test-token";
         const client = new CopilotClient({
@@ -432,91 +305,6 @@ describe("Session Fs", async () => {
             .poll(() => provider.readFile(eventsPath, "utf8"), { timeout: 30_000 })
             .toContain("checkpointNumber");
     });
-});
-
-describe("Session Fs native plan edits", async () => {
-    const { createClient, workDir } = await createSdkTestContext();
-
-    it.each(["interactive", "plan"] as const)(
-        "keeps native edits and write failures in the provider in %s mode",
-        async (mode) => {
-            const statePath = join(workDir, `provider-state-${mode}`);
-            const planPath = join(statePath, "plan.md");
-            const provider = new MemoryProvider();
-            const writes: string[] = [];
-            let rejectWrites = false;
-            const client = createClient({
-                mode: "empty",
-                sessionFs: {
-                    initialCwd: workDir,
-                    sessionStatePath: statePath,
-                    conventions: process.platform === "win32" ? "windows" : "posix",
-                },
-            });
-            onTestFinished(() => client.stop());
-            const session = await client.createSession({
-                onPermissionRequest: approveAll,
-                availableTools: ["edit"],
-                createSessionFsProvider: (session) => {
-                    const handler = createTestSessionFsHandler(session, provider);
-                    return {
-                        ...handler,
-                        async writeFile(path, content) {
-                            if (path === planPath) {
-                                writes.push(content);
-                                if (rejectWrites) {
-                                    throw new Error("provider write denied");
-                                }
-                            }
-                            return handler.writeFile(path, content);
-                        },
-                    };
-                },
-            });
-            await session.rpc.mode.set({ mode });
-            await session.rpc.plan.update({ content: "# Provider plan\n" });
-            expect(await session.rpc.plan.read()).toMatchObject({
-                path: planPath,
-                content: "# Provider plan\n",
-            });
-
-            // A writable host parent makes an accidental host write succeed.
-            await mkdir(statePath, { recursive: true });
-            expect(await readdir(statePath)).toEqual([]);
-            const edit = (old_str: string, new_str: string) =>
-                session.rpc.tools.execute({
-                    name: "edit",
-                    arguments: { path: planPath, old_str, new_str },
-                });
-            await expect(edit("Provider plan", "Native update")).resolves.toMatchObject({
-                resultType: "success",
-            });
-            expect((await session.rpc.plan.read()).content).toBe("# Native update\n");
-            expect(writes).toEqual(["# Provider plan\n", "# Native update\n"]);
-            expect(await readdir(statePath)).toEqual([]);
-
-            await writeFile(planPath, "host-only content\n");
-            await expect(edit("Native update", "Second update")).resolves.toMatchObject({
-                resultType: "success",
-            });
-            expect((await session.rpc.plan.read()).content).toBe("# Second update\n");
-            expect(await readFile(planPath, "utf8")).toBe("host-only content\n");
-
-            rejectWrites = true;
-            const failed = await edit("Second update", "Rejected update");
-            expect(failed.resultType).toBe("failure");
-            expect(failed.textResultForLlm).toContain("provider write denied");
-            expect((await session.rpc.plan.read()).content).toBe("# Second update\n");
-            expect(writes).toEqual([
-                "# Provider plan\n",
-                "# Native update\n",
-                "# Second update\n",
-                "# Rejected update\n",
-            ]);
-            expect(await readFile(planPath, "utf8")).toBe("host-only content\n");
-            expect(await readdir(statePath)).toEqual(["plan.md"]);
-        }
-    );
 });
 
 describe("Session Fs remembered approvals", async () => {

@@ -532,15 +532,10 @@ it("allows a module-level extension watcher to start a workflow while another bo
     const extensionDir = join(workDir, ".github", "extensions", "workflow-smoke");
     await using session = await setupWorkflowExtension(workDir);
 
-    // Admission must finish before starting the body-entry deadline.
-    const parked = await session.rpc.workflow.run({
-        name: "parked",
-        args: {},
-        options: { notifyOnComplete: false },
-    });
-    const completion = Promise.allSettled([session.workflow.waitForRun(parked.runId)]);
+    const parked = Promise.allSettled([
+        session.workflow.run("parked", { notifyOnComplete: false }),
+    ]);
     try {
-        expect(parked.status).toBe("running");
         await retry(
             "wait for the parked workflow to enter its body",
             async () => {
@@ -569,14 +564,14 @@ it("allows a module-level extension watcher to start a workflow while another bo
         );
     } finally {
         writeFileSync(join(extensionDir, "release"), "release");
-        const [outcome] = await completion;
+        const [outcome] = await parked;
         if (outcome.status === "rejected") {
             console.error("Parked workflow failed during cleanup:", outcome.reason);
         } else if (outcome.value.status !== "completed") {
             console.error("Parked workflow did not complete during cleanup:", outcome.value);
         }
     }
-    await expect(completion).resolves.toMatchObject([
+    await expect(parked).resolves.toMatchObject([
         {
             status: "fulfilled",
             value: { status: "completed", result: "released" },

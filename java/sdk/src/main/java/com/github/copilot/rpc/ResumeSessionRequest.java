@@ -197,12 +197,6 @@ public final class ResumeSessionRequest {
     @JsonProperty("skillDirectories")
     private List<String> skillDirectories;
 
-    @JsonProperty("agentDirectories")
-    private List<String> agentDirectories;
-
-    @JsonProperty("hookDirectories")
-    private List<String> hookDirectories;
-
     @JsonProperty("instructionDirectories")
     private List<String> instructionDirectories;
 
@@ -214,9 +208,6 @@ public final class ResumeSessionRequest {
 
     @JsonProperty("toolSearch")
     private ToolSearchConfig toolSearch;
-
-    @JsonProperty("imageGeneration")
-    private ImageGenerationConfig imageGeneration;
 
     @JsonProperty("memory")
     private MemoryConfiguration memory;
@@ -1002,31 +993,6 @@ public final class ResumeSessionRequest {
         this.skillDirectories = skillDirectories;
     }
 
-    /** Gets explicit agent discovery roots. @return the directories */
-    public List<String> getAgentDirectories() {
-        return agentDirectories == null ? null : Collections.unmodifiableList(agentDirectories);
-    }
-
-    /**
-     * Sets explicit agent discovery roots. @param agentDirectories the directories
-     */
-    public void setAgentDirectories(List<String> agentDirectories) {
-        this.agentDirectories = agentDirectories;
-    }
-
-    /** Gets explicit file-hook discovery roots. @return the directories */
-    public List<String> getHookDirectories() {
-        return hookDirectories == null ? null : Collections.unmodifiableList(hookDirectories);
-    }
-
-    /**
-     * Sets explicit file-hook discovery roots. @param hookDirectories the
-     * directories
-     */
-    public void setHookDirectories(List<String> hookDirectories) {
-        this.hookDirectories = hookDirectories;
-    }
-
     /** Gets instruction directories. @return the instruction directories */
     public List<String> getInstructionDirectories() {
         return instructionDirectories == null ? null : Collections.unmodifiableList(instructionDirectories);
@@ -1062,19 +1028,6 @@ public final class ResumeSessionRequest {
     /** Gets tool-search config. @return the tool-search config */
     public ToolSearchConfig getToolSearch() {
         return toolSearch;
-    }
-
-    /** Gets image generation config. @return the image generation config */
-    public ImageGenerationConfig getImageGeneration() {
-        return imageGeneration;
-    }
-
-    /**
-     * Sets image generation config. @param imageGeneration the image generation
-     * config
-     */
-    public void setImageGeneration(ImageGenerationConfig imageGeneration) {
-        this.imageGeneration = imageGeneration;
     }
 
     /** Sets tool-search config. @param toolSearch the tool-search config */

@@ -7,6 +7,7 @@ env:
   HUSKY: 0
   POWERSHELL_UPDATECHECK: Off
   SDK_HOME: ${{ inputs.sdk-home }}
+  SETUP_NODE_TIMEOUT_MINUTES: 10
 
 on:
   workflow_call:
@@ -34,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.platform == 'linux-x64' && '["ubuntu-latest"]' || inputs.platform == 'darwin-arm64' && '["macos-26-agent-runtime"]' || inputs.platform == 'win32-x64' && '["windows-latest"]' || '["ubuntu-latest","macos-26-agent-runtime","windows-latest"]') }}
+        os: ${{ fromJSON(inputs.platform == 'linux-x64' && '["ubuntu-latest"]' || inputs.platform == 'darwin-arm64' && '["macos-26"]' || inputs.platform == 'win32-x64' && '["windows-latest"]' || '["ubuntu-latest","macos-26","windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -42,6 +43,7 @@ jobs:
         working-directory: ${{ inputs.sdk-home }}/nodejs
     steps:
       - uses: actions/checkout@v7
+        timeout-minutes: 4
         with:
           persist-credentials: false
       - uses: ./.github/actions/download-sdk-runtime
@@ -92,17 +94,17 @@ jobs:
         env:
           COPILOT_HMAC_KEY: ${{ secrets.COPILOT_DEVELOPER_CLI_INTEGRATION_HMAC_KEY }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "merge_group" ] || [ "$GITHUB_EVENT_NAME" = "pull_request" ] || [ "$GITHUB_EVENT_NAME" = "push" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "merge_group" ] || [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             npm test -- --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/sdk-nodejs-results.json"
           else
             npm test
           fi
       - name: Upload Flake Finder Node.js test results
-        if: always() && (github.event_name == 'merge_group' || github.event_name == 'pull_request' || github.event_name == 'push')
+        if: always() && (github.event_name == 'merge_group' || github.event_name == 'pull_request') && runner.os == 'Linux'
         continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
-          name: suspected-flakes-sdk-nodejs-${{ github.run_attempt }}-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}
+          name: suspected-flakes-sdk-nodejs-${{ github.run_attempt }}-linux
           path: ${{ runner.temp }}/sdk-nodejs-results.json
           if-no-files-found: warn
           retention-days: 7
@@ -126,6 +128,7 @@ jobs:
     name: "Node.js (ubuntu-latest, ${{ matrix.backend }})"
     if: github.event_name != 'merge_group' && (inputs.platform == 'all' || inputs.platform == 'linux-x64')
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -138,6 +141,7 @@ jobs:
       COPILOT_SDK_E2E_BACKEND: ${{ matrix.backend }}
     steps:
       - uses: actions/checkout@v7
+        timeout-minutes: 4
         with:
           persist-credentials: false
       - uses: ./.github/actions/download-sdk-runtime
@@ -166,6 +170,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        timeout-minutes: 4
         with:
           persist-credentials: false
       - uses: ./.github/actions/download-sdk-runtime

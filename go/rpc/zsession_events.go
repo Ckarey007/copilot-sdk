@@ -358,7 +358,7 @@ func (*PromptCacheBreakData) Type() SessionEventType { return SessionEventTypePr
 // A provider-owned quota observation, distinct from per-call usage and charge accounting.
 // Experimental: SessionQuotaObservationData is part of an experimental API and may change or be removed.
 type SessionQuotaObservationData struct {
-	// The admitted provider's state observation. Admission balances and percentages remain absent; separate monthly usage may report its own amount and cycle.
+	// The admitted provider's state observation. Admission observations never contain quantities or reset/percentage semantics.
 	Observation ProviderQuotaState `json:"observation"`
 }
 
@@ -487,10 +487,6 @@ type SessionPermissionRecoveryData struct {
 	MaxAttempts int64 `json:"maxAttempts"`
 	// Policy selected from the current client's response capability; mode or client changes may update it during recovery
 	OnBlocked PermissionRecoveryOnBlocked `json:"onBlocked"`
-	// Subagent identifier that owns this recovery episode when the request was delegated through a parent permission service
-	OwnerAgentID *string `json:"ownerAgentId,omitempty"`
-	// Root or child execution-session identifier that owns this recovery episode; omitted for legacy snapshots
-	OwnerSessionID *string `json:"ownerSessionId,omitempty"`
 	// Controlled reason for the latest episode transition
 	Reason PermissionRecoveryReason `json:"reason"`
 	// Current lifecycle state of the recovery episode
@@ -899,20 +895,18 @@ func (*MCPHeadersRefreshRequiredData) Type() SessionEventType {
 // Effective enterprise managed settings and contributing channels. Session events report applied policy; sessionless resolve reports an account/device snapshot, and compose reports a non-applying preview of candidate documents. Device values take precedence over server values, then the policy helper, per ordinary key, while permissions compose restrictively. Session-local SDK-client policy is included only in session results. Marked experimental while the managed-settings surface stabilizes.
 // Experimental: SessionManagedSettingsResolvedData is part of an experimental API and may change or be removed.
 type SessionManagedSettingsResolvedData struct {
-	// Whether an explicit enterprise policy restriction disables bypass-permissions ("yolo") mode for this session. Deny-wins across layers; an unresolved policy does not force this on by itself.
+	// Whether enterprise policy disables bypass-permissions ("yolo") mode for this session. Deny-wins across layers, and forced on when `failClosed` is true.
 	BypassPermissionsDisabled bool `json:"bypassPermissionsDisabled"`
 	// Whether a session-local permissions layer injected by the SDK host was present
 	ClientManaged *bool `json:"clientManaged,omitempty"`
 	// Whether an actual device MDM/plist/registry/file managed-settings layer was present
 	DeviceManaged bool `json:"deviceManaged"`
-	// Whether managed policy could not be determined (e.g. a failed server fetch) and unresolved-policy safeguards remain active. This does not by itself disable bypass-permissions; `bypassPermissionsDisabled` reports only an explicit policy restriction.
+	// Whether managed policy could not be determined (e.g. a failed server fetch) and the session fell back to the fail-closed restriction. When true, restrictions such as disabling bypass-permissions are enforced even though `settings` may be absent.
 	FailClosed bool `json:"failClosed"`
 	// The setting keys under enterprise management in the effective managed settings (e.g. `model`, `enabledPlugins`, `permissions`). Empty when no managed settings are in force.
 	ManagedKeys []string `json:"managedKeys"`
 	// Whether at least two managed sources supplied permission allowlists, so enforcement intersects them and the flattened settings payload omits `permissions.allow`.
 	PermissionsAllowIntersected *bool `json:"permissionsAllowIntersected,omitempty"`
-	// Reusable retained managed permission policy for managedSettings.permissions.evaluate, including source composition and session-local injection. Provided by live session snapshots; absent in older events. Refresh the context when managed policy changes.
-	PermissionsContext *ManagedPermissionsContext `json:"permissionsContext,omitempty"`
 	// Whether the policy-helper managed-settings layer was present. The policy helper is the weakest channel: it fills keys no enterprise source set and can never replace one.
 	PolicyHelperManaged *bool `json:"policyHelperManaged,omitempty"`
 	// Whether the effective sandbox policy forces the sandbox on *only* because managed policy could not be determined, rather than because the policy requires it. Lets clients tell a user whose `--no-sandbox` was overridden that the sandbox stayed on as a fail-closed fallback, instead of attributing it to an administrator who set no such policy.
@@ -1052,16 +1046,12 @@ type SessionErrorData struct {
 	EligibleForAutoSwitch *bool `json:"eligibleForAutoSwitch,omitempty"`
 	// Fine-grained error code from the upstream provider, when available. For `errorType: "rate_limit"`, this is one of the `RateLimitErrorCode` values (e.g., `"user_weekly_rate_limited"`, `"user_global_rate_limited"`, `"rate_limited"`, `"user_model_rate_limited"`, `"integration_rate_limited"`). For `errorType: "quota"`, this is the CAPI quota error code (e.g., `"quota_exceeded"`, `"session_quota_exceeded"`, `"billing_not_configured"`).
 	ErrorCode *string `json:"errorCode,omitempty"`
-	// Category of error (e.g., "authentication", "authorization", "policy", "quota", "rate_limit", "context_limit", "query")
+	// Category of error (e.g., "authentication", "authorization", "quota", "rate_limit", "context_limit", "query")
 	ErrorType string `json:"errorType"`
 	// Human-readable error message
 	Message string `json:"message"`
 	// GitHub request tracing ID (x-github-request-id header) for correlating with server-side logs
 	ProviderCallID *string `json:"providerCallId,omitempty"`
-	// Sanitized provider-defined error parameter preserved from a structured upstream error envelope, when available.
-	ProviderErrorParam *string `json:"providerErrorParam,omitempty"`
-	// Provider-defined error type preserved from a structured upstream error envelope, when available (for example, `invalid_request_error`).
-	ProviderErrorType *string `json:"providerErrorType,omitempty"`
 	// What the user must do to recover, when the runtime knows of an action. The `message` never names a client affordance, so a client that offers one — a slash command, a settings pane, a link — renders it from this value.
 	Remediation *RemediationAction `json:"remediation,omitempty"`
 	// Copilot service request ID (x-copilot-service-request-id header) for CAPI log correlation
@@ -1481,12 +1471,8 @@ type ModelCallFailureData struct {
 	QuotaSnapshots map[string]AssistantUsageQuotaSnapshot `json:"quotaSnapshots,omitzero"`
 	// Reasoning effort level used for the failed model call, if applicable
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
-	// Serialized (uncompressed) byte length of the failed request body, before any Content-Encoding. A content-free size signal.
+	// Serialized (uncompressed) byte length of the failed request body. A content-free size signal.
 	RequestBodyBytes *int64 `json:"requestBodyBytes,omitempty"`
-	// Content-Encoding applied to the failed request body; identity when uncompressed
-	RequestBodyEncoding *ModelCallRequestBodyEncoding `json:"requestBodyEncoding,omitempty"`
-	// Byte length of the failed request body actually sent on the wire, after any Content-Encoding. Equals requestBodyBytes when the body was not compressed.
-	RequestBodyWireBytes *int64 `json:"requestBodyWireBytes,omitempty"`
 	// Content-free structural summary of the failing request. Contains only counts and shape flags (no prompt content), so it is safe for unrestricted telemetry. Populated only for client-error (4xx) failures.
 	RequestFingerprint *ModelCallFailureRequestFingerprint `json:"requestFingerprint,omitempty"`
 	// Zero-based orchestrator retry index of the failed attempt
@@ -1503,18 +1489,8 @@ type ModelCallFailureData struct {
 	Transport *ModelCallFailureTransport `json:"transport,omitempty"`
 	// Milliseconds spent on the WebSocket attempt before falling back to HTTP
 	WebsocketFallbackAfterMs *int64 `json:"websocketFallbackAfterMs,omitempty"`
-	// WebSocket close code received before the HTTP fallback
-	WebsocketFallbackCloseCode *int32 `json:"websocketFallbackCloseCode,omitempty"`
-	// Normalized cause of the WebSocket failure that triggered the HTTP fallback; absent when no fallback occurred or the cause is unknown
-	WebsocketFallbackErrorKind *ModelCallWebSocketFallbackErrorKind `json:"websocketFallbackErrorKind,omitempty"`
 	// Why the failed call was carried by the HTTP fallback of a WebSocket-capable dispatcher; absent when no fallback occurred
 	WebsocketFallbackReason *ModelCallWebSocketFallbackReason `json:"websocketFallbackReason,omitempty"`
-	// Whether a WebSocket reconnect was attempted before falling back to HTTP
-	WebsocketFallbackReconnectAttempted *bool `json:"websocketFallbackReconnectAttempted,omitempty"`
-	// Whether the HTTP fallback started during this model call, rather than being inherited from an earlier call
-	WebsocketFallbackStartedThisCall *bool `json:"websocketFallbackStartedThisCall,omitempty"`
-	// HTTP status of the WebSocket upgrade rejection or WebSocket API error that triggered the HTTP fallback
-	WebsocketFallbackStatusCode *int32 `json:"websocketFallbackStatusCode,omitempty"`
 }
 
 func (*ModelCallFailureData) sessionEventData()      {}
@@ -1878,12 +1854,8 @@ type AssistantUsageData struct {
 	ReasoningTokens *int64 `json:"reasoningTokens,omitempty"`
 	// Number of rejected speculative prediction tokens
 	RejectedPredictionTokens *int64 `json:"rejectedPredictionTokens,omitempty"`
-	// Serialized (uncompressed) byte length of the request body, before any Content-Encoding. A content-free size signal.
+	// Serialized (uncompressed) byte length of the request body. A content-free size signal.
 	RequestBodyBytes *int64 `json:"requestBodyBytes,omitempty"`
-	// Content-Encoding applied to the request body of the attempt that produced this outcome; identity when uncompressed
-	RequestBodyEncoding *ModelCallRequestBodyEncoding `json:"requestBodyEncoding,omitempty"`
-	// Byte length of the request body actually sent on the wire for the attempt that produced this outcome, after any Content-Encoding. Equals requestBodyBytes when the body was not compressed.
-	RequestBodyWireBytes *int64 `json:"requestBodyWireBytes,omitempty"`
 	// Per-request treatment/eligibility signal returned by the Copilot API in the `X-GitHub-Copilot-Request-TE` response header for the associated model call; `false` when the header was absent or unparseable.
 	Rte *bool `json:"rte,omitempty"`
 	// Copilot service request ID (x-copilot-service-request-id header) for CAPI log correlation
@@ -1906,18 +1878,8 @@ type AssistantUsageData struct {
 	Transport *AssistantUsageTransport `json:"transport,omitempty"`
 	// Milliseconds spent on the WebSocket attempt before falling back to HTTP
 	WebsocketFallbackAfterMs *int64 `json:"websocketFallbackAfterMs,omitempty"`
-	// WebSocket close code received before the HTTP fallback
-	WebsocketFallbackCloseCode *int32 `json:"websocketFallbackCloseCode,omitempty"`
-	// Normalized cause of the WebSocket failure that triggered the HTTP fallback; absent when no fallback occurred or the cause is unknown
-	WebsocketFallbackErrorKind *ModelCallWebSocketFallbackErrorKind `json:"websocketFallbackErrorKind,omitempty"`
 	// Why the call was carried by the HTTP fallback of a WebSocket-capable dispatcher; absent when no fallback occurred
 	WebsocketFallbackReason *ModelCallWebSocketFallbackReason `json:"websocketFallbackReason,omitempty"`
-	// Whether a WebSocket reconnect was attempted before falling back to HTTP
-	WebsocketFallbackReconnectAttempted *bool `json:"websocketFallbackReconnectAttempted,omitempty"`
-	// Whether the HTTP fallback started during this model call, rather than being inherited from an earlier call
-	WebsocketFallbackStartedThisCall *bool `json:"websocketFallbackStartedThisCall,omitempty"`
-	// HTTP status of the WebSocket upgrade rejection or WebSocket API error that triggered the HTTP fallback
-	WebsocketFallbackStatusCode *int32 `json:"websocketFallbackStatusCode,omitempty"`
 }
 
 func (*AssistantUsageData) sessionEventData()      {}
@@ -2473,10 +2435,6 @@ func (*PermissionCompletedData) Type() SessionEventType { return SessionEventTyp
 type PermissionRequestedData struct {
 	// Agent mode captured from the owning turn when permission evaluation began.
 	AgentMode *SessionMode `json:"agentMode,omitempty"`
-	// Delegated agent that owns permission recovery when the owner session multiplexes remote agents. Absent otherwise.
-	OwnerAgentID *string `json:"ownerAgentId,omitempty"`
-	// Execution session that owns permission recovery for this request. Absent on historical events.
-	OwnerSessionID *string `json:"ownerSessionId,omitempty"`
 	// Permission mode captured when evaluation began. Absent on historical events.
 	PermissionMode *PermissionMode `json:"permissionMode,omitempty"`
 	// Details of the permission being requested
@@ -3838,8 +3796,6 @@ type CompactionCompleteCompactionTokensUsed struct {
 	OutputTokens *int64 `json:"outputTokens,omitempty"`
 	// Provider captured for the compaction call; absent when attribution is unknown.
 	Provider *ModelProviderRef `json:"provider,omitempty"`
-	// Number of model requests represented by this aggregated compaction usage
-	RequestCount *int64 `json:"requestCount,omitempty"`
 }
 
 // Per-request cost and usage data from the CAPI copilot_usage response field
@@ -6573,48 +6529,6 @@ const (
 	ModelCallFinishedOutcomeRejected ModelCallFinishedOutcome = "rejected"
 	// The provider response was accepted for continued agent processing.
 	ModelCallFinishedOutcomeSuccess ModelCallFinishedOutcome = "success"
-)
-
-// Content-Encoding applied to the request body sent on the wire
-type ModelCallRequestBodyEncoding string
-
-const (
-	// The request body was sent gzip-compressed.
-	ModelCallRequestBodyEncodingGzip ModelCallRequestBodyEncoding = "gzip"
-	// The request body was sent uncompressed (including every WebSocket request).
-	ModelCallRequestBodyEncodingIdentity ModelCallRequestBodyEncoding = "identity"
-	// The request body was sent zstd-compressed.
-	ModelCallRequestBodyEncodingZstd ModelCallRequestBodyEncoding = "zstd"
-)
-
-// Normalized cause of the WebSocket failure that triggered the HTTP fallback
-type ModelCallWebSocketFallbackErrorKind string
-
-const (
-	// The peer closed the WebSocket.
-	ModelCallWebSocketFallbackErrorKindClosedByPeer ModelCallWebSocketFallbackErrorKind = "closed_by_peer"
-	// The runtime closed the WebSocket itself.
-	ModelCallWebSocketFallbackErrorKindClosedLocally ModelCallWebSocketFallbackErrorKind = "closed_locally"
-	// The WebSocket request could not be built.
-	ModelCallWebSocketFallbackErrorKindConfiguration ModelCallWebSocketFallbackErrorKind = "configuration"
-	// The peer refused the TCP connection.
-	ModelCallWebSocketFallbackErrorKindConnectionRefused ModelCallWebSocketFallbackErrorKind = "connection_refused"
-	// The connection was reset, aborted, or ended mid-stream without a close.
-	ModelCallWebSocketFallbackErrorKindConnectionReset ModelCallWebSocketFallbackErrorKind = "connection_reset"
-	// DNS resolution of the WebSocket host failed.
-	ModelCallWebSocketFallbackErrorKindDns ModelCallWebSocketFallbackErrorKind = "dns"
-	// The upgrade or request was rejected with an HTTP status.
-	ModelCallWebSocketFallbackErrorKindHTTPStatus ModelCallWebSocketFallbackErrorKind = "http_status"
-	// The socket was already closed before it was used.
-	ModelCallWebSocketFallbackErrorKindNotConnected ModelCallWebSocketFallbackErrorKind = "not_connected"
-	// A failure that maps onto none of the other kinds.
-	ModelCallWebSocketFallbackErrorKindOther ModelCallWebSocketFallbackErrorKind = "other"
-	// A WebSocket protocol violation or an undecodable frame.
-	ModelCallWebSocketFallbackErrorKindProtocol ModelCallWebSocketFallbackErrorKind = "protocol"
-	// A WebSocket connect or read timed out.
-	ModelCallWebSocketFallbackErrorKindTimeout ModelCallWebSocketFallbackErrorKind = "timeout"
-	// The TLS handshake or a TLS record failed.
-	ModelCallWebSocketFallbackErrorKindTls ModelCallWebSocketFallbackErrorKind = "tls"
 )
 
 // Why a WebSocket-capable model call was carried by the HTTP fallback

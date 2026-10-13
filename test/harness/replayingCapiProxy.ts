@@ -353,15 +353,6 @@ export class ReplayingCapiProxy extends CapturingHttpProxy {
         }
 
         if (
-          options.requestOptions.path === "/telemetry" &&
-          options.requestOptions.method === "POST"
-        ) {
-          options.onResponseStart(204, {});
-          options.onResponseEnd();
-          return;
-        }
-
-        if (
           options.requestOptions.path === "/memory-api-config" &&
           options.requestOptions.method === "POST"
         ) {

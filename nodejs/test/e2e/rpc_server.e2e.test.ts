@@ -4,7 +4,6 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { CopilotClient, RuntimeConnection } from "../../src/index.js";
@@ -114,12 +113,6 @@ describe("Server-scoped RPC", async () => {
         const policy = {
             model: "auto",
             autoTier: "balance",
-            permissions: {
-                limitTo: ["Domain(*.example.com)"],
-                deny: ["Domain(blocked.example.com)"],
-                ask: ["Domain(prompt.example.com)"],
-                allow: ["Domain(allowed.example.com)"],
-            },
         };
         const concretePolicy = {
             model: "gpt-5",
@@ -181,43 +174,6 @@ describe("Server-scoped RPC", async () => {
         ).rejects.toMatchObject({ code: -32602 });
         const absent = await api.compose({ layers: [{ source: "device" }] });
         expect(absent.resolved.source).toBe("none");
-
-        const permissionsContext = resolved.permissionsContext;
-        if (!permissionsContext) {
-            throw new Error("Runtime omitted the managed permission evaluation context");
-        }
-        expect(
-            await api.permissions.evaluate({
-                context: permissionsContext,
-                operations: [
-                    { kind: "url", url: "https://allowed.example.com/guide" },
-                    { kind: "url", url: "https://prompt.example.com/" },
-                    { kind: "url", url: "https://blocked.example.com/" },
-                    { kind: "url", url: "https://outside.test/" },
-                ],
-            })
-        ).toEqual({
-            failClosed: false,
-            results: [
-                {
-                    operation: { kind: "url", url: "https://allowed.example.com/guide" },
-                    verdict: "allow",
-                },
-                { operation: { kind: "url", url: "https://prompt.example.com/" }, verdict: "ask" },
-                {
-                    operation: { kind: "url", url: "https://blocked.example.com/" },
-                    verdict: "deny",
-                },
-                { operation: { kind: "url", url: "https://outside.test/" }, verdict: "deny" },
-            ],
-        });
-        await expect(
-            api.permissions.evaluate({
-                context: permissionsContext,
-                operations: [{ kind: "url", url: "not-a-url" }],
-            })
-        ).rejects.toMatchObject({ code: -32602 });
-        await expect(api.resolve({ selectionId: "missing-account" })).rejects.toThrow();
 
         const managedSession = await policyClient.createSession({
             enableManagedSettings: true,
@@ -689,37 +645,6 @@ describe("Server-scoped RPC", async () => {
                 return true;
             }
         );
-    });
-
-    it("should discover all 128 custom agents including deeply nested definitions", async () => {
-        const projectPath = createUniqueWorkDirectory("server-rpc-agents");
-        execFileSync("git", ["init", "--quiet"], {
-            cwd: projectPath,
-            env,
-            windowsHide: true,
-        });
-        const agentsDirectory = path.join(projectPath, ".github", "agents");
-        const nestedDirectory = path.join(agentsDirectory, ...Array<string>(12).fill("d"));
-        fs.mkdirSync(nestedDirectory, { recursive: true });
-        const expectedNames = Array.from(
-            { length: 128 },
-            (_, index) => `agent-${index.toString().padStart(3, "0")}`
-        );
-        for (const [index, name] of expectedNames.entries()) {
-            const directory = index === 127 ? nestedDirectory : agentsDirectory;
-            fs.writeFileSync(
-                path.join(directory, `${name}.agent.md`),
-                `---\nname: ${name}\ndescription: Test agent.\n---\nAgent prompt.`
-            );
-        }
-
-        await client.start();
-        const result = await client.rpc.agents.discover({
-            projectPaths: [projectPath],
-            excludeHostAgents: true,
-        });
-
-        expect(result.agents.map((agent) => agent.name).sort()).toEqual(expectedNames);
     });
 
     it("should discover server mcp and skills", async () => {

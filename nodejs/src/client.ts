@@ -1790,7 +1790,6 @@ export class CopilotClient {
                 model: config.model,
                 allowedModels: config.allowedModels,
                 sessionId: localSessionId,
-                name: config.name,
                 clientName: config.clientName,
                 reasoningEffort: config.reasoningEffort,
                 reasoningSummary: config.reasoningSummary,
@@ -1807,7 +1806,6 @@ export class CopilotClient {
                     isTerminal: tool.isTerminal,
                 })),
                 toolSearch: config.toolSearch,
-                imageGeneration: config.imageGeneration,
                 canvases: config.canvases?.map((canvas) => canvas.declaration),
                 requestCanvasRenderer: config.requestCanvasRenderer,
                 requestExtensions: config.requestExtensions,
@@ -1873,8 +1871,6 @@ export class CopilotClient {
                 enableSkills: config.enableSkills,
                 skillDirectories: config.skillDirectories,
                 ...(config.skillProvider ? { hasSkillProvider: true } : {}),
-                agentDirectories: config.agentDirectories,
-                hookDirectories: config.hookDirectories,
                 pluginDirectories: config.pluginDirectories,
                 instructionDirectories: config.instructionDirectories,
                 disabledSkills: config.disabledSkills,
@@ -2123,7 +2119,6 @@ export class CopilotClient {
                     isTerminal: tool.isTerminal,
                 })),
                 toolSearch: config.toolSearch,
-                imageGeneration: config.imageGeneration,
                 canvases: config.canvases?.map((canvas) => canvas.declaration),
                 workflows: workflows?.map((workflow) => workflow.meta),
                 requestCanvasRenderer: config.requestCanvasRenderer,
@@ -2181,8 +2176,6 @@ export class CopilotClient {
                 agent: config.agent,
                 skillDirectories: config.skillDirectories,
                 ...(config.skillProvider ? { hasSkillProvider: true } : {}),
-                agentDirectories: config.agentDirectories,
-                hookDirectories: config.hookDirectories,
                 pluginDirectories: config.pluginDirectories,
                 instructionDirectories: config.instructionDirectories,
                 disabledSkills: config.disabledSkills,
@@ -3260,8 +3253,6 @@ export class CopilotClient {
     /** Starts the in-process FFI runtime with SDK-managed typed options. */
     private async startInProcessFfi(): Promise<void> {
         const explicitEntrypoint = this.resolvedEnv.COPILOT_CLI_PATH;
-        const cliLoginSyncIntegrationId =
-            this.resolvedEnv.GITHUB_COPILOT_INTEGRATION_ID?.trim() || undefined;
         let runtimeLibrary: string;
         if (explicitEntrypoint) {
             const entrypointDirectory = dirname(resolve(explicitEntrypoint));
@@ -3275,8 +3266,7 @@ export class CopilotClient {
                       "runtime.node"
                   );
         } else {
-            const bundledRuntimePath = await getBundledRuntimePath();
-            runtimeLibrary = join(dirname(bundledRuntimePath), "runtime.node");
+            runtimeLibrary = join(dirname(await getBundledRuntimePath()), "runtime.node");
         }
         // Load the FFI host lazily so the native `koffi` addon (and its
         // platform-specific `koffi.node`) is only loaded on the in-process path;
@@ -3310,9 +3300,6 @@ export class CopilotClient {
         }
         if (this.options.enableRemoteSessions) {
             args.push("--remote");
-        }
-        if (cliLoginSyncIntegrationId) {
-            args.push(`--cli-login-sync-integration-id=${cliLoginSyncIntegrationId}`);
         }
 
         const host = FfiRuntimeHost.create(runtimeLibrary, explicitEntrypoint, environment, args);

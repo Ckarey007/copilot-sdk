@@ -2099,7 +2099,7 @@ func TestClient_InProcessConnection(t *testing.T) {
 			Mode:                      ModeEmpty,
 		})
 
-		config := client.inProcessHostConfig("")
+		config := client.inProcessHostConfig()
 		expectedArgs := []string{
 			"--log-level", "debug",
 			"--auth-token-env", "COPILOT_SDK_AUTH_TOKEN",
@@ -2117,33 +2117,6 @@ func TestClient_InProcessConnection(t *testing.T) {
 		}
 		if !reflect.DeepEqual(config.Environment, expectedEnvironment) {
 			t.Fatalf("Expected managed environment %v, got %v", expectedEnvironment, config.Environment)
-		}
-	})
-
-	t.Run("forwards supported CLI login sync integrations", func(t *testing.T) {
-		t.Setenv("GITHUB_COPILOT_INTEGRATION_ID", "github/github-app")
-		client := NewClient(&ClientOptions{Connection: InProcessConnection{}})
-		t.Setenv("GITHUB_COPILOT_INTEGRATION_ID", "changed/after-construction")
-
-		integrationID := getEnvValue(client.options.Env, "GITHUB_COPILOT_INTEGRATION_ID")
-		config := client.inProcessHostConfig(integrationID)
-
-		expectedArgs := []string{"--cli-login-sync-integration-id=github/github-app"}
-		if !reflect.DeepEqual(config.Args, expectedArgs) {
-			t.Fatalf("Expected CLI login sync arguments %v, got %v", expectedArgs, config.Args)
-		}
-	})
-
-	t.Run("forwards integration validation to the runtime", func(t *testing.T) {
-		t.Setenv("GITHUB_COPILOT_INTEGRATION_ID", "third-party/integration")
-		client := NewClient(&ClientOptions{Connection: InProcessConnection{}})
-
-		integrationID := getEnvValue(client.options.Env, "GITHUB_COPILOT_INTEGRATION_ID")
-		config := client.inProcessHostConfig(integrationID)
-
-		expectedArgs := []string{"--cli-login-sync-integration-id=third-party/integration"}
-		if !reflect.DeepEqual(config.Args, expectedArgs) {
-			t.Fatalf("Expected CLI login sync arguments %v, got %v", expectedArgs, config.Args)
 		}
 	})
 }
@@ -2308,38 +2281,6 @@ func TestCreateSessionRequest_ClientName(t *testing.T) {
 		json.Unmarshal(data, &m)
 		if _, ok := m["clientName"]; ok {
 			t.Error("Expected clientName to be omitted when empty")
-		}
-	})
-}
-
-func TestCreateSessionRequest_Name(t *testing.T) {
-	t.Run("includes name in JSON when set", func(t *testing.T) {
-		req := createSessionRequest{Name: "named at create"}
-		data, err := json.Marshal(req)
-		if err != nil {
-			t.Fatalf("Failed to marshal: %v", err)
-		}
-		var m map[string]any
-		if err := json.Unmarshal(data, &m); err != nil {
-			t.Fatalf("Failed to unmarshal: %v", err)
-		}
-		if m["name"] != "named at create" {
-			t.Errorf("Expected name to be 'named at create', got %v", m["name"])
-		}
-	})
-
-	t.Run("omits name from JSON when empty", func(t *testing.T) {
-		req := createSessionRequest{}
-		data, err := json.Marshal(req)
-		if err != nil {
-			t.Fatalf("Failed to marshal: %v", err)
-		}
-		var m map[string]any
-		if err := json.Unmarshal(data, &m); err != nil {
-			t.Fatalf("Failed to unmarshal: %v", err)
-		}
-		if _, ok := m["name"]; ok {
-			t.Error("Expected name to be omitted when empty")
 		}
 	})
 }

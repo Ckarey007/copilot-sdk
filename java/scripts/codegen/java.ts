@@ -1343,34 +1343,7 @@ export function schemaTypeToJava(
         const name = schema.$ref.replace(/^#\/definitions\//, "");
         const resolved = resolution.definitions[name];
         if (resolved) {
-            if (
-                name === "ManagedPermissionsContext"
-                && generatedSessionEventTypeNames.has(name)
-                && crossSchemaDefinitions.get("session-events.schema.json")?.[name]
-            ) {
-                imports.add(`com.github.copilot.generated.${name}`);
-                return { javaType: name, imports };
-            }
             const directUnion = unionVariants(resolved);
-            if (name === "ManagedPermissionOperation" && directUnion) {
-                const variants = resolveAnyOfVariants(directUnion, resolution.definitions);
-                const [variant] = variants;
-                if (variants.length === 1 && variant?.properties) {
-                    const kind = variant.properties.kind;
-                    if (!kind || typeof kind !== "object" || typeof kind.const !== "string") {
-                        throw new Error("Expected a string discriminator for ManagedPermissionOperation.kind");
-                    }
-                    resolution.standaloneTypes.set(name, {
-                        ...resolved,
-                        ...variant,
-                        properties: {
-                            ...variant.properties,
-                            kind: { ...kind, enum: [kind.const] },
-                        },
-                    });
-                    return { javaType: name, imports };
-                }
-            }
             if (directUnion && ["InstallationReview", "McpInstallationReview", "SkillInstallationReview"].includes(name)) {
                 const variants = resolveAnyOfVariants(directUnion, resolution.definitions);
                 if (variants.length > 1 && findDiscriminator(variants)) {
@@ -2398,9 +2371,6 @@ function validateSharedResultOwners(sections: Record<string, unknown>[]): void {
 }
 
 function schemaAllowsNull(schema: JSONSchema7): boolean {
-    if ((schema as Record<string, unknown>)["x-opaque-json"] === true && schema.type === undefined) {
-        return true;
-    }
     if (schema.type === "null" || (Array.isArray(schema.type) && schema.type.includes("null"))) {
         return true;
     }
@@ -2470,18 +2440,6 @@ export function generateRpcClass(
     }
 
     if (localNestedTypes.size > 0 && lines[lines.length - 1] === "") lines.pop();
-    if (className === "SessionModelGetReasoningSummariesParams") {
-        lines.push(``);
-        lines.push(`    /**`);
-        lines.push(`     * Creates host presentation state; the session-scoped wrapper supplies the session ID.`);
-        lines.push(`     *`);
-        lines.push(`     * @param persistedShowReasoning the persisted visibility setting, or null when unset`);
-        lines.push(`     * @param summariesVisible whether summaries are visible, or null for the default`);
-        lines.push(`     */`);
-        lines.push(`    public ${className}(Boolean persistedShowReasoning, Boolean summariesVisible) {`);
-        lines.push(`        this(null, persistedShowReasoning, summariesVisible);`);
-        lines.push(`    }`);
-    }
     const legacyConstructor =
         className === "McpOauthRequiredStaticClientConfig"
             ? {
@@ -3173,10 +3131,6 @@ function wrapperResultClassName(method: RpcMethodNode): string {
     // Inline result schema with properties
     let result = originalResult;
     if (result.$ref) result = resolveRef(result) as JSONSchema7;
-    if (result.type === "boolean" || result.type === "integer" || result.type === "number"
-        || (result.type === "string" && !result.enum)) {
-        return schemaTypeToJava(result, false, rpcResultClassName(method.rpcMethod), "value", new Map()).javaType;
-    }
     if (
         result &&
         typeof result === "object" &&
@@ -3191,7 +3145,7 @@ function wrapperResultClassName(method: RpcMethodNode): string {
         return javaResult.javaType;
     }
 
-    // Boolean maps have a typed value contract; free-form JSON remains a JsonNode.
+    // Free-form object with additionalProperties (e.g., x-opaque-json) → JsonNode
     if (
         result &&
         typeof result === "object" &&
@@ -3199,9 +3153,6 @@ function wrapperResultClassName(method: RpcMethodNode): string {
         result.additionalProperties &&
         !result.properties
     ) {
-        if (typeof result.additionalProperties === "object" && result.additionalProperties.type === "boolean") {
-            return "Map<String, Boolean>";
-        }
         return "JsonNode";
     }
 
@@ -3209,9 +3160,6 @@ function wrapperResultClassName(method: RpcMethodNode): string {
 }
 
 function wrapperResultTypeExpression(resultType: string): string {
-    if (resultType === "Map<String, Boolean>") {
-        return "RpcMapper.INSTANCE.getTypeFactory().constructMapType(Map.class, String.class, Boolean.class)";
-    }
     const listMatch = resultType.match(/^List<([^<>]+)>$/);
     if (listMatch) {
         return `RpcMapper.INSTANCE.getTypeFactory().constructCollectionType(List.class, ${javaClassLiteral(listMatch[1])})`;
@@ -3234,19 +3182,11 @@ function addWrapperResultImports(resultType: string, allImports: Set<string>, pa
         return;
     }
 
-    if (resultType === "UUID" || resultType === "OffsetDateTime") {
-        allImports.add(resultType === "UUID" ? "java.util.UUID" : "java.time.OffsetDateTime");
-        return;
-    }
-
     if (resultType.startsWith("List<")) {
         allImports.add("java.util.List");
     }
-    if (resultType.startsWith("Map<")) {
-        allImports.add("java.util.Map");
-    }
 
-    const builtInTypes = new Set(["Boolean", "Double", "Long", "List", "Map", "Object", "String", "Void"]);
+    const builtInTypes = new Set(["Boolean", "Double", "Long", "List", "Object", "String", "Void"]);
     for (const typeName of resultType.match(/\b[A-Z][A-Za-z0-9_]*\b/g) ?? []) {
         if (!builtInTypes.has(typeName)) {
             allImports.add(`${packageName}.${typeName}`);

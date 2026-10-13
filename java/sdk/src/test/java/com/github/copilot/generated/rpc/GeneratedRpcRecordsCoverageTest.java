@@ -21,7 +21,6 @@ import org.junit.jupiter.params.provider.MethodSource;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.copilot.AllowCopilotExperimental;
 import com.github.copilot.TestUtil;
-import com.github.copilot.generated.SessionManagedSettingsResolvedEvent.SessionManagedSettingsResolvedEventData;
 
 /**
  * Tests for generated RPC param and result record types. Exercises
@@ -29,27 +28,6 @@ import com.github.copilot.generated.SessionManagedSettingsResolvedEvent.SessionM
  * of the generated code without requiring network access.
  */
 class GeneratedRpcRecordsCoverageTest {
-
-    @Test
-    @AllowCopilotExperimental
-    void managedPermissions_reuses_event_context_and_evaluated_operations() throws Exception {
-        var mapper = new ObjectMapper();
-        var eventJson = mapper.readTree("""
-                {"permissionsContext":{"permissions":{"_limitToLists":[["https://example.com"]]},"failClosed":false}}
-                """);
-        var eventData = mapper.treeToValue(eventJson, SessionManagedSettingsResolvedEventData.class);
-        var evaluation = mapper.readValue("""
-                {"operation":{"kind":"url","url":"https://example.com/a"},"verdict":"allow"}
-                """, ManagedPermissionEvaluation.class);
-        var params = new ManagedSettingsPermissionsEvaluateParams(eventData.permissionsContext(),
-                List.of(evaluation.operation()));
-        var paramsJson = mapper.valueToTree(params);
-        assertEquals(eventJson.get("permissionsContext"), paramsJson.get("context"));
-        assertEquals("url", paramsJson.get("operations").get(0).get("kind").asText());
-        assertEquals("https://example.com/a", paramsJson.get("operations").get(0).get("url").asText());
-        assertEquals(ManagedPermissionOperation.ManagedPermissionOperationKind.URL, evaluation.operation().kind());
-        assertEquals(params, mapper.treeToValue(paramsJson, ManagedSettingsPermissionsEvaluateParams.class));
-    }
 
     // ── Params records ─────────────────────────────────────────────────────
 
@@ -723,7 +701,7 @@ class GeneratedRpcRecordsCoverageTest {
     @Test
     void sessionAgentListResult_with_items() {
         var item = new AgentInfo("name1", "Name One", "Desc 1", "/path/to/agent1", null, null, null, null, null, null,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null);
         var result = new SessionAgentListResult(List.of(item));
         assertEquals(1, result.agents().size());
         assertEquals("name1", result.agents().get(0).name());
@@ -735,7 +713,7 @@ class GeneratedRpcRecordsCoverageTest {
     @Test
     void sessionAgentGetCurrentResult_nested() {
         var agent = new AgentInfo("agent-1", "Agent One", "Does things", null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null);
+                null, null, null, null, null);
         var result = new SessionAgentGetCurrentResult(agent);
         assertEquals("agent-1", result.agent().name());
         assertEquals("Agent One", result.agent().displayName());
@@ -752,25 +730,18 @@ class GeneratedRpcRecordsCoverageTest {
     @Test
     void sessionAgentReloadResult_with_items() {
         var item = new AgentInfo("a", "A", "Desc", "/path/to/a", null, null, null, null, null, null, null, null, null,
-                null, null, null, null);
+                null, null, null);
         var result = new SessionAgentReloadResult(List.of(item));
         assertEquals(1, result.agents().size());
         assertEquals("a", result.agents().get(0).name());
     }
 
     @Test
-    void sessionAgentSelectResult_nested() throws Exception {
-        Map<String, List<Object>> hooks = Map.of("Stop",
-                List.of(Map.of("type", "command", "command", "echo scoped-stop")));
+    void sessionAgentSelectResult_nested() {
         var agent = new AgentInfo("selected", "Selected", "The selected agent", "/path/to/selected", null, null, null,
-                null, null, null, null, null, null, null, null, null, hooks);
+                null, null, null, null, null, null, null, null, null);
         var result = new SessionAgentSelectResult(agent);
         assertEquals("selected", result.agent().name());
-        var mapper = new ObjectMapper();
-        var json = mapper.writeValueAsString(result);
-        assertEquals("echo scoped-stop",
-                mapper.readTree(json).get("agent").get("hooks").get("Stop").get(0).get("command").asText());
-        assertEquals(hooks, mapper.readValue(json, SessionAgentSelectResult.class).agent().hooks());
     }
 
     @Test

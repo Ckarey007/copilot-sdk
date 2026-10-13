@@ -1,5 +1,3 @@
-// Copyright (c) Microsoft Corporation. All rights reserved.
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -196,19 +194,12 @@ async fn should_export_per_request_subagent_chat_spans() {
                     .iter()
                     .filter(|entry| string_property(entry, "type") == Some("span"))
                     .collect();
-                for span in &spans {
-                    assert_eq!(
-                        span.get("instrumentationScope")
-                            .and_then(|scope| string_property(scope, "name")),
-                        Some(source_name),
-                        "unexpected instrumentation scope: {span:#}"
-                    );
-                    assert_ne!(
-                        status_code(span),
-                        Some(2),
-                        "unexpected error span: {span:#}"
-                    );
-                }
+                assert!(spans.iter().all(|span| {
+                    span.get("instrumentationScope")
+                        .and_then(|scope| string_property(scope, "name"))
+                        == Some(source_name)
+                        && status_code(span) != Some(2)
+                }));
                 let invocations: Vec<_> = spans
                     .iter()
                     .copied()

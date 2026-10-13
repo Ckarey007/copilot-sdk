@@ -14,24 +14,13 @@ import { createSdkTestContext } from "./harness/sdkTestContext.js";
 import { waitForCondition, waitForFileText } from "./harness/sdkTestHelper.js";
 
 describe("Shell and fleet RPC", async () => {
-    const { copilotClient: client, workDir } = await createSdkTestContext({
-        logLevel: "debug",
-        copilotClientOptions: {
-            env: { RUST_LOG: "error,sdk_diagnostics=debug" },
-        },
-    });
+    const { copilotClient: client, workDir } = await createSdkTestContext();
 
     function createWriteFileCommand(markerPath: string, marker: string): string {
         if (os.platform() === "win32") {
             return `echo ${marker}>"${markerPath}"`;
         }
         return `sh -c "printf '%s' '${marker}' > '${markerPath}'"`;
-    }
-
-    function createWindowsBatchCommand(command: string): string {
-        const filename = `shell-command-${randomUUID()}.cmd`;
-        fs.writeFileSync(path.join(workDir, filename), `@echo off\r\n${command}\r\n`);
-        return `cmd.exe /d /c ${filename}`;
     }
 
     async function waitForMessages(
@@ -151,9 +140,7 @@ describe("Shell and fleet RPC", async () => {
             const timeout = os.platform() === "win32" ? 10_000 : 1_000;
             const command =
                 os.platform() === "win32"
-                    ? createWindowsBatchCommand(
-                          `echo started>"${started}" & ping.exe -n 31 127.0.0.1 >nul & echo completed>"${completed}"`
-                      )
+                    ? `echo started>"${started}" & ping.exe -n 31 127.0.0.1 >nul & echo completed>"${completed}"`
                     : `printf started > '${started}'; sleep 30; printf completed > '${completed}'`;
             try {
                 const result = await session.rpc.shell.exec({ command, cwd: workDir, timeout });
@@ -173,120 +160,13 @@ describe("Shell and fleet RPC", async () => {
         }
     );
 
-    it.skipIf(os.platform() === "win32")(
-        "should release post-root-exit shell pipes and rewind admission at timeout",
-        async ({ onTestFailed }) => {
-            const cwd = fs.mkdtempSync(path.join(workDir, "post-exit-shell-"));
-            let phase = "creating session";
-            let rootPid: number | undefined;
-            let rootExited = false;
-            let lastRewindState:
-                | Awaited<ReturnType<CopilotSession["rpc"]["history"]["listRewindPoints"]>>
-                | undefined;
-            onTestFailed(() => {
-                console.error("Post-root-exit shell timeout diagnostic:", {
-                    phase,
-                    rootPid,
-                    rootExited,
-                    lastRewindState,
-                    descendantReady: fs.existsSync(path.join(cwd, "descendant.ready")),
-                    terminated: fs.existsSync(path.join(cwd, "terminated")),
-                });
-            });
-            const session = await client.createSession({
-                enableFileChangeTracking: true,
-                onPermissionRequest: approveAll,
-            });
-            let processId: string | undefined;
-            function processExists(pid: number): boolean {
-                try {
-                    process.kill(pid, 0);
-                    return true;
-                } catch (error) {
-                    if ((error as NodeJS.ErrnoException).code === "ESRCH") {
-                        return false;
-                    }
-                    throw error;
-                }
-            }
-            try {
-                phase = "waiting for rewind tracking initialization";
-                await waitForCondition(
-                    async () => {
-                        lastRewindState = await session.rpc.history.listRewindPoints();
-                        return lastRewindState.fileChangeTrackingEnabled;
-                    },
-                    { timeoutMessage: "Rewind tracking did not initialize" }
-                );
-                phase = "launching post-exit shell";
-                // Reader teardown must not SIGPIPE the fixture before its TERM trap records termination.
-                const result = await session.rpc.shell.exec({
-                    command:
-                        `sh -c 'trap "" PIPE; trap "printf terminated > terminated; exit 0" TERM; ` +
-                        `printf ready > descendant.ready; sleep 60' & ` +
-                        `echo $$ > root.pending; mv root.pending root.pid; exit 7`,
-                    cwd,
-                    timeout: 10_000,
-                });
-                processId = result.processId;
-                expect(processId).toBeTruthy();
-                phase = "waiting for root reap and descendant readiness";
-                await waitForCondition(
-                    () => {
-                        if (
-                            !fs.existsSync(path.join(cwd, "root.pid")) ||
-                            !fs.existsSync(path.join(cwd, "descendant.ready"))
-                        ) {
-                            return false;
-                        }
-                        rootPid = Number(fs.readFileSync(path.join(cwd, "root.pid"), "utf8"));
-                        expect(Number.isInteger(rootPid) && rootPid > 1).toBe(true);
-                        rootExited = !processExists(rootPid);
-                        return rootExited;
-                    },
-                    { timeoutMessage: "Fixture root did not exit with a ready pipe holder" }
-                );
-                phase = "checking retained rewind lease";
-                expect(fs.existsSync(path.join(cwd, "terminated"))).toBe(false);
-                lastRewindState = await session.rpc.history.listRewindPoints();
-                expect(lastRewindState.unavailableReason).toBe("session-busy");
-
-                // Neither poll sends a kill: the configured timeout must end the
-                // descendant and release the production sink's operation lease.
-                phase = "waiting for rewind admission after timeout";
-                await waitForCondition(
-                    async () => {
-                        lastRewindState = await session.rpc.history.listRewindPoints();
-                        return (
-                            lastRewindState.fileChangeTrackingEnabled &&
-                            lastRewindState.unavailableReason === undefined
-                        );
-                    },
-                    { timeoutMessage: "Post-exit timeout left rewind admission session-busy" }
-                );
-                phase = "waiting for automatic descendant termination";
-                await waitForFileText(path.join(cwd, "terminated"), "terminated");
-                phase = "checking registry cleanup";
-                expect((await session.rpc.shell.kill({ processId })).killed).toBe(false);
-            } finally {
-                try {
-                    if (processId) {
-                        await session.rpc.shell.kill({ processId, signal: "SIGKILL" });
-                    }
-                } finally {
-                    await session.disconnect();
-                }
-            }
-        }
-    );
-
     it("should accept a missing shell command and clean up after it exits", async () => {
         const session = await client.createSession({ onPermissionRequest: approveAll });
         const marker = path.join(workDir, `shell-missing-${randomUUID()}.txt`);
         const missingCommand = `not-a-command-${randomUUID()}`;
         const command =
             os.platform() === "win32"
-                ? createWindowsBatchCommand(`${missingCommand} & echo done>"${marker}" & exit /b 1`)
+                ? `${missingCommand} & echo done>"${marker}" & exit /b 1`
                 : `${missingCommand}; code=$?; printf done > '${marker}'; exit $code`;
         try {
             const result = await session.rpc.shell.exec({ command, cwd: workDir });
@@ -307,40 +187,32 @@ describe("Shell and fleet RPC", async () => {
         async (outputKind) => {
             const session = await client.createSession({ onPermissionRequest: approveAll });
             const marker = path.join(workDir, `shell-${outputKind}-${randomUUID()}.txt`);
-            const outputFile = path.join(workDir, `shell-output-${randomUUID()}.txt`);
-            const started = `${marker}.started`;
             const phase = `${marker}.phase`;
-            const recordPhase = (value: string) => `echo ${value}>"${phase}"`;
-            // Run cmd syntax in an owned batch even when the RPC selects PowerShell.
+            const recordPhase = (value: string) =>
+                `[IO.File]::WriteAllText('${phase}', '${value}')`;
+            // Publish only after Set-Content has closed its exclusive Windows writer.
             const publishMarker =
-                `${recordPhase("output-written")} & ` +
-                `echo done>"${marker}.pending" & ` +
-                `${recordPhase("marker-written")} & ` +
-                `move /y "${marker}.pending" "${marker}" >nul & ` +
+                `${recordPhase("output-written")}; ` +
+                `Set-Content -LiteralPath '${marker}.pending' -Value done; ` +
+                `${recordPhase("marker-written")}; ` +
+                `Move-Item -LiteralPath '${marker}.pending' -Destination '${marker}'; ` +
                 recordPhase("marker-published");
             const command =
                 outputKind === "stderr"
                     ? os.platform() === "win32"
-                        ? createWindowsBatchCommand(
-                              `${recordPhase("started")} & echo boom 1>&2 & ${publishMarker} & exit /b 2`
-                          )
-                        : `printf started > '${started}'; echo boom 1>&2; printf done > '${marker}'; exit 2`
+                        ? `powershell -NoLogo -NoProfile -Command "${recordPhase("started")}; [Console]::Error.WriteLine('boom'); ${publishMarker}; exit 2"`
+                        : `echo boom 1>&2; printf done > '${marker}'; exit 2`
                     : os.platform() === "win32"
-                      ? createWindowsBatchCommand(
-                            `${recordPhase("started")} & type "${outputFile}" & ${publishMarker}`
-                        )
-                      : `printf started > '${started}'; printf '%71680s' '' | tr ' ' '='; printf done > '${marker}'`;
+                      ? `powershell -NoLogo -NoProfile -Command "${recordPhase("started")}; Write-Host ('x' * 71680); ${publishMarker}"`
+                      : `printf '%71680s' '' | tr ' ' '='; printf done > '${marker}'`;
             try {
-                if (outputKind === "large-stdout" && os.platform() === "win32") {
-                    fs.writeFileSync(outputFile, "x".repeat(71680));
-                }
                 const result = await session.rpc.shell.exec({ command, cwd: workDir });
                 expect(result.processId).toBeTruthy();
                 await waitForFileText(
                     marker,
                     "done",
                     30_000,
-                    os.platform() === "win32" ? [phase, `${marker}.pending`] : [started]
+                    os.platform() === "win32" ? [phase, `${marker}.pending`] : []
                 );
                 // The process map is updated after the output stream closes.
                 await new Promise((resolve) => setTimeout(resolve, 2_000));

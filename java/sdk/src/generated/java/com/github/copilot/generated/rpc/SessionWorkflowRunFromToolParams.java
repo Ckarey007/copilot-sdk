@@ -29,7 +29,6 @@ record SessionWorkflowRunFromToolParams(
     /** Registered workflow name. */
     @JsonProperty("name") String name,
     /** Workflow input value. */
-    @JsonInclude(JsonInclude.Include.ALWAYS)
     @JsonProperty("args") Object args,
     /** Tool-originated workflow invocation options. */
     @JsonProperty("options") WorkflowToolRunOptions options,

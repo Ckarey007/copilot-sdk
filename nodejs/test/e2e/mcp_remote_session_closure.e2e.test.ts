@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, onTestFailed, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import type { CopilotSession, MCPServerConfig } from "../../src/index.js";
 import { approveAll } from "../../src/index.js";
 import { createSdkTestContext } from "./harness/sdkTestContext.js";
@@ -29,19 +29,10 @@ interface McpServerStats {
     expiredRequestLog: { method: string; elapsedMs: number }[];
     protocolVersions: string[];
     expiredSessionProbes: number;
-    recentRequests: Array<{
-        elapsedMs: number;
-        httpMethod: string;
-        sessionAttached: boolean;
-        expiredSession: boolean;
-        rpcMethods: string[];
-        status: number | null;
-    }>;
 }
 
 describe("MCP remote session closure", async () => {
     const { copilotClient: client } = await createSdkTestContext({
-        logLevel: "debug",
         copilotClientOptions: {
             env: {
                 COPILOT_MCP_APPS: "true",
@@ -55,10 +46,6 @@ describe("MCP remote session closure", async () => {
         { timeout: 180_000 },
         async () => {
             const remoteServer = await startSessionExpiryMcpServer();
-            let lastStats = await remoteServer.stats();
-            onTestFailed(() => {
-                console.error("Last MCP session-expiry observation:", JSON.stringify(lastStats));
-            });
             const serverName = "remote-server";
             const session = await client.createSession({
                 onPermissionRequest: approveAll,
@@ -86,8 +73,8 @@ describe("MCP remote session closure", async () => {
 
             await waitForCondition(
                 async () => {
-                    lastStats = await remoteServer.stats();
-                    return lastStats.expiredSessionProbes >= 1 || lastStats.initializations >= 2;
+                    const stats = await remoteServer.stats();
+                    return stats.expiredSessionProbes >= 1 || stats.initializations >= 2;
                 },
                 {
                     timeoutMs: 120_000,
@@ -96,6 +83,7 @@ describe("MCP remote session closure", async () => {
                         "remote MCP session expiry was neither probed nor re-initialized",
                 }
             );
+            let lastStats: McpServerStats | undefined;
             try {
                 await waitForCondition(
                     async () => {
@@ -136,20 +124,20 @@ async function waitForMcpServerStatus(
     serverName: string,
     expectedStatus: string
 ): Promise<void> {
-    await expect
-        .poll(
-            async () => {
-                const result = await session.rpc.mcp.list();
-                const server = result.servers.find((entry) => entry.name === serverName);
-                return server?.status ?? "<not listed>";
-            },
-            {
-                timeout: 120_000,
-                interval: 200,
-                message: `${serverName} did not reach ${expectedStatus}`,
-            }
-        )
-        .toBe(expectedStatus);
+    let lastStatus = "<not listed>";
+    await waitForCondition(
+        async () => {
+            const result = await session.rpc.mcp.list();
+            const server = result.servers.find((entry) => entry.name === serverName);
+            lastStatus = server?.status ?? "<not listed>";
+            return server?.status === expectedStatus;
+        },
+        {
+            timeoutMs: 120_000,
+            intervalMs: 200,
+            timeoutMessage: `${serverName} did not reach ${expectedStatus}; last status was ${lastStatus}`,
+        }
+    );
 }
 
 async function disconnectSession(session: CopilotSession): Promise<void> {
@@ -172,9 +160,6 @@ async function startSessionExpiryMcpServer(): Promise<{
 
     const stderr: string[] = [];
     child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
-    onTestFailed(() => {
-        console.error("Session-expiry server stderr:", stderr.join("").slice(-16_384));
-    });
 
     const url = await new Promise<string>((resolvePromise, reject) => {
         const rl = createInterface({ input: child.stdout });

@@ -33,7 +33,6 @@ public record SessionWorkflowJournalPutParams(
     /** Namespaced journal key. */
     @JsonProperty("key") String key,
     /** JSON result to memoize. */
-    @JsonInclude(JsonInclude.Include.ALWAYS)
     @JsonProperty("resultJson") Object resultJson
 ) {
 }

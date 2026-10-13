@@ -936,8 +936,6 @@ macro_rules! host_settings {
             "memory" => memory,
             "pluginDirectories" => plugin_directories,
             "skillDirectories" => skill_directories,
-            "agentDirectories" => agent_directories,
-            "hookDirectories" => hook_directories,
             "instructionDirectories" => instruction_directories,
             "enableMcpApps" => enable_mcp_apps,
             "model" => model,
