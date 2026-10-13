@@ -666,83 +666,6 @@ export type CatalogAgentPluginCompatibilityTag =
   /** The plugin targets GitHub Copilot. */
   | "github-copilot";
 /**
- * Typed installability state for an Agent Plugin candidate
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginInstallability".
- */
-/** @experimental */
-export type CatalogAgentPluginInstallability =
-  /** The candidate carries complete, verified install data and the selected session may install it. Its install plan is present. */
-  | "installable"
-  /** The catalogue supplied no complete, verified install data, so no install target is offered. */
-  | "install-data-unavailable"
-  /** Plugin installation is understood but disabled for the selected session. */
-  | "feature-disabled"
-  /** Reserved for plugin formats this runtime cannot install. Every format surfaced today installs through a marketplace. */
-  | "not-installable-kind";
-/**
- * One place an Agent Plugin can install from: Agent Finder's materialisation, a marketplace, or a GitHub repository. Each variant carries only its own fields.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginInstallSource".
- */
-/** @experimental */
-export type CatalogAgentPluginInstallSource =
-  | CatalogAgentPluginMaterializationSource
-  | CatalogAgentPluginMarketplaceSource
-  | CatalogAgentPluginRepositorySource;
-/**
- * Discriminator for a materialisation install source
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginMaterializationSourceKind".
- */
-/** @experimental */
-export type CatalogAgentPluginMaterializationSourceKind =
-  /** Install from Agent Finder's verified materialisation. */
-  "materialization";
-/**
- * Discriminator for a marketplace install source
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginMarketplaceSourceKind".
- */
-/** @experimental */
-export type CatalogAgentPluginMarketplaceSourceKind = /** Install from a plugin marketplace. */ "marketplace";
-/**
- * Discriminator for a repository install source
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginRepositorySourceKind".
- */
-/** @experimental */
-export type CatalogAgentPluginRepositorySourceKind = /** Install directly from a GitHub repository. */ "repository";
-/**
- * A kind of component an Agent Plugin contributes
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginComponent".
- */
-/** @experimental */
-export type CatalogAgentPluginComponent =
-  /** Custom agents. */
-  | "agent"
-  /** Slash commands. */
-  | "command"
-  /** Skills. */
-  | "skill"
-  /** Hooks. */
-  | "hook"
-  /** Bundled MCP servers. */
-  | "mcp-server"
-  /** Bundled LSP servers. */
-  | "lsp-server"
-  /** Extensions. */
-  | "extension"
-  /** Canvases. */
-  | "canvas";
-/**
  * A versioned, bounded trust observation carried unchanged with a catalog candidate and its private handle context. Current observations require a recognised T1/T2 tier; every non-current state structurally forbids a tier. Eligibility remains `unknown` while Agent Finder supplies no exposure decision, and states absent from its current wire are never inferred from age, relevance, popularity, or a tier transition.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -1014,9 +937,7 @@ export type CatalogCapability =
   /** Extends mcp-confirmed-remote-installation to declared non-secret header and URL values and receipt-owned header secrets for personal remote MCP choices. Requires mcp-confirmed-remote-installation and bound session authority. Secret values are written only to the reviewed backend after confirmation and are never returned; package and stdio choices remain unsupported. Advertised only when owned secret effects and owned secret activation are linked. */
   | "mcp-configured-remote-installation"
   /** Understands verified Agent Finder Skill install, uninstall, recovery and installation-scoped enablement APIs. Advertised only by runtimes with the Skill installation engine linked; acquisition may still be refused as feature-disabled per selected session. */
-  | "skill-confirmed-installation"
-  /** Understands `installability` and the reviewable `installPlan` on Agent Plugin candidates. Requires agent-plugin-discovery; without it, plugin candidates are unchanged. A plugin is installable only with complete, verified catalogue install data, and may still be reported as feature-disabled per selected session. */
-  | "agent-plugin-confirmed-installation";
+  | "skill-confirmed-installation";
 /**
  * Bounded extensible wire-feature identifier. Known values are described by `CatalogCapability`; newer callers may send future identifiers so an older runtime can return a typed negotiation refusal instead of failing schema validation. Capability negotiation establishes contract understanding, while each operation's result separately reports runtime availability.
  *
@@ -9160,8 +9081,6 @@ export interface CatalogAgentPluginCandidate {
     | [CatalogAgentPluginCompatibilityTag]
     | [CatalogAgentPluginCompatibilityTag, CatalogAgentPluginCompatibilityTag]
     | [CatalogAgentPluginCompatibilityTag, CatalogAgentPluginCompatibilityTag, CatalogAgentPluginCompatibilityTag];
-  installability?: CatalogAgentPluginInstallability;
-  installPlan?: CatalogAgentPluginInstallPlan;
   provenance: CatalogAgentPluginCandidateProvenance;
   trust?: CatalogTrustSnapshot;
 }
@@ -9181,102 +9100,6 @@ export interface CatalogPluginRepositorySource {
    * Case-preserving safe relative POSIX path derived from metadata.repoPath.
    */
   path: string;
-}
-/**
- * What installing an Agent Plugin would do, for the user to review and confirm. Provisional: the catalogue install data it is built from is not final.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginInstallPlan".
- */
-/** @experimental */
-export interface CatalogAgentPluginInstallPlan {
-  /**
-   * Every valid install source, in preference order: materialization, then marketplace, then repository. Each kind appears at most once.
-   *
-   * @minItems 1
-   * @maxItems 3
-   */
-  sources:
-    | [CatalogAgentPluginInstallSource]
-    | [CatalogAgentPluginInstallSource, CatalogAgentPluginInstallSource]
-    | [CatalogAgentPluginInstallSource, CatalogAgentPluginInstallSource, CatalogAgentPluginInstallSource];
-  /**
-   * The plugin's name, as named in its marketplace or manifest.
-   */
-  pluginName: string;
-  version?: CatalogResourceVersion;
-  /**
-   * Exact full commit ID to install, in lowercase hex. Always present when the plan has a repository source; a plan with a marketplace source carries at least one of version and commit.
-   */
-  commit?: string;
-  /**
-   * Components the plugin contributes, in canonical order.
-   *
-   * @minItems 1
-   */
-  components: [CatalogAgentPluginComponent, ...CatalogAgentPluginComponent[]];
-  /**
-   * Canvas IDs the plugin contributes. Non-empty exactly when components include `canvas`.
-   */
-  canvasIds: string[];
-  /**
-   * Extension IDs the plugin contributes. Non-empty exactly when components include `extension`.
-   */
-  extensionIds: string[];
-  /**
-   * MCP servers the plugin depends on but does not bundle.
-   */
-  mcpDependencies: string[];
-  /**
-   * Connectors the plugin depends on.
-   */
-  connectorDependencies: string[];
-}
-/**
- * Agent Finder's verified materialisation of the plugin. Present only when the candidate carries a complete materialisation reference; the reference itself stays runtime-private.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginMaterializationSource".
- */
-/** @experimental */
-export interface CatalogAgentPluginMaterializationSource {
-  kind: CatalogAgentPluginMaterializationSourceKind;
-}
-/**
- * A plugin marketplace named by verified catalogue install data, installed as `pluginName@name`.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginMarketplaceSource".
- */
-/** @experimental */
-export interface CatalogAgentPluginMarketplaceSource {
-  kind: CatalogAgentPluginMarketplaceSourceKind;
-  /**
-   * Marketplace name.
-   */
-  name: string;
-  /**
-   * Canonical lowercase GitHub owner/repository hosting the marketplace.
-   */
-  repository: string;
-}
-/**
- * A GitHub repository holding the plugin, installed directly as `owner/repo[:path]` at the plan's commit, without a marketplace.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginRepositorySource".
- */
-/** @experimental */
-export interface CatalogAgentPluginRepositorySource {
-  kind: CatalogAgentPluginRepositorySourceKind;
-  /**
-   * Canonical lowercase GitHub owner/repository holding the plugin.
-   */
-  repository: string;
-  /**
-   * Relative POSIX path of the plugin directory in the repository. Omitted when the plugin is at the repository root.
-   */
-  path?: string;
 }
 /**
  * Where and when an Agent Plugin catalog reference was observed. Discovery provenance deliberately carries no descriptor URL, raw data, candidate handle, or content digest.

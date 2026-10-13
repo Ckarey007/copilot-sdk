@@ -8153,131 +8153,6 @@ public partial class CatalogCandidateAiSkill : CatalogCandidate
     public CatalogTrustSnapshot? Trust { get; set; }
 }
 
-/// <summary>One place an Agent Plugin can install from: Agent Finder's materialisation, a marketplace, or a GitHub repository. Each variant carries only its own fields.</summary>
-/// <remarks>Polymorphic base type discriminated by <c>kind</c>.</remarks>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-[JsonPolymorphic(
-    TypeDiscriminatorPropertyName = "kind",
-    UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FallBackToBaseType)]
-[JsonDerivedType(typeof(CatalogAgentPluginInstallSourceMaterialization), "materialization")]
-[JsonDerivedType(typeof(CatalogAgentPluginInstallSourceMarketplace), "marketplace")]
-[JsonDerivedType(typeof(CatalogAgentPluginInstallSourceRepository), "repository")]
-public partial class CatalogAgentPluginInstallSource
-{
-    /// <summary>The type discriminator.</summary>
-    [JsonPropertyName("kind")]
-    public virtual string Kind { get; set; } = string.Empty;
-}
-
-
-/// <summary>Agent Finder's verified materialisation of the plugin. Present only when the candidate carries a complete materialisation reference; the reference itself stays runtime-private.</summary>
-/// <remarks>The <c>materialization</c> variant of <see cref="CatalogAgentPluginInstallSource"/>.</remarks>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public partial class CatalogAgentPluginInstallSourceMaterialization : CatalogAgentPluginInstallSource
-{
-    /// <inheritdoc />
-    [JsonIgnore]
-    public override string Kind => "materialization";
-}
-
-/// <summary>A plugin marketplace named by verified catalogue install data, installed as `pluginName@name`.</summary>
-/// <remarks>The <c>marketplace</c> variant of <see cref="CatalogAgentPluginInstallSource"/>.</remarks>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public partial class CatalogAgentPluginInstallSourceMarketplace : CatalogAgentPluginInstallSource
-{
-    /// <inheritdoc />
-    [JsonIgnore]
-    public override string Kind => "marketplace";
-
-    /// <summary>Marketplace name.</summary>
-    [RegularExpression("^[A-Za-z0-9._-]+$")]
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
-    [MinLength(1)]
-    [MaxLength(64)]
-    [JsonPropertyName("name")]
-    public required string Name { get; set; }
-
-    /// <summary>Canonical lowercase GitHub owner/repository hosting the marketplace.</summary>
-    [RegularExpression("^[a-z0-9_.-]+/[a-z0-9_.-]+$")]
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
-    [MinLength(3)]
-    [MaxLength(256)]
-    [JsonPropertyName("repository")]
-    public required string Repository { get; set; }
-}
-
-/// <summary>A GitHub repository holding the plugin, installed directly as `owner/repo[:path]` at the plan's commit, without a marketplace.</summary>
-/// <remarks>The <c>repository</c> variant of <see cref="CatalogAgentPluginInstallSource"/>.</remarks>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public partial class CatalogAgentPluginInstallSourceRepository : CatalogAgentPluginInstallSource
-{
-    /// <inheritdoc />
-    [JsonIgnore]
-    public override string Kind => "repository";
-
-    /// <summary>Relative POSIX path of the plugin directory in the repository. Omitted when the plugin is at the repository root.</summary>
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
-    [MinLength(1)]
-    [MaxLength(256)]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    [JsonPropertyName("path")]
-    public string? Path { get; set; }
-
-    /// <summary>Canonical lowercase GitHub owner/repository holding the plugin.</summary>
-    [RegularExpression("^[a-z0-9_.-]+/[a-z0-9_.-]+$")]
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
-    [MinLength(3)]
-    [MaxLength(256)]
-    [JsonPropertyName("repository")]
-    public required string Repository { get; set; }
-}
-
-/// <summary>What installing an Agent Plugin would do, for the user to review and confirm. Provisional: the catalogue install data it is built from is not final.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class CatalogAgentPluginInstallPlan
-{
-    /// <summary>Canvas IDs the plugin contributes. Non-empty exactly when components include `canvas`.</summary>
-    [JsonPropertyName("canvasIds")]
-    public IList<string> CanvasIds { get => field ??= []; set; }
-
-    /// <summary>Exact full commit ID to install, in lowercase hex. Always present when the plan has a repository source; a plan with a marketplace source carries at least one of version and commit.</summary>
-    [RegularExpression("^(?:[0-9a-f]{40}|[0-9a-f]{64})$")]
-    [JsonPropertyName("commit")]
-    public string? Commit { get; set; }
-
-    /// <summary>Components the plugin contributes, in canonical order.</summary>
-    [JsonPropertyName("components")]
-    public IList<CatalogAgentPluginComponent> Components { get => field ??= []; set; }
-
-    /// <summary>Connectors the plugin depends on.</summary>
-    [JsonPropertyName("connectorDependencies")]
-    public IList<string> ConnectorDependencies { get => field ??= []; set; }
-
-    /// <summary>Extension IDs the plugin contributes. Non-empty exactly when components include `extension`.</summary>
-    [JsonPropertyName("extensionIds")]
-    public IList<string> ExtensionIds { get => field ??= []; set; }
-
-    /// <summary>MCP servers the plugin depends on but does not bundle.</summary>
-    [JsonPropertyName("mcpDependencies")]
-    public IList<string> McpDependencies { get => field ??= []; set; }
-
-    /// <summary>The plugin's name, as named in its marketplace or manifest.</summary>
-    [RegularExpression("^[A-Za-z0-9._-]+$")]
-    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
-    [MinLength(1)]
-    [MaxLength(64)]
-    [JsonPropertyName("pluginName")]
-    public string PluginName { get; set; } = string.Empty;
-
-    /// <summary>Every valid install source, in preference order: materialization, then marketplace, then repository. Each kind appears at most once.</summary>
-    [JsonPropertyName("sources")]
-    public IList<CatalogAgentPluginInstallSource> Sources { get => field ??= []; set; }
-
-    /// <summary>Exact plugin version to install. A plan with a marketplace source carries at least one of version and commit.</summary>
-    [JsonPropertyName("version")]
-    public string? Version { get; set; }
-}
-
 /// <summary>Where and when an Agent Plugin catalog reference was observed. Discovery provenance deliberately carries no descriptor URL, raw data, candidate handle, or content digest.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public sealed class CatalogAgentPluginCandidateProvenance
@@ -8346,16 +8221,6 @@ public partial class CatalogCandidatePlugin : CatalogCandidate
     /// <summary>Validated, normalised catalogue resource URN. This identity comes only from the catalog identifier and is never inferred from display text or installed-plugin state.</summary>
     [JsonPropertyName("identity")]
     public required string Identity { get; set; }
-
-    /// <summary>Whether this plugin can be installed in the selected session. Present only when the caller requires the agent-plugin-confirmed-installation capability.</summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    [JsonPropertyName("installability")]
-    public CatalogAgentPluginInstallability? Installability { get; set; }
-
-    /// <summary>Reviewable install plan built only from verified catalogue install data. Present exactly when installability is `installable`; the runtime never derives it from the repository source, display text, or identity.</summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    [JsonPropertyName("installPlan")]
-    public CatalogAgentPluginInstallPlan? InstallPlan { get; set; }
 
     /// <summary>Media type naming the plugin's format.</summary>
     [JsonPropertyName("mediaType")]
@@ -32349,9 +32214,6 @@ public readonly struct CatalogCapability : IEquatable<CatalogCapability>
     /// <summary>Understands verified Agent Finder Skill install, uninstall, recovery and installation-scoped enablement APIs. Advertised only by runtimes with the Skill installation engine linked; acquisition may still be refused as feature-disabled per selected session.</summary>
     public static CatalogCapability SkillConfirmedInstallation { get; } = new("skill-confirmed-installation");
 
-    /// <summary>Understands `installability` and the reviewable `installPlan` on Agent Plugin candidates. Requires agent-plugin-discovery; without it, plugin candidates are unchanged. A plugin is installable only with complete, verified catalogue install data, and may still be reported as feature-disabled per selected session.</summary>
-    public static CatalogCapability AgentPluginConfirmedInstallation { get; } = new("agent-plugin-confirmed-installation");
-
     /// <summary>Returns a value indicating whether two <see cref="CatalogCapability"/> instances are equivalent.</summary>
     public static bool operator ==(CatalogCapability left, CatalogCapability right) => left.Equals(right);
 
@@ -35636,156 +35498,6 @@ public readonly struct CatalogAgentPluginCompatibilityTag : IEquatable<CatalogAg
         public override void Write(Utf8JsonWriter writer, CatalogAgentPluginCompatibilityTag value, JsonSerializerOptions options)
         {
             GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(CatalogAgentPluginCompatibilityTag));
-        }
-    }
-}
-
-
-/// <summary>Typed installability state for an Agent Plugin candidate.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-[JsonConverter(typeof(Converter))]
-[DebuggerDisplay("{Value,nq}")]
-public readonly struct CatalogAgentPluginInstallability : IEquatable<CatalogAgentPluginInstallability>
-{
-    private readonly string? _value;
-
-    /// <summary>Initializes a new instance of the <see cref="CatalogAgentPluginInstallability"/> struct.</summary>
-    /// <param name="value">The value to associate with this <see cref="CatalogAgentPluginInstallability"/>.</param>
-    [JsonConstructor]
-    public CatalogAgentPluginInstallability(string value)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value);
-        _value = value;
-    }
-
-    /// <summary>Gets the value associated with this <see cref="CatalogAgentPluginInstallability"/>.</summary>
-    public string Value => _value ?? string.Empty;
-
-    /// <summary>The candidate carries complete, verified install data and the selected session may install it. Its install plan is present.</summary>
-    public static CatalogAgentPluginInstallability Installable { get; } = new("installable");
-
-    /// <summary>The catalogue supplied no complete, verified install data, so no install target is offered.</summary>
-    public static CatalogAgentPluginInstallability InstallDataUnavailable { get; } = new("install-data-unavailable");
-
-    /// <summary>Plugin installation is understood but disabled for the selected session.</summary>
-    public static CatalogAgentPluginInstallability FeatureDisabled { get; } = new("feature-disabled");
-
-    /// <summary>Reserved for plugin formats this runtime cannot install. Every format surfaced today installs through a marketplace.</summary>
-    public static CatalogAgentPluginInstallability NotInstallableKind { get; } = new("not-installable-kind");
-
-    /// <summary>Returns a value indicating whether two <see cref="CatalogAgentPluginInstallability"/> instances are equivalent.</summary>
-    public static bool operator ==(CatalogAgentPluginInstallability left, CatalogAgentPluginInstallability right) => left.Equals(right);
-
-    /// <summary>Returns a value indicating whether two <see cref="CatalogAgentPluginInstallability"/> instances are not equivalent.</summary>
-    public static bool operator !=(CatalogAgentPluginInstallability left, CatalogAgentPluginInstallability right) => !(left == right);
-
-    /// <inheritdoc />
-    public override bool Equals(object? obj) => obj is CatalogAgentPluginInstallability other && Equals(other);
-
-    /// <inheritdoc />
-    public bool Equals(CatalogAgentPluginInstallability other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
-
-    /// <inheritdoc />
-    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
-
-    /// <inheritdoc />
-    public override string ToString() => Value;
-
-    /// <summary>Provides a <see cref="JsonConverter{CatalogAgentPluginInstallability}"/> for serializing <see cref="CatalogAgentPluginInstallability"/> instances.</summary>
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    public sealed class Converter : JsonConverter<CatalogAgentPluginInstallability>
-    {
-        /// <inheritdoc />
-        public override CatalogAgentPluginInstallability Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        {
-            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
-        }
-
-        /// <inheritdoc />
-        public override void Write(Utf8JsonWriter writer, CatalogAgentPluginInstallability value, JsonSerializerOptions options)
-        {
-            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(CatalogAgentPluginInstallability));
-        }
-    }
-}
-
-
-/// <summary>A kind of component an Agent Plugin contributes.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-[JsonConverter(typeof(Converter))]
-[DebuggerDisplay("{Value,nq}")]
-public readonly struct CatalogAgentPluginComponent : IEquatable<CatalogAgentPluginComponent>
-{
-    private readonly string? _value;
-
-    /// <summary>Initializes a new instance of the <see cref="CatalogAgentPluginComponent"/> struct.</summary>
-    /// <param name="value">The value to associate with this <see cref="CatalogAgentPluginComponent"/>.</param>
-    [JsonConstructor]
-    public CatalogAgentPluginComponent(string value)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(value);
-        _value = value;
-    }
-
-    /// <summary>Gets the value associated with this <see cref="CatalogAgentPluginComponent"/>.</summary>
-    public string Value => _value ?? string.Empty;
-
-    /// <summary>Custom agents.</summary>
-    public static CatalogAgentPluginComponent Agent { get; } = new("agent");
-
-    /// <summary>Slash commands.</summary>
-    public static CatalogAgentPluginComponent Command { get; } = new("command");
-
-    /// <summary>Skills.</summary>
-    public static CatalogAgentPluginComponent Skill { get; } = new("skill");
-
-    /// <summary>Hooks.</summary>
-    public static CatalogAgentPluginComponent Hook { get; } = new("hook");
-
-    /// <summary>Bundled MCP servers.</summary>
-    public static CatalogAgentPluginComponent McpServer { get; } = new("mcp-server");
-
-    /// <summary>Bundled LSP servers.</summary>
-    public static CatalogAgentPluginComponent LspServer { get; } = new("lsp-server");
-
-    /// <summary>Extensions.</summary>
-    public static CatalogAgentPluginComponent Extension { get; } = new("extension");
-
-    /// <summary>Canvases.</summary>
-    public static CatalogAgentPluginComponent Canvas { get; } = new("canvas");
-
-    /// <summary>Returns a value indicating whether two <see cref="CatalogAgentPluginComponent"/> instances are equivalent.</summary>
-    public static bool operator ==(CatalogAgentPluginComponent left, CatalogAgentPluginComponent right) => left.Equals(right);
-
-    /// <summary>Returns a value indicating whether two <see cref="CatalogAgentPluginComponent"/> instances are not equivalent.</summary>
-    public static bool operator !=(CatalogAgentPluginComponent left, CatalogAgentPluginComponent right) => !(left == right);
-
-    /// <inheritdoc />
-    public override bool Equals(object? obj) => obj is CatalogAgentPluginComponent other && Equals(other);
-
-    /// <inheritdoc />
-    public bool Equals(CatalogAgentPluginComponent other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
-
-    /// <inheritdoc />
-    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
-
-    /// <inheritdoc />
-    public override string ToString() => Value;
-
-    /// <summary>Provides a <see cref="JsonConverter{CatalogAgentPluginComponent}"/> for serializing <see cref="CatalogAgentPluginComponent"/> instances.</summary>
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    public sealed class Converter : JsonConverter<CatalogAgentPluginComponent>
-    {
-        /// <inheritdoc />
-        public override CatalogAgentPluginComponent Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-        {
-            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
-        }
-
-        /// <inheritdoc />
-        public override void Write(Utf8JsonWriter writer, CatalogAgentPluginComponent value, JsonSerializerOptions options)
-        {
-            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(CatalogAgentPluginComponent));
         }
     }
 }
@@ -57371,8 +57083,6 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(CapiSessionOptions))]
 [JsonSerializable(typeof(CardDigest))]
 [JsonSerializable(typeof(CatalogAgentPluginCandidateProvenance))]
-[JsonSerializable(typeof(CatalogAgentPluginInstallPlan))]
-[JsonSerializable(typeof(CatalogAgentPluginInstallSource))]
 [JsonSerializable(typeof(CatalogAiSkillCandidateProvenance))]
 [JsonSerializable(typeof(CatalogCandidate))]
 [JsonSerializable(typeof(CatalogCandidateSource))]

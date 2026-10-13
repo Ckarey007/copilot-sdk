@@ -2191,100 +2191,6 @@ type CatalogAgentPluginCandidateProvenance struct {
 	ObservedAt string `json:"observedAt"`
 }
 
-// What installing an Agent Plugin would do, for the user to review and confirm.
-// Provisional: the catalogue install data it is built from is not final.
-// Experimental: CatalogAgentPluginInstallPlan is part of an experimental API and may change
-// or be removed.
-type CatalogAgentPluginInstallPlan struct {
-	// Canvas IDs the plugin contributes. Non-empty exactly when components include `canvas`.
-	CanvasIDs []string `json:"canvasIds"`
-	// Exact full commit ID to install, in lowercase hex. Always present when the plan has a
-	// repository source; a plan with a marketplace source carries at least one of version and
-	// commit.
-	Commit *string `json:"commit,omitempty"`
-	// Components the plugin contributes, in canonical order.
-	Components []CatalogAgentPluginComponent `json:"components"`
-	// Connectors the plugin depends on.
-	ConnectorDependencies []string `json:"connectorDependencies"`
-	// Extension IDs the plugin contributes. Non-empty exactly when components include
-	// `extension`.
-	ExtensionIDs []string `json:"extensionIds"`
-	// MCP servers the plugin depends on but does not bundle.
-	MCPDependencies []string `json:"mcpDependencies"`
-	// The plugin's name, as named in its marketplace or manifest.
-	PluginName string `json:"pluginName"`
-	// Every valid install source, in preference order: materialization, then marketplace, then
-	// repository. Each kind appears at most once.
-	Sources []CatalogAgentPluginInstallSource `json:"sources"`
-	// Exact plugin version to install. A plan with a marketplace source carries at least one of
-	// version and commit.
-	Version *string `json:"version,omitempty"`
-}
-
-// One place an Agent Plugin can install from: Agent Finder's materialisation, a
-// marketplace, or a GitHub repository. Each variant carries only its own fields.
-// Experimental: CatalogAgentPluginInstallSource is part of an experimental API and may
-// change or be removed.
-type CatalogAgentPluginInstallSource interface {
-	catalogAgentPluginInstallSource()
-	Kind() CatalogAgentPluginInstallSourceKind
-}
-
-type RawCatalogAgentPluginInstallSourceData struct {
-	Discriminator CatalogAgentPluginInstallSourceKind
-	Raw           json.RawMessage
-}
-
-func (RawCatalogAgentPluginInstallSourceData) catalogAgentPluginInstallSource() {}
-func (r RawCatalogAgentPluginInstallSourceData) Kind() CatalogAgentPluginInstallSourceKind {
-	return r.Discriminator
-}
-
-// A plugin marketplace named by verified catalogue install data, installed as
-// `pluginName@name`.
-// Experimental: CatalogAgentPluginMarketplaceSource is part of an experimental API and may
-// change or be removed.
-type CatalogAgentPluginMarketplaceSource struct {
-	// Marketplace name.
-	Name string `json:"name"`
-	// Canonical lowercase GitHub owner/repository hosting the marketplace.
-	Repository string `json:"repository"`
-}
-
-func (CatalogAgentPluginMarketplaceSource) catalogAgentPluginInstallSource() {}
-func (CatalogAgentPluginMarketplaceSource) Kind() CatalogAgentPluginInstallSourceKind {
-	return CatalogAgentPluginInstallSourceKindMarketplace
-}
-
-// Agent Finder's verified materialisation of the plugin. Present only when the candidate
-// carries a complete materialisation reference; the reference itself stays runtime-private.
-// Experimental: CatalogAgentPluginMaterializationSource is part of an experimental API and
-// may change or be removed.
-type CatalogAgentPluginMaterializationSource struct {
-}
-
-func (CatalogAgentPluginMaterializationSource) catalogAgentPluginInstallSource() {}
-func (CatalogAgentPluginMaterializationSource) Kind() CatalogAgentPluginInstallSourceKind {
-	return CatalogAgentPluginInstallSourceKindMaterialization
-}
-
-// A GitHub repository holding the plugin, installed directly as `owner/repo[:path]` at the
-// plan's commit, without a marketplace.
-// Experimental: CatalogAgentPluginRepositorySource is part of an experimental API and may
-// change or be removed.
-type CatalogAgentPluginRepositorySource struct {
-	// Relative POSIX path of the plugin directory in the repository. Omitted when the plugin is
-	// at the repository root.
-	Path *string `json:"path,omitempty"`
-	// Canonical lowercase GitHub owner/repository holding the plugin.
-	Repository string `json:"repository"`
-}
-
-func (CatalogAgentPluginRepositorySource) catalogAgentPluginInstallSource() {}
-func (CatalogAgentPluginRepositorySource) Kind() CatalogAgentPluginInstallSourceKind {
-	return CatalogAgentPluginInstallSourceKindRepository
-}
-
 // Where and when an AI skill catalog reference was observed. Discovery provenance
 // deliberately carries no content digest because search does not establish the exact
 // validated content a later plan will bind.
@@ -2339,13 +2245,6 @@ type CatalogAgentPluginCandidate struct {
 	// Validated, normalised catalogue resource URN. This identity comes only from the catalog
 	// identifier and is never inferred from display text or installed-plugin state.
 	Identity string `json:"identity"`
-	// Whether this plugin can be installed in the selected session. Present only when the
-	// caller requires the agent-plugin-confirmed-installation capability.
-	Installability *CatalogAgentPluginInstallability `json:"installability,omitempty"`
-	// Reviewable install plan built only from verified catalogue install data. Present exactly
-	// when installability is `installable`; the runtime never derives it from the repository
-	// source, display text, or identity.
-	InstallPlan *CatalogAgentPluginInstallPlan `json:"installPlan,omitempty"`
 	// Media type naming the plugin's format.
 	MediaType CatalogAgentPluginMediaType `json:"mediaType"`
 	// Where the Agent Plugin catalog reference was observed, without its descriptor, URL, raw
@@ -25557,78 +25456,6 @@ const (
 	CatalogAgentPluginCompatibilityTagGitHubCopilot CatalogAgentPluginCompatibilityTag = "github-copilot"
 )
 
-// A kind of component an Agent Plugin contributes
-// Experimental: CatalogAgentPluginComponent is part of an experimental API and may change
-// or be removed.
-type CatalogAgentPluginComponent string
-
-const (
-	// Custom agents.
-	CatalogAgentPluginComponentAgent CatalogAgentPluginComponent = "agent"
-	// Canvases.
-	CatalogAgentPluginComponentCanvas CatalogAgentPluginComponent = "canvas"
-	// Slash commands.
-	CatalogAgentPluginComponentCommand CatalogAgentPluginComponent = "command"
-	// Extensions.
-	CatalogAgentPluginComponentExtension CatalogAgentPluginComponent = "extension"
-	// Hooks.
-	CatalogAgentPluginComponentHook CatalogAgentPluginComponent = "hook"
-	// Bundled LSP servers.
-	CatalogAgentPluginComponentLspServer CatalogAgentPluginComponent = "lsp-server"
-	// Bundled MCP servers.
-	CatalogAgentPluginComponentMCPServer CatalogAgentPluginComponent = "mcp-server"
-	// Skills.
-	CatalogAgentPluginComponentSkill CatalogAgentPluginComponent = "skill"
-)
-
-// Typed installability state for an Agent Plugin candidate
-// Experimental: CatalogAgentPluginInstallability is part of an experimental API and may
-// change or be removed.
-type CatalogAgentPluginInstallability string
-
-const (
-	// Plugin installation is understood but disabled for the selected session.
-	CatalogAgentPluginInstallabilityFeatureDisabled CatalogAgentPluginInstallability = "feature-disabled"
-	// The candidate carries complete, verified install data and the selected session may
-	// install it. Its install plan is present.
-	CatalogAgentPluginInstallabilityInstallable CatalogAgentPluginInstallability = "installable"
-	// The catalogue supplied no complete, verified install data, so no install target is
-	// offered.
-	CatalogAgentPluginInstallabilityInstallDataUnavailable CatalogAgentPluginInstallability = "install-data-unavailable"
-	// Reserved for plugin formats this runtime cannot install. Every format surfaced today
-	// installs through a marketplace.
-	CatalogAgentPluginInstallabilityNotInstallableKind CatalogAgentPluginInstallability = "not-installable-kind"
-)
-
-// Kind discriminator for CatalogAgentPluginInstallSource.
-type CatalogAgentPluginInstallSourceKind string
-
-const (
-	CatalogAgentPluginInstallSourceKindMarketplace     CatalogAgentPluginInstallSourceKind = "marketplace"
-	CatalogAgentPluginInstallSourceKindMaterialization CatalogAgentPluginInstallSourceKind = "materialization"
-	CatalogAgentPluginInstallSourceKindRepository      CatalogAgentPluginInstallSourceKind = "repository"
-)
-
-// Discriminator for a marketplace install source
-// Experimental: CatalogAgentPluginMarketplaceSourceKind is part of an experimental API and
-// may change or be removed.
-type CatalogAgentPluginMarketplaceSourceKind string
-
-const (
-	// Install from a plugin marketplace.
-	CatalogAgentPluginMarketplaceSourceKindMarketplace CatalogAgentPluginMarketplaceSourceKind = "marketplace"
-)
-
-// Discriminator for a materialisation install source
-// Experimental: CatalogAgentPluginMaterializationSourceKind is part of an experimental API
-// and may change or be removed.
-type CatalogAgentPluginMaterializationSourceKind string
-
-const (
-	// Install from Agent Finder's verified materialisation.
-	CatalogAgentPluginMaterializationSourceKindMaterialization CatalogAgentPluginMaterializationSourceKind = "materialization"
-)
-
 // Media type naming the plugin format of an Agent Plugin candidate. Values other than
 // `application/vnd.github.copilot-plugin` appear only when the caller requires the
 // agent-plugin-formats capability.
@@ -25643,16 +25470,6 @@ const (
 	CatalogAgentPluginMediaTypeApplicationVndAnthropicClaudePluginJSON CatalogAgentPluginMediaType = "application/vnd.anthropic.claude-plugin+json"
 	// A GitHub Copilot Agent Plugin descriptor.
 	CatalogAgentPluginMediaTypeApplicationVndGitHubCopilotPlugin CatalogAgentPluginMediaType = "application/vnd.github.copilot-plugin"
-)
-
-// Discriminator for a repository install source
-// Experimental: CatalogAgentPluginRepositorySourceKind is part of an experimental API and
-// may change or be removed.
-type CatalogAgentPluginRepositorySourceKind string
-
-const (
-	// Install directly from a GitHub repository.
-	CatalogAgentPluginRepositorySourceKindRepository CatalogAgentPluginRepositorySourceKind = "repository"
 )
 
 // Discriminator for an AI skill candidate
@@ -25738,11 +25555,6 @@ const (
 type CatalogCapability string
 
 const (
-	// Understands `installability` and the reviewable `installPlan` on Agent Plugin candidates.
-	// Requires agent-plugin-discovery; without it, plugin candidates are unchanged. A plugin is
-	// installable only with complete, verified catalogue install data, and may still be
-	// reported as feature-disabled per selected session.
-	CatalogCapabilityAgentPluginConfirmedInstallation CatalogCapability = "agent-plugin-confirmed-installation"
 	// Understands opt-in `application/vnd.github.copilot-plugin` candidates and their typed
 	// identity, version, source, and compatibility fields.
 	CatalogCapabilityAgentPluginDiscovery CatalogCapability = "agent-plugin-discovery"
