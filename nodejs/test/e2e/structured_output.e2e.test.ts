@@ -44,7 +44,7 @@ describe("Structured output", async () => {
     it("infers_typed_result_after_custom_tool", async () => {
         let calls = 0;
         const schema = z.object({ count: z.number().int(), color: z.string() });
-        const session = await client.createSession({
+        await using session = await client.createSession({
             model,
             provider,
             onPermissionRequest: approveAll,
@@ -89,8 +89,7 @@ describe("Structured output", async () => {
     it("typed_result_after_terminal_tool_and_steering", async () => {
         const events: SessionEvent[] = [];
         let calls = 0;
-        let session: CopilotSession;
-        session = await client.createSession({
+        await using session: CopilotSession = await client.createSession({
             model,
             provider,
             onPermissionRequest: approveAll,
@@ -146,7 +145,7 @@ describe("Structured output", async () => {
         let calls = 0;
         let stops = 0;
         const replies: AssistantMessageEvent[] = [];
-        const session = await client.createSession({
+        await using session = await client.createSession({
             model,
             provider,
             onPermissionRequest: approveAll,
@@ -204,7 +203,7 @@ describe("Structured output", async () => {
 
     it("rejects_unsupported_or_oversized_schemas_before_admission", async () => {
         for (const model of ["gpt-4.1", "hydrafusion"]) {
-            const session = await client.createSession({
+            await using session = await client.createSession({
                 model,
                 provider,
                 ...(model === "hydrafusion"
@@ -258,7 +257,7 @@ describe("Structured output", async () => {
         const hookReleased = new Promise<void>((resolve) => {
             releaseHook = resolve;
         });
-        const session = await client.createSession({
+        await using session = await client.createSession({
             model,
             provider,
             onPermissionRequest: approveAll,
@@ -279,14 +278,20 @@ describe("Structured output", async () => {
             },
         });
         const replies: AssistantMessageEvent[] = [];
-        const errors: string[] = [];
+        const errors: "session.error"[] = [];
+        let errorCount = 0;
+        const startedAt = Date.now();
+        const progress: { type: SessionEvent["type"]; elapsedMs: number }[] = [];
         let idle = false;
         const unsubscribe = session.on((event) => {
             if (event.agentId) return;
+            progress.push({ type: event.type, elapsedMs: Date.now() - startedAt });
+            if (progress.length > 20) progress.shift();
             if (event.type === "assistant.message") {
                 replies.push(event);
             } else if (event.type === "session.error") {
-                errors.push(event.data.message);
+                errorCount++;
+                if (errors.length === 0) errors.push("session.error");
             } else if (event.type === "session.idle") {
                 idle = true;
             }
@@ -320,6 +325,24 @@ describe("Structured output", async () => {
             expect(replies.some((event) => event.data.toolRequests?.length)).toBe(true);
             expect(reply.data.toolRequests ?? []).toEqual([]);
             expect(replies.at(-1)).toBe(reply);
+        } catch (error) {
+            console.error(
+                "Structured-output stop-hook diagnostics:",
+                JSON.stringify({
+                    sessionId: session.sessionId,
+                    hookEntered,
+                    idle,
+                    errorCount,
+                    errorCategories: errors,
+                    progress,
+                    replies: replies.slice(-20).map((reply) => ({
+                        originatingMessageId: reply.data.originatingMessageId,
+                        toolRequestCount: reply.data.toolRequests?.length ?? 0,
+                        contentLength: reply.data.content.length,
+                    })),
+                })
+            );
+            throw error;
         } finally {
             releaseHook();
             unsubscribe();
@@ -330,7 +353,7 @@ describe("Structured output", async () => {
         let stops = 0;
         const replies: AssistantMessageEvent[] = [];
         const schema = z.object({ answer: z.number().int() });
-        const session = await client.createSession({
+        await using session = await client.createSession({
             model,
             provider,
             onPermissionRequest: approveAll,
@@ -370,10 +393,9 @@ describe("Structured output", async () => {
     it("typed_wait_returns_late_steering_response", async () => {
         let stops = 0;
         let steeringId: string | undefined;
-        let session: CopilotSession;
         const replies: AssistantMessageEvent[] = [];
         const schema = z.object({ answer: z.number().int() });
-        session = await client.createSession({
+        await using session: CopilotSession = await client.createSession({
             model,
             provider,
             onPermissionRequest: approveAll,
@@ -423,7 +445,7 @@ describe("Structured output", async () => {
         const toolReleased = new Promise<void>((resolve) => {
             releaseTool = resolve;
         });
-        const session = await client.createSession({
+        await using session = await client.createSession({
             model,
             provider,
             onPermissionRequest: approveAll,
@@ -480,7 +502,7 @@ describe("Structured output", async () => {
     });
 
     it("sends_explicit_schema_for_message_and_batch", async () => {
-        const session = await client.createSession({
+        await using session = await client.createSession({
             model,
             provider,
             onPermissionRequest: approveAll,

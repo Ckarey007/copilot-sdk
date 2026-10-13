@@ -27,6 +27,7 @@ record McpRegistrySearchParams(
     /** Request ID from `mcp.registry.allocateRequestId`. The search refuses unknown, reclaimed, or canceled IDs and IDs that another search or request already uses. */
     @JsonProperty("requestId") Long requestId,
     /** The credential the search runs under, carried opaquely. Hosts usually send credential-free `AuthIdentity`; a `token` identity can be resolved only when it embeds a token, while `env` and `gh-cli` identities can use a token embedded in the request first. */
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     @JsonProperty("authInfo") Object authInfo,
     /** Free-text query. Omitted or empty asks the registry for its top servers rather than searching. A value that is not a string is refused. */
     @JsonProperty("query") String query,

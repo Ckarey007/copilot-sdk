@@ -46,15 +46,62 @@ const shellState = {
 };
 const records = {
     "workflow availability decision": { available: "boolean" },
+    "sdk transport teardown": {
+        connection: "count",
+        active_requests: "count",
+        driver_finished: "boolean",
+        phase: [
+            "shutdown_writer",
+            "launcher",
+            "launcher_complete",
+            "driver",
+            "driver_complete",
+            "driver_failed",
+            "driver_timeout",
+            "driver_abort_complete",
+            "writer_shutdown_complete",
+            "peer_eof",
+            "notification_worker",
+            "notification_worker_complete",
+            "notification_worker_failed",
+            "notification_worker_timed_out",
+            "active_request_grace",
+            "handle_close",
+            "handle_close_complete",
+            "active_requests",
+            "active_requests_complete",
+            "active_requests_timed_out",
+            "flush",
+            "flush_complete",
+            "flush_cancelled",
+            "flush_timed_out",
+            "flush_unavailable",
+            "writer_join",
+            "writer_join_complete",
+            "complete",
+        ],
+    },
     "sdk pending permission response": {
         ...presence,
         prepared_replay: "boolean",
         aborting: "boolean",
-        reason: ["prepared_replay", "completed_request", "unknown_request", "resolved_tool", "accepted"],
+        reason: [
+            "prepared_replay",
+            "completed_request",
+            "unknown_request",
+            "resolved_tool",
+            "accepted",
+        ],
     },
     "sdk pending tool response": {
         ...presence,
-        reason: ["completed_request", "unknown_request", "non_pending_request", "completed_tool", "accepted"],
+        reason: [
+            "completed_request",
+            "unknown_request",
+            "non_pending_request",
+            "completed_tool",
+            "accepted",
+        ],
     },
     "sdk pending permission delivery": {
         generation: "number",
@@ -163,6 +210,105 @@ const records = {
         child_span_handle: "number",
         chat_span_handle: "number",
     },
+    "sdk otel admission": {
+        phase: ["received", "no_tracker", "fenced", "pending", "submitted"],
+        event_sequence: "count",
+        policy_revision: "count",
+        authority_fenced: "boolean",
+        preparation_pending: "boolean",
+        policy_enabled: "boolean",
+        projected_event_count: "count",
+        submitted: "boolean",
+    },
+    "sdk otel policy state": {
+        origin: [
+            "host_prepare",
+            "host_commit",
+            "host_commit_initial",
+            "host_bind",
+            "host_rollback",
+            "explicit_fence",
+            "legacy_settled",
+            "native_pending",
+            "native_settled",
+            "native_apply",
+            "reserved_apply",
+            "direct_apply",
+        ],
+        kind: [
+            "transition",
+            "restore",
+            "fence",
+            "apply_stale_source",
+            "apply_retry",
+            "apply_superseded",
+            "apply_settled",
+        ],
+        expected_some: "boolean",
+        expected_incarnation: "count",
+        expected_revision: "count",
+        previous_incarnation: "count",
+        previous_revision: "count",
+        current_incarnation: "count",
+        current_revision: "count",
+        previous_authority_fenced: "boolean",
+        authority_fenced: "boolean",
+        previous_preparation_pending: "boolean",
+        preparation_pending: "boolean",
+        previous_native_owned: "boolean",
+        native_owned: "boolean",
+        policy_enabled: "boolean",
+        returned_some: "boolean",
+        applied: "boolean",
+        build_succeeded: "boolean",
+    },
+    "sdk otel core policy publication": {
+        origin: [
+            "clear_account_policy",
+            "retained_device_update",
+            "retained_server_update",
+            "retained_signed_out_update",
+            "registry_rotation",
+            "signed_out_policy_clear",
+            "refresh_start",
+            "ingest_settlement",
+            "standalone_provider_rebind",
+            "standalone_provider_restore",
+            "construction_options_auth",
+            "manager_auth_changed",
+            "resolved_session_auth",
+            "hydrated_session_auth",
+            "set_credentials",
+            "clear_credentials",
+            "other_auth_mutation",
+        ],
+        kind: ["pending_publish", "pending_publish_returned"],
+        registry_generation: "count",
+        previous_auth_generation: "count",
+        auth_generation: "count",
+        auth_generation_changed: "boolean",
+        previous_server_pending: "boolean",
+        server_pending: "boolean",
+        policy_identity_present: "boolean",
+        source_recovery: "boolean",
+        clear_retained: "boolean",
+        composition_succeeded: "boolean",
+        refresh_generation: "count",
+        has_resolved_managed_settings: "boolean",
+        has_eligible_current_otel_policy: "boolean",
+        expected_auth_generation: "count",
+    },
+    "sdk otel policy settlement": {
+        origin: ["standalone_commit"],
+        kind: ["reservation", "application"],
+        succeeded: "boolean",
+        reservation_some: "boolean",
+        committed_incarnation: "count",
+        committed_revision: "count",
+        expected_incarnation: "count",
+        expected_revision: "count",
+        applied: "boolean",
+    },
     "sdk assistant message": {
         ...childParts,
         scope: ["parent", "child"],
@@ -174,7 +320,12 @@ const records = {
         ...childParts,
         scope: ["parent", "child"],
         operation: ["chat"],
-        reason: [...childCloseReasons, "model_call_start", "assistant_turn_end", "parent_turn_close"],
+        reason: [
+            ...childCloseReasons,
+            "model_call_start",
+            "assistant_turn_end",
+            "parent_turn_close",
+        ],
         status: ["unset", "error"],
     },
     "sdk child completion": {
@@ -230,7 +381,14 @@ const records = {
     },
     "sdk shell wait": {
         ...shellState,
-        phase: ["interrupted", "stale_generation", "completion", "cancelled", "deadline", "completion_after_deadline"],
+        phase: [
+            "interrupted",
+            "stale_generation",
+            "completion",
+            "cancelled",
+            "deadline",
+            "completion_after_deadline",
+        ],
         wait_generation: "number",
         current_wait_generation: "number",
         elapsed_ms: "elapsed",
@@ -257,9 +415,11 @@ export function sanitizeDiagnosticLine(line) {
             ? rule.includes(value)
             : rule === "number"
               ? Number.isSafeInteger(value)
-              : rule === "elapsed"
-                ? Number.isFinite(value) && value >= 0
-                : typeof value === rule;
+              : rule === "count"
+                ? Number.isSafeInteger(value) && value >= 0
+                : rule === "elapsed"
+                  ? Number.isFinite(value) && value >= 0
+                  : typeof value === rule;
         if (!valid) return undefined;
         output[key] = value;
     }
@@ -285,7 +445,10 @@ export async function readDiagnosticTail(home) {
     }
     for (const file of files.sort()) {
         if (!file.endsWith(".log")) continue;
-        const lines = createInterface({ input: createReadStream(join(home, "logs", file)), crlfDelay: Infinity });
+        const lines = createInterface({
+            input: createReadStream(join(home, "logs", file)),
+            crlfDelay: Infinity,
+        });
         for await (const line of lines) append(line);
     }
     return tail;

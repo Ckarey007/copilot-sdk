@@ -5021,6 +5021,7 @@ class CompactionCompleteCompactionTokensUsed:
     model_display_name: str | None = None
     output_tokens: int | None = None
     provider: ModelProviderRef | None = None
+    request_count: int | None = None
 
     @staticmethod
     def from_dict(obj: Any) -> "CompactionCompleteCompactionTokensUsed":
@@ -5035,6 +5036,7 @@ class CompactionCompleteCompactionTokensUsed:
         model_display_name = from_union([from_none, from_str], obj.get("modelDisplayName"))
         output_tokens = from_union([from_none, from_int], obj.get("outputTokens"))
         provider = from_union([from_none, ModelProviderRef.from_dict], obj.get("provider"))
+        request_count = from_union([from_none, from_int], obj.get("requestCount"))
         return CompactionCompleteCompactionTokensUsed(
             ai_credits_status=ai_credits_status,
             cache_read_tokens=cache_read_tokens,
@@ -5046,6 +5048,7 @@ class CompactionCompleteCompactionTokensUsed:
             model_display_name=model_display_name,
             output_tokens=output_tokens,
             provider=provider,
+            request_count=request_count,
         )
 
     def to_dict(self) -> dict:
@@ -5070,6 +5073,8 @@ class CompactionCompleteCompactionTokensUsed:
             result["outputTokens"] = from_union([from_none, to_int], self.output_tokens)
         if self.provider is not None:
             result["provider"] = from_union([from_none, lambda x: to_class(ModelProviderRef, x)], self.provider)
+        if self.request_count is not None:
+            result["requestCount"] = from_union([from_none, to_int], self.request_count)
         return result
 
 
@@ -7925,6 +7930,8 @@ class PermissionRecoveryData:
     on_blocked: PermissionRecoveryOnBlocked
     reason: PermissionRecoveryReason
     status: PermissionRecoveryStatus
+    owner_agent_id: str | None = None
+    owner_session_id: str | None = None
 
     @staticmethod
     def from_dict(obj: Any) -> "PermissionRecoveryData":
@@ -7935,6 +7942,8 @@ class PermissionRecoveryData:
         on_blocked = parse_enum(PermissionRecoveryOnBlocked, obj.get("onBlocked"))
         reason = parse_enum(PermissionRecoveryReason, obj.get("reason"))
         status = parse_enum(PermissionRecoveryStatus, obj.get("status"))
+        owner_agent_id = from_union([from_none, from_str], obj.get("ownerAgentId"))
+        owner_session_id = from_union([from_none, from_str], obj.get("ownerSessionId"))
         return PermissionRecoveryData(
             attempts=attempts,
             episode_id=episode_id,
@@ -7942,6 +7951,8 @@ class PermissionRecoveryData:
             on_blocked=on_blocked,
             reason=reason,
             status=status,
+            owner_agent_id=owner_agent_id,
+            owner_session_id=owner_session_id,
         )
 
     def to_dict(self) -> dict:
@@ -7952,6 +7963,10 @@ class PermissionRecoveryData:
         result["onBlocked"] = to_enum(PermissionRecoveryOnBlocked, self.on_blocked)
         result["reason"] = to_enum(PermissionRecoveryReason, self.reason)
         result["status"] = to_enum(PermissionRecoveryStatus, self.status)
+        if self.owner_agent_id is not None:
+            result["ownerAgentId"] = from_union([from_none, from_str], self.owner_agent_id)
+        if self.owner_session_id is not None:
+            result["ownerSessionId"] = from_union([from_none, from_str], self.owner_session_id)
         return result
 
 
@@ -8715,6 +8730,8 @@ class PermissionRequestedData:
     permission_request: PermissionRequest
     request_id: str
     agent_mode: SessionMode | None = None
+    owner_agent_id: str | None = None
+    owner_session_id: str | None = None
     permission_mode: PermissionMode | None = None
     prompt_request: PermissionPromptRequest | None = None
     recovery_episode_id: str | None = None
@@ -8727,6 +8744,8 @@ class PermissionRequestedData:
         permission_request = _load_PermissionRequest(obj.get("permissionRequest"))
         request_id = from_str(obj.get("requestId"))
         agent_mode = from_union([from_none, lambda x: parse_enum(SessionMode, x)], obj.get("agentMode"))
+        owner_agent_id = from_union([from_none, from_str], obj.get("ownerAgentId"))
+        owner_session_id = from_union([from_none, from_str], obj.get("ownerSessionId"))
         permission_mode = from_union([from_none, lambda x: parse_enum(PermissionMode, x)], obj.get("permissionMode"))
         prompt_request = from_union([from_none, _load_PermissionPromptRequest], obj.get("promptRequest"))
         recovery_episode_id = from_union([from_none, from_str], obj.get("recoveryEpisodeId"))
@@ -8736,6 +8755,8 @@ class PermissionRequestedData:
             permission_request=permission_request,
             request_id=request_id,
             agent_mode=agent_mode,
+            owner_agent_id=owner_agent_id,
+            owner_session_id=owner_session_id,
             permission_mode=permission_mode,
             prompt_request=prompt_request,
             recovery_episode_id=recovery_episode_id,
@@ -8749,6 +8770,10 @@ class PermissionRequestedData:
         result["requestId"] = from_str(self.request_id)
         if self.agent_mode is not None:
             result["agentMode"] = from_union([from_none, lambda x: to_enum(SessionMode, x)], self.agent_mode)
+        if self.owner_agent_id is not None:
+            result["ownerAgentId"] = from_union([from_none, from_str], self.owner_agent_id)
+        if self.owner_session_id is not None:
+            result["ownerSessionId"] = from_union([from_none, from_str], self.owner_session_id)
         if self.permission_mode is not None:
             result["permissionMode"] = from_union([from_none, lambda x: to_enum(PermissionMode, x)], self.permission_mode)
         if self.prompt_request is not None:
@@ -9459,8 +9484,6 @@ class SessionCompactionCompleteData:
     "Conversation compaction results including success status, metrics, and optional error details"
     success: bool
     # Internal: this field is an internal SDK API and is not part of the public surface.
-    _active_factory_summary: str | None = None
-    # Internal: this field is an internal SDK API and is not part of the public surface.
     _active_workflow_summary: str | None = None
     behavior_model_id: str | None = None
     checkpoint_number: int | None = None
@@ -9488,7 +9511,6 @@ class SessionCompactionCompleteData:
     def from_dict(obj: Any) -> "SessionCompactionCompleteData":
         assert isinstance(obj, dict)
         success = from_bool(obj.get("success"))
-        _active_factory_summary = from_union([from_none, from_str], obj.get("activeFactorySummary"))
         _active_workflow_summary = from_union([from_none, from_str], obj.get("activeWorkflowSummary"))
         behavior_model_id = from_union([from_none, from_str], obj.get("behaviorModelId"))
         checkpoint_number = from_union([from_none, from_int], obj.get("checkpointNumber"))
@@ -9513,7 +9535,6 @@ class SessionCompactionCompleteData:
         trigger = from_union([from_none, lambda x: parse_enum(CompactionTrigger, x)], obj.get("trigger"))
         return SessionCompactionCompleteData(
             success=success,
-            _active_factory_summary=_active_factory_summary,
             _active_workflow_summary=_active_workflow_summary,
             behavior_model_id=behavior_model_id,
             checkpoint_number=checkpoint_number,
@@ -9541,8 +9562,6 @@ class SessionCompactionCompleteData:
     def to_dict(self) -> dict:
         result: dict = {}
         result["success"] = from_bool(self.success)
-        if self._active_factory_summary is not None:
-            result["activeFactorySummary"] = from_union([from_none, from_str], self._active_factory_summary)
         if self._active_workflow_summary is not None:
             result["activeWorkflowSummary"] = from_union([from_none, from_str], self._active_workflow_summary)
         if self.behavior_model_id is not None:
@@ -9795,6 +9814,8 @@ class SessionErrorData:
     eligible_for_auto_switch: bool | None = None
     error_code: str | None = None
     provider_call_id: str | None = None
+    provider_error_param: str | None = None
+    provider_error_type: str | None = None
     remediation: RemediationAction | None = None
     service_request_id: str | None = None
     stack: str | None = None
@@ -9809,6 +9830,8 @@ class SessionErrorData:
         eligible_for_auto_switch = from_union([from_none, from_bool], obj.get("eligibleForAutoSwitch"))
         error_code = from_union([from_none, from_str], obj.get("errorCode"))
         provider_call_id = from_union([from_none, from_str], obj.get("providerCallId"))
+        provider_error_param = from_union([from_none, from_str], obj.get("providerErrorParam"))
+        provider_error_type = from_union([from_none, from_str], obj.get("providerErrorType"))
         remediation = from_union([from_none, lambda x: parse_enum(RemediationAction, x)], obj.get("remediation"))
         service_request_id = from_union([from_none, from_str], obj.get("serviceRequestId"))
         stack = from_union([from_none, from_str], obj.get("stack"))
@@ -9820,6 +9843,8 @@ class SessionErrorData:
             eligible_for_auto_switch=eligible_for_auto_switch,
             error_code=error_code,
             provider_call_id=provider_call_id,
+            provider_error_param=provider_error_param,
+            provider_error_type=provider_error_type,
             remediation=remediation,
             service_request_id=service_request_id,
             stack=stack,
@@ -9837,6 +9862,10 @@ class SessionErrorData:
             result["errorCode"] = from_union([from_none, from_str], self.error_code)
         if self.provider_call_id is not None:
             result["providerCallId"] = from_union([from_none, from_str], self.provider_call_id)
+        if self.provider_error_param is not None:
+            result["providerErrorParam"] = from_union([from_none, from_str], self.provider_error_param)
+        if self.provider_error_type is not None:
+            result["providerErrorType"] = from_union([from_none, from_str], self.provider_error_type)
         if self.remediation is not None:
             result["remediation"] = from_union([from_none, lambda x: to_enum(RemediationAction, x)], self.remediation)
         if self.service_request_id is not None:
@@ -10490,6 +10519,8 @@ class SessionPermissionRecoveryData:
     on_blocked: PermissionRecoveryOnBlocked
     reason: PermissionRecoveryReason
     status: PermissionRecoveryStatus
+    owner_agent_id: str | None = None
+    owner_session_id: str | None = None
 
     @staticmethod
     def from_dict(obj: Any) -> "SessionPermissionRecoveryData":
@@ -10500,6 +10531,8 @@ class SessionPermissionRecoveryData:
         on_blocked = parse_enum(PermissionRecoveryOnBlocked, obj.get("onBlocked"))
         reason = parse_enum(PermissionRecoveryReason, obj.get("reason"))
         status = parse_enum(PermissionRecoveryStatus, obj.get("status"))
+        owner_agent_id = from_union([from_none, from_str], obj.get("ownerAgentId"))
+        owner_session_id = from_union([from_none, from_str], obj.get("ownerSessionId"))
         return SessionPermissionRecoveryData(
             attempts=attempts,
             episode_id=episode_id,
@@ -10507,6 +10540,8 @@ class SessionPermissionRecoveryData:
             on_blocked=on_blocked,
             reason=reason,
             status=status,
+            owner_agent_id=owner_agent_id,
+            owner_session_id=owner_session_id,
         )
 
     def to_dict(self) -> dict:
@@ -10517,6 +10552,10 @@ class SessionPermissionRecoveryData:
         result["onBlocked"] = to_enum(PermissionRecoveryOnBlocked, self.on_blocked)
         result["reason"] = to_enum(PermissionRecoveryReason, self.reason)
         result["status"] = to_enum(PermissionRecoveryStatus, self.status)
+        if self.owner_agent_id is not None:
+            result["ownerAgentId"] = from_union([from_none, from_str], self.owner_agent_id)
+        if self.owner_session_id is not None:
+            result["ownerSessionId"] = from_union([from_none, from_str], self.owner_session_id)
         return result
 
 
@@ -12085,7 +12124,6 @@ class SubagentStartedData:
     tool_call_id: str
     agent_type: str | None = None
     execution_mode: str | None = None
-    factory_run_id: str | None = None
     model: str | None = None
     model_selection_source: SubagentModelSelectionSource | None = None
     parent_id: str | None = None
@@ -12102,7 +12140,6 @@ class SubagentStartedData:
         tool_call_id = from_str(obj.get("toolCallId"))
         agent_type = from_union([from_none, from_str], obj.get("agentType"))
         execution_mode = from_union([from_none, from_str], obj.get("executionMode"))
-        factory_run_id = from_union([from_none, from_str], obj.get("factoryRunId"))
         model = from_union([from_none, from_str], obj.get("model"))
         model_selection_source = from_union([from_none, lambda x: parse_enum(SubagentModelSelectionSource, x)], obj.get("modelSelectionSource"))
         parent_id = from_union([from_none, from_str], obj.get("parentId"))
@@ -12116,7 +12153,6 @@ class SubagentStartedData:
             tool_call_id=tool_call_id,
             agent_type=agent_type,
             execution_mode=execution_mode,
-            factory_run_id=factory_run_id,
             model=model,
             model_selection_source=model_selection_source,
             parent_id=parent_id,
@@ -12135,8 +12171,6 @@ class SubagentStartedData:
             result["agentType"] = from_union([from_none, from_str], self.agent_type)
         if self.execution_mode is not None:
             result["executionMode"] = from_union([from_none, from_str], self.execution_mode)
-        if self.factory_run_id is not None:
-            result["factoryRunId"] = from_union([from_none, from_str], self.factory_run_id)
         if self.model is not None:
             result["model"] = from_union([from_none, from_str], self.model)
         if self.model_selection_source is not None:
@@ -15870,6 +15904,8 @@ class RemediationAction(Enum):
     REVIEW_SANDBOX_POLICY = "review_sandbox_policy"
     # Permit outbound network access in the sandbox policy.
     ALLOW_SANDBOX_OUTBOUND = "allow_sandbox_outbound"
+    # Discard conversation history back through the blocked request before continuing.
+    REWIND_CONVERSATION = "rewind_conversation"
 
 
 class SandboxAttestation(Enum):

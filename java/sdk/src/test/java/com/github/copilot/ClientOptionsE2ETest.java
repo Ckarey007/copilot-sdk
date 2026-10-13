@@ -80,8 +80,8 @@ class ClientOptionsE2ETest {
 
             try (var client = fake.createClient()) {
                 var session = client.createSession(new SessionConfig().setSessionId("java-create-session")
-                        .setClientName("java-e2e-client").setModel("gpt-5-mini").setReasoningEffort("low")
-                        .setReasoningSummary("none").setContextTier("long_context")
+                        .setName("java named at create").setClientName("java-e2e-client").setModel("gpt-5-mini")
+                        .setReasoningEffort("low").setReasoningSummary("none").setContextTier("long_context")
                         .setAvailableTools(java.util.List.of("bash")).setExcludedTools(java.util.List.of("grep"))
                         .setExcludedBuiltInAgents(java.util.List.of("explore")).setEnableSessionTelemetry(true)
                         .setEnableCitations(true).setSessionLimits(new SessionLimitsConfig(42.0))
@@ -100,6 +100,7 @@ class ClientOptionsE2ETest {
 
             var create = fake.capturedRequest("session.create").path("params");
             assertEquals("java-create-session", create.path("sessionId").asText());
+            assertEquals("java named at create", create.path("name").asText());
             assertEquals("java-e2e-client", create.path("clientName").asText());
             assertEquals("gpt-5-mini", create.path("model").asText());
             assertEquals("low", create.path("reasoningEffort").asText());

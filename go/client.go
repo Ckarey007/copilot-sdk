@@ -975,6 +975,8 @@ func (c *Client) CreateSession(ctx context.Context, config *SessionConfig) (*Ses
 	req.DefaultAgent = config.DefaultAgent
 	req.Agent = config.Agent
 	req.SkillDirectories = config.SkillDirectories
+	req.AgentDirectories = config.AgentDirectories
+	req.HookDirectories = config.HookDirectories
 	req.PluginDirectories = config.PluginDirectories
 	req.InstructionDirectories = config.InstructionDirectories
 	req.DisabledSkills = config.DisabledSkills
@@ -1079,6 +1081,7 @@ func (c *Client) CreateSession(ctx context.Context, config *SessionConfig) (*Ses
 		localSessionID = uuid.NewString()
 	}
 	req.SessionID = localSessionID
+	req.Name = config.Name
 
 	// unregisterSession removes only the session created by this call and stops
 	// its event consumer. The latter is essential on CreateSession error paths:
@@ -1456,6 +1459,8 @@ func (c *Client) ResumeSessionWithOptions(ctx context.Context, sessionID string,
 	req.DefaultAgent = config.DefaultAgent
 	req.Agent = config.Agent
 	req.SkillDirectories = config.SkillDirectories
+	req.AgentDirectories = config.AgentDirectories
+	req.HookDirectories = config.HookDirectories
 	req.PluginDirectories = config.PluginDirectories
 	req.InstructionDirectories = config.InstructionDirectories
 	req.DisabledSkills = config.DisabledSkills

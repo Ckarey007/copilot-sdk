@@ -138,8 +138,8 @@ public final class SessionGitHubAuthApi {
      * @since 1.0.0
      */
     @CopilotExperimental
-    CompletableFuture<Void> logout() {
-        return caller.invoke("session.gitHubAuth.logout", java.util.Map.of("sessionId", this.sessionId), Void.class);
+    CompletableFuture<Boolean> logout() {
+        return caller.invoke("session.gitHubAuth.logout", java.util.Map.of("sessionId", this.sessionId), Boolean.class);
     }
 
     /**
@@ -152,10 +152,10 @@ public final class SessionGitHubAuthApi {
      * @since 1.0.0
      */
     @CopilotExperimental
-    CompletableFuture<Void> logoutUser(SessionGitHubAuthLogoutUserParams params) {
+    CompletableFuture<Boolean> logoutUser(SessionGitHubAuthLogoutUserParams params) {
         com.fasterxml.jackson.databind.node.ObjectNode _p = MAPPER.valueToTree(params);
         _p.put("sessionId", this.sessionId);
-        return caller.invoke("session.gitHubAuth.logoutUser", _p, Void.class);
+        return caller.invoke("session.gitHubAuth.logoutUser", _p, Boolean.class);
     }
 
     /**

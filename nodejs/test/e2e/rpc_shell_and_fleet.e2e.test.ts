@@ -14,13 +14,24 @@ import { createSdkTestContext } from "./harness/sdkTestContext.js";
 import { waitForCondition, waitForFileText } from "./harness/sdkTestHelper.js";
 
 describe("Shell and fleet RPC", async () => {
-    const { copilotClient: client, workDir } = await createSdkTestContext();
+    const { copilotClient: client, workDir } = await createSdkTestContext({
+        logLevel: "debug",
+        copilotClientOptions: {
+            env: { RUST_LOG: "error,sdk_diagnostics=debug" },
+        },
+    });
 
     function createWriteFileCommand(markerPath: string, marker: string): string {
         if (os.platform() === "win32") {
             return `echo ${marker}>"${markerPath}"`;
         }
         return `sh -c "printf '%s' '${marker}' > '${markerPath}'"`;
+    }
+
+    function createWindowsBatchCommand(command: string): string {
+        const filename = `shell-command-${randomUUID()}.cmd`;
+        fs.writeFileSync(path.join(workDir, filename), `@echo off\r\n${command}\r\n`);
+        return `cmd.exe /d /c ${filename}`;
     }
 
     async function waitForMessages(
@@ -140,7 +151,9 @@ describe("Shell and fleet RPC", async () => {
             const timeout = os.platform() === "win32" ? 10_000 : 1_000;
             const command =
                 os.platform() === "win32"
-                    ? `echo started>"${started}" & ping.exe -n 31 127.0.0.1 >nul & echo completed>"${completed}"`
+                    ? createWindowsBatchCommand(
+                          `echo started>"${started}" & ping.exe -n 31 127.0.0.1 >nul & echo completed>"${completed}"`
+                      )
                     : `printf started > '${started}'; sleep 30; printf completed > '${completed}'`;
             try {
                 const result = await session.rpc.shell.exec({ command, cwd: workDir, timeout });
@@ -273,7 +286,7 @@ describe("Shell and fleet RPC", async () => {
         const missingCommand = `not-a-command-${randomUUID()}`;
         const command =
             os.platform() === "win32"
-                ? `${missingCommand} & echo done>"${marker}" & exit /b 1`
+                ? createWindowsBatchCommand(`${missingCommand} & echo done>"${marker}" & exit /b 1`)
                 : `${missingCommand}; code=$?; printf done > '${marker}'; exit $code`;
         try {
             const result = await session.rpc.shell.exec({ command, cwd: workDir });
@@ -294,32 +307,40 @@ describe("Shell and fleet RPC", async () => {
         async (outputKind) => {
             const session = await client.createSession({ onPermissionRequest: approveAll });
             const marker = path.join(workDir, `shell-${outputKind}-${randomUUID()}.txt`);
+            const outputFile = path.join(workDir, `shell-output-${randomUUID()}.txt`);
+            const started = `${marker}.started`;
             const phase = `${marker}.phase`;
-            const recordPhase = (value: string) =>
-                `[IO.File]::WriteAllText('${phase}', '${value}')`;
-            // Publish only after Set-Content has closed its exclusive Windows writer.
+            const recordPhase = (value: string) => `echo ${value}>"${phase}"`;
+            // Run cmd syntax in an owned batch even when the RPC selects PowerShell.
             const publishMarker =
-                `${recordPhase("output-written")}; ` +
-                `Set-Content -LiteralPath '${marker}.pending' -Value done; ` +
-                `${recordPhase("marker-written")}; ` +
-                `Move-Item -LiteralPath '${marker}.pending' -Destination '${marker}'; ` +
+                `${recordPhase("output-written")} & ` +
+                `echo done>"${marker}.pending" & ` +
+                `${recordPhase("marker-written")} & ` +
+                `move /y "${marker}.pending" "${marker}" >nul & ` +
                 recordPhase("marker-published");
             const command =
                 outputKind === "stderr"
                     ? os.platform() === "win32"
-                        ? `powershell -NoLogo -NoProfile -Command "${recordPhase("started")}; [Console]::Error.WriteLine('boom'); ${publishMarker}; exit 2"`
-                        : `echo boom 1>&2; printf done > '${marker}'; exit 2`
+                        ? createWindowsBatchCommand(
+                              `${recordPhase("started")} & echo boom 1>&2 & ${publishMarker} & exit /b 2`
+                          )
+                        : `printf started > '${started}'; echo boom 1>&2; printf done > '${marker}'; exit 2`
                     : os.platform() === "win32"
-                      ? `powershell -NoLogo -NoProfile -Command "${recordPhase("started")}; Write-Host ('x' * 71680); ${publishMarker}"`
-                      : `printf '%71680s' '' | tr ' ' '='; printf done > '${marker}'`;
+                      ? createWindowsBatchCommand(
+                            `${recordPhase("started")} & type "${outputFile}" & ${publishMarker}`
+                        )
+                      : `printf started > '${started}'; printf '%71680s' '' | tr ' ' '='; printf done > '${marker}'`;
             try {
+                if (outputKind === "large-stdout" && os.platform() === "win32") {
+                    fs.writeFileSync(outputFile, "x".repeat(71680));
+                }
                 const result = await session.rpc.shell.exec({ command, cwd: workDir });
                 expect(result.processId).toBeTruthy();
                 await waitForFileText(
                     marker,
                     "done",
                     30_000,
-                    os.platform() === "win32" ? [phase, `${marker}.pending`] : []
+                    os.platform() === "win32" ? [phase, `${marker}.pending`] : [started]
                 );
                 // The process map is updated after the output stream closes.
                 await new Promise((resolve) => setTimeout(resolve, 2_000));

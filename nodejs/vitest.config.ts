@@ -52,6 +52,7 @@ const inProcessBlockedE2E = [
     "**/test/e2e/system_message_transform.e2e.test.ts",
     "**/test/e2e/tool_results.e2e.test.ts",
     "**/test/e2e/tools.e2e.test.ts",
+    "**/test/e2e/tools_anthropic_updates.e2e.test.ts",
 ];
 
 // These suites own their provider or CAPI auth/request-handler setup. They run
@@ -69,6 +70,7 @@ const selfConfiguredBackendE2E = [
     "**/test/e2e/per_session_auth.e2e.test.ts",
     "**/test/e2e/provider_endpoint.e2e.test.ts",
     "**/test/e2e/subagent_prompt_resume.e2e.test.ts",
+    "**/test/e2e/tools_anthropic_updates.e2e.test.ts",
     "**/test/e2e/websocket_http_fallback.e2e.test.ts",
     "**/test/e2e/websocket_terminals.e2e.test.ts",
 ];

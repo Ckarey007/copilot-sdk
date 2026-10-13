@@ -43,6 +43,7 @@ import com.github.copilot.generated.rpc.SessionLimitsConfig;
 public class SessionConfig {
 
     private String sessionId;
+    private String name;
     private String clientName;
     private String model;
     private String reasoningEffort;
@@ -84,6 +85,8 @@ public class SessionConfig {
     private String agent;
     private InfiniteSessionConfig infiniteSessions;
     private List<String> skillDirectories;
+    private List<String> agentDirectories;
+    private List<String> hookDirectories;
     private List<String> includedBuiltinSkills;
     private List<String> instructionDirectories;
     private List<String> pluginDirectories;
@@ -144,6 +147,31 @@ public class SessionConfig {
      */
     public SessionConfig setSessionId(String sessionId) {
         this.sessionId = sessionId;
+        return this;
+    }
+
+    /**
+     * Gets the create-time session name.
+     *
+     * @return the session name, or {@code null} if the session is unnamed
+     */
+    public String getName() {
+        return name;
+    }
+
+    /**
+     * Names the session at creation, as {@code session.name.set} would, and is
+     * validated the same way: non-empty, no leading or trailing whitespace, at most
+     * 100 UTF-16 units, no control characters, and no double quotes. A name also
+     * makes the session persist from the start, so it can be listed and resumed
+     * without ever running a turn. Local sessions only: cloud creation rejects it.
+     *
+     * @param name
+     *            the session name
+     * @return this config instance for method chaining
+     */
+    public SessionConfig setName(String name) {
+        this.name = name;
         return this;
     }
 
@@ -1236,7 +1264,11 @@ public class SessionConfig {
     }
 
     /**
-     * Gets the skill directories.
+     * Gets explicit discovery-only skill roots, not general filesystem grants.
+     * Available without configuration discovery, subject to skill/managed disables.
+     * Relative paths resolve once when supplied against the request's effective
+     * working directory; retained roots do not move when it changes. Null and
+     * omission are equivalent; an empty list clears only the SDK contribution.
      *
      * @return the list of skill directory paths
      */
@@ -1257,6 +1289,59 @@ public class SessionConfig {
      */
     public SessionConfig setSkillDirectories(List<String> skillDirectories) {
         this.skillDirectories = skillDirectories;
+        return this;
+    }
+
+    /**
+     * Gets explicit discovery-only agent roots, separate from custom agent objects.
+     * No general filesystem grant. Available without configuration discovery,
+     * subject to source/managed disables. Relative paths resolve once when supplied
+     * against the request's effective working directory; retained roots do not
+     * move. Null and omission are equivalent; an empty list clears only the SDK
+     * contribution.
+     *
+     * @return the agent directory paths
+     */
+    public List<String> getAgentDirectories() {
+        return agentDirectories == null ? null : Collections.unmodifiableList(agentDirectories);
+    }
+
+    /**
+     * Sets explicit discovery-only agent roots. See {@link #getAgentDirectories()}.
+     *
+     * @param agentDirectories
+     *            the agent directory paths
+     * @return this config for method chaining
+     */
+    public SessionConfig setAgentDirectories(List<String> agentDirectories) {
+        this.agentDirectories = agentDirectories == null ? null : new ArrayList<>(agentDirectories);
+        return this;
+    }
+
+    /**
+     * Gets explicit discovery-only file-hook roots, separate from callback hooks.
+     * No general filesystem grant. Available without configuration discovery or
+     * file-hook enablement (repository-origin hooks only), subject to hook/managed
+     * disables. Relative paths resolve once when supplied against the request's
+     * effective working directory; retained roots do not move. Null and omission
+     * are equivalent; an empty list clears only the SDK contribution.
+     *
+     * @return the file-hook directory paths
+     */
+    public List<String> getHookDirectories() {
+        return hookDirectories == null ? null : Collections.unmodifiableList(hookDirectories);
+    }
+
+    /**
+     * Sets explicit discovery-only file-hook roots. See
+     * {@link #getHookDirectories()}.
+     *
+     * @param hookDirectories
+     *            the file-hook directory paths
+     * @return this config for method chaining
+     */
+    public SessionConfig setHookDirectories(List<String> hookDirectories) {
+        this.hookDirectories = hookDirectories == null ? null : new ArrayList<>(hookDirectories);
         return this;
     }
 
@@ -1283,7 +1368,12 @@ public class SessionConfig {
     }
 
     /**
-     * Gets the additional directories to search for custom instruction files.
+     * Gets explicit discovery-only instruction roots using existing SDK formats. No
+     * general filesystem grant. Available without configuration discovery, subject
+     * to instruction/managed disables. Relative paths resolve once when supplied
+     * against the request's effective working directory; retained roots do not
+     * move. Null and omission are equivalent; an empty list clears only the SDK
+     * contribution.
      *
      * @return the list of instruction directory paths
      */
@@ -1648,7 +1738,9 @@ public class SessionConfig {
     }
 
     /**
-     * Gets whether file-based hooks are enabled.
+     * Gets whether repository-origin file hooks from {@code .github/hooks/} and
+     * trusted repository-configured roots are enabled. Does not control explicit
+     * {@link #getHookDirectories()} or callback hooks.
      *
      * @return an {@link java.util.Optional} containing {@code true} to enable file
      *         hooks or {@code false} to disable them, or
@@ -2423,6 +2515,8 @@ public class SessionConfig {
         copy.agent = this.agent;
         copy.infiniteSessions = this.infiniteSessions;
         copy.skillDirectories = this.skillDirectories != null ? new ArrayList<>(this.skillDirectories) : null;
+        copy.agentDirectories = this.agentDirectories != null ? new ArrayList<>(this.agentDirectories) : null;
+        copy.hookDirectories = this.hookDirectories != null ? new ArrayList<>(this.hookDirectories) : null;
         copy.includedBuiltinSkills = this.includedBuiltinSkills != null
                 ? new ArrayList<>(this.includedBuiltinSkills)
                 : null;

@@ -6,6 +6,61 @@
 
 use super::*;
 
+#[tokio::test]
+async fn settings_apply_top_key_preserves_value_presence_on_wire() {
+    use crate::generated::api_types::UserSettingsApplyTopKeyRequest;
+
+    for (name, value, delete) in [
+        ("omitted", None, Some(false)),
+        ("explicit null", Some(serde_json::Value::Null), None),
+        ("value", Some(serde_json::json!("chosen")), None),
+        ("delete", None, Some(true)),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let (client_stream, server_stream) = tokio::io::duplex(8192);
+        let (client_read, client_write) = tokio::io::split(client_stream);
+        let (server_read, server_write) = tokio::io::split(server_stream);
+        let client =
+            Client::from_streams(client_read, client_write, temp.path().to_owned()).unwrap();
+        let (notifications, _) = tokio::sync::broadcast::channel(1);
+        let (requests, _) = tokio::sync::mpsc::unbounded_channel();
+        let server =
+            jsonrpc::JsonRpcClient::new(server_write, server_read, notifications, requests);
+        let (captured, mut received) = tokio::sync::mpsc::unbounded_channel();
+        server
+            .register_request_handler(
+                "user.settings.applyTopKey",
+                Arc::new(move |params| {
+                    captured.send(params).unwrap();
+                    Box::pin(async { Ok(serde_json::json!({ "status": "ok" })) })
+                }),
+            )
+            .unwrap();
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            client
+                .rpc()
+                .user()
+                .settings()
+                .apply_top_key(UserSettingsApplyTopKeyRequest {
+                    canonical_path: vec!["model".to_owned()],
+                    top_key: "model".to_owned(),
+                    value: value.clone(),
+                    delete,
+                    complete_staff_update_channel_migration: None,
+                }),
+        )
+        .await;
+        client.force_stop();
+        server.force_close();
+
+        result.expect(name).expect(name);
+        let params = received.try_recv().expect(name);
+        assert_eq!(params.get("value"), value.as_ref(), "{name}: {params}");
+    }
+}
+
 #[test]
 fn is_transport_failure_matches_request_cancelled() {
     let err = Error::from(ErrorKind::Protocol(ProtocolErrorKind::RequestCancelled));

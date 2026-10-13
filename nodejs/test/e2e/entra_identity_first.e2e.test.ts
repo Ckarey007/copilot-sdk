@@ -5,11 +5,12 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFailed, onTestFinished } from "vitest";
 import { approveAll, CopilotClient, RuntimeConnection } from "../../src/index.js";
 import { createSdkTestContext } from "./harness/sdkTestContext.js";
 import { ConnectProxy } from "../../../test/harness/connectProxy.js";
 import { createE2eRequestHandler } from "../../../test/harness/mockHandlers.js";
+import { readDiagnosticTail } from "../../../test/harness/sdk-diagnostics.mjs";
 
 const { env, workDir, openAiEndpoint } = await createSdkTestContext({
     useStdio: true,
@@ -20,6 +21,19 @@ const M365_SCOPE = "42c8f7bd-c7a8-4ba9-bc1c-91edfb716247/.default";
 const LOKI_HOST = "loki.identity-first.example";
 const VERIFICATION_UNAVAILABLE =
     "Microsoft sign-in succeeded, but GitHub account verification is temporarily unavailable. Please try again later. Your active account has not changed.";
+type CatalogReceipt = {
+    resource: "capi_models" | "loki_models" | "loki_quota";
+    authenticated: boolean;
+    receivedAtMs: number;
+    status?: number;
+    /** Fixture-selected class, not proof that the runtime decoded the response. */
+    responseClass?: "catalog" | "quota" | "mos_disabled" | "access_denied";
+    replyAtMs?: number;
+    finishedAtMs?: number;
+    closedAtMs?: number;
+    closedBeforeFinish?: boolean;
+    requestAborted?: boolean;
+};
 const scenarios = [
     { name: "both", emuGrant: true, staff: true, capi: 200, loki: 200, expected: "choices" },
     { name: "emu only", emuGrant: true, staff: true, capi: 200, loki: 403, expected: "entraEmu" },
@@ -198,12 +212,70 @@ describe("Entra identity-first resource discovery", () => {
             }
             const grants: URLSearchParams[] = [];
             const catalogs: string[] = [];
+            const receipts: CatalogReceipt[] = [];
+            let omittedReceipts = 0;
+            let loginOutcome:
+                | "pending"
+                | "fulfilled"
+                | "rejected_no_backend"
+                | "rejected_verification"
+                | "rejected_rpc_timeout"
+                | "rejected_other" = "pending";
+            const startedAt = performance.now();
+            const elapsedMs = () => Math.round(performance.now() - startedAt);
+            onTestFailed(async () => {
+                console.error(
+                    `[Entra discovery fixture] ${JSON.stringify({ loginOutcome, receipts, omittedReceipts })}`
+                );
+                try {
+                    const diagnostics = await readDiagnosticTail(profile);
+                    console.error(
+                        `[SDK diagnostics: last ${diagnostics.length} audited records]\n${diagnostics.join("\n")}`
+                    );
+                } catch {
+                    console.error("SDK diagnostics unavailable");
+                }
+            });
             let latestRefresh = "identity-refresh";
             const fallback = createE2eRequestHandler({ capiProxyUrl: openAiEndpoint.url });
             const proxy = new ConnectProxy(
                 async (request, response, host) => {
                     const path = request.url ?? "/";
-                    const reply = (status: number, body: unknown) => {
+                    const resource =
+                        host === "api.githubcopilot.com" && path === "/models"
+                            ? "capi_models"
+                            : host === LOKI_HOST && path === "/api/models"
+                              ? "loki_models"
+                              : host === LOKI_HOST && path === "/api/quota"
+                                ? "loki_quota"
+                                : undefined;
+                    const receipt: CatalogReceipt | undefined = resource
+                        ? { resource, authenticated: false, receivedAtMs: elapsedMs() }
+                        : undefined;
+                    if (receipt) {
+                        if (receipts.length < 32) receipts.push(receipt);
+                        else omittedReceipts++;
+                        request.once("aborted", () => {
+                            receipt.requestAborted = true;
+                        });
+                        response.once("finish", () => {
+                            receipt.finishedAtMs = elapsedMs();
+                        });
+                        response.once("close", () => {
+                            receipt.closedAtMs = elapsedMs();
+                            receipt.closedBeforeFinish = !response.writableFinished;
+                        });
+                    }
+                    const reply = (
+                        status: number,
+                        body: unknown,
+                        responseClass?: CatalogReceipt["responseClass"]
+                    ) => {
+                        if (receipt) {
+                            receipt.status = status;
+                            receipt.responseClass = responseClass;
+                            receipt.replyAtMs = elapsedMs();
+                        }
                         response.writeHead(status, { "content-type": "application/json" });
                         response.end(JSON.stringify(body));
                         return true;
@@ -291,50 +363,69 @@ describe("Entra identity-first resource discovery", () => {
                     if (host === "api.githubcopilot.com" && path === "/models") {
                         expect(request.headers.authorization).toBe(`Bearer ${emuToken}`);
                         catalogs.push("capi");
-                        return reply(scenario.capi, {
-                            data:
-                                "emptyCapi" in scenario && scenario.emptyCapi
-                                    ? []
-                                    : [
-                                          {
-                                              id: "gpt-5.2",
-                                              name: "Candidate CAPI model",
-                                              capabilities: { supports: { tool_calls: true } },
-                                              model_picker_enabled: !(
-                                                  "hiddenCapi" in scenario && scenario.hiddenCapi
-                                              ),
-                                              ...("restrictedCapi" in scenario
-                                                  ? { billing: { restricted_to: ["enterprise"] } }
-                                                  : {}),
-                                          },
-                                      ],
-                        });
+                        if (receipt) receipt.authenticated = true;
+                        return reply(
+                            scenario.capi,
+                            {
+                                data:
+                                    "emptyCapi" in scenario && scenario.emptyCapi
+                                        ? []
+                                        : [
+                                              {
+                                                  id: "gpt-5.2",
+                                                  name: "Candidate CAPI model",
+                                                  capabilities: { supports: { tool_calls: true } },
+                                                  model_picker_enabled: !(
+                                                      "hiddenCapi" in scenario &&
+                                                      scenario.hiddenCapi
+                                                  ),
+                                                  ...("restrictedCapi" in scenario
+                                                      ? {
+                                                            billing: {
+                                                                restricted_to: ["enterprise"],
+                                                            },
+                                                        }
+                                                      : {}),
+                                              },
+                                          ],
+                            },
+                            scenario.capi === 200 ? "catalog" : "access_denied"
+                        );
                     }
                     if (host === LOKI_HOST && (path === "/api/models" || path === "/api/quota")) {
                         expect(request.headers.authorization).toBe("Bearer m365-resource-token");
+                        if (receipt) receipt.authenticated = true;
                         if ("mosDenied" in scenario && path === `/api/${scenario.mosDenied}`) {
                             if (scenario.mosDenied === "models") catalogs.push("loki");
-                            return reply(403, {
-                                error: {
-                                    message:
-                                        "Copilot CLI Entra access is not enabled for this user.",
-                                    type: "invalid_request_error",
-                                    code: "copilot_cli_entra_access_disabled",
-                                },
-                            });
-                        }
-                        if (path === "/api/quota") return reply(200, {});
-                        catalogs.push("loki");
-                        return reply(scenario.loki, {
-                            data: [
+                            return reply(
+                                403,
                                 {
-                                    id: "loki-test",
-                                    name: "Candidate M365 model",
-                                    capabilities: { supports: { tool_calls: true } },
-                                    model_picker_enabled: true,
+                                    error: {
+                                        message:
+                                            "Copilot CLI Entra access is not enabled for this user.",
+                                        type: "invalid_request_error",
+                                        code: "copilot_cli_entra_access_disabled",
+                                    },
                                 },
-                            ],
-                        });
+                                "mos_disabled"
+                            );
+                        }
+                        if (path === "/api/quota") return reply(200, {}, "quota");
+                        catalogs.push("loki");
+                        return reply(
+                            scenario.loki,
+                            {
+                                data: [
+                                    {
+                                        id: "loki-test",
+                                        name: "Candidate M365 model",
+                                        capabilities: { supports: { tool_calls: true } },
+                                        model_picker_enabled: true,
+                                    },
+                                ],
+                            },
+                            scenario.loki === 200 ? "catalog" : "access_denied"
+                        );
                     }
                     return fallback(request, response, host);
                 },
@@ -364,9 +455,11 @@ describe("Entra identity-first resource discovery", () => {
                 connection: RuntimeConnection.forStdio({ path: process.env.COPILOT_CLI_PATH }),
                 workingDirectory: workDir,
                 useLoggedInUser: false,
+                logLevel: "debug" as const,
                 env: {
                     ...env,
                     COPILOT_HOME: profile,
+                    RUST_LOG: "error,sdk_diagnostics=debug",
                     COPILOT_DISABLE_KEYTAR: "1",
                     GH_TOKEN: "",
                     GITHUB_TOKEN: "",
@@ -428,6 +521,21 @@ describe("Entra identity-first resource discovery", () => {
                 }
                 return step;
             });
+            void completing.then(
+                () => {
+                    loginOutcome = "fulfilled";
+                },
+                (error: unknown) => {
+                    const message = error instanceof Error ? error.message : "";
+                    loginOutcome = message.includes("No usable inference backend")
+                        ? "rejected_no_backend"
+                        : message.includes(VERIFICATION_UNAVAILABLE)
+                          ? "rejected_verification"
+                          : /timed out|timeout/i.test(message)
+                            ? "rejected_rpc_timeout"
+                            : "rejected_other";
+                }
+            );
             // Attach the failure assertion before the callback can complete the request.
             const completed =
                 scenario.expected === "failure"

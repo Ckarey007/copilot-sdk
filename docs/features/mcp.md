@@ -57,7 +57,7 @@ Inventory retries concurrent graph replacement a bounded number of times and
 returns an error if it cannot obtain a consistent snapshot. It never omits
 `live` to hide a graph race.
 
-An explicit `startServer` or `restartServer` resolves and initializes only the
+A name-only `startServer` or `restartServer` resolves and initializes only the
 requested server after a cold session resume without first calling `list`.
 This includes user and plugin configurations and the built-in GitHub server
 configured through `githubMcpToolConfig`. It does not start other configured

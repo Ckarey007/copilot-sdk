@@ -51,6 +51,8 @@ pub(crate) struct SessionCreateWire {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<SessionId>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_models: Option<Vec<String>>,
@@ -136,6 +138,10 @@ pub(crate) struct SessionCreateWire {
     pub hooks: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skill_directories: Option<Vec<PathBuf>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_directories: Option<Vec<PathBuf>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hook_directories: Option<Vec<PathBuf>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instruction_directories: Option<Vec<PathBuf>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -310,6 +316,10 @@ pub(crate) struct SessionResumeWire {
     pub hooks: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skill_directories: Option<Vec<PathBuf>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_directories: Option<Vec<PathBuf>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hook_directories: Option<Vec<PathBuf>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instruction_directories: Option<Vec<PathBuf>>,
     #[serde(skip_serializing_if = "Option::is_none")]

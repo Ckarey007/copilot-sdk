@@ -27,6 +27,7 @@ record SessionQueueConsumeSystemNotificationsParams(
     /** Target session identifier */
     @JsonProperty("sessionId") String sessionId,
     /** Opaque runtime-owned filter object. */
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     @JsonProperty("filter") Object filter
 ) {
 }

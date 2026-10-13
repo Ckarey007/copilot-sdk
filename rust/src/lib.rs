@@ -2586,6 +2586,11 @@ impl Client {
         self.inner.rpc.write(response).await
     }
 
+    /// Send a frame already encoded with `jsonrpc::encode_frame`.
+    pub(crate) async fn send_frame(&self, frame: jsonrpc::EncodedFrame) -> Result<()> {
+        self.inner.rpc.write_frame(frame).await
+    }
+
     /// Reconstruct a [`Client`] handle from a shared inner pointer.
     pub(crate) fn from_inner(inner: Arc<ClientInner>) -> Self {
         Self {

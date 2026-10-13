@@ -2,9 +2,11 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { dirname, resolve } from "path";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { z } from "zod";
 import type {
     CopilotSession,
@@ -12,7 +14,7 @@ import type {
     MCPStdioServerConfig,
     MCPServerConfig,
 } from "../../src/index.js";
-import { approveAll, defineTool } from "../../src/index.js";
+import { approveAll, defineTool, RuntimeConnection } from "../../src/index.js";
 import { createSdkTestContext } from "./harness/sdkTestContext.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -57,7 +59,12 @@ async function waitForMcpServerStatus(
 }
 
 describe("MCP Servers and Custom Agents", async () => {
-    const { copilotClient: client, openAiEndpoint } = await createSdkTestContext();
+    const {
+        copilotClient: client,
+        openAiEndpoint,
+        createClient,
+        workDir,
+    } = await createSdkTestContext();
 
     describe("MCP Servers", () => {
         it("should accept MCP server configuration on session create", async () => {
@@ -133,6 +140,18 @@ describe("MCP Servers and Custom Agents", async () => {
         });
 
         it("should pass literal env values to MCP server subprocess", async () => {
+            const telemetryPath = join(workDir, "mcp-telemetry.jsonl");
+            const telemetryClient = createClient({
+                connection: RuntimeConnection.forStdio(),
+                telemetry: {
+                    exporterType: "file",
+                    filePath: telemetryPath,
+                    captureContent: true,
+                },
+            });
+            onTestFinished(async () => {
+                expect(await telemetryClient.stop()).toEqual([]);
+            });
             const mcpServers: Record<string, MCPServerConfig> = {
                 "env-echo": {
                     type: "local",
@@ -144,20 +163,50 @@ describe("MCP Servers and Custom Agents", async () => {
                 } as MCPStdioServerConfig,
             };
 
-            const session = await client.createSession({
+            const session = await telemetryClient.createSession({
                 mcpServers,
                 onPermissionRequest: approveAll,
             });
+            try {
+                expect(session.sessionId).toBeDefined();
+                await waitForMcpServerStatus(session, "env-echo");
 
-            expect(session.sessionId).toBeDefined();
-            await waitForMcpServerStatus(session, "env-echo");
+                const message = await session.sendAndWait({
+                    prompt: "Use the env-echo/get_env tool to read the TEST_SECRET environment variable. Reply with just the value, nothing else.",
+                });
+                expect(message?.data.content).toContain("hunter2");
+            } finally {
+                await session.disconnect();
+            }
+            expect(await telemetryClient.stop()).toEqual([]);
 
-            const message = await session.sendAndWait({
-                prompt: "Use the env-echo/get_env tool to read the TEST_SECRET environment variable. Reply with just the value, nothing else.",
-            });
-            expect(message?.data.content).toContain("hunter2");
-
-            await session.disconnect();
+            const entries: Array<{ type: string; attributes?: Record<string, unknown> }> = (
+                await readFile(telemetryPath, "utf8")
+            )
+                .split(/\r?\n/)
+                .filter((line) => line.trim())
+                .map((line) => JSON.parse(line));
+            const mcpSpans = entries.filter(
+                (entry) =>
+                    entry.type === "span" &&
+                    entry.attributes?.["gen_ai.operation.name"] === "execute_tool" &&
+                    typeof entry.attributes[
+                        "github.copilot.tool.parameters.mcp_server_name_hash"
+                    ] === "string"
+            );
+            expect(mcpSpans.length).toBeGreaterThan(0);
+            for (const span of mcpSpans) {
+                expect(span.attributes).toMatchObject({
+                    "gen_ai.tool.type": "function",
+                    "github.copilot.tool.parameters.mcp_server_name_hash": createHash("sha256")
+                        .update("env-echo")
+                        .digest("hex"),
+                    "github.copilot.tool.parameters.mcp_server_name": "env-echo",
+                    "github.copilot.tool.parameters.mcp_tool_name": "get_env",
+                    "github.copilot.mcp.server.transport": "stdio",
+                    "github.copilot.mcp.server.source": "user",
+                });
+            }
         });
     });
 

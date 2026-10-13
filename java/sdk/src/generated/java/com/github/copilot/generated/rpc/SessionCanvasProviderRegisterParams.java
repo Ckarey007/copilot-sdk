@@ -30,6 +30,7 @@ record SessionCanvasProviderRegisterParams(
     /** Connection identifier for callback routing */
     @JsonProperty("connectionId") String connectionId,
     /** Provider metadata supplied by the host */
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     @JsonProperty("info") Object info,
     /** Canvas contributions supplied by the provider */
     @JsonProperty("canvases") List<Object> canvases

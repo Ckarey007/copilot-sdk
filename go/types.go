@@ -1252,6 +1252,8 @@ func (c MCPHTTPServerConfig) MarshalJSON() ([]byte, error) {
 
 // CustomAgentConfig configures a custom agent.
 type CustomAgentConfig struct {
+	// Hooks contains declarative actions keyed by event name, active only for this agent.
+	Hooks map[string][]map[string]any `json:"hooks,omitempty"`
 	// Name is the unique name of the custom agent
 	Name string `json:"name"`
 	// DisplayName is the display name for UI purposes
@@ -1477,6 +1479,13 @@ type SkillProvider interface {
 type SessionConfig struct {
 	// SessionID is an optional custom session ID
 	SessionID string
+	// Name names the session at creation, as session.name.set would, and is
+	// validated the same way: non-empty, no leading or trailing whitespace, at
+	// most 100 UTF-16 units, no control characters, and no double quotes. A name
+	// also makes the session persist from the start, so it can be listed and
+	// resumed without ever running a turn. Local sessions only: cloud creation
+	// rejects it.
+	Name string
 	// ClientName identifies the application using the SDK.
 	// Included in the User-Agent header for API requests.
 	ClientName string
@@ -1515,9 +1524,9 @@ type SessionConfig struct {
 	// of instruction files (AGENTS.md, .github/copilot-instructions.md, etc.) after
 	// successful file views.
 	EnableOnDemandInstructionDiscovery *bool
-	// EnableFileHooks, when non-nil, controls loading of file-based hooks from
-	// .github/hooks/. This is separate from the Hooks callback parameter which
-	// gates SDK hook event registration.
+	// EnableFileHooks, when non-nil, controls repository-origin file hooks from
+	// .github/hooks/ and trusted repository-configured roots. It does not control
+	// explicit HookDirectories or Hooks callbacks.
 	EnableFileHooks *bool
 	// EnableHostGitOperations, when non-nil, controls git operations on the host
 	// filesystem (branch detection, file status, commit history). When false, no
@@ -1670,7 +1679,11 @@ type SessionConfig struct {
 	// Agent is the name of the custom agent to activate when the session starts.
 	// Must match the Name of one of the agents in CustomAgents.
 	Agent string
-	// SkillDirectories is a list of directories to load skills from
+	// SkillDirectories contains explicit discovery-only skill roots, not filesystem grants.
+	// Available without EnableConfigDiscovery, subject to skill/managed disables.
+	// Relative paths resolve once when supplied against the request's effective WorkingDirectory;
+	// retained roots do not move on cwd changes. Nil and omission are equivalent;
+	// an empty non-nil list clears only the explicit SDK contribution.
 	SkillDirectories []string
 	// SkillProvider supplies ephemeral SDK-hosted skills for this session. The
 	// provider is never serialized or persisted; re-supply it when resuming.
@@ -1678,13 +1691,29 @@ type SessionConfig struct {
 	// Experimental: this API may change or be removed in future SDK or CLI
 	// releases. Implementations must be safe for concurrent calls.
 	SkillProvider SkillProvider `json:"-"`
+	// AgentDirectories contains explicit discovery-only agent roots, separate from CustomAgents.
+	// No filesystem grant. Available without EnableConfigDiscovery, subject to source/managed
+	// disables. Relative paths resolve once when supplied against the request's effective
+	// WorkingDirectory; retained roots do not move. Nil and omission are equivalent;
+	// an empty non-nil list clears only the explicit SDK contribution.
+	AgentDirectories []string
+	// HookDirectories contains explicit discovery-only file-hook roots, separate from Hooks callbacks.
+	// No filesystem grant. Available without EnableConfigDiscovery or EnableFileHooks
+	// (repository-origin hooks only), subject to hook/managed disables. Relative paths resolve
+	// once when supplied against the request's effective WorkingDirectory; retained roots do not
+	// move. Nil and omission are equivalent; an empty non-nil list clears only the explicit SDK contribution.
+	HookDirectories []string
 	// PluginDirectories is a list of local filesystem paths to Open Plugins-format
 	// directories (https://open-plugins.com/) to load for this session.
 	// Relative paths resolve against WorkingDirectory (or the runtime cwd if unset).
 	// Treated as an explicit opt-in: plugin agents and rules load even when
 	// EnableConfigDiscovery is false.
 	PluginDirectories []string
-	// InstructionDirectories is a list of additional directories to search for custom instruction files
+	// InstructionDirectories contains explicit discovery-only instruction roots using existing SDK formats.
+	// No filesystem grant. Available without EnableConfigDiscovery, subject to instruction/managed
+	// disables. Relative paths resolve once when supplied against the request's effective
+	// WorkingDirectory; retained roots do not move. Nil and omission are equivalent;
+	// an empty non-nil list clears only the explicit SDK contribution.
 	InstructionDirectories []string
 	// DisabledSkills is a list of skill names to disable
 	DisabledSkills []string
@@ -2230,9 +2259,9 @@ type ResumeSessionConfig struct {
 	// EnableOnDemandInstructionDiscovery, when non-nil, controls on-demand discovery
 	// of instruction files after successful file views.
 	EnableOnDemandInstructionDiscovery *bool
-	// EnableFileHooks, when non-nil, controls loading of file-based hooks from
-	// .github/hooks/. This is separate from the Hooks callback parameter which
-	// gates SDK hook event registration.
+	// EnableFileHooks, when non-nil, controls repository-origin file hooks from
+	// .github/hooks/ and trusted repository-configured roots. It does not control
+	// explicit HookDirectories or Hooks callbacks.
 	EnableFileHooks *bool
 	// EnableHostGitOperations, when non-nil, controls git operations on the host
 	// filesystem.
@@ -2272,7 +2301,11 @@ type ResumeSessionConfig struct {
 	// Agent is the name of the custom agent to activate when the session starts.
 	// Must match the Name of one of the agents in CustomAgents.
 	Agent string
-	// SkillDirectories is a list of directories to load skills from
+	// SkillDirectories contains explicit discovery-only skill roots, not filesystem grants.
+	// Available without EnableConfigDiscovery, subject to skill/managed disables.
+	// Relative paths resolve once when supplied against the request's effective WorkingDirectory;
+	// retained roots do not move on cwd changes. Nil and omission are equivalent;
+	// an empty non-nil list clears only the explicit SDK contribution.
 	SkillDirectories []string
 	// SkillProvider supplies ephemeral SDK-hosted skills for this resumed
 	// session. Re-supply it on every resume; omitting it unbinds any previous
@@ -2281,13 +2314,29 @@ type ResumeSessionConfig struct {
 	// Experimental: this API may change or be removed in future SDK or CLI
 	// releases. Implementations must be safe for concurrent calls.
 	SkillProvider SkillProvider `json:"-"`
+	// AgentDirectories contains explicit discovery-only agent roots, separate from CustomAgents.
+	// No filesystem grant. Available without EnableConfigDiscovery, subject to source/managed
+	// disables. Relative paths resolve once when supplied against the request's effective
+	// WorkingDirectory; retained roots do not move. Nil and omission are equivalent;
+	// an empty non-nil list clears only the explicit SDK contribution.
+	AgentDirectories []string
+	// HookDirectories contains explicit discovery-only file-hook roots, separate from Hooks callbacks.
+	// No filesystem grant. Available without EnableConfigDiscovery or EnableFileHooks
+	// (repository-origin hooks only), subject to hook/managed disables. Relative paths resolve
+	// once when supplied against the request's effective WorkingDirectory; retained roots do not
+	// move. Nil and omission are equivalent; an empty non-nil list clears only the explicit SDK contribution.
+	HookDirectories []string
 	// PluginDirectories is a list of local filesystem paths to Open Plugins-format
 	// directories (https://open-plugins.com/) to load for this session.
 	// Relative paths resolve against WorkingDirectory (or the runtime cwd if unset).
 	// Treated as an explicit opt-in: plugin agents and rules load even when
 	// EnableConfigDiscovery is false.
 	PluginDirectories []string
-	// InstructionDirectories is a list of additional directories to search for custom instruction files
+	// InstructionDirectories contains explicit discovery-only instruction roots using existing SDK formats.
+	// No filesystem grant. Available without EnableConfigDiscovery, subject to instruction/managed
+	// disables. Relative paths resolve once when supplied against the request's effective
+	// WorkingDirectory; retained roots do not move. Nil and omission are equivalent;
+	// an empty non-nil list clears only the explicit SDK contribution.
 	InstructionDirectories []string
 	// DisabledSkills is a list of skill names to disable
 	DisabledSkills []string
@@ -2853,6 +2902,7 @@ type SessionLifecycleHandler func(event SessionLifecycleEvent)
 type createSessionRequest struct {
 	Model                              string                                 `json:"model,omitempty"`
 	SessionID                          string                                 `json:"sessionId,omitempty"`
+	Name                               string                                 `json:"name,omitempty"`
 	ClientName                         string                                 `json:"clientName,omitempty"`
 	ReasoningEffort                    string                                 `json:"reasoningEffort,omitempty"`
 	ReasoningSummary                   ReasoningSummary                       `json:"reasoningSummary,omitempty"`
@@ -2908,9 +2958,11 @@ type createSessionRequest struct {
 	EnableSessionStore                 *bool                                  `json:"enableSessionStore,omitempty"`
 	EnableSkills                       *bool                                  `json:"enableSkills,omitempty"`
 	HasSkillProvider                   *bool                                  `json:"hasSkillProvider,omitempty"`
-	SkillDirectories                   []string                               `json:"skillDirectories,omitempty"`
+	SkillDirectories                   []string                               `json:"skillDirectories,omitzero"`
+	AgentDirectories                   []string                               `json:"agentDirectories,omitzero"`
+	HookDirectories                    []string                               `json:"hookDirectories,omitzero"`
 	PluginDirectories                  []string                               `json:"pluginDirectories,omitempty"`
-	InstructionDirectories             []string                               `json:"instructionDirectories,omitempty"`
+	InstructionDirectories             []string                               `json:"instructionDirectories,omitzero"`
 	DisabledSkills                     []string                               `json:"disabledSkills,omitempty"`
 	DisabledMCPServers                 *[]string                              `json:"disabledMcpServers,omitempty"`
 	InfiniteSessions                   *InfiniteSessionConfig                 `json:"infiniteSessions,omitempty"`
@@ -3015,9 +3067,11 @@ type resumeSessionRequest struct {
 	CustomAgents                       []CustomAgentConfig                    `json:"customAgents,omitempty"`
 	DefaultAgent                       *DefaultAgentConfig                    `json:"defaultAgent,omitempty"`
 	Agent                              string                                 `json:"agent,omitempty"`
-	SkillDirectories                   []string                               `json:"skillDirectories,omitempty"`
+	SkillDirectories                   []string                               `json:"skillDirectories,omitzero"`
+	AgentDirectories                   []string                               `json:"agentDirectories,omitzero"`
+	HookDirectories                    []string                               `json:"hookDirectories,omitzero"`
 	PluginDirectories                  []string                               `json:"pluginDirectories,omitempty"`
-	InstructionDirectories             []string                               `json:"instructionDirectories,omitempty"`
+	InstructionDirectories             []string                               `json:"instructionDirectories,omitzero"`
 	DisabledSkills                     []string                               `json:"disabledSkills,omitempty"`
 	DisabledMCPServers                 *[]string                              `json:"disabledMcpServers,omitempty"`
 	InfiniteSessions                   *InfiniteSessionConfig                 `json:"infiniteSessions,omitempty"`

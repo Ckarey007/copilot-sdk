@@ -295,8 +295,8 @@ public class SessionEventHandlingTest {
             dispatchEvent(childMessage);
             var childError = new SessionErrorEvent();
             childError.setAgentId("child-1");
-            childError.setData(new SessionErrorEvent.SessionErrorEventData("query", null, null, "child failed", null,
-                    null, null, null, null, null));
+            childError.setData(new SessionErrorEvent.SessionErrorEventData("query", null, null, null, null,
+                    "child failed", null, null, null, null, null, null));
             dispatchEvent(childError);
             var childIdle = createSessionIdleEvent();
             childIdle.setAgentId("child-1");

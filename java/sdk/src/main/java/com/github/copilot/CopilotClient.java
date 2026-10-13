@@ -1442,6 +1442,9 @@ public final class CopilotClient implements AutoCloseable {
                 null, // envValueMode
                 null, // allowAllMcpServerInstructions
                 null, // skillDirectories
+                null, // agentDirectories
+                null, // instructionDirectories
+                null, // hookDirectories
                 null, // ignoredSkillsLocations
                 patchSkills, // includedBuiltinSkills
                 null, // disabledSkills

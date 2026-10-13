@@ -7,7 +7,6 @@ env:
   HUSKY: 0
   POWERSHELL_UPDATECHECK: Off
   SDK_HOME: ${{ inputs.sdk-home }}
-  SETUP_NODE_TIMEOUT_MINUTES: 10
 
 on:
   workflow_call:
@@ -35,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.platform == 'linux-x64' && '["ubuntu-latest"]' || inputs.platform == 'darwin-arm64' && '["macos-26-agent-runtime"]' || inputs.platform == 'win32-x64' && '["windows-latest"]' || '["ubuntu-latest","macos-26-agent-runtime","windows-latest"]') }}
+        os: ${{ fromJSON(inputs.platform == 'linux-x64' && '["ubuntu-26.04-4core-agent-runtime"]' || inputs.platform == 'darwin-arm64' && '["macos-26-agent-runtime"]' || inputs.platform == 'win32-x64' && '["windows-2025-4core-agent-runtime"]' || '["ubuntu-26.04-4core-agent-runtime","macos-26-agent-runtime","windows-2025-4core-agent-runtime"]') }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -43,7 +42,6 @@ jobs:
         working-directory: ${{ inputs.sdk-home }}/nodejs
     steps:
       - uses: actions/checkout@v7
-        timeout-minutes: 4
         with:
           persist-credentials: false
       - uses: ./.github/actions/download-sdk-runtime
@@ -93,6 +91,7 @@ jobs:
         id: subprocess
         env:
           COPILOT_HMAC_KEY: ${{ secrets.COPILOT_DEVELOPER_CLI_INTEGRATION_HMAC_KEY }}
+          VITEST_MAX_WORKERS: ${{ runner.os == 'Linux' && '4' || '' }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = "merge_group" ] || [ "$GITHUB_EVENT_NAME" = "pull_request" ] || [ "$GITHUB_EVENT_NAME" = "push" ]; then
             npm test -- --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/sdk-nodejs-results.json"
@@ -125,10 +124,9 @@ jobs:
   # Keep each BYOK backend on its own runner; shared runtime E2E coverage belongs
   # in TypeScript rather than repeating these sweeps across SDK languages.
   nodejs-backends:
-    name: "Node.js (ubuntu-latest, ${{ matrix.backend }})"
+    name: "Node.js (ubuntu-26.04-2core-agent-runtime, ${{ matrix.backend }})"
     if: github.event_name != 'merge_group' && (inputs.platform == 'all' || inputs.platform == 'linux-x64')
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-26.04-2core-agent-runtime
     strategy:
       fail-fast: false
       matrix:
@@ -141,7 +139,6 @@ jobs:
       COPILOT_SDK_E2E_BACKEND: ${{ matrix.backend }}
     steps:
       - uses: actions/checkout@v7
-        timeout-minutes: 4
         with:
           persist-credentials: false
       - uses: ./.github/actions/download-sdk-runtime
@@ -167,10 +164,9 @@ jobs:
   nodejs-musl-x64:
     name: "Node.js (Alpine x64, CAPI)"
     if: inputs.platform == 'all' || inputs.platform == 'linuxmusl-x64'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04-2core-agent-runtime
     steps:
       - uses: actions/checkout@v7
-        timeout-minutes: 4
         with:
           persist-credentials: false
       - uses: ./.github/actions/download-sdk-runtime
@@ -187,6 +183,7 @@ jobs:
           sdk-root: /workspace/${{ inputs.sdk-home }}
           workdir: /workspace/${{ inputs.sdk-home }}/nodejs
           command: |
+            apk add --no-cache git-daemon
             npm ci --ignore-scripts
             (cd "$COPILOT_SDK_ROOT/scripts/codegen" && npm ci --ignore-scripts)
             npm run build

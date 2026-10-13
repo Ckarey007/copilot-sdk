@@ -5,6 +5,7 @@
 import { createServer } from "node:http";
 import { describe, it } from "vitest";
 import type { CopilotSession } from "../../src/index.js";
+import { getRuntimePlatform } from "../../src/runtimeArtifacts.js";
 import { createSdkTestContext } from "./harness/sdkTestContext.js";
 
 const TEST_NAME =
@@ -15,6 +16,25 @@ describe("Sandbox network", async () => {
         copilotClientOptions: {
             env: { COPILOT_CLI_ENABLED_FEATURE_FLAGS: "SANDBOX" },
         },
+    });
+
+    it("reports the shipped platform's sandbox support and refusal", async ({ expect }) => {
+        await client.start();
+        const support = await client.rpc.sandbox.getHostSupport();
+        if (getRuntimePlatform().startsWith("linuxmusl-")) {
+            expect(support).toEqual({
+                supported: false,
+                reason: "Sandboxed shell execution is not supported on Alpine Linux/musl.",
+                capabilities: [],
+            });
+        } else if (support.supported) {
+            expect(support.reason).toBeUndefined();
+            expect(support.capabilities).toContainEqual({ name: "shell", supported: true });
+        } else {
+            expect(support.reason).toEqual(expect.any(String));
+            expect(support.reason).not.toBe("");
+            expect(support.capabilities).toEqual([]);
+        }
     });
 
     it(TEST_NAME, async ({ expect, onTestFinished, skip }) => {

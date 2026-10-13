@@ -11,6 +11,8 @@ import java.io.InputStreamReader;
 import java.net.Socket;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -353,9 +355,17 @@ final class CliServerManager {
             return result;
         }
 
-        // On Windows, use cmd /c to resolve the executable
+        // Own native executables directly so terminating the process cannot orphan
+        // a child behind cmd.exe. Batch shims still require the shell.
         String os = System.getProperty("os.name").toLowerCase();
         if (os.contains("win") && !new File(cliPath).isAbsolute()) {
+            String executable = resolveWindowsExecutable(cliPath);
+            if (executable != null) {
+                var result = new ArrayList<String>();
+                result.add(executable);
+                result.addAll(args);
+                return result;
+            }
             var result = new ArrayList<String>();
             result.add("cmd");
             result.add("/c");
@@ -368,6 +378,59 @@ final class CliServerManager {
         result.add(cliPath);
         result.addAll(args);
         return result;
+    }
+
+    private String resolveWindowsExecutable(String cliPath) {
+        Path cwd = Path.of(options.getCwd() != null ? options.getCwd() : System.getProperty("user.dir"))
+                .toAbsolutePath();
+        var directories = new ArrayList<String>();
+        var environment = options.getEnvironment() != null ? options.getEnvironment() : System.getenv();
+        boolean hasDirectory = cliPath.contains("\\") || cliPath.contains("/");
+        if (hasDirectory || environment.keySet().stream()
+                .noneMatch(key -> key.equalsIgnoreCase("NoDefaultCurrentDirectoryInExePath"))) {
+            directories.add(cwd.toString());
+        }
+        if (!hasDirectory) {
+            String pathValue = environment.entrySet().stream().filter(entry -> entry.getKey().equalsIgnoreCase("PATH"))
+                    .map(java.util.Map.Entry::getValue).findFirst().orElse("");
+            directories.addAll(Arrays.asList(pathValue.split(File.pathSeparator)));
+        }
+        String pathExtensions = environment.entrySet().stream()
+                .filter(entry -> entry.getKey().equalsIgnoreCase("PATHEXT")).map(java.util.Map.Entry::getValue)
+                .findFirst().orElse(".COM;.EXE;.BAT;.CMD");
+        String[] names = new File(cliPath).getName().contains(".")
+                ? new String[]{cliPath}
+                : Arrays.stream(pathExtensions.split(";")).map(extension -> cliPath + extension).toArray(String[]::new);
+        // Preserve invalid-command diagnostics even when implicit cwd search is
+        // disabled.
+        if (names.length > 0) {
+            Path.of(names[0]);
+        }
+        for (String directory : directories) {
+            if (directory.isBlank()) {
+                continue;
+            }
+            if (directory.startsWith("\"") && directory.endsWith("\"")) {
+                directory = directory.substring(1, directory.length() - 1);
+            }
+            Path searchDirectory;
+            try {
+                searchDirectory = cwd.resolve(directory);
+            } catch (InvalidPathException error) {
+                LOG.log(Level.FINE, "Skipping invalid PATH entry while resolving CLI executable", error);
+                continue;
+            }
+            for (String name : names) {
+                Path candidate = searchDirectory.resolve(name);
+                if (Files.isRegularFile(candidate)) {
+                    String lowerName = name.toLowerCase(java.util.Locale.ROOT);
+                    return lowerName.endsWith(".exe") || lowerName.endsWith(".com")
+                            ? candidate.toAbsolutePath().toString()
+                            : null;
+                }
+            }
+        }
+        return null;
     }
 
     void configureProcessEnvironment(ProcessBuilder pb) {

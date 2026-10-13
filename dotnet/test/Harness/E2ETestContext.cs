@@ -85,7 +85,7 @@ public sealed class E2ETestContext : IAsyncDisposable
             await proxy.SetCopilotUserByTokenAsync(DefaultGitHubToken, new CopilotUserConfig(
                 Login: "e2e-test-user",
                 CopilotPlan: "individual_pro",
-                Endpoints: new CopilotUserEndpoints(Api: context.ProxyUrl, Telemetry: "https://localhost:1/telemetry"),
+                Endpoints: new CopilotUserEndpoints(Api: context.ProxyUrl, Telemetry: context.ProxyUrl),
                 AnalyticsTrackingId: "e2e-test-tracking-id", Id: 12345));
 
             return context;

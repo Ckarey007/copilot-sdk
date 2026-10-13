@@ -138,6 +138,53 @@ fn request_serializes_camel_case() {
     assert!(json.contains(r#""method":"ping""#));
 }
 
+/// The frame the published framing wrote: the header, then `to_vec`'s body.
+fn published_frame<T: serde::Serialize>(message: &T) -> Vec<u8> {
+    let body = serde_json::to_vec(message).unwrap();
+    let mut frame = format!("Content-Length: {}\r\n\r\n", body.len()).into_bytes();
+    frame.extend_from_slice(&body);
+    frame
+}
+
+#[test]
+fn encode_frame_writes_the_published_frame() {
+    let message = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 7,
+        "result": {"content": "a \"quoted\" line\n"}
+    });
+    assert_eq!(
+        encode_frame(&message).unwrap().as_bytes(),
+        published_frame(&message)
+    );
+    // The length gains a digit at 10, 100, 1000 and 10000 bytes. Each body is a
+    // JSON string: its characters and two quotes.
+    for body_len in [9, 10, 99, 100, 999, 1000, 9999, 10000] {
+        let message = "x".repeat(body_len - 2);
+        let frame = encode_frame(&message).unwrap();
+        assert!(
+            frame
+                .as_bytes()
+                .starts_with(format!("Content-Length: {body_len}\r\n\r\n").as_bytes())
+        );
+        assert_eq!(frame.as_bytes(), published_frame(&message));
+    }
+}
+
+#[test]
+fn encode_frame_writes_the_header_into_the_room_before_the_body() {
+    // A 100-byte body: a JSON string of 98 characters.
+    let message = "x".repeat(98);
+    let frame = encode_frame(&message).unwrap();
+    let header: &[u8] = b"Content-Length: 100\r\n\r\n";
+    assert_eq!(frame.start, FRAME_PREFIX - header.len());
+    assert_eq!(&frame.buf[frame.start..FRAME_PREFIX], header);
+    assert_eq!(
+        &frame.buf[FRAME_PREFIX..],
+        serde_json::to_vec(&message).unwrap().as_slice()
+    );
+}
+
 #[test]
 fn notification_without_params_omits_field() {
     let n = JsonRpcNotification {

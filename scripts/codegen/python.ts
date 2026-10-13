@@ -1854,6 +1854,58 @@ function pythonParamsTypeName(method: RpcMethod): string {
     return getRpcSchemaTypeName(schema, fallback);
 }
 
+function applyExplicitNullableFieldPresenceSentinel(
+    code: string,
+    resolveType: (name: string) => string
+): string {
+    const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const explicitNullableFields: Array<{ className: string; jsonName: string; pyName: string }> = [
+        {
+            className: resolveType("UserSettingsApplyTopKeyRequest"),
+            jsonName: "value",
+            pyName: "value",
+        },
+        {
+            className: resolveType("RepoSettingsWriteKeyRequest"),
+            jsonName: "value",
+            pyName: "value",
+        },
+        {
+            className: resolveType("UserSettingsEditRequest"),
+            jsonName: "value",
+            pyName: "value",
+        },
+    ];
+
+    let result = code;
+    for (const { className, jsonName, pyName } of explicitNullableFields) {
+        const classPattern = new RegExp(
+            `(@dataclass\\r?\\nclass ${escapeRegex(className)}\\b[\\s\\S]*?\\r?\\n)(?=@dataclass\\r?\\nclass |class\\s+\\w+\\(Enum\\):|def\\s+\\w+\\(|$)`,
+            "g"
+        );
+        result = result.replace(classPattern, (classBlock) => {
+            let next = classBlock;
+            next = next.replace(
+                new RegExp(`^(\\s{4}${escapeRegex(pyName)}:\\s[^=\\r\\n]+\\=\\s*)None(\\r?\\n)`, "m"),
+                "$1UNSET_SENTINEL$2"
+            );
+            next = next.replace(
+                new RegExp(
+                    `^(\\s{8}${escapeRegex(pyName)}\\s*=\\s*)(.+?)obj\\.get\\("${escapeRegex(jsonName)}"\\)(.*)$`,
+                    "m"
+                ),
+                `$1$2obj["${jsonName}"]$3 if "${jsonName}" in obj else UNSET_SENTINEL`
+            );
+            next = next.replace(
+                new RegExp(`^(\\s{8}if\\s+self\\.${escapeRegex(pyName)}\\s+is\\s+not\\s+)None(\\s*:\\s*\\r?\\n)`, "m"),
+                "$1UNSET_SENTINEL$2"
+            );
+            return next;
+        });
+    }
+    return result;
+}
+
 // ── Session Events ──────────────────────────────────────────────────────────
 // ── Session Events (custom codegen — dedicated per-event payload types) ─────
 
@@ -3779,6 +3831,7 @@ import dateutil.parser
 
 T = TypeVar("T")
 EnumT = TypeVar("EnumT", bound=Enum)
+UNSET_SENTINEL = object()
 
 `);
     lines.push(typesCode);
@@ -3873,6 +3926,7 @@ def _patch_model_capabilities(data: dict) -> dict:
         finalCode,
         new Set(Object.keys(allDefinitions).map((name) => name.toLowerCase()))
     );
+    finalCode = applyExplicitNullableFieldPresenceSentinel(finalCode, resolveType);
 
     // Apply `_`-prefix to type names of internal RPC types so the leading-underscore
     // Python convention signals "internal, no stability guarantees" to consumers.
@@ -3889,7 +3943,11 @@ def _patch_model_capabilities(data: dict) -> dict:
             }
         }
         if (internalDefs.size > 0) {
-            finalCode = renameInternalPythonSymbols(finalCode, internalDefs);
+            // Resolve class-name casing without following aliases to shared public types.
+            const internalSymbols = new Set(
+                [...internalDefs].flatMap((name) => [name, actualTypeNames.get(name.toLowerCase()) ?? name])
+            );
+            finalCode = renameInternalPythonSymbols(finalCode, internalSymbols);
         }
     }
 
@@ -4251,10 +4309,16 @@ export function emitMethod(lines: string[], name: string, method: RpcMethod, isS
 
     if (isSession) {
         if (hasParams) {
+            const serializeParams =
+                method.rpcMethod === "user.settings.applyTopKey" ||
+                method.rpcMethod === "repo.settings.writeKey" ||
+                method.rpcMethod === "user.settings.edit"
+                    ? "params.to_dict()"
+                    : "{k: v for k, v in params.to_dict().items() if v is not None}";
             if (paramsOptional) {
-                lines.push(`        params_dict: dict[str, Any] = {k: v for k, v in params.to_dict().items() if v is not None} if params is not None else {}`);
+                lines.push(`        params_dict: dict[str, Any] = ${serializeParams} if params is not None else {}`);
             } else {
-                lines.push(`        params_dict: dict[str, Any] = {k: v for k, v in params.to_dict().items() if v is not None}`);
+                lines.push(`        params_dict: dict[str, Any] = ${serializeParams}`);
             }
             lines.push(`        params_dict["sessionId"] = self._session_id`);
             emitRequestCall("params_dict");
@@ -4263,10 +4327,16 @@ export function emitMethod(lines: string[], name: string, method: RpcMethod, isS
         }
     } else {
         if (hasParams) {
+            const serializeParams =
+                method.rpcMethod === "user.settings.applyTopKey" ||
+                method.rpcMethod === "repo.settings.writeKey" ||
+                method.rpcMethod === "user.settings.edit"
+                    ? "params.to_dict()"
+                    : "{k: v for k, v in params.to_dict().items() if v is not None}";
             if (paramsOptional) {
-                lines.push(`        params_dict = {k: v for k, v in params.to_dict().items() if v is not None} if params is not None else {}`);
+                lines.push(`        params_dict = ${serializeParams} if params is not None else {}`);
             } else {
-                lines.push(`        params_dict = {k: v for k, v in params.to_dict().items() if v is not None}`);
+                lines.push(`        params_dict = ${serializeParams}`);
             }
             emitRequestCall("params_dict");
         } else {

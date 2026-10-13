@@ -88,11 +88,6 @@ describe("Python RPC projection compatibility", () => {
         expect(code).toContain(`"${result}",`);
     });
 
-    it("does not restore the retired Factory checkpoint aliases", () => {
-        expect(code).not.toContain("SessionFactoryPauseAtCheckpointResult");
-        expect(code).not.toContain('"session.factory.pauseAtCheckpoint"');
-    });
-
     it("keeps named connection-scoped host callback results", () => {
         expect(code).toContain(
             "async def materialize_session(self, params: HostSessionCreateCallback) -> HostSessionCreateResult:"

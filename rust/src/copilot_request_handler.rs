@@ -718,7 +718,13 @@ impl CopilotRequestExchange {
         let mut buf = Vec::new();
         let mut rx = self.body_rx.lock().await;
         while let Some(frame) = rx.recv().await {
-            buf.extend_from_slice(&frame);
+            // The first frame becomes the buffer, so a body sent as one chunk (the runtime sends
+            // every HTTP request body so) reaches the handler without a copy.
+            if buf.is_empty() {
+                buf = frame;
+            } else {
+                buf.extend_from_slice(&frame);
+            }
         }
         buf
     }
@@ -1114,7 +1120,8 @@ impl CopilotRequestDispatcher {
 
     async fn handle_start(self: &Arc<Self>, request: JsonRpcRequest) {
         let id = request.id;
-        let Some(params) = parse_params::<LlmInferenceHttpRequestStartRequest>(&request) else {
+        let Some(params) = parse_params::<LlmInferenceHttpRequestStartRequest>(request.params)
+        else {
             self.send_error(id, "invalid llmInference.httpRequestStart params")
                 .await;
             return;
@@ -1140,7 +1147,8 @@ impl CopilotRequestDispatcher {
 
     async fn handle_chunk(&self, request: JsonRpcRequest) {
         let id = request.id;
-        let Some(params) = parse_params::<LlmInferenceHttpRequestChunkRequest>(&request) else {
+        let Some(params) = parse_params::<LlmInferenceHttpRequestChunkRequest>(request.params)
+        else {
             self.send_error(id, "invalid llmInference.httpRequestChunk params")
                 .await;
             return;
@@ -1149,7 +1157,7 @@ impl CopilotRequestDispatcher {
         // May arrive before the matching start frame; get-or-create so the body
         // is buffered, never lost.
         let exchange = self.get_or_create_exchange(params.request_id.to_string());
-        apply_chunk(&exchange, &params);
+        apply_chunk(&exchange, params);
 
         self.ack(id).await;
     }
@@ -1193,7 +1201,7 @@ impl CopilotRequestDispatcher {
 
 /// Apply one body chunk to a pending request: route data into the body stream,
 /// or terminate it on `end` / `cancel`.
-fn apply_chunk(exchange: &CopilotRequestExchange, params: &LlmInferenceHttpRequestChunkRequest) {
+fn apply_chunk(exchange: &CopilotRequestExchange, params: LlmInferenceHttpRequestChunkRequest) {
     if params.cancel == Some(true) {
         exchange.push_cancel();
         return;
@@ -1209,7 +1217,7 @@ fn apply_chunk(exchange: &CopilotRequestExchange, params: &LlmInferenceHttpReque
                 }
             }
         } else {
-            params.data.clone().into_bytes()
+            params.data.into_bytes()
         };
         exchange.push_chunk(decoded);
     }
@@ -1219,11 +1227,10 @@ fn apply_chunk(exchange: &CopilotRequestExchange, params: &LlmInferenceHttpReque
     }
 }
 
-fn parse_params<T: serde::de::DeserializeOwned>(request: &JsonRpcRequest) -> Option<T> {
-    request
-        .params
-        .as_ref()
-        .and_then(|p| serde_json::from_value(p.clone()).ok())
+/// Deserialize a request's params by value, so their strings (the request body among them) move
+/// into `T`: deserializing from a borrow deep-clones the whole `Value` first.
+fn parse_params<T: serde::de::DeserializeOwned>(params: Option<serde_json::Value>) -> Option<T> {
+    params.and_then(|p| serde_json::from_value(p).ok())
 }
 
 /// Convert a wire header map into an [`http::HeaderMap`], skipping any entry the

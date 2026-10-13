@@ -55,7 +55,7 @@ public class PendingWorkResumeE2ETests(E2ETestFixture fixture, ITestOutputHelper
             var permissionEvent = await permissionRequested;
             Assert.IsType<PermissionRequestCustomTool>(initialRequest);
 
-            await suspendedClient.ForceStopAsync();
+            await ForceStopAfterSessionLockObservedAsync(suspendedClient, sessionId);
 
             await using var resumedTcpClient = Ctx.CreateClient(options: new CopilotClientOptions { Connection = RuntimeConnection.ForUri(cliUrl, connectionToken: SharedToken) });
             var session2 = await Ctx.ResumeSessionAsync(resumedTcpClient, sessionId, new ResumeSessionConfig
@@ -70,6 +70,8 @@ public class PendingWorkResumeE2ETests(E2ETestFixture fixture, ITestOutputHelper
                         "resume_permission_tool")
                 ],
             });
+            var resumeEvent = await GetSingleResumeEventAsync(session2);
+            Assert.False(resumeEvent.Data.SessionWasActive);
 
             var permissionResult = await session2.Rpc.Permissions.HandlePendingPermissionRequestAsync(
                 permissionEvent.Data.RequestId,
@@ -172,6 +174,34 @@ public class PendingWorkResumeE2ETests(E2ETestFixture fixture, ITestOutputHelper
             expectedSessionWasActive: false,
             expectedHandleResult: false);
 
+    private async Task ForceStopAfterSessionLockObservedAsync(CopilotClient suspendedClient, string sessionId)
+    {
+        await using var lockObserver = Ctx.CreateClient(options: new CopilotClientOptions
+        {
+            Connection = RuntimeConnection.ForStdio(),
+        });
+        await lockObserver.StartAsync();
+        await TestHelper.WaitForConditionAsync(
+            async () =>
+            {
+                var result = await lockObserver.Rpc.Sessions.CheckInUseAsync([sessionId]);
+                return result.InUse.Contains(sessionId);
+            },
+            timeout: PendingWorkTimeout,
+            timeoutMessage: $"Timed out waiting for session '{sessionId}' to acquire its lock.");
+
+        await suspendedClient.ForceStopAsync();
+
+        await TestHelper.WaitForConditionAsync(
+            async () =>
+            {
+                var result = await lockObserver.Rpc.Sessions.CheckInUseAsync([sessionId]);
+                return !result.InUse.Contains(sessionId);
+            },
+            timeout: PendingWorkTimeout,
+            timeoutMessage: $"Timed out waiting for session '{sessionId}' to release its lock.");
+    }
+
     private async Task AssertPendingExternalToolHandleableOnResumeAsync(
         bool disconnectOriginalClient,
         bool expectedSessionWasActive,
@@ -213,30 +243,7 @@ public class PendingWorkResumeE2ETests(E2ETestFixture fixture, ITestOutputHelper
 
             if (disconnectOriginalClient)
             {
-                await using var lockObserver = Ctx.CreateClient(options: new CopilotClientOptions
-                {
-                    Connection = RuntimeConnection.ForStdio(),
-                });
-                await lockObserver.StartAsync();
-                await TestHelper.WaitForConditionAsync(
-                    async () =>
-                    {
-                        var result = await lockObserver.Rpc.Sessions.CheckInUseAsync([sessionId]);
-                        return result.InUse.Contains(sessionId);
-                    },
-                    timeout: PendingWorkTimeout,
-                    timeoutMessage: $"Timed out waiting for session '{sessionId}' to acquire its lock.");
-
-                await suspendedClient.ForceStopAsync();
-
-                await TestHelper.WaitForConditionAsync(
-                    async () =>
-                    {
-                        var result = await lockObserver.Rpc.Sessions.CheckInUseAsync([sessionId]);
-                        return !result.InUse.Contains(sessionId);
-                    },
-                    timeout: PendingWorkTimeout,
-                    timeoutMessage: $"Timed out waiting for session '{sessionId}' to release its lock.");
+                await ForceStopAfterSessionLockObservedAsync(suspendedClient, sessionId);
             }
 
             await using var resumedClient = Ctx.CreateClient(options: new CopilotClientOptions { Connection = RuntimeConnection.ForUri(cliUrl, connectionToken: SharedToken) });

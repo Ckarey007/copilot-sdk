@@ -2522,7 +2522,9 @@ function pushNamespaceMethodBody(
 	// Build the params Value sent over the wire.
 	if (isSession) {
 		if (hasParams) {
-			out.push(`        let mut wire_params = serde_json::to_value(params)?;`);
+			out.push(
+				`        let mut wire_params = serde_json::to_value(params)?;`,
+			);
 			out.push(
 				`        wire_params["sessionId"] = serde_json::Value::String(self.session.id().to_string());`,
 			);
@@ -2536,7 +2538,9 @@ function pushNamespaceMethodBody(
 		);
 	} else {
 		if (hasParams) {
-			out.push(`        let wire_params = serde_json::to_value(params)?;`);
+			out.push(
+				`        let wire_params = serde_json::to_value(params)?;`,
+			);
 		} else {
 			out.push(`        let wire_params = serde_json::json!({});`);
 		}

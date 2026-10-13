@@ -27,3 +27,17 @@ def test_permission_approval_union_loaders_deserialize_expected_variants():
 
     assert isinstance(session, rpc.PermissionDecisionApproveForSessionApprovalCommands)
     assert isinstance(location, rpc.PermissionDecisionApproveForLocationApprovalRead)
+
+
+def test_catalog_candidate_provenance_serialises_every_catalog_media_type():
+    assert not hasattr(rpc, "MediaType")
+    for media_type in rpc.CatalogMediaType:
+        provenance = rpc.CatalogCandidateProvenance(
+            authority="agentfinder.github.com",
+            media_type=media_type,
+            observed_at="2026-10-13T00:00:00.000Z",
+        )
+        serialised = provenance.to_dict()
+
+        assert serialised["mediaType"] == media_type.value
+        assert rpc.CatalogCandidateProvenance.from_dict(serialised) == provenance

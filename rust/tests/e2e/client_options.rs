@@ -18,6 +18,10 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
+#[cfg(windows)]
+#[path = "client_options/windows_process_tree.rs"]
+mod windows_process_tree;
+
 #[tokio::test]
 async fn should_forward_advanced_session_creation_options_to_the_cli() {
     let fake = FakeCli::new();
@@ -32,6 +36,7 @@ async fn should_forward_advanced_session_creation_options_to_the_cli() {
         .create_session(
             SessionConfig::default()
                 .with_session_id("advanced-session-id")
+                .with_name("advanced session")
                 .with_client_name("rust-sdk-e2e-client")
                 .with_model("claude-sonnet-5")
                 .with_reasoning_effort("low")
@@ -95,6 +100,7 @@ async fn should_forward_advanced_session_creation_options_to_the_cli() {
         params,
         [
             ("sessionId", json!("advanced-session-id")),
+            ("name", json!("advanced session")),
             ("clientName", json!("rust-sdk-e2e-client")),
             ("model", json!("claude-sonnet-5")),
             ("reasoningEffort", json!("low")),

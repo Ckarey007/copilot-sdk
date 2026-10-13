@@ -153,6 +153,7 @@ final class SessionRequestBuilder {
         }
 
         request.setModel(config.getModel());
+        request.setName(config.getName());
         request.setClientName(config.getClientName());
         request.setReasoningEffort(config.getReasoningEffort());
         request.setReasoningSummary(config.getReasoningSummary());
@@ -196,6 +197,8 @@ final class SessionRequestBuilder {
         request.setAgent(config.getAgent());
         request.setInfiniteSessions(config.getInfiniteSessions());
         request.setSkillDirectories(config.getSkillDirectories());
+        request.setAgentDirectories(config.getAgentDirectories());
+        request.setHookDirectories(config.getHookDirectories());
         request.setInstructionDirectories(config.getInstructionDirectories());
         request.setPluginDirectories(config.getPluginDirectories());
         request.setLargeOutput(config.getLargeOutput());
@@ -363,6 +366,8 @@ final class SessionRequestBuilder {
         request.setDefaultAgent(config.getDefaultAgent());
         request.setAgent(config.getAgent());
         request.setSkillDirectories(config.getSkillDirectories());
+        request.setAgentDirectories(config.getAgentDirectories());
+        request.setHookDirectories(config.getHookDirectories());
         request.setInstructionDirectories(config.getInstructionDirectories());
         request.setPluginDirectories(config.getPluginDirectories());
         request.setLargeOutput(config.getLargeOutput());

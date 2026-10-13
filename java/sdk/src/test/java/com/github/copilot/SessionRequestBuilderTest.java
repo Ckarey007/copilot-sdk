@@ -6,6 +6,8 @@ package com.github.copilot;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -98,6 +100,71 @@ public class SessionRequestBuilderTest {
             assertFalse(mapper.readTree(mapper.writeValueAsBytes(cli)).has("allowTranscriptRecovery"));
             assertFalse(mapper.readTree(mapper.writeValueAsBytes(empty)).has("allowTranscriptRecovery"));
         }
+    }
+
+    @Test
+    void customizationDirectoriesArePreservedOnCreateAndResume() throws Exception {
+        var mapper = JsonRpcClient.getObjectMapper();
+        for (int kind = 0; kind < 3; kind++) {
+            List<String> roots = kind == 0 ? null : kind == 1 ? List.of() : List.of("relative-root", "other-root");
+            var directories = new HashMap<String, List<String>>();
+            for (var type : List.of("skill", "agent", "instruction", "hook")) {
+                directories.put(type + "Directories",
+                        roots == null ? null : roots.stream().map(root -> root + "-" + type).toList());
+            }
+            var create = SessionRequestBuilder.buildCreateRequest(
+                    new SessionConfig().setWorkingDirectory("request-cwd").setEnableConfigDiscovery(false)
+                            .setEnableFileHooks(false).setSkillDirectories(directories.get("skillDirectories"))
+                            .setAgentDirectories(directories.get("agentDirectories"))
+                            .setInstructionDirectories(directories.get("instructionDirectories"))
+                            .setHookDirectories(directories.get("hookDirectories")),
+                    "created");
+            var resume = SessionRequestBuilder.buildResumeRequest("resumed",
+                    new ResumeSessionConfig().setWorkingDirectory("resume-cwd").setEnableConfigDiscovery(false)
+                            .setEnableFileHooks(false).setSkillDirectories(directories.get("skillDirectories"))
+                            .setAgentDirectories(directories.get("agentDirectories"))
+                            .setInstructionDirectories(directories.get("instructionDirectories"))
+                            .setHookDirectories(directories.get("hookDirectories")));
+            for (var request : List.of(create, resume)) {
+                var wire = mapper.readTree(mapper.writeValueAsBytes(request));
+                for (var entry : directories.entrySet()) {
+                    if (entry.getValue() == null) {
+                        assertFalse(wire.has(entry.getKey()), wire.toString());
+                    } else {
+                        assertEquals(mapper.valueToTree(entry.getValue()), wire.get(entry.getKey()));
+                    }
+                }
+                assertFalse(wire.path("enableConfigDiscovery").asBoolean(true));
+                assertFalse(wire.path("enableFileHooks").asBoolean(true));
+                assertFalse(wire.has("additionalDirectories"));
+                assertFalse(wire.has("customAgents"));
+                assertFalse(wire.path("hooks").asBoolean());
+            }
+        }
+    }
+
+    @Test
+    void customizationDirectoryClonesOwnTheirLists() {
+        var agents = new ArrayList<>(List.of("agents"));
+        var hooks = new ArrayList<>(List.of("hooks"));
+        var create = new SessionConfig().setAgentDirectories(agents).setHookDirectories(hooks);
+        var resume = new ResumeSessionConfig().setAgentDirectories(agents).setHookDirectories(hooks);
+        var createClone = create.clone();
+        var resumeClone = resume.clone();
+        agents.add("added-agents");
+        hooks.add("added-hooks");
+        assertEquals(List.of("agents"), create.getAgentDirectories());
+        assertEquals(List.of("hooks"), create.getHookDirectories());
+        assertEquals(List.of("agents"), resume.getAgentDirectories());
+        assertEquals(List.of("hooks"), resume.getHookDirectories());
+        assertEquals(List.of("agents"), createClone.getAgentDirectories());
+        assertEquals(List.of("hooks"), createClone.getHookDirectories());
+        assertEquals(List.of("agents"), resumeClone.getAgentDirectories());
+        assertEquals(List.of("hooks"), resumeClone.getHookDirectories());
+        assertThrows(UnsupportedOperationException.class, () -> createClone.getAgentDirectories().add("mutation"));
+        assertThrows(UnsupportedOperationException.class, () -> resumeClone.getHookDirectories().add("mutation"));
+        assertThrows(UnsupportedOperationException.class, () -> create.getAgentDirectories().add("mutation"));
+        assertThrows(UnsupportedOperationException.class, () -> resume.getHookDirectories().add("mutation"));
     }
 
     // =========================================================================

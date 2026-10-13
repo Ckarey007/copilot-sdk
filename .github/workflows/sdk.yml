@@ -9,7 +9,6 @@ env:
   COPILOT_BAZEL_ANG_PR_SAMPLED_MODE: ${{ vars.COPILOT_BAZEL_ANG_PR_SAMPLED_MODE }}
   HUSKY: 0
   POWERSHELL_UPDATECHECK: Off
-  SETUP_NODE_TIMEOUT_MINUTES: 10
 
 on:
   pull_request:
@@ -42,7 +41,6 @@ jobs:
         id: checkout
         if: github.event_name == 'pull_request'
         continue-on-error: true
-        timeout-minutes: 4
         with:
           # Include the synthetic merge commit's base parent without fetching
           # repository history.
@@ -171,15 +169,20 @@ jobs:
     name: "Detect SDK layout"
     needs: detect-sdk-changes
     if: ${{ !cancelled() && (needs.detect-sdk-changes.result != 'success' || needs.detect-sdk-changes.outputs.has_sdk_changes == 'true') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04-2core-agent-runtime
     outputs:
       runtime-source: ${{ steps.detect.outputs.runtime-source }}
       sdk-home: ${{ steps.detect.outputs.sdk-home }}
     steps:
       - uses: actions/checkout@v7
-        timeout-minutes: 4
         with:
           persist-credentials: false
+          sparse-checkout: |
+            /src/sdk/package.json
+            /script/sea-build.ts
+            /package.json
+            /nodejs/package.json
+          sparse-checkout-cone-mode: false
       - id: detect
         run: |
           if [[ -f src/sdk/package.json && -f script/sea-build.ts ]]; then
@@ -202,7 +205,6 @@ jobs:
     needs: detect-layout
     if: github.event_name != 'merge_group' && needs.detect-layout.outputs.runtime-source == 'checkout'
     runs-on: ubuntu-latest-xl
-    timeout-minutes: 60
     concurrency:
       group: windows-x64-addons-release-windows-e2e-no-icf-${{ github.sha }}
       queue: max
@@ -212,7 +214,6 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@v7
-        timeout-minutes: 4
         with:
           persist-credentials: false
 
@@ -242,7 +243,7 @@ jobs:
 
       - uses: ./.github/actions/setup-node
         if: steps.cache.outputs.cache-hit != 'true'
-        timeout-minutes: ${{ fromJSON(env.SETUP_NODE_TIMEOUT_MINUTES) }}
+        timeout-minutes: 60
       - uses: ./.github/actions/setup-bazel
         if: steps.cache.outputs.cache-hit != 'true'
         with:
@@ -347,12 +348,11 @@ jobs:
     with:
       runtime-source: ${{ needs.detect-layout.outputs.runtime-source }}
       sdk-home: ${{ needs.detect-layout.outputs.sdk-home }}
-      os: ubuntu-latest-xl
+      os: ubuntu-26.04-16core-agent-runtime
       target: linux-x64
       artifact: Linux-X64-gnu
       bazel-config: e2e-no-lto
       shared-cli-build-compatible: true
-      timeout-minutes: 60
     secrets: inherit
 
   build-runtime-linuxmusl-x64:
@@ -368,11 +368,10 @@ jobs:
     with:
       runtime-source: ${{ needs.detect-layout.outputs.runtime-source }}
       sdk-home: ${{ needs.detect-layout.outputs.sdk-home }}
-      os: ubuntu-latest-xl
+      os: ubuntu-26.04-16core-agent-runtime
       target: linuxmusl-x64
       artifact: Linux-X64-musl
       bazel-config: e2e-no-lto
-      timeout-minutes: 60
     secrets: inherit
 
   build-runtime-linuxmusl-arm64:
@@ -388,11 +387,10 @@ jobs:
     with:
       runtime-source: ${{ needs.detect-layout.outputs.runtime-source }}
       sdk-home: ${{ needs.detect-layout.outputs.sdk-home }}
-      os: ubuntu-latest-xl
+      os: ubuntu-26.04-16core-agent-runtime
       target: linuxmusl-arm64
       artifact: Linux-ARM64-musl
       bazel-config: e2e-no-lto
-      timeout-minutes: 60
     secrets: inherit
 
   build-runtime-darwin-arm64:
@@ -414,7 +412,6 @@ jobs:
       bazel-config: e2e-no-lto
       use-bazel-addons-on-darwin: true
       shared-cli-build-compatible: true
-      timeout-minutes: 60
     secrets: inherit
 
   build-runtime-win32-x64:
@@ -430,13 +427,12 @@ jobs:
     with:
       runtime-source: ${{ needs.detect-layout.outputs.runtime-source }}
       sdk-home: ${{ needs.detect-layout.outputs.sdk-home }}
-      os: windows-2025-16core
+      os: windows-2025-16core-agent-runtime
       target: win32-x64
       artifact: Windows-X64
       bazel-config: windows-e2e-no-icf
       shared-cli-build-compatible: true
       prebuilt-addons-artifact: ${{ needs.detect-layout.outputs.runtime-source == 'checkout' && 'sdk-bazel-cross-addons-win32-x64-release' || '' }}
-      timeout-minutes: 60
     secrets: inherit
 
   sdk-linux-x64:
@@ -522,19 +518,40 @@ jobs:
   check-freshness:
     name: "Check schema and SDK freshness"
     needs: detect-layout
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04-2core-agent-runtime
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v7
-        timeout-minutes: 10
         with:
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
+      - name: Fetch generation comparison baseline
+        if: needs.detect-layout.outputs.runtime-source == 'checkout' && (github.event_name == 'merge_group' || github.event_name == 'push')
+        env:
+          BASELINE_SHA: ${{ github.event.merge_group.base_sha || github.event.before }}
+          CHECKOUT_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$BASELINE_SHA" =~ ^0+$ ]]; then
+            echo "New branch push has no generation baseline; checking all projections."
+            exit 0
+          fi
+          if [[ ! "$BASELINE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::Missing or invalid SDK generation baseline SHA."
+            exit 1
+          fi
+          if git cat-file -e "$BASELINE_SHA^{commit}" 2>/dev/null; then
+            exit 0
+          fi
+          auth_header="$(printf 'x-access-token:%s' "$CHECKOUT_TOKEN" | base64 | tr -d '\n')"
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0=http.https://github.com/.extraheader \
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth_header" \
+            git fetch --no-tags --depth=1 origin "$BASELINE_SHA"
       - if: needs.detect-layout.outputs.runtime-source == 'checkout'
         uses: ./.github/actions/setup-node
-        timeout-minutes: ${{ fromJSON(env.SETUP_NODE_TIMEOUT_MINUTES) }}
         with:
           install-deps: "false"
       - if: needs.detect-layout.outputs.runtime-source == 'checkout'

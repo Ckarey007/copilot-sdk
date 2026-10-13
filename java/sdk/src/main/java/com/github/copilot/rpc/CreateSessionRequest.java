@@ -34,6 +34,9 @@ public final class CreateSessionRequest {
     @JsonProperty("sessionId")
     private String sessionId;
 
+    @JsonProperty("name")
+    private String name;
+
     @JsonProperty("clientName")
     private String clientName;
 
@@ -146,6 +149,12 @@ public final class CreateSessionRequest {
 
     @JsonProperty("skillDirectories")
     private List<String> skillDirectories;
+
+    @JsonProperty("agentDirectories")
+    private List<String> agentDirectories;
+
+    @JsonProperty("hookDirectories")
+    private List<String> hookDirectories;
 
     @JsonProperty("instructionDirectories")
     private List<String> instructionDirectories;
@@ -289,6 +298,16 @@ public final class CreateSessionRequest {
     /** Sets the session ID. @param sessionId the session ID */
     public void setSessionId(String sessionId) {
         this.sessionId = sessionId;
+    }
+
+    /** Gets the create-time session name. @return the session name */
+    public String getName() {
+        return name;
+    }
+
+    /** Sets the create-time session name. @param name the session name */
+    public void setName(String name) {
+        this.name = name;
     }
 
     /** Gets the client name. @return the client name */
@@ -721,6 +740,31 @@ public final class CreateSessionRequest {
     /** Sets skill directories. @param skillDirectories the directories */
     public void setSkillDirectories(List<String> skillDirectories) {
         this.skillDirectories = skillDirectories;
+    }
+
+    /** Gets explicit agent discovery roots. @return the directories */
+    public List<String> getAgentDirectories() {
+        return agentDirectories == null ? null : Collections.unmodifiableList(agentDirectories);
+    }
+
+    /**
+     * Sets explicit agent discovery roots. @param agentDirectories the directories
+     */
+    public void setAgentDirectories(List<String> agentDirectories) {
+        this.agentDirectories = agentDirectories;
+    }
+
+    /** Gets explicit file-hook discovery roots. @return the directories */
+    public List<String> getHookDirectories() {
+        return hookDirectories == null ? null : Collections.unmodifiableList(hookDirectories);
+    }
+
+    /**
+     * Sets explicit file-hook discovery roots. @param hookDirectories the
+     * directories
+     */
+    public void setHookDirectories(List<String> hookDirectories) {
+        this.hookDirectories = hookDirectories;
     }
 
     /** Gets instruction directories. @return the instruction directories */

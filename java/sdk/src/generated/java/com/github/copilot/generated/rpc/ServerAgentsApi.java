@@ -8,6 +8,7 @@
 package com.github.copilot.generated.rpc;
 
 import com.github.copilot.CopilotExperimental;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import javax.annotation.processing.Generated;
 
@@ -38,6 +39,19 @@ public final class ServerAgentsApi {
     }
 
     /**
+     * Discovers custom agents across user, project, plugin, and remote sources.
+     * <p>
+     * Accepts the extensible request, including inputs added after the params record.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    public CompletableFuture<AgentsDiscoverResult> discover(AgentsDiscoverRequest request) {
+        return caller.invoke("agents.discover", Objects.requireNonNull(request, "request"), AgentsDiscoverResult.class);
+    }
+
+    /**
      * Returns the canonical directories where a client may create custom agents that the runtime will recognize, including ones that do not exist yet. Project directories become active once created.
      *
      * @apiNote This method is experimental and may change in a future version.
@@ -46,6 +60,19 @@ public final class ServerAgentsApi {
     @CopilotExperimental
     public CompletableFuture<AgentsGetDiscoveryPathsResult> getDiscoveryPaths(AgentsGetDiscoveryPathsParams params) {
         return caller.invoke("agents.getDiscoveryPaths", params, AgentsGetDiscoveryPathsResult.class);
+    }
+
+    /**
+     * Returns the canonical directories where a client may create custom agents that the runtime will recognize, including ones that do not exist yet. Project directories become active once created.
+     * <p>
+     * Accepts the extensible request, including inputs added after the params record.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    public CompletableFuture<AgentsGetDiscoveryPathsResult> getDiscoveryPaths(AgentsGetDiscoveryPathsRequest request) {
+        return caller.invoke("agents.getDiscoveryPaths", Objects.requireNonNull(request, "request"), AgentsGetDiscoveryPathsResult.class);
     }
 
     /**

@@ -955,6 +955,7 @@ const (
 	RecommendedAutoTierIntelligence                                      = rpc.RecommendedAutoTierIntelligence
 	RemediationActionAllowSandboxOutbound                                = rpc.RemediationActionAllowSandboxOutbound
 	RemediationActionReviewSandboxPolicy                                 = rpc.RemediationActionReviewSandboxPolicy
+	RemediationActionRewindConversation                                  = rpc.RemediationActionRewindConversation
 	RemediationActionShowAccount                                         = rpc.RemediationActionShowAccount
 	RemediationActionSignIn                                              = rpc.RemediationActionSignIn
 	RemediationActionSwitchAccount                                       = rpc.RemediationActionSwitchAccount

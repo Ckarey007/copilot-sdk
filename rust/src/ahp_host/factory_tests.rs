@@ -629,6 +629,7 @@ fn host_settings_round_trip_without_callbacks_or_losing_constraints() {
         "customAgentsLocalOnly": true, "coauthorEnabled": false, "manageScheduleEnabled": false,
         "memory": {"enabled":false}, "pluginDirectories": ["/plugins"],
         "skillDirectories": ["/skills"], "instructionDirectories": ["/instructions"],
+        "agentDirectories": ["relative-agents"], "hookDirectories": [],
         "enableMcpApps": true, "model":"model", "reasoningEffort":"high", "contextTier":"long_context"
     });
     let config = config_from_host(&serde_json::from_value(value.clone()).unwrap()).unwrap();

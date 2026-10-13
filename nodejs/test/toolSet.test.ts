@@ -498,6 +498,27 @@ describe("Empty-mode safe defaults", () => {
         expect(payload.enableSkills).toBe(true);
     });
 
+    it("passes the create-time session name through on create", async () => {
+        const { client, spy } = await setupClient();
+        await client.createSession({
+            onPermissionRequest: approveAll,
+            availableTools: new ToolSet().addBuiltIn(BuiltInTools.Isolated),
+            name: "named at create",
+        });
+        const payload = createPayload(spy);
+        expect(payload.name).toBe("named at create");
+    });
+
+    it("omits the session name on create when it is not set", async () => {
+        const { client, spy } = await setupClient();
+        await client.createSession({
+            onPermissionRequest: approveAll,
+            availableTools: new ToolSet().addBuiltIn(BuiltInTools.Isolated),
+        });
+        const payload = createPayload(spy);
+        expect(payload.name).toBeUndefined();
+    });
+
     it("passes organizationCustomInstructions through on create", async () => {
         const { client, spy } = await setupClient();
         await client.createSession({

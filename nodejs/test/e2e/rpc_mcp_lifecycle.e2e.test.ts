@@ -86,6 +86,103 @@ describe("Session-scoped MCP lifecycle RPC", async () => {
         expect(message.toLowerCase()).not.toContain("unhandled method");
     }
 
+    async function offeredToolNames(session: CopilotSession): Promise<string[]> {
+        await session.rpc.tools.initializeAndValidate();
+        const { tools } = await session.rpc.tools.getCurrentMetadata();
+        if (tools === null) {
+            throw new Error("initializeAndValidate did not initialize session tools");
+        }
+        return tools.map((tool) => tool.name);
+    }
+
+    it("should start an ephemeral server from caller config and reuse its replacement", async () => {
+        const serverName = missingName("ephemeral");
+        const session = await client.createSession({ onPermissionRequest: approveAll });
+        try {
+            const persistedBefore = await client.rpc.mcp.config.list();
+            const initialConfig = {
+                type: "stdio" as const,
+                command: "node",
+                args: [TEST_MCP_SERVER, "--tool-name", "ephemeral_initial"],
+                cwd: TEST_HARNESS_DIR,
+                excludeTools: ["ephemeral_initial"],
+                disableToolCache: true,
+            };
+            await session.rpc.mcp.startServer({ serverName, config: initialConfig });
+            expect(
+                (await session.rpc.mcp.listTools({ serverName })).tools.map((tool) => tool.name)
+            ).toEqual(["ephemeral_initial"]);
+            expect(await offeredToolNames(session)).not.toContain(
+                `${serverName}-ephemeral_initial`
+            );
+            expect((await session.rpc.mcp.isServerRunning({ serverName })).running).toBe(true);
+
+            await session.rpc.mcp.restartServer({
+                serverName,
+                config: {
+                    ...initialConfig,
+                    args: [TEST_MCP_SERVER, "--tool-name", "ephemeral_replacement"],
+                },
+            });
+            expect(await offeredToolNames(session)).toContain(
+                `${serverName}-ephemeral_replacement`
+            );
+            await session.rpc.mcp.stopServer({ serverName });
+            expect((await session.rpc.mcp.isServerRunning({ serverName })).running).toBe(false);
+            await session.rpc.mcp.startServer({ serverName });
+            await session.rpc.mcp.restartServer({ serverName });
+            expect(
+                (await session.rpc.mcp.listTools({ serverName })).tools.map((tool) => tool.name)
+            ).toEqual(["ephemeral_replacement"]);
+            expect(await client.rpc.mcp.config.list()).toEqual(persistedBefore);
+        } finally {
+            await session.disconnect();
+        }
+        const nextSession = await client.createSession({ onPermissionRequest: approveAll });
+        try {
+            expect(
+                (await nextSession.rpc.mcp.listConfigured()).servers.some(
+                    (server) => server.name === serverName
+                )
+            ).toBe(false);
+        } finally {
+            await nextSession.disconnect();
+        }
+    });
+
+    it("should replace the registered config when restarting an installed server", async () => {
+        const serverName = "rpc-lifecycle-replace-server";
+        const session = await createSessionWithMcp(serverName);
+        try {
+            await waitForMcpServerStatus(session, serverName);
+            expect(
+                (await session.rpc.mcp.listTools({ serverName })).tools.map((tool) => tool.name)
+            ).toEqual(["get_env"]);
+            expect(await offeredToolNames(session)).toContain(`${serverName}-get_env`);
+            await session.rpc.mcp.restartServer({
+                serverName,
+                config: {
+                    type: "stdio",
+                    command: "node",
+                    args: [TEST_MCP_SERVER, "--tool-name", "installed_replacement"],
+                    cwd: TEST_HARNESS_DIR,
+                    tools: ["*"],
+                    excludeTools: ["installed_replacement"],
+                    disableToolCache: true,
+                },
+            });
+            expect(
+                (await session.rpc.mcp.listTools({ serverName })).tools.map((tool) => tool.name)
+            ).toEqual(["installed_replacement"]);
+            const offered = await offeredToolNames(session);
+            expect(offered).not.toContain(`${serverName}-installed_replacement`);
+            expect(offered).not.toContain(`${serverName}-get_env`);
+            expect((await session.rpc.mcp.isServerRunning({ serverName })).running).toBe(true);
+        } finally {
+            await session.disconnect();
+        }
+    });
+
     it(
         "should list tools and report running status for connected server",
         { timeout: 120_000 },

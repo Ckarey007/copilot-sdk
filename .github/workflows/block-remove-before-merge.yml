@@ -14,10 +14,9 @@ jobs:
   check-paths:
     name: "No remove-before-merge directories"
     if: github.event_name == 'pull_request' && github.base_ref == 'main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04-2core-agent-runtime
     steps:
       - uses: actions/checkout@v7
-        timeout-minutes: 4
         with:
           fetch-depth: 2
       - name: Check for remove-before-merge paths in PR

@@ -682,6 +682,19 @@ session.setAutoTier(null).get();
 
 `setModel(SetModelOptions)` accepts the same preference through `SetModelOptions.setAutoTier(...)`, which stages the tier atomically with selecting `auto`. Call `setResetAutoTier(true)` instead to return to provider-default routing; the two options are mutually exclusive.
 
+## Reasoning-summary presentation (experimental)
+
+Read the current model's reasoning-summary policy through `session.getRpc().model.getReasoningSummaries(...)`. Load the model catalog with `session.getRpc().model.list().get()` first, or accept a result with `ready() == false`.
+
+```java
+import com.github.copilot.generated.rpc.SessionModelGetReasoningSummariesParams;
+
+var presentation = new SessionModelGetReasoningSummariesParams(null, false);
+var policy = session.getRpc().model.getReasoningSummaries(presentation).get();
+```
+
+The two constructor arguments are the persisted visibility setting (`null` when unset) and whether the host currently shows summaries (`null` defaults to false). The session wrapper supplies the session ID; callers do not need a placeholder ID. The original three-argument constructor remains available. `visibility()` can be `null` while experiment assignment is pending, and `clearRedundantSetting()` tells the host when its persisted setting matches the model default.
+
 ## Session Store
 
 `enableSessionStore` on `SessionConfig` enables the cross-session store for search and retrieval across sessions. When unset in the default `CopilotClientMode.COPILOT_CLI` mode, the runtime default applies (enabled). In `CopilotClientMode.EMPTY` mode, defaults to disabled.

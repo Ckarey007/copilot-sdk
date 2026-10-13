@@ -667,6 +667,9 @@ impl Serialize for CommandDefinition {
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct CustomAgentConfig {
+    /// Declarative hook action objects keyed by event name, active only for this agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hooks: Option<IndexMap<String, Vec<IndexMap<String, Value>>>>,
     /// Unique name of the custom agent.
     pub name: String,
     /// Display name for UI purposes.
@@ -704,6 +707,12 @@ pub struct CustomAgentConfig {
 }
 
 impl CustomAgentConfig {
+    /// Set declarative hook action objects scoped to this agent.
+    pub fn with_hooks(mut self, hooks: IndexMap<String, Vec<IndexMap<String, Value>>>) -> Self {
+        self.hooks = Some(hooks);
+        self
+    }
+
     /// Construct a custom agent configuration with the required `name`
     /// and `prompt` fields populated.
     ///
@@ -2053,6 +2062,13 @@ pub enum AskUserVariant {
 pub struct SessionConfig {
     /// Custom session ID. When unset, the CLI generates one.
     pub session_id: Option<SessionId>,
+    /// Name the session at creation, as `session.name.set` would, and validated
+    /// the same way: non-empty, no leading or trailing whitespace, at most 100
+    /// UTF-16 units, no control characters, and no double quotes. A name also
+    /// makes the session persist from the start, so it can be listed and resumed
+    /// even if it never runs a turn. Local sessions only: cloud creation rejects
+    /// it.
+    pub name: Option<String>,
     /// Model to use (e.g. `"gpt-4"`, `"claude-sonnet-4"`).
     pub model: Option<String>,
     /// Exact model IDs this session may use. When unset, the host imposes no
@@ -2158,7 +2174,8 @@ pub struct SessionConfig {
     pub refresh_custom_instructions: Option<bool>,
     /// When true, enables on-demand instruction discovery for this session.
     pub enable_on_demand_instruction_discovery: Option<bool>,
-    /// When true, enables file hooks for this session.
+    /// Enables repository-origin file hooks from `.github/hooks/` and trusted
+    /// repository-configured roots, not explicit `hook_directories` or callback hooks.
     pub enable_file_hooks: Option<bool>,
     /// When true, allows host Git operations for this session.
     pub enable_host_git_operations: Option<bool>,
@@ -2205,10 +2222,30 @@ pub struct SessionConfig {
     /// `disable_form_deferral` only applies to that server and only has an
     /// effect when MCP Apps and form-backed GitHub tools are enabled.
     pub github_mcp_tool_config: Option<GitHubMcpToolConfig>,
-    /// Skill directory paths passed through to the GitHub Copilot CLI.
+    /// Explicit discovery-only skill roots, not general filesystem grants.
+    /// Available without `enable_config_discovery`, subject to skill/managed disables.
+    /// Relative paths resolve once when supplied against the request's effective
+    /// `working_directory`; retained roots do not move on cwd changes.
+    /// `None` and omission are equivalent; an empty list clears only the explicit SDK contribution.
     pub skill_directories: Option<Vec<PathBuf>>,
-    /// Additional directories to search for custom instruction files.
-    /// Forwarded to the CLI; not the same as [`skill_directories`](Self::skill_directories).
+    /// Explicit discovery-only agent roots, separate from `custom_agents` objects.
+    /// No general filesystem grant. Available without `enable_config_discovery`,
+    /// subject to source/managed disables. Relative paths resolve once when supplied
+    /// against the request's effective `working_directory`; retained roots do not move.
+    /// `None` and omission are equivalent; an empty list clears only the explicit SDK contribution.
+    pub agent_directories: Option<Vec<PathBuf>>,
+    /// Explicit discovery-only file-hook roots, separate from callback `hooks`.
+    /// No general filesystem grant. Available without `enable_config_discovery` or
+    /// `enable_file_hooks` (repository-origin hooks only), subject to hook/managed disables.
+    /// Relative paths resolve once when supplied against the request's effective
+    /// `working_directory`; retained roots do not move on cwd changes.
+    /// `None` and omission are equivalent; an empty list clears only the explicit SDK contribution.
+    pub hook_directories: Option<Vec<PathBuf>>,
+    /// Explicit discovery-only instruction roots using existing SDK formats.
+    /// No general filesystem grant. Available without `enable_config_discovery`,
+    /// subject to instruction/managed disables. Relative paths resolve once when supplied
+    /// against the request's effective `working_directory`; retained roots do not move.
+    /// `None` and omission are equivalent; an empty list clears only the explicit SDK contribution.
     pub instruction_directories: Option<Vec<PathBuf>>,
     /// Open Plugin directory paths passed through to the CLI.
     pub plugin_directories: Option<Vec<PathBuf>>,
@@ -2443,6 +2480,7 @@ impl std::fmt::Debug for SessionConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SessionConfig")
             .field("session_id", &self.session_id)
+            .field("name", &self.name)
             .field("model", &self.model)
             .field("allowed_models", &self.allowed_models)
             .field("client_name", &self.client_name)
@@ -2505,6 +2543,8 @@ impl std::fmt::Debug for SessionConfig {
             )
             .field("enable_mcp_apps", &self.enable_mcp_apps)
             .field("skill_directories", &self.skill_directories)
+            .field("agent_directories", &self.agent_directories)
+            .field("hook_directories", &self.hook_directories)
             .field("instruction_directories", &self.instruction_directories)
             .field("plugin_directories", &self.plugin_directories)
             .field("large_output", &self.large_output)
@@ -2605,6 +2645,7 @@ impl Default for SessionConfig {
     fn default() -> Self {
         Self {
             session_id: None,
+            name: None,
             model: None,
             allowed_models: None,
             client_name: None,
@@ -2644,6 +2685,8 @@ impl Default for SessionConfig {
             enable_mcp_apps: None,
             github_mcp_tool_config: None,
             skill_directories: None,
+            agent_directories: None,
+            hook_directories: None,
             instruction_directories: None,
             plugin_directories: None,
             large_output: None,
@@ -2772,6 +2815,7 @@ impl SessionConfig {
 
         let wire = crate::wire::SessionCreateWire {
             session_id,
+            name: self.name,
             model: self.model,
             allowed_models: self.allowed_models,
             client_name: self.client_name,
@@ -2817,6 +2861,8 @@ impl SessionConfig {
             github_mcp_tool_config: self.github_mcp_tool_config,
             hooks: hooks_flag,
             skill_directories: self.skill_directories,
+            agent_directories: self.agent_directories,
+            hook_directories: self.hook_directories,
             instruction_directories: self.instruction_directories,
             plugin_directories: self.plugin_directories,
             large_output: self.large_output,
@@ -2995,6 +3041,15 @@ impl SessionConfig {
     /// Set a custom session ID (when unset, the CLI generates one).
     pub fn with_session_id(mut self, id: impl Into<SessionId>) -> Self {
         self.session_id = Some(id.into());
+        self
+    }
+
+    /// Set [`Self::name`]. The runtime rejects a name that is empty, padded with
+    /// whitespace, longer than 100 UTF-16 units, or contains control characters
+    /// or double quotes, so `create_session` fails rather than creating an
+    /// unnamed or unrenameable session.
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
         self
     }
 
@@ -3265,6 +3320,26 @@ impl SessionConfig {
         P: Into<PathBuf>,
     {
         self.skill_directories = Some(paths.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Set explicit discovery-only agent roots. See [`Self::agent_directories`].
+    pub fn with_agent_directories<I, P>(mut self, paths: I) -> Self
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        self.agent_directories = Some(paths.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Set explicit discovery-only file-hook roots. See [`Self::hook_directories`].
+    pub fn with_hook_directories<I, P>(mut self, paths: I) -> Self
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        self.hook_directories = Some(paths.into_iter().map(Into::into).collect());
         self
     }
 
@@ -3694,7 +3769,8 @@ pub struct ResumeSessionConfig {
     pub organization_custom_instructions: Option<String>,
     /// When true, enables on-demand instruction discovery on resume.
     pub enable_on_demand_instruction_discovery: Option<bool>,
-    /// When true, enables file hooks on resume.
+    /// Enables repository-origin file hooks from `.github/hooks/` and trusted
+    /// repository-configured roots, not explicit `hook_directories` or callback hooks.
     pub enable_file_hooks: Option<bool>,
     /// When true, allows host Git operations on resume.
     pub enable_host_git_operations: Option<bool>,
@@ -3718,10 +3794,30 @@ pub struct ResumeSessionConfig {
     /// `disable_form_deferral` only applies to that server and only has an
     /// effect when MCP Apps and form-backed GitHub tools are enabled.
     pub github_mcp_tool_config: Option<GitHubMcpToolConfig>,
-    /// Skill directory paths passed through to the GitHub Copilot CLI on resume.
+    /// Explicit discovery-only skill roots, not general filesystem grants.
+    /// Available without `enable_config_discovery`, subject to skill/managed disables.
+    /// Relative paths resolve once when supplied against the request's effective
+    /// `working_directory`; retained roots do not move on cwd changes.
+    /// `None` and omission are equivalent; an empty list clears only the explicit SDK contribution.
     pub skill_directories: Option<Vec<PathBuf>>,
-    /// Additional directories to search for custom instruction files on
-    /// resume. Forwarded to the CLI; not the same as [`skill_directories`](Self::skill_directories).
+    /// Explicit discovery-only agent roots, separate from `custom_agents` objects.
+    /// No general filesystem grant. Available without `enable_config_discovery`,
+    /// subject to source/managed disables. Relative paths resolve once when supplied
+    /// against the request's effective `working_directory`; retained roots do not move.
+    /// `None` and omission are equivalent; an empty list clears only the explicit SDK contribution.
+    pub agent_directories: Option<Vec<PathBuf>>,
+    /// Explicit discovery-only file-hook roots, separate from callback `hooks`.
+    /// No general filesystem grant. Available without `enable_config_discovery` or
+    /// `enable_file_hooks` (repository-origin hooks only), subject to hook/managed disables.
+    /// Relative paths resolve once when supplied against the request's effective
+    /// `working_directory`; retained roots do not move on cwd changes.
+    /// `None` and omission are equivalent; an empty list clears only the explicit SDK contribution.
+    pub hook_directories: Option<Vec<PathBuf>>,
+    /// Explicit discovery-only instruction roots using existing SDK formats.
+    /// No general filesystem grant. Available without `enable_config_discovery`,
+    /// subject to instruction/managed disables. Relative paths resolve once when supplied
+    /// against the request's effective `working_directory`; retained roots do not move.
+    /// `None` and omission are equivalent; an empty list clears only the explicit SDK contribution.
     pub instruction_directories: Option<Vec<PathBuf>>,
     /// Open Plugin directory paths passed through to the CLI on resume.
     pub plugin_directories: Option<Vec<PathBuf>>,
@@ -3959,6 +4055,8 @@ impl std::fmt::Debug for ResumeSessionConfig {
             )
             .field("enable_mcp_apps", &self.enable_mcp_apps)
             .field("skill_directories", &self.skill_directories)
+            .field("agent_directories", &self.agent_directories)
+            .field("hook_directories", &self.hook_directories)
             .field("instruction_directories", &self.instruction_directories)
             .field("plugin_directories", &self.plugin_directories)
             .field("large_output", &self.large_output)
@@ -4135,6 +4233,8 @@ impl ResumeSessionConfig {
             github_mcp_tool_config: self.github_mcp_tool_config,
             hooks: hooks_flag,
             skill_directories: self.skill_directories,
+            agent_directories: self.agent_directories,
+            hook_directories: self.hook_directories,
             instruction_directories: self.instruction_directories,
             plugin_directories: self.plugin_directories,
             large_output: self.large_output,
@@ -4245,6 +4345,8 @@ impl ResumeSessionConfig {
             enable_mcp_apps: None,
             github_mcp_tool_config: None,
             skill_directories: None,
+            agent_directories: None,
+            hook_directories: None,
             instruction_directories: None,
             plugin_directories: None,
             large_output: None,
@@ -4666,6 +4768,26 @@ impl ResumeSessionConfig {
         P: Into<PathBuf>,
     {
         self.skill_directories = Some(paths.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Set explicit discovery-only agent roots. See [`Self::agent_directories`].
+    pub fn with_agent_directories<I, P>(mut self, paths: I) -> Self
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        self.agent_directories = Some(paths.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Set explicit discovery-only file-hook roots. See [`Self::hook_directories`].
+    pub fn with_hook_directories<I, P>(mut self, paths: I) -> Self
+    where
+        I: IntoIterator<Item = P>,
+        P: Into<PathBuf>,
+    {
+        self.hook_directories = Some(paths.into_iter().map(Into::into).collect());
         self
     }
 
@@ -6574,6 +6696,9 @@ impl Default for ExitPlanModeData {
         }
     }
 }
+
+#[cfg(test)]
+mod customization_directory_tests;
 
 #[cfg(test)]
 mod tests;

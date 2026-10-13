@@ -126,6 +126,20 @@ describe("MCP sign-in for one server", async () => {
         await waitForMcpServerStatus(session, "alpha", "connected");
         await waitForMcpServerStatus(session, "bravo", "needs-auth");
         await waitForMcpServerStatus(session, "delta", "needs-auth");
+        // Live status can precede delivery of its initial notification.
+        await waitForCondition(
+            () =>
+                events.some(
+                    (event) =>
+                        event.type === "session.mcp_server_status_changed" &&
+                        event.data.serverName === "alpha" &&
+                        event.data.status === "connected"
+                ),
+            {
+                timeoutMs: STEP_TIMEOUT_MS,
+                timeoutMessage: "alpha did not deliver its initial connected status",
+            }
+        );
         const deltaLogin = await session.rpc.mcp.oauth.login({
             serverName: "delta",
             redirectUri: REDIRECT_URI,

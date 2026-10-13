@@ -117,11 +117,17 @@ public record SessionOpenOptions(
     @JsonProperty("managedMcpServers") Map<String, ManagedMcpServerConfig> managedMcpServers,
     /** Whether to include instructions from every MCP server in the system prompt instead of only allowlisted servers. */
     @JsonProperty("allowAllMcpServerInstructions") Boolean allowAllMcpServerInstructions,
-    /** Additional directories to search for skills. */
+    /** Explicit discovery-only skill roots, not filesystem grants. Available without enableConfigDiscovery, subject to skill/managed disables. Relative SDK paths resolve once when supplied against the request's effective workingDirectory; retained roots do not move on cwd changes. Null and omission are equivalent; [] clears only the explicit SDK contribution. */
     @JsonProperty("skillDirectories") List<String> skillDirectories,
+    /** Explicit discovery-only agent roots, separate from customAgents and filesystem grants. Available without enableConfigDiscovery, subject to managed/source disables. Relative SDK paths resolve once when supplied against the request's effective workingDirectory; retained roots do not move on cwd changes. Null and omission are equivalent; [] clears only the explicit SDK contribution. */
+    @JsonProperty("agentDirectories") List<String> agentDirectories,
+    /** Explicit discovery-only instruction roots using existing SDK instruction formats, not filesystem grants. Available without enableConfigDiscovery, subject to instruction/managed disables. Relative SDK paths resolve once when supplied against the request's effective workingDirectory; retained roots do not move on cwd changes. Null and omission are equivalent; [] clears only the explicit SDK contribution. */
+    @JsonProperty("instructionDirectories") List<String> instructionDirectories,
+    /** Explicit discovery-only file-hook roots, separate from callback hooks and filesystem grants. Available without enableConfigDiscovery or enableFileHooks, which controls repository-origin hooks only; hook/managed disables still apply. Relative SDK paths resolve once when supplied against the request's effective workingDirectory; retained roots do not move on cwd changes. Null and omission are equivalent; [] clears only the explicit SDK contribution. */
+    @JsonProperty("hookDirectories") List<String> hookDirectories,
     /** Skill scan directories and descendants excluded from discovery. Supports `~`-relative paths. */
     @JsonProperty("ignoredSkillsLocations") List<String> ignoredSkillsLocations,
-    /** Whether skill loading is enabled. When omitted, an SDK skill provider enables skills by default. */
+    /** Whether skill loading is enabled. When omitted, explicit SDK skill roots or an SDK skill provider enable skills independently of enableConfigDiscovery. */
     @JsonProperty("enableSkills") Boolean enableSkills,
     /** Whether the requesting SDK session has a skill provider. The provider remains ephemeral and is never persisted in session options or history. When enableSkills is false, it remains bound but dormant and receives no callbacks. Cloud, relay, handoff, and raw sessions.open flows reject it because they cannot safely pre-register the callback handler. */
     @JsonProperty("hasSkillProvider") Boolean hasSkillProvider,

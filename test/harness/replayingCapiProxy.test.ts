@@ -11,6 +11,7 @@ import type {
 } from "openai/resources/chat/completions";
 import os from "os";
 import path from "path";
+import { gzipSync } from "zlib";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import yaml from "yaml";
 import {
@@ -143,6 +144,31 @@ describe("ReplayingCapiProxy", () => {
         });
         expect(response.status).toBe(401);
       }
+    } finally {
+      await proxy.stop();
+    }
+  });
+
+  test("accepts telemetry locally before replay configuration", async () => {
+    const proxy = new ReplayingCapiProxy("http://localhost");
+    const address = await proxy.start();
+    try {
+      const response = await fetch(`${address}/telemetry`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-json-stream",
+          "content-encoding": "gzip",
+        },
+        body: gzipSync('{"name":"fixture-event"}\n'),
+      });
+      expect(response.status).toBe(204);
+      expect(await response.text()).toBe("");
+      expect(proxy.exchanges).toMatchObject([
+        {
+          request: { url: "/telemetry", method: "POST" },
+          response: { statusCode: 204, body: "" },
+        },
+      ]);
     } finally {
       await proxy.stop();
     }

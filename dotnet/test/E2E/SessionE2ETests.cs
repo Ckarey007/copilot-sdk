@@ -478,14 +478,20 @@ public class SessionE2ETests(E2ETestFixture fixture, ITestOutputHelper output) :
     public async Task Send_Returns_Immediately_While_Events_Stream_In_Background()
         => await WithSdkDiagnosticsAsync(async () =>
     {
-        var session = await CreateSessionAsync(new SessionConfig
+        // Reuse a custom-tool capture instead of depending on a native shell completing within its wait.
+        await Ctx.ConfigureForTestAsync(
+            "pending_work_resume", "should_continue_pending_external_tool_request_after_resume", replayOnly: true);
+        var toolStarted = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseTool = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var session = await CreateSessionAsync(new SessionConfig
         {
+            Tools = [AIFunctionFactory.Create(BlockingTool, "resume_external_tool")],
             OnPermissionRequest = PermissionHandler.ApproveAll,
         });
         var events = new ConcurrentQueue<string>();
         AssistantMessageEvent? message = null;
 
-        session.On<SessionEvent>(evt =>
+        using var subscription = session.On<SessionEvent>(evt =>
         {
             events.Enqueue(evt.Type);
             if (evt is AssistantMessageEvent assistantMessage)
@@ -495,18 +501,35 @@ public class SessionE2ETests(E2ETestFixture fixture, ITestOutputHelper output) :
         });
         var idle = TestHelper.GetNextEventOfTypeAsync<SessionIdleEvent>(session);
 
-        // Use a slow command so we can verify SendAsync() returns before completion
-        await session.SendAsync(new MessageOptions { Prompt = "Run 'sleep 2 && echo done'" });
+        try
+        {
+            var send = session.SendAsync(new MessageOptions
+            {
+                Prompt = "Use resume_external_tool with value 'beta', then reply with the result.",
+            });
+            Assert.Equal("beta", await toolStarted.Task.WaitAsync(TimeSpan.FromSeconds(60)));
+            await send.WaitAsync(TimeSpan.FromSeconds(60));
+            Assert.DoesNotContain("session.idle", events);
+            Assert.False(idle.IsCompleted);
 
-        // SendAsync() should return before turn completes (no session.idle yet)
-        Assert.DoesNotContain("session.idle", events);
+            releaseTool.TrySetResult("EXTERNAL_RESUMED_BETA");
+            await idle;
 
-        // Wait for turn to complete
-        await idle;
+            Assert.Contains("EXTERNAL_RESUMED_BETA", message?.Data.Content ?? string.Empty);
+            Assert.Contains("session.idle", events);
+            Assert.Contains("assistant.message", events);
+        }
+        finally
+        {
+            releaseTool.TrySetResult("EXTERNAL_RESUMED_BETA");
+        }
 
-        Assert.Contains("done", message?.Data.Content ?? string.Empty);
-        Assert.Contains("session.idle", events);
-        Assert.Contains("assistant.message", events);
+        [Description("Blocks until the test releases the active turn")]
+        async Task<string> BlockingTool([Description("Value to return")] string value, CancellationToken cancellationToken)
+        {
+            toolStarted.TrySetResult(value);
+            return await releaseTool.Task.WaitAsync(Timeout.InfiniteTimeSpan, cancellationToken);
+        }
     });
 
     [Fact]

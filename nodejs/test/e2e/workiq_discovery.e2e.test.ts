@@ -378,7 +378,10 @@ describe("account-derived WorkIQ", async () => {
                 { timeoutMessage: "WorkIQ did not connect after enablement" }
             );
             const initialGrantCount = authentication === "browser" ? 2 : 1;
-            expect(grants).toHaveLength(initialGrantCount);
+            expect(
+                grants.map((grant) => Object.fromEntries(grant)),
+                JSON.stringify({ requests, browserScopes })
+            ).toHaveLength(initialGrantCount);
             expect(grants[0].get("client_id")).toBe("ba081686-5d24-4bc6-a0d6-d034ecffed87");
             expect(grants[0].get("refresh_token")).toBe("parent-refresh");
             expect(grants[0].get("scope")).toContain(scope);

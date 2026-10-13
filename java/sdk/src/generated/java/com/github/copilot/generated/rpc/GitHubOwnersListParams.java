@@ -27,6 +27,7 @@ record GitHubOwnersListParams(
     /** Request id from `gitHubOwners.nextRequestId`. An id that was never registered, canceled before use, released after being abandoned, or already used is refused rather than silently running uncancellable. */
     @JsonProperty("requestId") Long requestId,
     /** The credential the listing runs under, carried opaquely because its shape is the host's own and the runtime only resolves a token and a GitHub host from it. No credential travels: this selects one the runtime already holds. */
+    @JsonInclude(JsonInclude.Include.ALWAYS)
     @JsonProperty("authInfo") Object authInfo
 ) {
 }

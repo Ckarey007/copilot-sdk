@@ -499,6 +499,7 @@ class TestClientOptions:
         try:
             await client.start()
             session = await client.create_session(
+                name="python named at create",
                 client_name="advanced-create-client",
                 model="claude-sonnet-5",
                 reasoning_effort="medium",
@@ -585,6 +586,7 @@ class TestClientOptions:
             )
             try:
                 params = _get_captured_request(capture_path, "session.create")
+                assert params["name"] == "python named at create"
                 assert params["clientName"] == "advanced-create-client"
                 assert params["model"] == "claude-sonnet-5"
                 assert params["reasoningEffort"] == "medium"

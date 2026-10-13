@@ -356,11 +356,11 @@ For TypeScript SDK E2Es, use the existing
 `nodejs/test/e2e/harness/sdkTestContext.ts` fixture. In the runtime repository,
 also follow the `e2e-test-author` skill's SDK section.
 
-All six SDKs run full subprocess coverage followed by a short in-process
-smoke step on the same runner on Linux/glibc x64, macOS ARM64, Windows x64,
-and Linux/musl x64. Smoke still runs if the subprocess tests fail, and either
-failure fails the job. Java uses JDK 25 on all four platforms, plus a
-Linux/glibc JDK 17 compatibility job using precompiled classes.
+All SDKs run full subprocess coverage and in-process smoke on Linux/glibc
+x64, macOS ARM64, Windows x64, and Linux/musl x64. Windows .NET uses complementary
+jobs per framework. Smoke also runs after subprocess failures; either failure
+fails the job. Java uses JDK 25 on these platforms,
+plus a Linux/glibc JDK 17 compatibility job using precompiled classes.
 Merge groups retain the reduced Linux TypeScript CAPI subprocess coverage.
 
 The `sdk-typescript` required rollup checks only the Linux CAPI job, including

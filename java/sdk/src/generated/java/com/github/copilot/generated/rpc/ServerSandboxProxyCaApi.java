@@ -27,6 +27,28 @@ public final class ServerSandboxProxyCaApi {
     }
 
     /**
+     * Reports whether this runtime process can offer installing the sandbox credential-proxy certificate authority into OS trust.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    public CompletableFuture<Boolean> checkInstallationSupport() {
+        return caller.invoke("sandbox.proxyCa.checkInstallationSupport", java.util.Map.of(), Boolean.class);
+    }
+
+    /**
+     * Reports whether this sandbox configuration uses the credential proxy and can need certificate-authority setup.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    public CompletableFuture<Boolean> checkRelevance(SandboxProxyCaCheckRelevanceParams params) {
+        return caller.invoke("sandbox.proxyCa.checkRelevance", params, Boolean.class);
+    }
+
+    /**
      * Reports whether the persistent certificate authority of the sandbox credential proxy exists, whether OS trust includes it, and whether it must be rotated. Changes nothing.
      *
      * @apiNote This method is experimental and may change in a future version.

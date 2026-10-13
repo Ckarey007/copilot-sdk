@@ -721,11 +721,26 @@ describe("disabled MCP servers", async () => {
                     onPermissionRequest: approveAll,
                     enableSessionStore: true,
                     pluginDirectories: [pluginDirectory],
-                    disabledMcpServers: ["disabled"],
+                    disabledMcpServers: ["disabled", "github-mcp-server", "computer-use"],
                 });
                 await waitForMcpStatus(resumedSession, "control", "connected");
                 await waitForMcpStatus(resumedSession, "disabled", "disabled");
                 await waitForMarkerCount(controlMarker, 1);
+                const inventory = await resumedSession.rpc.mcp.listConfigured();
+                expect(
+                    inventory.servers
+                        .filter((server) => ["control", "disabled"].includes(server.name))
+                        .map(({ name, enabled }) => ({ name, enabled }))
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                ).toEqual([
+                    { name: "control", enabled: true },
+                    { name: "disabled", enabled: false },
+                ]);
+                expect(
+                    inventory.servers.filter(
+                        (server) => server.source === "builtin" && server.enabled
+                    )
+                ).toEqual([]);
                 expect(existsSync(disabledMarker)).toBe(false);
             } finally {
                 await initialClient.stop().catch(() => {});

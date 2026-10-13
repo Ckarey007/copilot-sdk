@@ -2312,6 +2312,38 @@ func TestCreateSessionRequest_ClientName(t *testing.T) {
 	})
 }
 
+func TestCreateSessionRequest_Name(t *testing.T) {
+	t.Run("includes name in JSON when set", func(t *testing.T) {
+		req := createSessionRequest{Name: "named at create"}
+		data, err := json.Marshal(req)
+		if err != nil {
+			t.Fatalf("Failed to marshal: %v", err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatalf("Failed to unmarshal: %v", err)
+		}
+		if m["name"] != "named at create" {
+			t.Errorf("Expected name to be 'named at create', got %v", m["name"])
+		}
+	})
+
+	t.Run("omits name from JSON when empty", func(t *testing.T) {
+		req := createSessionRequest{}
+		data, err := json.Marshal(req)
+		if err != nil {
+			t.Fatalf("Failed to marshal: %v", err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatalf("Failed to unmarshal: %v", err)
+		}
+		if _, ok := m["name"]; ok {
+			t.Error("Expected name to be omitted when empty")
+		}
+	})
+}
+
 func TestResumeSessionRequest_ClientName(t *testing.T) {
 	t.Run("includes clientName in JSON when set", func(t *testing.T) {
 		req := resumeSessionRequest{SessionID: "s1", ClientName: "my-app"}

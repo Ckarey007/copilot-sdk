@@ -11,6 +11,7 @@ Usage: run-dotnet-tests.sh [--help]
 Runs the full .NET SDK test project. Environment variables:
   DOTNET_TEST_FILTER   Optional dotnet test filter (e.g. for a backend or transport).
   DOTNET_TEST_RUNTIME  Optional runtime identifier passed to dotnet test.
+  DOTNET_TEST_FRAMEWORK  Optional target framework (default: all project frameworks).
   DOTNET_TEST_RESULTS_DIRECTORY  Results directory (default: TestResults).
 EOF
 }
@@ -40,12 +41,16 @@ args=(
 )
 filter="${DOTNET_TEST_FILTER:-}"
 runtime="${DOTNET_TEST_RUNTIME:-}"
+framework="${DOTNET_TEST_FRAMEWORK:-}"
 
 if [[ -n "$filter" ]]; then
     args+=(--filter "$filter")
 fi
 if [[ -n "$runtime" ]]; then
     args+=(--runtime "$runtime")
+fi
+if [[ -n "$framework" ]]; then
+    args+=(--framework "$framework")
 fi
 
 dotnet test "${args[@]}"

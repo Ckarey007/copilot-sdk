@@ -1356,13 +1356,19 @@ pub struct SessionErrorData {
     /// Fine-grained error code from the upstream provider, when available. For `errorType: "rate_limit"`, this is one of the `RateLimitErrorCode` values (e.g., `"user_weekly_rate_limited"`, `"user_global_rate_limited"`, `"rate_limited"`, `"user_model_rate_limited"`, `"integration_rate_limited"`). For `errorType: "quota"`, this is the CAPI quota error code (e.g., `"quota_exceeded"`, `"session_quota_exceeded"`, `"billing_not_configured"`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_code: Option<String>,
-    /// Category of error (e.g., "authentication", "authorization", "quota", "rate_limit", "context_limit", "query")
+    /// Category of error (e.g., "authentication", "authorization", "policy", "quota", "rate_limit", "context_limit", "query")
     pub error_type: String,
     /// Human-readable error message
     pub message: String,
     /// GitHub request tracing ID (x-github-request-id header) for correlating with server-side logs
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_call_id: Option<String>,
+    /// Sanitized provider-defined error parameter preserved from a structured upstream error envelope, when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_error_param: Option<String>,
+    /// Provider-defined error type preserved from a structured upstream error envelope, when available (for example, `invalid_request_error`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_error_type: Option<String>,
     /// What the user must do to recover, when the runtime knows of an action. The `message` never names a client affordance, so a client that offers one — a slash command, a settings pane, a link — renders it from this value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remediation: Option<RemediationAction>,
@@ -2550,6 +2556,9 @@ pub struct CompactionCompleteCompactionTokensUsed {
     /// Provider captured for the compaction call; absent when attribution is unknown.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<ModelProviderRef>,
+    /// Number of model requests represented by this aggregated compaction usage
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_count: Option<i64>,
 }
 
 /// Original request-level and effective conversation reasoning effort for a provider history boundary; the historical type name is retained for compatibility
@@ -2568,10 +2577,6 @@ pub struct ResponsesReasoning {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionCompactionCompleteData {
-    /// Legacy active-workflow reminder retained for replay compatibility
-    #[doc(hidden)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) active_factory_summary: Option<String>,
     /// Authoritative active-workflow reminder appended to the compacted context
     #[doc(hidden)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2677,6 +2682,12 @@ pub struct PermissionRecoveryData {
     pub max_attempts: i64,
     /// Policy selected from the current client's response capability; mode or client changes may update it during recovery
     pub on_blocked: PermissionRecoveryOnBlocked,
+    /// Subagent identifier that owns this recovery episode when the request was delegated through a parent permission service
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_agent_id: Option<String>,
+    /// Root or child execution-session identifier that owns this recovery episode; omitted for legacy snapshots
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_session_id: Option<String>,
     /// Controlled reason for the latest episode transition
     pub reason: PermissionRecoveryReason,
     /// Current lifecycle state of the recovery episode
@@ -3110,6 +3121,12 @@ pub struct SessionPermissionRecoveryData {
     pub max_attempts: i64,
     /// Policy selected from the current client's response capability; mode or client changes may update it during recovery
     pub on_blocked: PermissionRecoveryOnBlocked,
+    /// Subagent identifier that owns this recovery episode when the request was delegated through a parent permission service
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_agent_id: Option<String>,
+    /// Root or child execution-session identifier that owns this recovery episode; omitted for legacy snapshots
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_session_id: Option<String>,
     /// Controlled reason for the latest episode transition
     pub reason: PermissionRecoveryReason,
     /// Current lifecycle state of the recovery episode
@@ -5681,9 +5698,6 @@ pub struct SubagentStartedData {
     /// Whether the sub-agent runs synchronously or in the background.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execution_mode: Option<String>,
-    /// Legacy root id of the workflow run that spawned this sub-agent. New consumers should use workflowRunId.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub factory_run_id: Option<String>,
     /// Model the sub-agent will run with, when known at start.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
@@ -7029,6 +7043,12 @@ pub struct PermissionRequestedData {
     /// Agent mode captured from the owning turn when permission evaluation began.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_mode: Option<SessionMode>,
+    /// Delegated agent that owns permission recovery when the owner session multiplexes remote agents. Absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_agent_id: Option<String>,
+    /// Execution session that owns permission recovery for this request. Absent on historical events.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_session_id: Option<String>,
     /// Permission mode captured when evaluation began. Absent on historical events.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<PermissionMode>,
@@ -8977,6 +8997,9 @@ pub enum RemediationAction {
     /// Permit outbound network access in the sandbox policy.
     #[serde(rename = "allow_sandbox_outbound")]
     AllowSandboxOutbound,
+    /// Discard conversation history back through the blocked request before continuing.
+    #[serde(rename = "rewind_conversation")]
+    RewindConversation,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]

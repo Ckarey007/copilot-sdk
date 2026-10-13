@@ -6,6 +6,60 @@ import type { ApiSchema, RpcMethod } from "../../scripts/codegen/utils.ts";
 import { postProcessSchema } from "../../scripts/codegen/utils.ts";
 import { legacyRequestSchema } from "./legacy-parameters-fixture.ts";
 
+describe("C# RPC dictionaries", () => {
+    it.each([undefined, true, { type: "string" } as const])(
+        "retains open object entries with additionalProperties=%j",
+        (additionalProperties) => {
+            const dictionary: JSONSchema7 = {
+                type: "object",
+                properties: {},
+                ...(additionalProperties === undefined ? {} : { additionalProperties }),
+            };
+            const schema: ApiSchema = {
+                server: {
+                    sample: {
+                        read: {
+                            rpcMethod: "sample.read",
+                            params: {
+                                title: "SampleRequest",
+                                type: "object",
+                                properties: { environment: dictionary },
+                                required: ["environment"],
+                            },
+                            result: {
+                                title: "SampleResult",
+                                type: "object",
+                                properties: {
+                                    settings: dictionary,
+                                    referenced: { $ref: "#/definitions/Dictionary" },
+                                    entries: { type: "array", items: dictionary },
+                                    closed: {
+                                        type: "object",
+                                        properties: {},
+                                        additionalProperties: false,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                definitions: { Dictionary: dictionary },
+            };
+            const before = structuredClone(schema);
+            const code = generateRpcCode(schema);
+            const valueType = typeof additionalProperties === "object" ? "string" : "JsonElement";
+            expect(code).toContain(`IDictionary<string, ${valueType}> Environment`);
+            expect(code).toContain(`IDictionary<string, ${valueType}>? Settings`);
+            expect(code).toContain(`IDictionary<string, ${valueType}>? Referenced`);
+            expect(code).toContain(`IList<IDictionary<string, ${valueType}>>? Entries`);
+            expect(code).toContain("class SampleResultClosed");
+            expect(code).not.toContain("class SampleRequestEnvironment");
+            expect(code).not.toContain("class SampleResultSettings");
+            expect(schema).toEqual(before);
+        }
+    );
+});
+
 function legacySignatureFixture(scope: "server" | "session", legacy: unknown) {
     const params: JSONSchema7 & { "x-legacy-parameters"?: unknown } = {
         title: "SampleRequest",
@@ -30,6 +84,21 @@ function legacySignatureFixture(scope: "server" | "session", legacy: unknown) {
     const schema: ApiSchema = { [scope]: { sample: methods } };
     return { schema, params, methods };
 }
+
+describe("C# required opaque JSON parameters", () => {
+    it.each(["server", "session"] as const)("preserves JSON null in %s requests", (scope) => {
+        const { schema, params } = legacySignatureFixture(scope, undefined);
+        params.required!.push("config");
+        const code = generateRpcCode(schema);
+
+        expect(code).toContain("RunAsync(string name, object? config,");
+        expect(code).toContain(
+            'Config = CopilotClient.ToJsonElementForWire(config) ?? JsonElement.Parse("null")'
+        );
+        expect(code).not.toContain("ArgumentNullException.ThrowIfNull(config);");
+        expect(code).toContain("ArgumentNullException.ThrowIfNull(name);");
+    });
+});
 
 describe("C# additive request entry compatibility", () => {
     it.each(["server", "session"] as const)(

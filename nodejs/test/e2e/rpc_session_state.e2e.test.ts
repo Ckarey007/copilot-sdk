@@ -304,6 +304,60 @@ describe("Session-scoped RPC", async () => {
         }
     });
 
+    it("should read the reasoning-summaries policy for the current model", async () => {
+        const session = await client.createSession({
+            onPermissionRequest: approveAll,
+            model: "claude-sonnet-5",
+            // This policy needs the CAPI catalog; legacy BYOK sessions skip it.
+            // An explicit provider roster keeps the harness from replacing CAPI.
+            providers: [],
+        });
+
+        try {
+            // `ready` stays false until the session has resolved its model
+            // catalog, which only happens once something asks for it. Prime the
+            // session's model-list cache so the policy reports the real answer
+            // instead of the not-ready placeholder.
+            await session.rpc.model.list();
+
+            const policy = await session.rpc.model.getReasoningSummaries({});
+            expect(policy.ready).toBe(true);
+            expect(typeof policy.experimentSettled).toBe("boolean");
+            expect(typeof policy.modelDefaultShowsSummaries).toBe("boolean");
+            expect(typeof policy.showReasoningHeaders).toBe("boolean");
+            // No session-level reasoning-summary override, so the session
+            // follows the selected model's default.
+            expect(policy.sessionShowsSummaries).toBe(policy.modelDefaultShowsSummaries);
+
+            // A persisted setting decides visibility whatever the experiment
+            // assignment is, and one that restates the model default is
+            // reported as redundant.
+            const redundant = await session.rpc.model.getReasoningSummaries({
+                persistedShowReasoning: policy.modelDefaultShowsSummaries,
+            });
+            expect(redundant.visibility).toBe(policy.modelDefaultShowsSummaries);
+            expect(redundant.clearRedundantSetting).toBe(true);
+
+            const opposed = await session.rpc.model.getReasoningSummaries({
+                persistedShowReasoning: !policy.modelDefaultShowsSummaries,
+            });
+            expect(opposed.visibility).toBe(!policy.modelDefaultShowsSummaries);
+            expect(opposed.clearRedundantSetting).toBe(false);
+
+            // A visible view never asks for the "summaries are hidden" hint,
+            // and a pending experiment assignment never asks for it either.
+            const visible = await session.rpc.model.getReasoningSummaries({
+                summariesVisible: true,
+            });
+            expect(visible.showHiddenHint).toBe(false);
+            if (!policy.experimentSettled) {
+                expect(policy.showHiddenHint).toBe(false);
+            }
+        } finally {
+            await session.disconnect();
+        }
+    });
+
     it("should get and set session metadata", async () => {
         const session = await client.createSession({ onPermissionRequest: approveAll });
 

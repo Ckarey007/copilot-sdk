@@ -8,6 +8,7 @@
 package com.github.copilot.generated.rpc;
 
 import com.github.copilot.CopilotExperimental;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import javax.annotation.processing.Generated;
 
@@ -97,6 +98,19 @@ public final class ServerSkillsApi {
     @CopilotExperimental
     public CompletableFuture<SkillsGetDiscoveryPathsResult> getDiscoveryPaths(SkillsGetDiscoveryPathsParams params) {
         return caller.invoke("skills.getDiscoveryPaths", params, SkillsGetDiscoveryPathsResult.class);
+    }
+
+    /**
+     * Returns the canonical directories where a client may create skills that the runtime will recognize, including ones that do not exist yet. Project directories become active once created.
+     * <p>
+     * Accepts the extensible request, including inputs added after the params record.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    public CompletableFuture<SkillsGetDiscoveryPathsResult> getDiscoveryPaths(SkillsGetDiscoveryPathsRequest request) {
+        return caller.invoke("skills.getDiscoveryPaths", Objects.requireNonNull(request, "request"), SkillsGetDiscoveryPathsResult.class);
     }
 
 }

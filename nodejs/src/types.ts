@@ -2025,6 +2025,8 @@ export type MCPServerConfig = MCPStdioServerConfig | MCPHTTPServerConfig;
  * Configuration for a custom agent.
  */
 export interface CustomAgentConfig {
+    /** Declarative hook actions keyed by event name, active only for this agent. */
+    hooks?: Record<string, Record<string, unknown>[]>;
     /**
      * Unique name of the custom agent.
      */
@@ -2960,7 +2962,11 @@ export interface SessionConfigBase {
     agent?: string;
 
     /**
-     * Directories to load skills from.
+     * Explicit discovery-only skill roots. No general filesystem access is granted.
+     * Available without `enableConfigDiscovery`; skill and managed disables still apply.
+     * Relative paths resolve once when supplied against the request's effective
+     * `workingDirectory`, and retained roots do not move when it changes.
+     * Null and omission are equivalent; `[]` clears only the explicit SDK contribution.
      */
     skillDirectories?: string[];
 
@@ -2982,6 +2988,27 @@ export interface SessionConfigBase {
     skillProvider?: SkillProvider;
 
     /**
+     * Explicit discovery-only agent roots, separate from `customAgents` objects.
+     * No general filesystem access is granted. Available without `enableConfigDiscovery`;
+     * source and managed disables still apply.
+     * Relative paths resolve once when supplied against the request's effective
+     * `workingDirectory`, and retained roots do not move when it changes.
+     * Null and omission are equivalent; `[]` clears only the explicit SDK contribution.
+     */
+    agentDirectories?: string[];
+
+    /**
+     * Explicit discovery-only file-hook roots, separate from callback `hooks`.
+     * No general filesystem access is granted. Available without `enableConfigDiscovery`
+     * or `enableFileHooks` (which controls repository-origin hooks only);
+     * hook and managed disables still apply.
+     * Relative paths resolve once when supplied against the request's effective
+     * `workingDirectory`, and retained roots do not move when it changes.
+     * Null and omission are equivalent; `[]` clears only the explicit SDK contribution.
+     */
+    hookDirectories?: string[];
+
+    /**
      * Local filesystem paths to Open Plugins-format directories
      * (https://open-plugins.com/) to load for this session.
      *
@@ -2997,7 +3024,12 @@ export interface SessionConfigBase {
     pluginDirectories?: string[];
 
     /**
-     * Additional directories to search for custom instruction files.
+     * Explicit discovery-only instruction roots using the existing SDK instruction formats.
+     * No general filesystem access is granted. Available without `enableConfigDiscovery`;
+     * instruction and managed disables still apply.
+     * Relative paths resolve once when supplied against the request's effective
+     * `workingDirectory`, and retained roots do not move when it changes.
+     * Null and omission are equivalent; `[]` clears only the explicit SDK contribution.
      */
     instructionDirectories?: string[];
 
@@ -3115,9 +3147,9 @@ export interface SessionConfigBase {
     enableOnDemandInstructionDiscovery?: boolean;
 
     /**
-     * When true, enables loading of file-based hooks from `.github/hooks/`.
-     * This is separate from the `hooks` callback parameter which gates SDK
-     * hook event registration.
+     * When true, enables repository-origin file hooks from `.github/hooks/` and
+     * trusted repository-configured roots. Does not control explicit `hookDirectories`
+     * or the `hooks` callback parameter.
      */
     enableFileHooks?: boolean;
 
@@ -3196,6 +3228,15 @@ export interface SessionConfig extends SessionConfigBase {
      * Optional custom session ID. If not provided, the server generates one.
      */
     sessionId?: string;
+
+    /**
+     * Names the session at creation, as `session.name.set` would, and is validated the
+     * same way: non-empty, no leading or trailing whitespace, at most 100 UTF-16 units,
+     * no control characters, and no double quotes. A name also makes the session persist
+     * from the start, so it can be listed and resumed without ever running a turn.
+     * Local sessions only: cloud creation rejects it.
+     */
+    name?: string;
 
     /**
      * Invalidates the process-wide custom-instruction discovery cache before

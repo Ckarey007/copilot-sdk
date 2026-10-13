@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { SCHEMA_FILES } from "../build-prerequisites.mjs";
 import {
     assertGeneratedClean,
@@ -62,6 +62,15 @@ function fixture(t) {
         },
     };
     return { root, git, write, commit, schemas, options };
+}
+
+function shallowClone(t, source, depth) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sdk-freshness-shallow-"));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    execFileSync("git", ["clone", "--quiet", "--depth", String(depth), pathToFileURL(source).href, root]);
+    const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+    assert.equal(git("rev-parse", "--is-shallow-repository"), "true");
+    return { root, git };
 }
 
 for (const name of SCHEMA_FILES) {
@@ -207,9 +216,38 @@ test("uses the tested PR merge's actual base, not an earlier event base", (t) =>
     const actualBase = f.commit();
     f.git("merge", "--quiet", "--no-ff", "topic", "-m", "test merge");
     assert.equal(generationBaseline(f.root, "pull_request", { pull_request: { base: { sha: oldBase } } }), actualBase);
+    const clone = shallowClone(t, f.root, 2);
+    assert.equal(
+        generationBaseline(clone.root, "pull_request", { pull_request: { base: { sha: oldBase } } }),
+        actualBase,
+    );
     const paths = f.git("diff", "--name-only", actualBase, "HEAD").split("\n");
     assert.equal(requiresSdkGeneration(paths), false);
 });
+
+for (const eventName of ["merge_group", "push"]) {
+    test(`uses a separately fetched ${eventName} baseline beyond shallow history`, (t) => {
+        const f = fixture(t);
+        f.write("generated/api.schema.json", '{"earlierCommit":true}\n');
+        f.commit();
+        f.write("internal", "last commit");
+        f.commit();
+        const clone = shallowClone(t, f.root, 1);
+        const event =
+            eventName === "merge_group"
+                ? { merge_group: { base_sha: f.options.baseline } }
+                : { before: f.options.baseline };
+        assert.throws(() => generationBaseline(clone.root, eventName, event));
+        clone.git("fetch", "--quiet", "--no-tags", "--depth=1", "origin", f.options.baseline);
+        const baseline = generationBaseline(clone.root, eventName, event);
+        assert.equal(baseline, f.options.baseline);
+        assert.equal(
+            requiresSdkGeneration(clone.git("diff", "--name-only", baseline, "HEAD").split("\n")),
+            true,
+        );
+        assert.equal(clone.git("rev-parse", "--is-shallow-repository"), "true");
+    });
+}
 
 test("uses the whole merge-group/push range, not just the final commit", (t) => {
     const f = fixture(t);

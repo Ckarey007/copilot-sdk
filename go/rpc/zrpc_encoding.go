@@ -7721,6 +7721,7 @@ func (r *SessionOpenOptions) UnmarshalJSON(data []byte) error {
 		AdditionalContentExclusionPolicies     []SessionOpenOptionsAdditionalContentExclusionPolicy `json:"additionalContentExclusionPolicies,omitzero"`
 		AdditionalDirectories                  []string                                             `json:"additionalDirectories,omitzero"`
 		AgentContext                           *string                                              `json:"agentContext,omitempty"`
+		AgentDirectories                       []string                                             `json:"agentDirectories,omitzero"`
 		AllowAllMCPServerInstructions          *bool                                                `json:"allowAllMcpServerInstructions,omitempty"`
 		AskUserDisabled                        *bool                                                `json:"askUserDisabled,omitempty"`
 		AuthClientIDMetadataURL                *string                                              `json:"authClientIdMetadataUrl,omitempty"`
@@ -7756,10 +7757,12 @@ func (r *SessionOpenOptions) UnmarshalJSON(data []byte) error {
 		ExpAssignments                         any                                                  `json:"expAssignments,omitempty"`
 		FeatureFlags                           map[string]bool                                      `json:"featureFlags,omitzero"`
 		HasSkillProvider                       *bool                                                `json:"hasSkillProvider,omitempty"`
+		HookDirectories                        []string                                             `json:"hookDirectories,omitzero"`
 		IgnoredSkillsLocations                 []string                                             `json:"ignoredSkillsLocations,omitzero"`
 		IncludedBuiltinAgents                  []string                                             `json:"includedBuiltinAgents,omitzero"`
 		IncludedBuiltinSkills                  []string                                             `json:"includedBuiltinSkills,omitzero"`
 		InstalledPlugins                       []InstalledPlugin                                    `json:"installedPlugins,omitzero"`
+		InstructionDirectories                 []string                                             `json:"instructionDirectories,omitzero"`
 		IntegrationID                          *string                                              `json:"integrationId,omitempty"`
 		IsExperimentalMode                     *bool                                                `json:"isExperimentalMode,omitempty"`
 		LogInteractiveShells                   *bool                                                `json:"logInteractiveShells,omitempty"`
@@ -7803,6 +7806,7 @@ func (r *SessionOpenOptions) UnmarshalJSON(data []byte) error {
 	r.AdditionalContentExclusionPolicies = raw.AdditionalContentExclusionPolicies
 	r.AdditionalDirectories = raw.AdditionalDirectories
 	r.AgentContext = raw.AgentContext
+	r.AgentDirectories = raw.AgentDirectories
 	r.AllowAllMCPServerInstructions = raw.AllowAllMCPServerInstructions
 	r.AskUserDisabled = raw.AskUserDisabled
 	r.AuthClientIDMetadataURL = raw.AuthClientIDMetadataURL
@@ -7844,10 +7848,12 @@ func (r *SessionOpenOptions) UnmarshalJSON(data []byte) error {
 	r.ExpAssignments = raw.ExpAssignments
 	r.FeatureFlags = raw.FeatureFlags
 	r.HasSkillProvider = raw.HasSkillProvider
+	r.HookDirectories = raw.HookDirectories
 	r.IgnoredSkillsLocations = raw.IgnoredSkillsLocations
 	r.IncludedBuiltinAgents = raw.IncludedBuiltinAgents
 	r.IncludedBuiltinSkills = raw.IncludedBuiltinSkills
 	r.InstalledPlugins = raw.InstalledPlugins
+	r.InstructionDirectories = raw.InstructionDirectories
 	r.IntegrationID = raw.IntegrationID
 	r.IsExperimentalMode = raw.IsExperimentalMode
 	r.LogInteractiveShells = raw.LogInteractiveShells

@@ -5,6 +5,7 @@
 using GitHub.Copilot.Rpc;
 using GitHub.Copilot.Test.Harness;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Xunit;
@@ -173,23 +174,64 @@ public partial class PermissionE2ETests(E2ETestFixture fixture, ITestOutputHelpe
     [Fact]
     public async Task Should_Handle_Async_Permission_Handler()
     {
+        await Ctx.ConfigureForTestAsync("permissions", "Should_Handle_Async_Permission_Handler_Dotnet");
+
+        const string toolName = "async_permission_echo";
+        const string expectedResult = "DOTNET_ASYNC_PERMISSION_RESULT";
         var permissionRequestReceived = false;
-        var session = await CreateSessionAsync(new SessionConfig
+        var toolCalls = 0;
+        string? permissionToolCallId = null;
+        CopilotSession? session = null;
+        session = await CreateSessionAsync(new SessionConfig
         {
+            Tools =
+            [
+                AIFunctionFactory.Create(
+                    Echo,
+                    toolName,
+                    "Returns the result for the asynchronous permission test.",
+                    serializerOptions: PermissionJsonContext.Default.Options),
+            ],
+            AvailableTools = [toolName],
             OnPermissionRequest = async (request, invocation) =>
             {
-                permissionRequestReceived = true;
+                var customToolRequest = Assert.IsType<PermissionRequestCustomTool>(request);
+                Assert.Equal(toolName, customToolRequest.ToolName);
+                Assert.Equal(session!.SessionId, invocation.SessionId);
+                Assert.False(string.IsNullOrWhiteSpace(customToolRequest.ToolCallId));
+                permissionToolCallId = customToolRequest.ToolCallId;
                 await Task.Yield();
+                permissionRequestReceived = true;
                 return PermissionDecision.ApproveOnce();
             }
         });
 
-        await TestHelper.SendAndGetFinalAssistantMessageAsync(session, new MessageOptions
+        ToolExecutionCompleteEvent? toolCompleted = null;
+        using var subscription = session.On<ToolExecutionCompleteEvent>(evt =>
         {
-            Prompt = "Run 'echo test' and tell me what happens"
+            if (evt.Data.ToolCallId == permissionToolCallId)
+            {
+                toolCompleted = evt;
+            }
+        });
+        var message = await TestHelper.SendAndGetFinalAssistantMessageAsync(session, new MessageOptions
+        {
+            Prompt = "Call async_permission_echo once and reply with only its returned text."
         });
 
         Assert.True(permissionRequestReceived, "Permission request should have been received");
+        Assert.Equal(1, toolCalls);
+        Assert.NotNull(toolCompleted);
+        Assert.True(toolCompleted.Data.Success);
+        Assert.Equal(expectedResult, toolCompleted.Data.Result?.Content);
+        Assert.Contains(expectedResult, message.Data.Content);
+
+        string Echo()
+        {
+            Assert.True(permissionRequestReceived, "The yielding permission handler must finish before the tool runs.");
+            Interlocked.Increment(ref toolCalls);
+            return expectedResult;
+        }
     }
 
     [Fact]
@@ -330,6 +372,7 @@ public partial class PermissionE2ETests(E2ETestFixture fixture, ITestOutputHelpe
 
     [Fact]
     public async Task Should_Wait_For_Slow_Permission_Handler()
+        => await WithSdkDiagnosticsAsync(async () =>
     {
         var handlerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseHandler = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -388,7 +431,21 @@ public partial class PermissionE2ETests(E2ETestFixture fixture, ITestOutputHelpe
 
         releaseHandler.SetResult();
 
-        var message = await sendTask;
+        AssistantMessageEvent? message;
+        try
+        {
+            message = await sendTask;
+        }
+        catch (TimeoutException)
+        {
+            lock (lifecycleLock)
+            {
+                Logger.LogWarning(
+                    "Slow-permission timeout lifecycle: {Lifecycle}",
+                    string.Join(", ", lifecycle.Select(evt => $"{evt.Phase}:{evt.ToolCallId}")));
+            }
+            throw;
+        }
         var persistedEvents = await WaitForPersistedEventsAsync(
             session,
             events =>
@@ -424,7 +481,7 @@ public partial class PermissionE2ETests(E2ETestFixture fixture, ITestOutputHelpe
 
         // The tool should have actually run after permission was granted
         Assert.Contains("slow_handler_test", message?.Data.Content ?? string.Empty);
-    }
+    });
 
     [Fact]
     public async Task Should_Handle_Concurrent_Permission_Requests_From_Parallel_Tools()

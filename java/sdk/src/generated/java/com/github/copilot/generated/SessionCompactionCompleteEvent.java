@@ -56,8 +56,6 @@ public final class SessionCompactionCompleteEvent extends SessionEvent {
         @JsonProperty("responsesReasoning") ResponsesReasoning responsesReasoning,
         /** Authoritative active-workflow reminder appended to the compacted context */
         @JsonProperty("activeWorkflowSummary") String activeWorkflowSummary,
-        /** Legacy active-workflow reminder retained for replay compatibility */
-        @JsonProperty("activeFactorySummary") String activeFactorySummary,
         /** Canonical model identifier used for model-specific behavior when replaying compaction */
         @JsonProperty("behaviorModelId") String behaviorModelId,
         /** Checkpoint snapshot number created for recovery */

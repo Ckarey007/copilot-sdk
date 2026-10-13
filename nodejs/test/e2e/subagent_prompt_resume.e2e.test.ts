@@ -2,7 +2,7 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -11,6 +11,7 @@ import type {
     CopilotSession,
     CustomAgentConfig,
     MCPStdioServerConfig,
+    SessionEvent,
 } from "../../src/index.js";
 import { approveAll, CopilotRequestHandler } from "../../src/index.js";
 import { createSdkTestContext } from "./harness/sdkTestContext.js";
@@ -248,7 +249,11 @@ describe("Subagent prompt resume", async () => {
     const { copilotClient: client, env } = await createSdkTestContext({
         copilotClientOptions: {
             requestHandler,
-            env: { COPILOT_EXP_COPILOT_CLI_SESSION_BASED_SUBAGENTS: "true" },
+            env: {
+                COPILOT_EXP_COPILOT_CLI_SESSION_BASED_SUBAGENTS: "true",
+                STABILITY_ORDERED_SYSTEM_PROMPT_V2: "false",
+                COPILOT_EXP_COPILOT_CLI_STABILITY_ORDERED_SYSTEM_PROMPT_V2: "false",
+            },
         },
     });
 
@@ -277,7 +282,7 @@ describe("Subagent prompt resume", async () => {
         beforeAgentStart: (session: CopilotSession) => Promise<void> = async () => {},
         agentType = "explore",
         agentModel: string | null = "claude-sonnet-5"
-    ): Promise<[InferenceRequest, InferenceRequest]> {
+    ): Promise<[InferenceRequest, InferenceRequest, string]> {
         await writeFile(join(env.COPILOT_HOME, "settings.json"), "{}");
         const requestBaseline = requestHandler.inferenceRequests.length;
         const session = await client.createSession({
@@ -321,7 +326,7 @@ describe("Subagent prompt resume", async () => {
                 .slice(requestBaseline)
                 .filter((request) => request.agentId === agentId && request.parentAgentId);
             expect(childRequests).toHaveLength(2);
-            return [childRequests[0]!, childRequests[1]!];
+            return [childRequests[0]!, childRequests[1]!, session.sessionId];
         } finally {
             const tasks = await session.rpc.tasks.list();
             for (const task of tasks.tasks) {
@@ -357,16 +362,104 @@ describe("Subagent prompt resume", async () => {
     }
 
     it("preserves the adapted prompt on an ordinary idle-agent wake", async () => {
-        const [initial, resumed] = await runResumeScenario(async () => {});
+        const [initial, resumed, sessionId] = await runResumeScenario(async () => {});
 
         expectAdaptedExplorePrompt(initial.systemPrompt);
         expect(resumed.systemPrompt).toBe(initial.systemPrompt);
+        const journal = await readFile(
+            join(env.COPILOT_HOME, "session-state", sessionId, "events.jsonl"),
+            "utf8"
+        );
+        const events = journal
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line) as SessionEvent);
+        const childEvents = events.filter((event) => event.agentId === initial.agentId);
+        const childPrompts = childEvents.filter((event) => event.type === "system.message");
+        expect(childPrompts).toHaveLength(1);
+        expect(
+            childEvents
+                .filter((event) => event.type === "assistant.message")
+                .map((event) => event.data.content)
+        ).toEqual(["SUBAGENT_TURN_COMPLETE", "SUBAGENT_TURN_COMPLETE"]);
+        const ids = new Set(events.map((event) => event.id));
+        for (const event of events) {
+            if (event.parentId) {
+                expect(ids.has(event.parentId), `Missing parent of ${event.id}`).toBe(true);
+            }
+        }
+        await using reopened = await client.resumeSession(sessionId, {
+            model: "claude-sonnet-5",
+            onPermissionRequest: approveAll,
+        });
+        const history = await reopened.getEvents();
+        expect(history.find((event) => event.id === childPrompts[0]!.id)).toEqual(childPrompts[0]);
+    });
+
+    it("keeps legacy prompt blocks live while persisting only their reconstructible content", async () => {
+        const content =
+            "shared<environment_limitations>limits</environment_limitations>\n\nper-user instructions";
+        const systemMessage = {
+            mode: "replace" as const,
+            content,
+            contentBlocks: [
+                {
+                    content: "shared<environment_limitations>limits</environment_limitations>",
+                    isStatic: true,
+                },
+                { content: "per-user instructions" },
+            ],
+        };
+        await using session = await client.createSession({
+            model: "claude-sonnet-5",
+            systemMessage,
+            onPermissionRequest: approveAll,
+        });
+        const livePrompts: SessionEvent[] = [];
+        const unsubscribe = session.on("system.message", (event) => livePrompts.push(event));
+        try {
+            const response = await session.sendAndWait({
+                prompt: "Reply with exactly SUBAGENT_TURN_COMPLETE.",
+            });
+            expect(response?.data.content).toBe("SUBAGENT_TURN_COMPLETE");
+        } finally {
+            unsubscribe();
+        }
+        await session.disconnect();
+        const live = livePrompts.find((event) => event.type === "system.message");
+        expect(live?.type).toBe("system.message");
+        if (live?.type !== "system.message") {
+            throw new Error("Expected a live system prompt.");
+        }
+        expect(live.data.content).toBe(content);
+        expect(live.data.contentBlocks).toEqual(systemMessage.contentBlocks);
+        const journal = await readFile(
+            join(env.COPILOT_HOME, "session-state", session.sessionId, "events.jsonl"),
+            "utf8"
+        );
+        const persisted = journal
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line) as SessionEvent)
+            .find((event) => event.id === live.id);
+        expect(persisted?.type).toBe("system.message");
+        if (persisted?.type !== "system.message") {
+            throw new Error("Expected the persisted system prompt.");
+        }
+        expect(persisted.data.content).toBe(content);
+        expect(persisted.data.contentBlocks).toBeUndefined();
+        await using reopened = await client.resumeSession(session.sessionId, {
+            model: "claude-sonnet-5",
+            onPermissionRequest: approveAll,
+        });
+        const history = await reopened.getEvents();
+        expect(history.find((event) => event.id === live.id)).toEqual(persisted);
     });
 
     capiIt.each(["minimal", "max", "xhigh", "none", "high"])(
         "reconciles a concrete child's composed %s effort on its first and resumed requests",
         async (effort) => {
-            const requests = await runResumeScenario(
+            const [initial, resumed] = await runResumeScenario(
                 async () => {},
                 {
                     customAgents: [
@@ -383,7 +476,7 @@ describe("Subagent prompt resume", async () => {
                 null
             );
 
-            for (const request of requests) {
+            for (const request of [initial, resumed]) {
                 expect(request.model).toBe("gpt-5.4-mini");
                 expect(request.reasoningEffort).toBe(effort === "high" ? "high" : "medium");
             }
@@ -393,7 +486,7 @@ describe("Subagent prompt resume", async () => {
     capiIt(
         "reconciles an independently declared child effort without changing its model",
         async () => {
-            const requests = await runResumeScenario(
+            const [initial, resumed] = await runResumeScenario(
                 async () => {},
                 {
                     customAgents: [
@@ -411,7 +504,7 @@ describe("Subagent prompt resume", async () => {
                 null
             );
 
-            for (const request of requests) {
+            for (const request of [initial, resumed]) {
                 expect(request.model).toBe("gpt-5.4-mini");
                 expect(request.reasoningEffort).toBe("medium");
             }

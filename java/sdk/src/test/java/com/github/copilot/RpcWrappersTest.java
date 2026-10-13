@@ -50,9 +50,12 @@ import com.github.copilot.generated.rpc.SessionConnectorsReconnectParams;
 import com.github.copilot.generated.rpc.SessionConnectorsRefreshParams;
 import com.github.copilot.generated.rpc.SessionConnectorsRefreshResult;
 import com.github.copilot.generated.rpc.SessionMcpListConfiguredResult;
+import com.github.copilot.generated.rpc.SessionModelGetReasoningSummariesParams;
+import com.github.copilot.generated.rpc.SessionModelGetReasoningSummariesResult;
 import com.github.copilot.generated.rpc.SessionModelSwitchToParams;
 import com.github.copilot.generated.rpc.SessionModelSwitchToRequest;
 import com.github.copilot.generated.rpc.SessionRpc;
+import com.github.copilot.rpc.AgentInfo;
 
 /**
  * Unit tests for the generated RPC wrapper classes ({@link ServerRpc} and
@@ -189,6 +192,33 @@ class RpcWrappersTest {
     }
 
     // ── SessionRpc tests ──────────────────────────────────────────────────────
+
+    @ParameterizedTest
+    @CsvSource({"true,false", "false,true", "null,null"})
+    void sessionRpc_reasoning_summaries_accepts_only_host_state(String persisted, String visible) {
+        var stub = new StubCaller();
+        var session = new SessionRpc(stub, "reasoning-session");
+        Boolean persistedShowReasoning = "null".equals(persisted) ? null : Boolean.valueOf(persisted);
+        Boolean summariesVisible = "null".equals(visible) ? null : Boolean.valueOf(visible);
+        var params = new SessionModelGetReasoningSummariesParams(persistedShowReasoning, summariesVisible);
+
+        assertNull(params.sessionId());
+        session.model.getReasoningSummaries(params).join();
+
+        assertEquals(1, stub.calls.size());
+        var call = stub.calls.get(0);
+        assertEquals("session.model.getReasoningSummaries", call.method());
+        assertEquals(SessionModelGetReasoningSummariesResult.class, call.resultType());
+        var payload = assertInstanceOf(JsonNode.class, call.params());
+        var expected = new ObjectMapper().createObjectNode().put("sessionId", "reasoning-session");
+        if (persistedShowReasoning != null) {
+            expected.put("persistedShowReasoning", persistedShowReasoning);
+        }
+        if (summariesVisible != null) {
+            expected.put("summariesVisible", summariesVisible);
+        }
+        assertEquals(expected, payload);
+    }
 
     @Test
     @AllowCopilotExperimental
@@ -574,6 +604,56 @@ class RpcWrappersTest {
     // These tests use a socket-pair backed JsonRpcClient (same pattern as
     // RpcHandlerDispatcherTest) to construct a real CopilotSession and verify
     // that getRpc() returns a correctly wired SessionRpc.
+
+    @ParameterizedTest
+    @ValueSource(strings = {"list", "getCurrent", "select"})
+    void copilotSession_agent_methods_deserialize_scoped_hooks(String method) throws Exception {
+        var mapper = JsonRpcClient.getObjectMapper();
+        var agentJson = mapper.readTree("""
+                {
+                  "name": "hook-agent",
+                  "displayName": "Hook Agent",
+                  "description": "Agent with scoped hooks",
+                  "hooks": {
+                    "preToolUse": [{"type":"command","bash":"echo scoped-hook","timeoutSec":10}],
+                    "sessionStart": [{"type":"command","bash":"echo started"}]
+                  }
+                }
+                """);
+        try (var sockets = new SocketPair()) {
+            var stub = sockets.stubServer();
+            var session = new CopilotSession("sess-agent-hooks", sockets.client());
+            try {
+                CompletableFuture<List<AgentInfo>> future = switch (method) {
+                    case "list" -> session.listAgents();
+                    case "getCurrent" -> session.getCurrentAgent().thenApply(List::of);
+                    case "select" -> session.selectAgent("hook-agent").thenApply(List::of);
+                    default -> throw new IllegalArgumentException(method);
+                };
+                var request = stub.readOneMessage();
+                assertEquals("session.agent." + method, request.get("method").asText());
+                assertEquals("sess-agent-hooks", request.get("params").get("sessionId").asText());
+                if ("select".equals(method)) {
+                    assertEquals("hook-agent", request.get("params").get("name").asText());
+                }
+                var result = mapper.createObjectNode();
+                if ("list".equals(method)) {
+                    result.putArray("agents").add(agentJson);
+                } else {
+                    result.set("agent", agentJson);
+                }
+                stub.respond(request, result);
+
+                var agents = future.get(3, TimeUnit.SECONDS);
+                assertEquals(1, agents.size());
+                assertEquals("hook-agent", agents.get(0).getName());
+                assertNotNull(agents.get(0).getHooks());
+                assertEquals(agentJson.get("hooks"), mapper.valueToTree(agents.get(0).getHooks()));
+            } finally {
+                session.forceStopLocally();
+            }
+        }
+    }
 
     @Test
     void copilotSession_getRpc_returns_non_null_session_rpc() throws Exception {

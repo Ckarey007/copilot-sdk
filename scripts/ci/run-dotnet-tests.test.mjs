@@ -19,7 +19,7 @@ function fromBashPath(value) {
     return value;
 }
 
-await test("runs all .NET tests with optional filter, runtime, and results directory", (t) => {
+await test("runs all .NET tests with optional filter, runtime, framework, and results directory", (t) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "sdk-dotnet-test-"));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
     const argumentsPath = path.join(root, "arguments");
@@ -31,9 +31,12 @@ await test("runs all .NET tests with optional filter, runtime, and results direc
     );
     fs.chmodSync(fakeDotnet, 0o755);
 
-    for (const [filter, runtime, resultsDirectory] of [
-        ["", "", ""],
-        ["E2EBackend!=CapiOnly", "win-x64", "TestResults/inprocess"],
+    for (const [filter, runtime, framework, resultsDirectory] of [
+        ["", "", "", ""],
+        ["E2EBackend!=CapiOnly", "win-x64", "net8.0", "TestResults/inprocess"],
+        ["", "win-x64", "net472", "TestResults/subprocess"],
+        ["FullyQualifiedName~GitHub.Copilot.Test.E2E.S", "win-x64", "net8.0", "TestResults/subprocess"],
+        ["FullyQualifiedName!~GitHub.Copilot.Test.E2E.S", "win-x64", "net472", "TestResults/subprocess"],
     ]) {
         const result = spawnSync("bash", [script], {
             encoding: "utf8",
@@ -42,6 +45,7 @@ await test("runs all .NET tests with optional filter, runtime, and results direc
                 ARGUMENTS_PATH: argumentsPath,
                 DOTNET_TEST_FILTER: filter,
                 DOTNET_TEST_RUNTIME: runtime,
+                DOTNET_TEST_FRAMEWORK: framework,
                 DOTNET_TEST_RESULTS_DIRECTORY: resultsDirectory,
                 PATH: `${root}${path.delimiter}${process.env.PATH ?? ""}`,
                 WORKING_DIRECTORY_PATH: workingDirectoryPath,
@@ -67,6 +71,10 @@ await test("runs all .NET tests with optional filter, runtime, and results direc
         if (runtime) {
             assert.equal(arguments_[arguments_.indexOf("--runtime") + 1], runtime);
         }
+        assert.equal(arguments_.includes("--framework"), framework !== "");
+        if (framework) {
+            assert.equal(arguments_[arguments_.indexOf("--framework") + 1], framework);
+        }
     }
 });
 
@@ -75,6 +83,7 @@ await test("documents its environment and rejects positional arguments", () => {
     assert.equal(help.status, 0, help.stderr);
     assert.match(help.stdout, /DOTNET_TEST_FILTER/);
     assert.match(help.stdout, /DOTNET_TEST_RUNTIME/);
+    assert.match(help.stdout, /DOTNET_TEST_FRAMEWORK/);
     assert.match(help.stdout, /DOTNET_TEST_RESULTS_DIRECTORY/);
 
     const invalid = spawnSync("bash", [script, "unexpected"], { encoding: "utf8" });

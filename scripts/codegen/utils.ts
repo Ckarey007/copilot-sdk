@@ -532,13 +532,13 @@ const PERMISSION_REQUEST_DEFINITION_NAMES = [
     "PermissionRequestExtensionManagement",
     "PermissionRequestExtensionEnvAccess",
     "PermissionRequestExtensionPermissionAccess",
-    "PermissionRequestFactory",
     "PermissionRequestHook",
     "PermissionRequestMcp",
     "PermissionRequestMemory",
     "PermissionRequestRead",
     "PermissionRequestShell",
     "PermissionRequestUrl",
+    "PermissionRequestWorkflow",
     "PermissionRequestWrite",
 ] as const;
 

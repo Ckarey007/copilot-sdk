@@ -602,18 +602,30 @@ describe("Pending work resume", async () => {
                     .filter(Boolean)
                     .map((line) => JSON.parse(line) as SessionEvent);
             };
+            // Live SDK callbacks do not prove that both parallel boundaries reached the journal.
             await waitForCondition(
-                () =>
-                    readPersistedEvents().some(
-                        (event) =>
-                            event.type === "tool.execution_complete" &&
-                            event.data.toolCallId === toolA.data.toolCallId &&
-                            event.data.success &&
-                            event.data.result?.content === "PARALLEL_A_ALPHA"
-                    ),
+                () => {
+                    const persistedEvents = readPersistedEvents();
+                    return (
+                        persistedEvents.some(
+                            (event) =>
+                                event.type === "tool.execution_complete" &&
+                                event.data.toolCallId === toolA.data.toolCallId &&
+                                event.data.success &&
+                                event.data.result?.content === "PARALLEL_A_ALPHA"
+                        ) &&
+                        persistedEvents.some(
+                            (event) =>
+                                event.type === "external_tool.requested" &&
+                                event.data.requestId === toolB.data.requestId &&
+                                event.data.toolCallId === toolB.data.toolCallId
+                        )
+                    );
+                },
                 {
                     timeoutMs: PENDING_WORK_TIMEOUT_MS,
-                    timeoutMessage: "Tool A's result was not flushed to events.jsonl before B",
+                    timeoutMessage:
+                        "Tool A's result and tool B's pending request were not both flushed to events.jsonl before shutdown",
                 }
             );
             expect(

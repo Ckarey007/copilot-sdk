@@ -1373,6 +1373,7 @@ class GitHubMcpToolConfig(TypedDict, total=False):
 class CustomAgentConfig(TypedDict, total=False):
     """Configuration for a custom agent."""
 
+    hooks: NotRequired[dict[str, list[dict[str, Any]]]]
     name: str  # Unique name of the custom agent
     display_name: NotRequired[str]  # Display name for UI purposes
     description: NotRequired[str]  # Description of what the agent does

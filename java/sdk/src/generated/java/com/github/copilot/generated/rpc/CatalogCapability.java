@@ -24,6 +24,8 @@ public enum CatalogCapability {
     AI_SKILL_DISCOVERY("ai-skill-discovery"),
     /** The {@code agent-plugin-discovery} variant. */
     AGENT_PLUGIN_DISCOVERY("agent-plugin-discovery"),
+    /** The {@code agent-plugin-formats} variant. */
+    AGENT_PLUGIN_FORMATS("agent-plugin-formats"),
     /** The {@code mcp-install-planning} variant. */
     MCP_INSTALL_PLANNING("mcp-install-planning"),
     /** The {@code multiple-transport-choice} variant. */

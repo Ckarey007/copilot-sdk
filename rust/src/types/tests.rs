@@ -136,6 +136,55 @@ fn custom_agent_config_omits_reasoning_effort_when_none() {
 }
 
 #[test]
+fn custom_agent_config_hooks_round_trip() {
+    use indexmap::IndexMap;
+
+    let action: IndexMap<String, serde_json::Value> = IndexMap::from([
+        ("type".into(), json!("command")),
+        ("bash".into(), json!("echo scoped-hook")),
+        ("timeoutSec".into(), json!(10)),
+    ]);
+    let hooks = IndexMap::from([("preToolUse".into(), vec![action])]);
+    let agent = CustomAgentConfig::new("hook-agent", "prompt").with_hooks(hooks.clone());
+    assert_eq!(agent.hooks.as_ref(), Some(&hooks));
+
+    let wire = serde_json::to_value(&agent).unwrap();
+    assert_eq!(
+        wire["hooks"],
+        json!({"preToolUse": [{"type": "command", "bash": "echo scoped-hook", "timeoutSec": 10}]})
+    );
+    let restored: CustomAgentConfig = serde_json::from_value(wire).unwrap();
+    assert_eq!(restored.hooks, Some(hooks));
+}
+
+#[test]
+fn custom_agent_config_hooks_reject_non_object_actions() {
+    for action in [
+        json!(null),
+        json!(true),
+        json!(42),
+        json!("command"),
+        json!([]),
+    ] {
+        let result = serde_json::from_value::<CustomAgentConfig>(json!({
+            "name": "invalid-hook-agent",
+            "prompt": "prompt",
+            "hooks": {"preToolUse": [action]}
+        }));
+        assert!(
+            result.is_err(),
+            "expected non-object hook action {action} to fail, got {result:?}"
+        );
+    }
+}
+
+#[test]
+fn custom_agent_config_omits_hooks_when_unset() {
+    let wire = serde_json::to_value(CustomAgentConfig::new("plain-agent", "prompt")).unwrap();
+    assert!(wire.get("hooks").is_none());
+}
+
+#[test]
 #[should_panic(expected = "tool parameter schema must be a JSON object")]
 fn tool_with_parameters_panics_on_non_object_value() {
     let _ = Tool::new("noop").with_parameters(json!(null));

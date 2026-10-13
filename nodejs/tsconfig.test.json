@@ -13,6 +13,7 @@
         "test/ffiRuntimeHost.test.ts",
         "test/session-event-types.test.ts",
         "test/session-config-types.test.ts",
+        "test/reasoning-summaries-types.test.ts",
         "test/sandbox-config.test.ts",
         "test/message-source.test.ts",
         "test/legacy-request-compatibility.test.ts"

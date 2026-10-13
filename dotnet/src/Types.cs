@@ -3132,6 +3132,12 @@ public sealed class McpHttpServerConfig : McpServerConfig
 public sealed class CustomAgentConfig
 {
     /// <summary>
+    /// Declarative hook actions keyed by event name, active only for this agent.
+    /// </summary>
+    [JsonPropertyName("hooks")]
+    public IDictionary<string, IList<IDictionary<string, JsonElement>>>? Hooks { get; set; }
+
+    /// <summary>
     /// Unique name of the custom agent.
     /// </summary>
     [JsonPropertyName("name")]
@@ -3700,6 +3706,8 @@ public abstract class SessionConfigBase
         CanvasHandler = other.CanvasHandler;
 #pragma warning restore GHCP001
         SkillDirectories = other.SkillDirectories is not null ? [.. other.SkillDirectories] : null;
+        AgentDirectories = other.AgentDirectories is not null ? [.. other.AgentDirectories] : null;
+        HookDirectories = other.HookDirectories is not null ? [.. other.HookDirectories] : null;
         PluginDirectories = other.PluginDirectories is not null ? [.. other.PluginDirectories] : null;
         InstructionDirectories = other.InstructionDirectories is not null ? [.. other.InstructionDirectories] : null;
         SessionLimits = other.SessionLimits;
@@ -3804,9 +3812,9 @@ public abstract class SessionConfigBase
     public bool? EnableOnDemandInstructionDiscovery { get; set; }
 
     /// <summary>
-    /// When <see langword="true"/>, enables loading of file-based hooks from
-    /// <c>.github/hooks/</c>. This is separate from <see cref="Hooks"/>, which
-    /// controls SDK hook callback registration.
+    /// When <see langword="true"/>, enables repository-origin file hooks from
+    /// <c>.github/hooks/</c> and trusted repository-configured roots.
+    /// Does not control explicit <see cref="HookDirectories"/> or callback <see cref="Hooks"/>.
     /// </summary>
     public bool? EnableFileHooks { get; set; }
 
@@ -4095,8 +4103,33 @@ public abstract class SessionConfigBase
     /// </summary>
     public string? Agent { get; set; }
 
-    /// <summary>Directories to load skills from.</summary>
+    /// <summary>Explicit discovery-only skill roots, not general filesystem grants.</summary>
+    /// <remarks>
+    /// Available without <see cref="EnableConfigDiscovery"/>, subject to skill/managed disables.
+    /// Relative paths resolve once when supplied against the request's effective
+    /// <see cref="WorkingDirectory"/>; retained roots do not move when it changes.
+    /// Null and omission are equivalent; an empty list clears only the explicit SDK contribution.
+    /// </remarks>
     public IList<string>? SkillDirectories { get; set; }
+
+    /// <summary>Explicit discovery-only agent roots, separate from <see cref="CustomAgents"/>.</summary>
+    /// <remarks>
+    /// No general filesystem grant. Available without <see cref="EnableConfigDiscovery"/>,
+    /// subject to source/managed disables. Relative paths resolve once when supplied against
+    /// the request's effective <see cref="WorkingDirectory"/>; retained roots do not move.
+    /// Null and omission are equivalent; an empty list clears only the explicit SDK contribution.
+    /// </remarks>
+    public IList<string>? AgentDirectories { get; set; }
+
+    /// <summary>Explicit discovery-only file-hook roots, separate from callback <see cref="Hooks"/>.</summary>
+    /// <remarks>
+    /// No general filesystem grant. Available without <see cref="EnableConfigDiscovery"/> or
+    /// <see cref="EnableFileHooks"/> (repository-origin hooks only), subject to hook/managed disables.
+    /// Relative paths resolve once when supplied against the request's effective
+    /// <see cref="WorkingDirectory"/>; retained roots do not move when it changes.
+    /// Null and omission are equivalent; an empty list clears only the explicit SDK contribution.
+    /// </remarks>
+    public IList<string>? HookDirectories { get; set; }
 
     /// <summary>
     /// Local filesystem paths to Open Plugins-format directories
@@ -4109,7 +4142,13 @@ public abstract class SessionConfigBase
     /// </remarks>
     public IList<string>? PluginDirectories { get; set; }
 
-    /// <summary>Additional directories to search for custom instruction files.</summary>
+    /// <summary>Explicit discovery-only instruction roots using existing SDK formats.</summary>
+    /// <remarks>
+    /// No general filesystem grant. Available without <see cref="EnableConfigDiscovery"/>,
+    /// subject to instruction/managed disables. Relative paths resolve once when supplied
+    /// against the request's effective <see cref="WorkingDirectory"/>; retained roots do not move.
+    /// Null and omission are equivalent; an empty list clears only the explicit SDK contribution.
+    /// </remarks>
     public IList<string>? InstructionDirectories { get; set; }
 
     /// <summary>List of skill names to disable.</summary>
@@ -4340,12 +4379,22 @@ public sealed class SessionConfig : SessionConfigBase
         if (other is null) return;
 
         SessionId = other.SessionId;
+        Name = other.Name;
         Cloud = other.Cloud;
         RefreshCustomInstructions = other.RefreshCustomInstructions;
     }
 
     /// <summary>Optional session identifier; a new ID is generated if not provided.</summary>
     public string? SessionId { get; set; }
+
+    /// <summary>
+    /// Names the session at creation, as <c>session.name.set</c> would, and is validated the
+    /// same way: non-empty, no leading or trailing whitespace, at most 100 UTF-16 units, no
+    /// control characters, and no double quotes. A name also makes the session persist from
+    /// the start, so it can be listed and resumed without ever running a turn.
+    /// Local sessions only: cloud creation rejects it.
+    /// </summary>
+    public string? Name { get; set; }
 
     /// <summary>
     /// Creates a remote session in the cloud instead of a local session.

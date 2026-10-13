@@ -268,15 +268,58 @@ fn repair_lone_surrogates(body: &[u8]) -> Option<Vec<u8>> {
 
 /// One framed JSON-RPC message handed to the writer actor.
 ///
-/// `frame` is the fully serialized bytes (header + body); the caller pays
-/// the serde cost synchronously before enqueueing so the actor never sees a
-/// `Result` from JSON encoding. When present, `ack` resolves once the bytes have been
+/// `frame` is the fully serialized frame (header + body, written as
+/// [`EncodedFrame::as_bytes`]); the caller pays the serde cost synchronously
+/// before enqueueing so the actor never sees a `Result` from JSON encoding.
+/// When present, `ack` resolves once the bytes have been
 /// fully written and flushed (or the underlying I/O reports an error). If
 /// the caller drops the `oneshot::Receiver`, the actor still completes the
 /// frame — caller cancellation cannot desync the wire.
 struct WriteCommand {
-    frame: Vec<u8>,
+    frame: EncodedFrame,
     ack: Option<oneshot::Sender<Result<(), std::io::Error>>>,
+}
+
+/// Room reserved in front of a frame's body for its header: the header's name,
+/// the 20 digits of the longest `usize`, and the blank line.
+const FRAME_PREFIX: usize = CONTENT_LENGTH_HEADER.len() + 20 + 4;
+
+/// One JSON-RPC frame, header and body, in a single buffer: the header is
+/// written into room reserved in front of the body and ends right where the
+/// body starts.
+pub(crate) struct EncodedFrame {
+    buf: Vec<u8>,
+    start: usize,
+}
+
+impl EncodedFrame {
+    /// The frame as it goes on the wire: the header, then the body.
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.buf[self.start..]
+    }
+}
+
+/// Encodes one JSON-RPC frame, header and body, into a single buffer.
+///
+/// The body is serialized once, behind room reserved for the header, and the
+/// header is then written into that room. A large message, such as a
+/// `sessionFs.readFile` reply carrying a long session's `events.jsonl`, is held
+/// once, escaped, instead of as a serialized body plus a framed copy of it. The
+/// buffer grows by doubling, as `serde_json::to_vec`'s does, so it can be up to
+/// about twice the frame's size.
+pub(crate) fn encode_frame<T: serde::Serialize>(message: &T) -> Result<EncodedFrame, Error> {
+    // `serde_json::to_vec` starts at 128 bytes; the body gets the same room here.
+    let mut buf = Vec::with_capacity(FRAME_PREFIX + 128);
+    buf.extend_from_slice(&[0; FRAME_PREFIX]);
+    serde_json::to_writer(&mut buf, message)?;
+    let digits = (buf.len() - FRAME_PREFIX).to_string();
+    let start = FRAME_PREFIX - CONTENT_LENGTH_HEADER.len() - digits.len() - 4;
+    let (name, rest) = buf[start..FRAME_PREFIX].split_at_mut(CONTENT_LENGTH_HEADER.len());
+    let (length, blank_line) = rest.split_at_mut(digits.len());
+    name.copy_from_slice(CONTENT_LENGTH_HEADER.as_bytes());
+    length.copy_from_slice(digits.as_bytes());
+    blank_line.copy_from_slice(b"\r\n\r\n");
+    Ok(EncodedFrame { buf, start })
 }
 
 /// Inbound requests that honor `$/cancelRequest`.
@@ -525,7 +568,7 @@ impl JsonRpcClient {
     ) {
         while let Some(WriteCommand { frame, ack }) = rx.recv().await {
             let result = async {
-                writer.write_all(&frame).await?;
+                writer.write_all(frame.as_bytes()).await?;
                 writer.flush().await?;
                 Ok::<_, std::io::Error>(())
             }
@@ -933,8 +976,23 @@ impl JsonRpcClient {
         write_tx: &mpsc::UnboundedSender<WriteCommand>,
         message: &T,
     ) -> Result<(), Error> {
+        let frame = encode_frame(message)?;
+        Self::send_frame(write_tx, frame).await
+    }
+
+    /// Send a frame already encoded with [`encode_frame`] and wait for the
+    /// writer actor's acknowledgement, so a caller can drop what it encoded
+    /// from before the frame is written.
+    pub(crate) async fn write_frame(&self, frame: EncodedFrame) -> Result<(), Error> {
+        Self::send_frame(&self.write_tx, frame).await
+    }
+
+    async fn send_frame(
+        write_tx: &mpsc::UnboundedSender<WriteCommand>,
+        frame: EncodedFrame,
+    ) -> Result<(), Error> {
         let (ack_tx, ack_rx) = oneshot::channel();
-        Self::enqueue_message(write_tx, message, Some(ack_tx))?;
+        Self::enqueue_frame(write_tx, frame, Some(ack_tx))?;
         match ack_rx.await {
             Ok(Ok(())) => Ok(()),
             Ok(Err(e)) => Err(Error::from(e)),
@@ -950,13 +1008,17 @@ impl JsonRpcClient {
         message: &T,
         ack: Option<oneshot::Sender<Result<(), std::io::Error>>>,
     ) -> Result<(), Error> {
-        let body = serde_json::to_vec(message)?;
-        let mut frame = Vec::with_capacity(CONTENT_LENGTH_HEADER.len() + 16 + body.len() + 4);
-        frame.extend_from_slice(CONTENT_LENGTH_HEADER.as_bytes());
-        frame.extend_from_slice(body.len().to_string().as_bytes());
-        frame.extend_from_slice(b"\r\n\r\n");
-        frame.extend_from_slice(&body);
+        let frame = encode_frame(message)?;
+        Self::enqueue_frame(write_tx, frame, ack)
+    }
 
+    /// Hand an encoded frame to the writer actor. When present, `ack` resolves
+    /// once the frame is flushed.
+    fn enqueue_frame(
+        write_tx: &mpsc::UnboundedSender<WriteCommand>,
+        frame: EncodedFrame,
+        ack: Option<oneshot::Sender<Result<(), std::io::Error>>>,
+    ) -> Result<(), Error> {
         write_tx.send(WriteCommand { frame, ack }).map_err(|_| {
             Error::from(std::io::Error::new(
                 std::io::ErrorKind::BrokenPipe,

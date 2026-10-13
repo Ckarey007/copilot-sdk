@@ -2,7 +2,10 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { afterAll, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { afterAll, describe, expect, it, onTestFinished } from "vitest";
 import { CopilotClient, approveAll, RuntimeConnection } from "../../src/index.js";
 import type { CommandContext, SessionEvent } from "../../src/index.js";
 import { createSdkTestContext } from "./harness/sdkTestContext.js";
@@ -270,6 +273,82 @@ describe("Commands", async () => {
         expect(session.sessionId).toMatch(/^[a-f0-9-]+$/);
 
         await session.disconnect();
+    });
+});
+
+describe("Usage command after restart", async () => {
+    // Custom-provider sessions bypass the server's Copilot billing account.
+    const { createClient, openAiEndpoint, env } = await createSdkTestContext({
+        backend: "capi",
+    });
+
+    it.each([
+        {
+            status: "partial",
+            totalNanoAiu: 23_275_500_000,
+            expected: "Requests: 23.28 AI Credits reported (partial)",
+        },
+        {
+            status: "unavailable",
+            totalNanoAiu: 0,
+            expected: "Requests: unavailable AI Credits",
+        },
+    ])("reports $status checkpoint AI credits", async ({ status, totalNanoAiu, expected }) => {
+        const token = `usage-command-checkpoint-token-${randomUUID()}`;
+        await openAiEndpoint.setCopilotUserByToken(token, {
+            login: "usage-command-user",
+            copilot_plan: "individual_pro",
+            token_based_billing: true,
+            endpoints: { api: openAiEndpoint.url },
+        });
+        const originalClient = createClient({
+            connection: RuntimeConnection.forStdio(),
+            gitHubToken: token,
+        });
+        onTestFinished(async () => {
+            expect(await originalClient.stop()).toHaveLength(0);
+        });
+        const original = await originalClient.createSession({
+            onPermissionRequest: approveAll,
+        });
+        await original.rpc.name.set({ name: "Usage checkpoint fixture" });
+        const events = await original.getEvents();
+        const checkpoint: SessionEvent = {
+            type: "session.usage_checkpoint",
+            id: randomUUID(),
+            timestamp: new Date().toISOString(),
+            parentId: events.at(-1)?.id ?? null,
+            data: { totalNanoAiu, totalPremiumRequests: 1 },
+        };
+        await originalClient.rpc.sessions.save({ sessionId: original.sessionId });
+        await originalClient.rpc.sessions.close({ sessionId: original.sessionId });
+        expect(await originalClient.stop()).toHaveLength(0);
+
+        // Seed durable accounting only after the session writer has stopped.
+        await writeFile(
+            join(env.COPILOT_HOME, "session-state", original.sessionId, "events.jsonl"),
+            `${[...events, checkpoint].map((event) => JSON.stringify(event)).join("\n")}\n`
+        );
+        const resumedClient = createClient({
+            connection: RuntimeConnection.forStdio(),
+            gitHubToken: token,
+        });
+        onTestFinished(async () => {
+            expect(await resumedClient.stop()).toHaveLength(0);
+        });
+        const resumed = await resumedClient.resumeSession(original.sessionId, {
+            onPermissionRequest: approveAll,
+        });
+        expect(await resumed.rpc.usage.getMetrics()).toMatchObject({
+            totalNanoAiu: checkpoint.data.totalNanoAiu,
+            totalPremiumRequestCost: checkpoint.data.totalPremiumRequests,
+            aiCreditsStatus: status,
+        });
+        const result = await resumed.rpc.commands.invoke({ name: "usage" });
+        expect(result.kind).toBe("text");
+        if (result.kind !== "text") throw new Error(`Unexpected usage result: ${result.kind}`);
+        expect(result.text).toContain(expected);
+        expect(result.text).not.toContain("1 AI Units");
     });
 });
 

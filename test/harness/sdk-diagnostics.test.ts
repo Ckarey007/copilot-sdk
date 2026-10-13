@@ -11,6 +11,251 @@ import { readDiagnosticTail, sanitizeDiagnosticLine } from "./sdk-diagnostics.mj
 const prefix = "2026-10-05T12:00:00Z [DEBUG] [rust:sdk_diagnostics] ";
 
 describe("SDK failure diagnostics", () => {
+    it("projects model admission phases, authoritative sequences and policy metadata without content", () => {
+        const cases = [
+            { phase: "received" },
+            { phase: "no_tracker" },
+            {
+                phase: "fenced",
+                event_sequence: 17,
+                policy_revision: 3,
+                authority_fenced: false,
+                preparation_pending: true,
+                policy_enabled: true,
+            },
+            { phase: "pending", event_sequence: 17 },
+            { phase: "submitted", event_sequence: 17, projected_event_count: 1, submitted: true },
+            { phase: "submitted", projected_event_count: 0, submitted: false },
+        ];
+        for (const fields of cases) {
+            const safe = sanitizeDiagnosticLine(
+                `${prefix}sdk otel admission ${JSON.stringify({
+                    ...fields,
+                    session_id: "PRIVATE_SESSION",
+                    event_id: "PRIVATE_EVENT",
+                    model: "PRIVATE_MODEL",
+                    payload: { content: "PRIVATE_PAYLOAD" },
+                    error: "PRIVATE_ERROR",
+                    path: "PRIVATE_PATH",
+                })}`
+            );
+            expect(safe).toBeDefined();
+            expect(JSON.parse(safe!.slice("sdk otel admission ".length))).toEqual(fields);
+            expect(safe).not.toContain("PRIVATE");
+        }
+        for (const fields of [
+            { phase: "PRIVATE_PHASE" },
+            { event_sequence: -1 },
+            { event_sequence: 0.5 },
+            { event_sequence: Number.MAX_SAFE_INTEGER + 1 },
+            { event_sequence: "PRIVATE_SEQUENCE" },
+            { event_sequence: null },
+            { policy_revision: -1 },
+            { policy_revision: 0.5 },
+            { projected_event_count: -1 },
+            { projected_event_count: 0.5 },
+            { authority_fenced: "PRIVATE_STATE" },
+            { preparation_pending: null },
+            { policy_enabled: "PRIVATE_STATE" },
+            { submitted: "PRIVATE_STATE" },
+            { session_id: "PRIVATE_SESSION" },
+        ]) {
+            expect(
+                sanitizeDiagnosticLine(`${prefix}sdk otel admission ${JSON.stringify(fields)}`)
+            ).toBeUndefined();
+        }
+    });
+
+    it.each([
+        {
+            label: "native authority fence",
+            record: "sdk otel policy state",
+            fields: {
+                origin: "native_pending",
+                kind: "fence",
+                expected_some: false,
+                previous_incarnation: 2,
+                previous_revision: 10,
+                current_incarnation: 2,
+                current_revision: 11,
+                previous_authority_fenced: false,
+                authority_fenced: true,
+                previous_preparation_pending: true,
+                preparation_pending: true,
+                previous_native_owned: true,
+                native_owned: true,
+                policy_enabled: true,
+                returned_some: true,
+            },
+        },
+        {
+            label: "resident credential publication",
+            record: "sdk otel core policy publication",
+            fields: {
+                origin: "standalone_provider_rebind",
+                kind: "pending_publish_returned",
+                registry_generation: 1,
+                previous_auth_generation: 2,
+                auth_generation: 3,
+                auth_generation_changed: true,
+                previous_server_pending: false,
+                server_pending: true,
+                policy_identity_present: true,
+                source_recovery: false,
+            },
+        },
+        {
+            label: "superseded host reservation",
+            record: "sdk otel policy settlement",
+            fields: {
+                origin: "standalone_commit",
+                kind: "reservation",
+                succeeded: true,
+                reservation_some: false,
+            },
+        },
+        {
+            label: "successfully disabled application",
+            record: "sdk otel policy settlement",
+            fields: {
+                origin: "standalone_commit",
+                kind: "application",
+                expected_incarnation: 2,
+                expected_revision: 3,
+                succeeded: true,
+                applied: false,
+            },
+        },
+    ])("projects $label without credential or policy content", ({ record, fields }) => {
+        const safe = sanitizeDiagnosticLine(
+            `${prefix}${record} ${JSON.stringify({
+                ...fields,
+                session_id: "PRIVATE_SESSION",
+                registration: "PRIVATE_REGISTRATION",
+                account: "PRIVATE_ACCOUNT",
+                policy: { endpoint: "PRIVATE_ENDPOINT", headers: { token: "PRIVATE_TOKEN" } },
+                error: "PRIVATE_ERROR",
+            })}`
+        );
+        expect(safe).toBeDefined();
+        expect(JSON.parse(safe!.slice(record.length + 1))).toEqual(fields);
+        expect(safe).not.toContain("PRIVATE");
+    });
+
+    it.each([
+        ["sdk otel policy state", "current_revision", "authority_fenced"],
+        ["sdk otel core policy publication", "auth_generation", "server_pending"],
+        ["sdk otel policy settlement", "committed_revision", "reservation_some"],
+    ])("rejects unaudited or invalid %s fields", (record, count, flag) => {
+        for (const fields of [
+            { origin: "PRIVATE_ORIGIN" },
+            { kind: "PRIVATE_KIND" },
+            ...[-1, 0.5, Number.MAX_SAFE_INTEGER + 1, "PRIVATE_COUNT", null].map((value) => ({
+                [count]: value,
+            })),
+            { [flag]: "PRIVATE_STATE" },
+            { [flag]: null },
+            { session_id: "PRIVATE_SESSION" },
+        ]) {
+            expect(
+                sanitizeDiagnosticLine(`${prefix}${record} ${JSON.stringify(fields)}`)
+            ).toBeUndefined();
+        }
+    });
+
+    it("preserves policy attribution through the audited file collector", async () => {
+        const home = await mkdtemp(join(tmpdir(), "sdk-policy-diagnostics-"));
+        onTestFinished(() => rm(home, { recursive: true, force: true }));
+        await mkdir(join(home, "logs"));
+        await writeFile(
+            join(home, "logs", "policy.log"),
+            [
+                `${prefix}sdk otel core policy publication {"origin":"standalone_provider_rebind","kind":"pending_publish_returned","auth_generation":3,"account":"PRIVATE"}`,
+                `${prefix}sdk otel policy state {"origin":"native_pending","kind":"fence","current_revision":11,"authority_fenced":true,"policy":"PRIVATE"}`,
+                `${prefix}sdk otel policy settlement {"origin":"standalone_commit","kind":"reservation","succeeded":true,"reservation_some":false,"session_id":"PRIVATE"}`,
+            ].join("\n")
+        );
+        expect(await readDiagnosticTail(home)).toEqual([
+            'sdk otel core policy publication {"origin":"standalone_provider_rebind","kind":"pending_publish_returned","auth_generation":3}',
+            'sdk otel policy state {"origin":"native_pending","kind":"fence","current_revision":11,"authority_fenced":true}',
+            'sdk otel policy settlement {"origin":"standalone_commit","kind":"reservation","succeeded":true,"reservation_some":false}',
+        ]);
+    });
+
+    it("projects fixed transport teardown phases and bounded counts without SDK content", () => {
+        for (const phase of [
+            "shutdown_writer",
+            "launcher",
+            "launcher_complete",
+            "driver",
+            "driver_complete",
+            "driver_failed",
+            "driver_timeout",
+            "driver_abort_complete",
+            "writer_shutdown_complete",
+            "peer_eof",
+            "notification_worker",
+            "notification_worker_complete",
+            "notification_worker_failed",
+            "notification_worker_timed_out",
+            "active_request_grace",
+            "handle_close",
+            "handle_close_complete",
+            "active_requests",
+            "active_requests_complete",
+            "active_requests_timed_out",
+            "flush",
+            "flush_complete",
+            "flush_cancelled",
+            "flush_timed_out",
+            "flush_unavailable",
+            "writer_join",
+            "writer_join_complete",
+            "complete",
+        ]) {
+            const safe = sanitizeDiagnosticLine(
+                `${prefix}sdk transport teardown ${JSON.stringify({
+                    connection: 4,
+                    active_requests: 2,
+                    driver_finished: false,
+                    phase,
+                    method: "PRIVATE_METHOD",
+                    request: { token: "PRIVATE_TOKEN" },
+                    sdkLog: "PRIVATE_LOG",
+                    error: "PRIVATE_ERROR",
+                })}`
+            );
+            expect(safe).toBeDefined();
+            expect(JSON.parse(safe!.slice("sdk transport teardown ".length))).toEqual({
+                connection: 4,
+                active_requests: 2,
+                driver_finished: false,
+                phase,
+            });
+            expect(safe).not.toContain("PRIVATE");
+        }
+        for (const fields of [
+            { phase: "PRIVATE_PHASE" },
+            { active_requests: -1 },
+            { active_requests: 0.5 },
+            { active_requests: Number.MAX_SAFE_INTEGER + 1 },
+            { active_requests: "PRIVATE_COUNT" },
+            { connection: -1 },
+            { connection: null },
+            { driver_finished: "PRIVATE_STATE" },
+            { method: "PRIVATE_METHOD" },
+        ]) {
+            expect(
+                sanitizeDiagnosticLine(`${prefix}sdk transport teardown ${JSON.stringify(fields)}`)
+            ).toBeUndefined();
+        }
+        expect(
+            sanitizeDiagnosticLine(
+                `${prefix}sdk transport teardown {"phase":"complete","active_requests":0}`
+            )
+        ).toBe('sdk transport teardown {"active_requests":0,"phase":"complete"}');
+    });
+
     it("projects only audited fields and never falls back to raw data", () => {
         expect(
             sanitizeDiagnosticLine(
@@ -26,8 +271,8 @@ describe("SDK failure diagnostics", () => {
                     payload: "PRIVATE_PROMPT",
                     credential: "PRIVATE_CREDENTIAL",
                     endpoint: "PRIVATE_ENDPOINT",
-                })}`,
-            ),
+                })}`
+            )
         ).toBe('sdk pending tool response {"generation":9,"reason":"completed_request"}');
         expect(
             sanitizeDiagnosticLine(
@@ -40,10 +285,10 @@ describe("SDK failure diagnostics", () => {
                     origin: "client_response",
                     terminal_cancelled: false,
                     requestId: "PRIVATE_REQUEST",
-                })}`,
-            ),
+                })}`
+            )
         ).toBe(
-            'sdk pending transition {"generation":9,"event_count":4,"kind":"permission","origin":"client_response","terminal_cancelled":false}',
+            'sdk pending transition {"generation":9,"event_count":4,"kind":"permission","origin":"client_response","terminal_cancelled":false}'
         );
         expect(
             sanitizeDiagnosticLine(
@@ -56,9 +301,11 @@ describe("SDK failure diagnostics", () => {
                     requestId: "PRIVATE_REQUEST",
                     result: "PRIVATE_RESULT",
                     error: "PRIVATE_ERROR",
-                })}`,
-            ),
-        ).toBe('sdk pending tool delivery {"generation":9,"origin":"client_response","accepted":true,"success":true,"failed":false}');
+                })}`
+            )
+        ).toBe(
+            'sdk pending tool delivery {"generation":9,"origin":"client_response","accepted":true,"success":true,"failed":false}'
+        );
         for (const line of [
             `${prefix}PRIVATE_MESSAGE {"generation":9}`,
             `${prefix}sdk pending tool response {"reason":"PRIVATE_REASON"}`,
@@ -86,8 +333,8 @@ describe("SDK failure diagnostics", () => {
                 Array.from(
                     { length: 150 },
                     (_, generation) =>
-                        `${prefix}sdk pending stale drain ${JSON.stringify({ generation, expected_generation: 1, secret: "PRIVATE" })}`,
-                ).join("\n"),
+                        `${prefix}sdk pending stale drain ${JSON.stringify({ generation, expected_generation: 1, secret: "PRIVATE" })}`
+                ).join("\n")
             );
         }
         await writeFile(
@@ -96,13 +343,15 @@ describe("SDK failure diagnostics", () => {
                 `${prefix}sdk detach {"phase":"received","connection":2,"dispatch":1,"content":"PRIVATE"}`,
                 `${prefix}sdk detach {"phase":"dispatch_complete","connection":2,"dispatch":1,"failed":false,"elapsed_ms":4}`,
                 '[sdk_diagnostics] sdk detach {"phase":"received","content":"PRIVATE"}',
-            ].join("\n"),
+            ].join("\n")
         );
         const tail = await readDiagnosticTail(home);
         expect(tail).toHaveLength(200);
         expect(tail[0]).toContain('"generation":102');
         expect(tail.at(-2)).toBe('sdk detach {"connection":2,"dispatch":1,"phase":"received"}');
-        expect(tail.at(-1)).toBe('sdk detach {"connection":2,"dispatch":1,"elapsed_ms":4,"failed":false,"phase":"dispatch_complete"}');
+        expect(tail.at(-1)).toBe(
+            'sdk detach {"connection":2,"dispatch":1,"elapsed_ms":4,"failed":false,"phase":"dispatch_complete"}'
+        );
         expect(tail.join("\n")).not.toContain("PRIVATE");
         expect(tail.join("\n")).not.toContain(home);
     });
@@ -237,7 +486,7 @@ describe("SDK failure diagnostics", () => {
                     span: { content: "PRIVATE_SPAN" },
                     sessionId: "PRIVATE_SESSION",
                     childId: "PRIVATE_CHILD",
-                })}`,
+                })}`
             );
             expect(safe).toBeDefined();
             expect(JSON.parse(safe!.slice(message.length + 1))).toEqual(fields);
@@ -250,7 +499,9 @@ describe("SDK failure diagnostics", () => {
             { phase: "PRIVATE_PHASE" },
             { stream: "PRIVATE_STREAM" },
         ]) {
-            expect(sanitizeDiagnosticLine(`${prefix}sdk shell reader ${JSON.stringify(fields)}`)).toBeUndefined();
+            expect(
+                sanitizeDiagnosticLine(`${prefix}sdk shell reader ${JSON.stringify(fields)}`)
+            ).toBeUndefined();
         }
     });
 });

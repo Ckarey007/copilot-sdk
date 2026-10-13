@@ -3,10 +3,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import fs, { realpathSync } from "fs";
-import { rm } from "fs/promises";
+import { readdir, rm } from "fs/promises";
 import os from "os";
 import { basename, dirname, join, resolve } from "path";
 import { rimraf } from "rimraf";
+import { createInterface } from "readline";
 import { fileURLToPath } from "url";
 import { afterAll, afterEach, beforeEach, onTestFailed, onTestFinished, TestContext } from "vitest";
 import { CopilotClient, CopilotClientOptions, RuntimeConnection } from "../../../src";
@@ -277,6 +278,30 @@ export async function createSdkTestContext({
                     console.error(
                         `[SDK diagnostics: last ${diagnostics.length} audited records]\n${diagnostics.join("\n")}`
                     );
+                    const logDir = join(copilotHomeDir, "logs");
+                    for (const file of await readdir(logDir)) {
+                        if (!file.endsWith(".log")) continue;
+                        const lines = createInterface({
+                            input: fs.createReadStream(join(logDir, file)),
+                        });
+                        const mcpClosureDiagnostics: string[] = [];
+                        for await (const line of lines) {
+                            const mcpClosure = line.match(
+                                /^\S+ \[(?:DEBUG|WARN)\] \[rust:mcp::client\] MCP (?:liveness probe (?:found the (?:session expired|transport (?:closed|channel closed))|failed; awaiting corroboration|went unanswered; inconclusive|could not be sent in time; inconclusive|failed inconclusively|failed with an unrecognised transport error)|liveness probes are neither proving life nor consistently failing|session reported closed)/
+                            );
+                            if (mcpClosure) {
+                                // Keep only static messages; transport error fields can contain user data.
+                                mcpClosureDiagnostics.push(mcpClosure[0]);
+                                if (mcpClosureDiagnostics.length > 32)
+                                    mcpClosureDiagnostics.shift();
+                            }
+                        }
+                        if (mcpClosureDiagnostics.length > 0) {
+                            console.error(
+                                `[MCP session-closure diagnostics: ${file}; last ${mcpClosureDiagnostics.length} matching lines]\n${mcpClosureDiagnostics.join("\n")}`
+                            );
+                        }
+                    }
                 } catch {
                     console.error("SDK diagnostics unavailable");
                 }

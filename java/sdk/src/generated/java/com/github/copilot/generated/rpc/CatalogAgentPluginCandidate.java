@@ -29,7 +29,7 @@ public final class CatalogAgentPluginCandidate extends CatalogCandidate {
     @Override
     public String getKind() { return kind; }
 
-    /** Canonical Agent Plugin media type. */
+    /** Media type naming the plugin's format. */
     @JsonProperty("mediaType")
     private CatalogAgentPluginMediaType mediaType;
 

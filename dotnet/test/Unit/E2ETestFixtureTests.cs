@@ -4,7 +4,11 @@
 
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Reflection;
+using System.Text.Json;
 using GitHub.Copilot.Test.E2E;
 using GitHub.Copilot.Test.Harness;
 using Xunit;
@@ -13,6 +17,25 @@ namespace GitHub.Copilot.Test.Unit;
 
 public class E2ETestFixtureTests
 {
+    [Fact]
+    public async Task Default_Telemetry_Endpoint_Uses_The_Owned_Proxy()
+    {
+        await using var context = await E2ETestContext.CreateAsync();
+        using var client = new HttpClient();
+        using var userRequest = new HttpRequestMessage(HttpMethod.Get, context.ProxyUrl + "/copilot_internal/user");
+        userRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", context.GetEnvironment()["GH_TOKEN"]);
+        using var userResponse = await client.SendAsync(userRequest);
+        Assert.Equal(HttpStatusCode.OK, userResponse.StatusCode);
+        using var user = JsonDocument.Parse(await userResponse.Content.ReadAsStringAsync());
+        var telemetryEndpoint = user.RootElement.GetProperty("endpoints").GetProperty("telemetry").GetString();
+        Assert.Equal(context.ProxyUrl, telemetryEndpoint);
+        using var content = new StringContent("{}\n");
+        using var telemetryResponse = await client.PostAsync(telemetryEndpoint + "/telemetry", content);
+        Assert.Equal(HttpStatusCode.NoContent, telemetryResponse.StatusCode);
+        Assert.Equal(string.Empty, await telemetryResponse.Content.ReadAsStringAsync());
+        Assert.Empty(await context.GetExchangesAsync());
+    }
+
     [Fact]
     public async Task Failed_Process_Launch_Reclaims_Context_Directories()
     {

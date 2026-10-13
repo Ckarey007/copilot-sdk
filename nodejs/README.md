@@ -671,6 +671,23 @@ if (result.status === "pending") {
 
 See [Auto tier persistence](../docs/features/session-persistence.md#auto-tier-persistence) for the full lifecycle rules.
 
+##### `rpc.model.getReasoningSummaries(params)` (experimental)
+
+Read the current model's reasoning-summary presentation policy without changing session state. Call `session.rpc.model.list()` first to load the model catalog; otherwise the result may have `ready: false`. The request and result types are exported from `@github/copilot-sdk`.
+
+```typescript
+import type {
+    ModelGetReasoningSummariesRequest,
+    ModelGetReasoningSummariesResult,
+} from "@github/copilot-sdk";
+
+const presentation: ModelGetReasoningSummariesRequest = { summariesVisible: false };
+const policy: ModelGetReasoningSummariesResult =
+    await session.rpc.model.getReasoningSummaries(presentation);
+```
+
+Omit `persistedShowReasoning` when no visibility setting is saved. `visibility` can remain unset while experiment assignment is pending; `clearRedundantSetting` tells the host when its persisted setting matches the model default.
+
 ##### `setTools(tools: Tool[]): Promise<void>`
 
 Replace the tools this client supplies to the session, together with the handlers that serve them (experimental). `tools` takes the same definitions as `createSession` and becomes this client's complete tool set; pass `[]` to remove all of this client's tools. Built-in, MCP, and plugin tools, and tools other connected clients supply, are unaffected.
@@ -1634,6 +1651,26 @@ cd nodejs
 npm ci
 npm test
 ```
+
+### Internal feature-flag example
+
+[`examples/internal-feature-flags.ts`](examples/internal-feature-flags.ts) uses
+the generated internal RPC factory against a real runtime over stdio.
+It lists the catalog and shows environment, settings, and explicit-override
+precedence. It also checks that static resolution does not apply `COPILOT_EXP_*`
+experiment assignments. It creates no session and sends no model request.
+
+After you prepare matching runtime artifacts, run this from the runtime repository root:
+
+```bash
+COPILOT_RUNTIME_PROVIDER_LIB="$PWD/bazel-bin/src/native/runtime/runtime.node" \
+  src/sdk/nodejs/node_modules/.bin/tsx \
+  src/sdk/nodejs/examples/internal-feature-flags.ts \
+  "$PWD/bazel-bin/src/runtime-bin/copilot-runtime"
+```
+
+The JSON output includes `staticResolution` values of `false`, `true`, `false`,
+and `true`, in that order. These methods are internal, not public SDK APIs.
 
 ## License
 

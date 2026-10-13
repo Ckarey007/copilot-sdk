@@ -21,6 +21,8 @@ import javax.annotation.processing.Generated;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record CompactionCompleteCompactionTokensUsed(
+    /** Number of model requests represented by this aggregated compaction usage */
+    @JsonProperty("requestCount") Long requestCount,
     /** Whether the compaction's credit amount was reported for all, some, or none of its calls. */
     @JsonProperty("aiCreditsStatus") AiCreditsStatus aiCreditsStatus,
     /** Provider captured for the compaction call; absent when attribution is unknown. */

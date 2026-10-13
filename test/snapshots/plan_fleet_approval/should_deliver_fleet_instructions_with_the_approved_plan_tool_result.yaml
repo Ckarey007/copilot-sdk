@@ -22,8 +22,10 @@ conversations:
           Plan approved! Exited plan mode.
 
 
-          You are now in autopilot mode with fleet enabled. Proceed with implementing the plan in fleet mode by
-          following the fleet-mode instructions below.
+          You are now in autopilot mode with fleet enabled. Proceed with implementing the plan now in fleet mode by
+          following the fleet-mode instructions below. Do NOT call task_complete or report the task as finished until
+          the plan has genuinely been implemented and verified. Creating or approving the plan does not count as
+          completing the task.
 
 
           <fleet_mode_instructions>

@@ -11,7 +11,6 @@ env:
   GIT_HTTP_LOW_SPEED_LIMIT: 1000
   GIT_HTTP_LOW_SPEED_TIME: 60
   HUSKY: 0
-  SETUP_NODE_TIMEOUT_MINUTES: 10
 
 on:
   workflow_call:
@@ -47,10 +46,6 @@ on:
         required: false
         default: ""
         type: string
-      timeout-minutes:
-        required: false
-        default: 90
-        type: number
 
 permissions:
   contents: read
@@ -63,7 +58,6 @@ jobs:
   cache-relay:
     if: inputs.runtime-source == 'checkout'
     runs-on: ubuntu-slim
-    timeout-minutes: 15
     permissions:
       actions: read
       contents: read
@@ -71,7 +65,7 @@ jobs:
       cache-hit: ${{ steps.cache.outputs.cache-hit }}
     steps:
       - uses: actions/checkout@v7
-        timeout-minutes: 4
+        timeout-minutes: 60
         with:
           persist-credentials: false
 
@@ -143,8 +137,7 @@ jobs:
       !cancelled() &&
       (inputs.runtime-source == 'published' ||
        (needs.cache-relay.result == 'success' && needs.cache-relay.outputs.cache-hit != 'true'))
-    runs-on: ${{ inputs.runtime-source == 'checkout' && inputs.os || 'ubuntu-latest' }}
-    timeout-minutes: ${{ inputs.timeout-minutes }}
+    runs-on: ${{ inputs.runtime-source == 'checkout' && inputs.os || 'ubuntu-26.04-2core-agent-runtime' }}
     permissions:
       actions: read
       contents: read
@@ -152,7 +145,7 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@v7
-        timeout-minutes: 4
+        timeout-minutes: 60
         with:
           persist-credentials: false
 
@@ -197,7 +190,7 @@ jobs:
 
       - if: inputs.runtime-source == 'checkout' && steps.cache.outputs.cache-hit != 'true'
         uses: ./.github/actions/setup-node
-        timeout-minutes: ${{ fromJSON(env.SETUP_NODE_TIMEOUT_MINUTES) }}
+        timeout-minutes: 60
 
       - name: Capture verified addon source identity
         if: inputs.runtime-source == 'checkout' && steps.cache.outputs.cache-hit != 'true'

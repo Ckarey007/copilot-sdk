@@ -580,6 +580,10 @@ class RpcHandlerDispatcherTest {
 
     @Test
     void skillProviderFailuresUseStableMessagesWithoutData() throws Exception {
+        // Keep dispatch and logging outside the socket-read timeout.
+        var immediateDispatcher = new RpcHandlerDispatcher(sessions, lifecycleEvents::add, Runnable::run,
+                gitHubTokenProviders);
+        immediateDispatcher.registerHandlers(rpc);
         CopilotSession session = createSession("s1");
         session.registerSkillProvider(skillProvider(
                 () -> CompletableFuture.failedFuture(new IllegalStateException("secret list failure")), name -> {

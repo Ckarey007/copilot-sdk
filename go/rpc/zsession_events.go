@@ -487,6 +487,10 @@ type SessionPermissionRecoveryData struct {
 	MaxAttempts int64 `json:"maxAttempts"`
 	// Policy selected from the current client's response capability; mode or client changes may update it during recovery
 	OnBlocked PermissionRecoveryOnBlocked `json:"onBlocked"`
+	// Subagent identifier that owns this recovery episode when the request was delegated through a parent permission service
+	OwnerAgentID *string `json:"ownerAgentId,omitempty"`
+	// Root or child execution-session identifier that owns this recovery episode; omitted for legacy snapshots
+	OwnerSessionID *string `json:"ownerSessionId,omitempty"`
 	// Controlled reason for the latest episode transition
 	Reason PermissionRecoveryReason `json:"reason"`
 	// Current lifecycle state of the recovery episode
@@ -668,9 +672,6 @@ func (*SessionContextClearedData) Type() SessionEventType {
 
 // Conversation compaction results including success status, metrics, and optional error details
 type SessionCompactionCompleteData struct {
-	// Legacy active-workflow reminder retained for replay compatibility
-	// Internal: ActiveFactorySummary is part of the SDK's internal API surface and is not intended for external use.
-	ActiveFactorySummary *string `json:"activeFactorySummary,omitempty"`
 	// Authoritative active-workflow reminder appended to the compacted context
 	// Internal: ActiveWorkflowSummary is part of the SDK's internal API surface and is not intended for external use.
 	ActiveWorkflowSummary *string `json:"activeWorkflowSummary,omitempty"`
@@ -1048,12 +1049,16 @@ type SessionErrorData struct {
 	EligibleForAutoSwitch *bool `json:"eligibleForAutoSwitch,omitempty"`
 	// Fine-grained error code from the upstream provider, when available. For `errorType: "rate_limit"`, this is one of the `RateLimitErrorCode` values (e.g., `"user_weekly_rate_limited"`, `"user_global_rate_limited"`, `"rate_limited"`, `"user_model_rate_limited"`, `"integration_rate_limited"`). For `errorType: "quota"`, this is the CAPI quota error code (e.g., `"quota_exceeded"`, `"session_quota_exceeded"`, `"billing_not_configured"`).
 	ErrorCode *string `json:"errorCode,omitempty"`
-	// Category of error (e.g., "authentication", "authorization", "quota", "rate_limit", "context_limit", "query")
+	// Category of error (e.g., "authentication", "authorization", "policy", "quota", "rate_limit", "context_limit", "query")
 	ErrorType string `json:"errorType"`
 	// Human-readable error message
 	Message string `json:"message"`
 	// GitHub request tracing ID (x-github-request-id header) for correlating with server-side logs
 	ProviderCallID *string `json:"providerCallId,omitempty"`
+	// Sanitized provider-defined error parameter preserved from a structured upstream error envelope, when available.
+	ProviderErrorParam *string `json:"providerErrorParam,omitempty"`
+	// Provider-defined error type preserved from a structured upstream error envelope, when available (for example, `invalid_request_error`).
+	ProviderErrorType *string `json:"providerErrorType,omitempty"`
 	// What the user must do to recover, when the runtime knows of an action. The `message` never names a client affordance, so a client that offers one — a slash command, a settings pane, a link — renders it from this value.
 	Remediation *RemediationAction `json:"remediation,omitempty"`
 	// Copilot service request ID (x-copilot-service-request-id header) for CAPI log correlation
@@ -2465,6 +2470,10 @@ func (*PermissionCompletedData) Type() SessionEventType { return SessionEventTyp
 type PermissionRequestedData struct {
 	// Agent mode captured from the owning turn when permission evaluation began.
 	AgentMode *SessionMode `json:"agentMode,omitempty"`
+	// Delegated agent that owns permission recovery when the owner session multiplexes remote agents. Absent otherwise.
+	OwnerAgentID *string `json:"ownerAgentId,omitempty"`
+	// Execution session that owns permission recovery for this request. Absent on historical events.
+	OwnerSessionID *string `json:"ownerSessionId,omitempty"`
 	// Permission mode captured when evaluation began. Absent on historical events.
 	PermissionMode *PermissionMode `json:"permissionMode,omitempty"`
 	// Details of the permission being requested
@@ -3163,8 +3172,6 @@ type SubagentStartedData struct {
 	AgentType *string `json:"agentType,omitempty"`
 	// Whether the sub-agent runs synchronously or in the background.
 	ExecutionMode *string `json:"executionMode,omitempty"`
-	// Legacy root id of the workflow run that spawned this sub-agent. New consumers should use workflowRunId.
-	FactoryRunID *string `json:"factoryRunId,omitempty"`
 	// Model the sub-agent will run with, when known at start.
 	Model *string `json:"model,omitempty"`
 	// Authority or runtime mechanism responsible for sub-agent model selection, when known at start.
@@ -3826,6 +3833,8 @@ type CompactionCompleteCompactionTokensUsed struct {
 	OutputTokens *int64 `json:"outputTokens,omitempty"`
 	// Provider captured for the compaction call; absent when attribution is unknown.
 	Provider *ModelProviderRef `json:"provider,omitempty"`
+	// Number of model requests represented by this aggregated compaction usage
+	RequestCount *int64 `json:"requestCount,omitempty"`
 }
 
 // Per-request cost and usage data from the CAPI copilot_usage response field

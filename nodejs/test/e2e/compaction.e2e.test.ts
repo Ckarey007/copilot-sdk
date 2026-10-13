@@ -15,6 +15,7 @@ import {
 } from "../../src/index.js";
 import { createSdkTestContext, isCI } from "./harness/sdkTestContext.js";
 import { testBackend } from "./harness/testBackend.js";
+import { withTestCleanup } from "../helpers/withTestCleanup.js";
 
 const compactionTimeoutMs = 60_000;
 
@@ -22,6 +23,7 @@ interface CacheWireBlock {
     text?: string;
     cache_control?: unknown;
     copilot_cache_control?: unknown;
+    output_config?: { effort?: string };
 }
 
 interface CacheWireRequest extends CacheWireBlock {
@@ -660,6 +662,300 @@ class BudgetReplayHandler extends CopilotRequestHandler {
         );
     }
 }
+
+interface CompactionEffortRequest {
+    model: string;
+    stream?: boolean;
+    reasoning?: { effort?: string };
+    input: Array<{ type?: string; role?: string; reasoning?: { effort?: string } }>;
+}
+
+class CompactionEffortReplayHandler extends CopilotRequestHandler {
+    readonly requests: CompactionEffortRequest[] = [];
+    summaryGate?: {
+        entered: ReturnType<typeof Promise.withResolvers<void>>;
+        release: ReturnType<typeof Promise.withResolvers<void>>;
+    };
+
+    protected override async sendRequest(request: Request): Promise<Response> {
+        expect(new URL(request.url).pathname).toBe("/responses");
+        const body = (await request.json()) as CompactionEffortRequest;
+        this.requests.push(body);
+        expect(body.stream).not.toBe(true);
+        const incompleteSummary = this.requests.length === 2 && this.summaryGate;
+        if (incompleteSummary) {
+            incompleteSummary.entered.resolve();
+            await incompleteSummary.release.promise;
+        }
+        return Response.json({
+            id: "compaction-effort-response",
+            object: "response",
+            model: body.model,
+            status: incompleteSummary ? "incomplete" : "completed",
+            ...(incompleteSummary ? { incomplete_details: { reason: "max_output_tokens" } } : {}),
+            output: [
+                {
+                    id: "compaction-effort-message",
+                    type: "message",
+                    role: "assistant",
+                    status: "completed",
+                    content: [
+                        {
+                            type: "output_text",
+                            text: incompleteSummary ? "SUMMARY_PART_ONE" : "COMPACTION_EFFORT_OK",
+                        },
+                    ],
+                },
+            ],
+            usage: { input_tokens: 100, output_tokens: 10, total_tokens: 110 },
+        });
+    }
+}
+
+describe("Compaction reasoning effort", async () => {
+    const { createClient } = await createSdkTestContext({ replayOnly: true });
+
+    it("reduces only the OpenAI summary request and retains the session effort", async () => {
+        const handler = new CompactionEffortReplayHandler();
+        const effortClient = createClient({ requestHandler: handler });
+        try {
+            await using session = await effortClient.createSession({
+                onPermissionRequest: approveAll,
+                model: "gpt-6-sol",
+                reasoningEffort: "max",
+                provider: {
+                    type: "openai",
+                    wireApi: "responses",
+                    baseUrl: "https://compaction-effort.invalid",
+                    apiKey: "fake-byok-credential-for-e2e-tests",
+                    modelId: "gpt-6-sol",
+                },
+                streaming: false,
+                featureFlags: { COMPACTION_MEDIUM_REASONING_EFFORT: true },
+                expAssignments: {
+                    Features: [],
+                    Flights: {},
+                    Configs: [],
+                    AssignmentContext: "compaction-medium-effort",
+                },
+                infiniteSessions: { enabled: false },
+            });
+            expect(
+                (await session.sendAndWait({ prompt: "Initialize the effort scenario." }))?.data
+                    .content
+            ).toBe("COMPACTION_EFFORT_OK");
+            expect(handler.requests).toHaveLength(1);
+            expect(handler.requests[0].reasoning?.effort).toBe("max");
+
+            const compacted = await session.rpc.history.compact({ trigger: "manual" });
+            expect(compacted).toMatchObject({
+                success: true,
+                summaryContent: "COMPACTION_EFFORT_OK",
+            });
+            expect(handler.requests).toHaveLength(2);
+            const summaryRequest = handler.requests[1];
+            expect(summaryRequest.reasoning?.effort).toBe("max");
+            expect(
+                summaryRequest.input.filter((item) => item.type === "configuration_update")
+            ).toEqual([{ type: "configuration_update", reasoning: { effort: "medium" } }]);
+            expect(summaryRequest.input.at(-2)?.reasoning?.effort).toBe("medium");
+            expect((await session.rpc.model.getCurrent()).reasoningEffort).toBe("max");
+
+            expect(
+                (await session.sendAndWait({ prompt: "Continue after the summary." }))?.data.content
+            ).toBe("COMPACTION_EFFORT_OK");
+            expect(handler.requests).toHaveLength(3);
+            const nextRequest = handler.requests[2];
+            expect(nextRequest.reasoning?.effort).toBe("max");
+            expect(
+                nextRequest.input.filter((item) => item.type === "configuration_update")
+            ).toEqual([]);
+        } finally {
+            await effortClient.stop();
+        }
+    });
+
+    it("preserves Anthropic compaction effort even when the reduction is enabled", async () => {
+        const handler = new RefusalBudgetReplayHandler();
+        const effortClient = createClient({ requestHandler: handler });
+        try {
+            await using session = await effortClient.createSession({
+                onPermissionRequest: approveAll,
+                model: "claude-opus-5.5",
+                reasoningEffort: "max",
+                provider: {
+                    type: "anthropic",
+                    baseUrl: "https://compaction-effort.invalid",
+                    bearerToken: "fake-byok-credential-for-e2e-tests",
+                    modelId: "claude-opus-5.5",
+                },
+                featureFlags: { COMPACTION_MEDIUM_REASONING_EFFORT: true },
+                expAssignments: {
+                    Features: [],
+                    Flights: {},
+                    Configs: [],
+                    AssignmentContext: "compaction-medium-effort",
+                },
+                infiniteSessions: { enabled: false },
+            });
+            expect(
+                (await session.sendAndWait({ prompt: "Initialize the effort scenario." }))?.data
+                    .content
+            ).toBe("FALLBACK_BUDGET_OK");
+            expect(handler.requests).toHaveLength(1);
+            expect(handler.requests[0].output_config?.effort).toBe("max");
+
+            const compacted = await session.rpc.history.compact({ trigger: "manual" });
+            expect(compacted).toMatchObject({
+                success: true,
+                summaryContent: "FALLBACK_BUDGET_OK",
+            });
+            expect(handler.requests).toHaveLength(2);
+            const summaryRequest = handler.requests[1];
+            expect(summaryRequest.output_config?.effort).toBe("max");
+            expect(
+                summaryRequest.messages.flatMap((message) =>
+                    message.output_config?.effort ? [message.output_config.effort] : []
+                )
+            ).toEqual([]);
+            expect((await session.rpc.model.getCurrent()).reasoningEffort).toBe("max");
+
+            expect(
+                (await session.sendAndWait({ prompt: "Continue after the summary." }))?.data.content
+            ).toBe("FALLBACK_BUDGET_OK");
+            expect(handler.requests).toHaveLength(3);
+            const nextRequest = handler.requests[2];
+            expect(nextRequest.output_config?.effort).toBe("max");
+            expect(nextRequest.messages.filter((message) => message.output_config)).toEqual([]);
+        } finally {
+            await effortClient.stop();
+        }
+    });
+
+    it("isolates compaction effort from concurrent sampling and selected effort changes", async ({
+        expect,
+        onTestFinished,
+    }) => {
+        const handler = new CompactionEffortReplayHandler();
+        const gate = {
+            entered: Promise.withResolvers<void>(),
+            release: Promise.withResolvers<void>(),
+        };
+        handler.summaryGate = gate;
+        const effortClient = createClient({ requestHandler: handler });
+        const stopClient = async () => {
+            gate.release.resolve();
+            const errors = await effortClient.stop();
+            if (errors.length) {
+                throw new AggregateError(errors, "Failed to stop compaction overlap client");
+            }
+        };
+        onTestFinished(stopClient);
+        await withTestCleanup(async () => {
+            const session = await effortClient.createSession({
+                onPermissionRequest: approveAll,
+                model: "gpt-6-sol",
+                reasoningEffort: "max",
+                provider: {
+                    type: "openai",
+                    wireApi: "responses",
+                    baseUrl: "https://compaction-effort.invalid",
+                    apiKey: "fake-byok-credential-for-e2e-tests",
+                    modelId: "gpt-6-sol",
+                },
+                streaming: false,
+                featureFlags: { COMPACTION_MEDIUM_REASONING_EFFORT: true },
+                expAssignments: {
+                    Features: [],
+                    Flights: {},
+                    Configs: [],
+                    AssignmentContext: "compaction-overlap",
+                },
+                infiniteSessions: { enabled: false },
+            });
+            expect(
+                (await session.sendAndWait({ prompt: "Initialize the overlap scenario." }))?.data
+                    .content
+            ).toBe("COMPACTION_EFFORT_OK");
+            const compaction = session.rpc.history.compact({ trigger: "manual" });
+            await withTestCleanup(
+                async () => {
+                    await Promise.race([
+                        gate.entered.promise,
+                        compaction.then((result) => {
+                            throw new Error(
+                                `Compaction completed before its summary gate: ${JSON.stringify(result)}`
+                            );
+                        }),
+                    ]);
+                    expect(handler.requests).toHaveLength(2);
+                    expect(handler.requests[1].input.at(-2)?.reasoning?.effort).toBe("medium");
+                    expect((await session.rpc.model.getCurrent()).reasoningEffort).toBe("max");
+
+                    expect(
+                        await session.rpc.mcp.executeSampling({
+                            requestId: "compaction-overlap-sampling",
+                            serverName: "compaction-overlap-server",
+                            mcpRequestId: "compaction-overlap-mcp",
+                            request: {
+                                messages: [
+                                    {
+                                        role: "user",
+                                        content: {
+                                            type: "text",
+                                            text: "Compute a sampling result.",
+                                        },
+                                    },
+                                ],
+                                maxTokens: 4096,
+                            },
+                        })
+                    ).toMatchObject({
+                        action: "success",
+                        result: { content: { type: "text", text: "COMPACTION_EFFORT_OK" } },
+                    });
+                    expect(handler.requests).toHaveLength(3);
+                    expect(handler.requests[2].reasoning?.effort).toBe("max");
+                    expect(
+                        handler.requests[2].input.filter(
+                            (item) => item.type === "configuration_update"
+                        )
+                    ).toEqual([]);
+
+                    await session.rpc.model.setReasoningEffort({ reasoningEffort: "high" });
+                    expect((await session.rpc.model.getCurrent()).reasoningEffort).toBe("high");
+                },
+                () => gate.release.resolve(),
+                async () => {
+                    expect(await compaction).toMatchObject({
+                        success: true,
+                        summaryContent: expect.stringContaining("COMPACTION_EFFORT_OK"),
+                    });
+                }
+            );
+            expect(handler.requests).toHaveLength(4);
+            const continuation = handler.requests[3];
+            expect(continuation.reasoning?.effort).toBe("max");
+            expect(
+                continuation.input.filter((item) => item.type === "configuration_update")
+            ).toEqual([{ type: "configuration_update", reasoning: { effort: "medium" } }]);
+            expect((await session.rpc.model.getCurrent()).reasoningEffort).toBe("high");
+            expect(
+                (await session.sendAndWait({ prompt: "Continue after the held summary." }))?.data
+                    .content
+            ).toBe("COMPACTION_EFFORT_OK");
+            expect(handler.requests).toHaveLength(5);
+            // The cache baseline stays pinned; the durable user boundary selects high.
+            expect(handler.requests[4].reasoning?.effort).toBe("max");
+            expect(
+                handler.requests[4].input.filter((item) => item.type === "configuration_update")
+            ).toEqual([{ type: "configuration_update", reasoning: { effort: "high" } }]);
+            expect(handler.requests[4].input.at(-2)?.reasoning?.effort).toBe("high");
+            expect((await session.rpc.model.getCurrent()).reasoningEffort).toBe("high");
+            await session.disconnect();
+        }, stopClient);
+    });
+});
 
 describe("Refusal fallback output budget", async () => {
     const { createClient } = await createSdkTestContext();

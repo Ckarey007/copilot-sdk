@@ -4,6 +4,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { CopilotClient, RuntimeConnection } from "../../src/index.js";
@@ -688,6 +689,37 @@ describe("Server-scoped RPC", async () => {
                 return true;
             }
         );
+    });
+
+    it("should discover all 128 custom agents including deeply nested definitions", async () => {
+        const projectPath = createUniqueWorkDirectory("server-rpc-agents");
+        execFileSync("git", ["init", "--quiet"], {
+            cwd: projectPath,
+            env,
+            windowsHide: true,
+        });
+        const agentsDirectory = path.join(projectPath, ".github", "agents");
+        const nestedDirectory = path.join(agentsDirectory, ...Array<string>(12).fill("d"));
+        fs.mkdirSync(nestedDirectory, { recursive: true });
+        const expectedNames = Array.from(
+            { length: 128 },
+            (_, index) => `agent-${index.toString().padStart(3, "0")}`
+        );
+        for (const [index, name] of expectedNames.entries()) {
+            const directory = index === 127 ? nestedDirectory : agentsDirectory;
+            fs.writeFileSync(
+                path.join(directory, `${name}.agent.md`),
+                `---\nname: ${name}\ndescription: Test agent.\n---\nAgent prompt.`
+            );
+        }
+
+        await client.start();
+        const result = await client.rpc.agents.discover({
+            projectPaths: [projectPath],
+            excludeHostAgents: true,
+        });
+
+        expect(result.agents.map((agent) => agent.name).sort()).toEqual(expectedNames);
     });
 
     it("should discover server mcp and skills", async () => {

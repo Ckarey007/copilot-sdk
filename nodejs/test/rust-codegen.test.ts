@@ -821,6 +821,42 @@ pub enum ${name} {
 });
 
 describe("Rust x-legacy-parameters", () => {
+    it.each(["server", "session"] as const)(
+        "serializes unrelated %s requests and options by value",
+        (scope) => {
+            const { schema } = legacyRequestSchema(1, scope);
+            const rpc = generateRpcCode(schema);
+            expect(rpc.match(/serde_json::to_value\(params\)\?/g)).toHaveLength(2);
+            expect(rpc).not.toContain("serde_json::to_value(&params)");
+        }
+    );
+
+    it("preserves optional settings value presence without inserting null", () => {
+        const rpc = generateRpcCode({
+            server: {
+                user: {
+                    settings: {
+                        applyTopKey: {
+                            rpcMethod: "user.settings.applyTopKey",
+                            params: {
+                                type: "object",
+                                properties: {
+                                    topKey: { type: "string" },
+                                    value: { "x-opaque-json": true } as JSONSchema7,
+                                    delete: { type: "boolean" },
+                                },
+                                required: ["topKey"],
+                            },
+                            result: { type: "object" },
+                        },
+                    },
+                },
+            },
+        });
+        expect(rpc).toContain("let wire_params = serde_json::to_value(params)?;");
+        expect(rpc).not.toContain('_obj.insert("value"');
+    });
+
     const render = (additions: 0 | 1 | 2, scope: "server" | "session" = "server") => {
         const { schema } = legacyRequestSchema(additions, scope);
         const types = generateApiTypesCode(schema);

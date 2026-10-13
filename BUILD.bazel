@@ -1,3 +1,8 @@
+exports_files(
+    ["test/harness/sdk-diagnostics.mjs"],
+    visibility = ["//src/runtime-bin:__pkg__"],
+)
+
 SHARED_CODEGEN_INPUTS = [
     "nodejs/scripts/releaseArtifacts.ts",
     "nodejs/src/cliVersion.ts",

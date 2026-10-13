@@ -4090,9 +4090,10 @@ async function generateRpc(schemaPath?: string): Promise<void> {
         }
     }
     for (const typeName of internalTypeNames) {
+        const emittedTypeName = resolveType(typeName);
         generatedTypeCode = generatedTypeCode.replace(
-            new RegExp(`^(type ${typeName} struct)`, "m"),
-            `// Internal: ${typeName} is an internal SDK API and is not part of the public surface.\n$1`
+            new RegExp(`^(type ${escapeRegExp(emittedTypeName)} struct)`, "m"),
+            `// Internal: ${emittedTypeName} is an internal SDK API and is not part of the public surface.\n$1`
         );
     }
     // Remove trailing blank lines before appending.
@@ -4303,6 +4304,7 @@ function emitMethod(lines: string[], receiver: string, name: string, method: Rpc
     const paramsType = hasParams ? resolveType(goParamsTypeName(method)) : "";
     const hasRequiredNonSessionParams = nonSessionParams.some((name) => requiredParams.has(name));
     const paramsAreOptional = hasParams && !!method.params && !!getNullableInner(method.params) && !hasRequiredNonSessionParams;
+    const supportsExplicitNullValue = method.rpcMethod === "user.settings.edit";
 
     // For wrapper-level methods, access fields through a.common; for service type aliases, use a directly
     const clientRef = isWrapper ? "a.common.client" : "a.client";
@@ -4361,14 +4363,41 @@ function emitMethod(lines: string[], receiver: string, name: string, method: Rpc
         }
         lines.push(`\traw, err := ${clientRef}.Request(ctx, "${method.rpcMethod}", req)`);
     } else {
-        if (method.rpcMethod === "managedSettings.resolve") {
-            // A typed nil inside Request's any argument marshals as null, not omitted params.
-            lines.push(`\tif ${paramsRef} == nil {`);
-            lines.push(`\t\t${paramsRef} = &${paramsType}{}`);
+        if (hasParams && supportsExplicitNullValue) {
+            lines.push(`\treq := map[string]any{}`);
+            lines.push(`\tif ${paramsRef} != nil {`);
+            for (const pName of nonSessionParams) {
+                const field = fields.get(paramsType)?.get(pName);
+                const goField = field?.name ?? toGoFieldName(pName);
+                const goType = field?.type;
+                const isOptional = !requiredParams.has(pName);
+                if (isOptional) {
+                    lines.push(`\t\tif ${paramsRef}.${goField} != nil {`);
+                    const valueExpr = goOptionalFieldNeedsDereference(goType) ? `*${paramsRef}.${goField}` : `${paramsRef}.${goField}`;
+                    lines.push(`\t\t\treq["${pName}"] = ${valueExpr}`);
+                    lines.push(`\t\t}`);
+                } else {
+                    lines.push(`\t\treq["${pName}"] = ${paramsRef}.${goField}`);
+                }
+            }
+            const operationField = fields.get(paramsType)?.get("operation")?.name ?? toGoFieldName("operation");
+            lines.push(`\t\tif ${paramsRef}.${operationField} != SettingsEditOperationRemove {`);
+            lines.push(`\t\t\tif _, ok := req["value"]; !ok {`);
+            lines.push(`\t\t\t\treq["value"] = nil`);
+            lines.push(`\t\t\t}`);
+            lines.push(`\t\t}`);
             lines.push(`\t}`);
+            lines.push(`\traw, err := ${clientRef}.Request(ctx, "${method.rpcMethod}", req)`);
+        } else {
+            if (method.rpcMethod === "managedSettings.resolve") {
+                // A typed nil inside Request's any argument marshals as null, not omitted params.
+                lines.push(`\tif ${paramsRef} == nil {`);
+                lines.push(`\t\t${paramsRef} = &${paramsType}{}`);
+                lines.push(`\t}`);
+            }
+            const arg = hasParams ? paramsRef : "nil";
+            lines.push(`\traw, err := ${clientRef}.Request(ctx, "${method.rpcMethod}", ${arg})`);
         }
-        const arg = hasParams ? paramsRef : "nil";
-        lines.push(`\traw, err := ${clientRef}.Request(ctx, "${method.rpcMethod}", ${arg})`);
     }
 
     lines.push(`\tif err != nil {`);
