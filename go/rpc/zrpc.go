@@ -2191,6 +2191,100 @@ type CatalogAgentPluginCandidateProvenance struct {
 	ObservedAt string `json:"observedAt"`
 }
 
+// What installing an Agent Plugin would do, for the user to review and confirm.
+// Provisional: the catalogue install data it is built from is not final.
+// Experimental: CatalogAgentPluginInstallPlan is part of an experimental API and may change
+// or be removed.
+type CatalogAgentPluginInstallPlan struct {
+	// Canvas IDs the plugin contributes. Non-empty exactly when components include `canvas`.
+	CanvasIDs []string `json:"canvasIds"`
+	// Exact full commit ID to install, in lowercase hex. Always present when the plan has a
+	// repository source; a plan with a marketplace source carries at least one of version and
+	// commit.
+	Commit *string `json:"commit,omitempty"`
+	// Components the plugin contributes, in canonical order.
+	Components []CatalogAgentPluginComponent `json:"components"`
+	// Connectors the plugin depends on.
+	ConnectorDependencies []string `json:"connectorDependencies"`
+	// Extension IDs the plugin contributes. Non-empty exactly when components include
+	// `extension`.
+	ExtensionIDs []string `json:"extensionIds"`
+	// MCP servers the plugin depends on but does not bundle.
+	MCPDependencies []string `json:"mcpDependencies"`
+	// The plugin's name, as named in its marketplace or manifest.
+	PluginName string `json:"pluginName"`
+	// Every valid install source, in preference order: materialization, then marketplace, then
+	// repository. Each kind appears at most once.
+	Sources []CatalogAgentPluginInstallSource `json:"sources"`
+	// Exact plugin version to install. A plan with a marketplace source carries at least one of
+	// version and commit.
+	Version *string `json:"version,omitempty"`
+}
+
+// One place an Agent Plugin can install from: Agent Finder's materialisation, a
+// marketplace, or a GitHub repository. Each variant carries only its own fields.
+// Experimental: CatalogAgentPluginInstallSource is part of an experimental API and may
+// change or be removed.
+type CatalogAgentPluginInstallSource interface {
+	catalogAgentPluginInstallSource()
+	Kind() CatalogAgentPluginInstallSourceKind
+}
+
+type RawCatalogAgentPluginInstallSourceData struct {
+	Discriminator CatalogAgentPluginInstallSourceKind
+	Raw           json.RawMessage
+}
+
+func (RawCatalogAgentPluginInstallSourceData) catalogAgentPluginInstallSource() {}
+func (r RawCatalogAgentPluginInstallSourceData) Kind() CatalogAgentPluginInstallSourceKind {
+	return r.Discriminator
+}
+
+// A plugin marketplace named by verified catalogue install data, installed as
+// `pluginName@name`.
+// Experimental: CatalogAgentPluginMarketplaceSource is part of an experimental API and may
+// change or be removed.
+type CatalogAgentPluginMarketplaceSource struct {
+	// Marketplace name.
+	Name string `json:"name"`
+	// Canonical lowercase GitHub owner/repository hosting the marketplace.
+	Repository string `json:"repository"`
+}
+
+func (CatalogAgentPluginMarketplaceSource) catalogAgentPluginInstallSource() {}
+func (CatalogAgentPluginMarketplaceSource) Kind() CatalogAgentPluginInstallSourceKind {
+	return CatalogAgentPluginInstallSourceKindMarketplace
+}
+
+// Agent Finder's verified materialisation of the plugin. Present only when the candidate
+// carries a complete materialisation reference; the reference itself stays runtime-private.
+// Experimental: CatalogAgentPluginMaterializationSource is part of an experimental API and
+// may change or be removed.
+type CatalogAgentPluginMaterializationSource struct {
+}
+
+func (CatalogAgentPluginMaterializationSource) catalogAgentPluginInstallSource() {}
+func (CatalogAgentPluginMaterializationSource) Kind() CatalogAgentPluginInstallSourceKind {
+	return CatalogAgentPluginInstallSourceKindMaterialization
+}
+
+// A GitHub repository holding the plugin, installed directly as `owner/repo[:path]` at the
+// plan's commit, without a marketplace.
+// Experimental: CatalogAgentPluginRepositorySource is part of an experimental API and may
+// change or be removed.
+type CatalogAgentPluginRepositorySource struct {
+	// Relative POSIX path of the plugin directory in the repository. Omitted when the plugin is
+	// at the repository root.
+	Path *string `json:"path,omitempty"`
+	// Canonical lowercase GitHub owner/repository holding the plugin.
+	Repository string `json:"repository"`
+}
+
+func (CatalogAgentPluginRepositorySource) catalogAgentPluginInstallSource() {}
+func (CatalogAgentPluginRepositorySource) Kind() CatalogAgentPluginInstallSourceKind {
+	return CatalogAgentPluginInstallSourceKindRepository
+}
+
 // Where and when an AI skill catalog reference was observed. Discovery provenance
 // deliberately carries no content digest because search does not establish the exact
 // validated content a later plan will bind.
@@ -2245,6 +2339,13 @@ type CatalogAgentPluginCandidate struct {
 	// Validated, normalised catalogue resource URN. This identity comes only from the catalog
 	// identifier and is never inferred from display text or installed-plugin state.
 	Identity string `json:"identity"`
+	// Whether this plugin can be installed in the selected session. Present only when the
+	// caller requires the agent-plugin-confirmed-installation capability.
+	Installability *CatalogAgentPluginInstallability `json:"installability,omitempty"`
+	// Reviewable install plan built only from verified catalogue install data. Present exactly
+	// when installability is `installable`; the runtime never derives it from the repository
+	// source, display text, or identity.
+	InstallPlan *CatalogAgentPluginInstallPlan `json:"installPlan,omitempty"`
 	// Media type naming the plugin's format.
 	MediaType CatalogAgentPluginMediaType `json:"mediaType"`
 	// Where the Agent Plugin catalog reference was observed, without its descriptor, URL, raw
@@ -2416,6 +2517,28 @@ type CatalogClientContract struct {
 	// does not promise that a deployment has enabled the operation; typed unavailable results
 	// report that separately.
 	RequiredCapabilities []string `json:"requiredCapabilities"`
+}
+
+// An Agent Finder materialisation reference pinning one exact resource revision.
+//
+// It carries no origin or URL: the runtime always builds the descriptor URL on its fixed
+// Agent
+// Finder authority. It carries no display data either; every reviewed field comes from the
+// verified descriptor and Skill files.
+// Experimental: CatalogMaterializationReference is part of an experimental API and may
+// change or be removed.
+type CatalogMaterializationReference struct {
+	// Expected `sha256:<lowercase hex>` digest of the descriptor's bundle manifest.
+	BundleDigest string `json:"bundleDigest"`
+	// Expected `sha256:<lowercase hex>` digest of the canonical descriptor.
+	DescriptorDigest string `json:"descriptorDigest"`
+	// Agent Finder resource identifier, a positive decimal integer.
+	ResourceID string `json:"resourceId"`
+	// Agent Finder materialisation revision identifier, a positive decimal integer. This is not
+	// a Git commit.
+	RevisionID string `json:"revisionId"`
+	// Materialisation descriptor schema version, currently `1.0.0`.
+	SchemaVersion string `json:"schemaVersion"`
 }
 
 // Where and when an MCP server catalog reference was observed. Discovery provenance
@@ -3776,6 +3899,26 @@ type ContentExclusionPathCheck struct {
 	Excluded bool `json:"excluded"`
 	// The path supplied by the caller.
 	Path string `json:"path"`
+}
+
+// Candidate content-exclusion policies to validate, as the raw JSON text a host received.
+// The text is supplied unparsed so that a syntax error and a schema violation are both
+// reported by the runtime's own validator rather than by the caller's JSON parser.
+// Experimental: ContentExclusionValidatePoliciesRequest is part of an experimental API and
+// may change or be removed.
+type ContentExclusionValidatePoliciesRequest struct {
+	// Unparsed JSON text expected to hold an array of content-exclusion policies.
+	PoliciesJSON string `json:"policiesJson"`
+}
+
+// The accepted policies, parsed and normalized. A rejected input is reported as an error
+// rather than in this result.
+// Experimental: ContentExclusionValidatePoliciesResult is part of an experimental API and
+// may change or be removed.
+type ContentExclusionValidatePoliciesResult struct {
+	// Validated policy objects in input order. Raw JSON preserves every field returned by the
+	// runtime's policy parser.
+	Policies []any `json:"policies"`
 }
 
 // A single large message currently in context.
@@ -18331,6 +18474,12 @@ type SessionOpenOptions struct {
 	InstructionDirectories []string `json:"instructionDirectories,omitzero"`
 	// Stable integration identifier for analytics.
 	IntegrationID *string `json:"integrationId,omitempty"`
+	// Declares that a human drives this session's conversation, enabling user-message analysis
+	// (sentiment, task completion criteria, and task analytics) for user-authored messages.
+	// Automated messages remain excluded. Defaults to false for SDK sessions. Applied when the
+	// session is created or loaded from storage; ignored when resuming a session that is
+	// already active, and for cloud sessions.
+	InteractiveUser *bool `json:"interactiveUser,omitempty"`
 	// Whether experimental behavior is enabled.
 	IsExperimentalMode *bool `json:"isExperimentalMode,omitempty"`
 	// Whether interactive shell sessions are logged.
@@ -20938,6 +21087,20 @@ type SkillInstallPlan struct {
 type SkillList struct {
 	// Available skills
 	Skills []Skill `json:"skills"`
+}
+
+// Side-effect-free planning of one Skill from a materialisation reference rather than a
+// search candidate.
+// Experimental: SkillPlanInstallFromReferenceRequest is part of an experimental API and may
+// change or be removed.
+type SkillPlanInstallFromReferenceRequest struct {
+	// Required authenticated bound catalogue, skill-confirmed-installation and
+	// skill-reference-installation capabilities.
+	Contract CatalogClientContract `json:"contract"`
+	// Existing local session attached to this connection.
+	PolicySessionID string `json:"policySessionId"`
+	// Materialisation reference to verify and plan.
+	Reference CatalogMaterializationReference `json:"reference"`
 }
 
 // Side-effect-free planning of one verified Agent Finder Skill candidate.
@@ -25436,6 +25599,78 @@ const (
 	CatalogAgentPluginCompatibilityTagGitHubCopilot CatalogAgentPluginCompatibilityTag = "github-copilot"
 )
 
+// A kind of component an Agent Plugin contributes
+// Experimental: CatalogAgentPluginComponent is part of an experimental API and may change
+// or be removed.
+type CatalogAgentPluginComponent string
+
+const (
+	// Custom agents.
+	CatalogAgentPluginComponentAgent CatalogAgentPluginComponent = "agent"
+	// Canvases.
+	CatalogAgentPluginComponentCanvas CatalogAgentPluginComponent = "canvas"
+	// Slash commands.
+	CatalogAgentPluginComponentCommand CatalogAgentPluginComponent = "command"
+	// Extensions.
+	CatalogAgentPluginComponentExtension CatalogAgentPluginComponent = "extension"
+	// Hooks.
+	CatalogAgentPluginComponentHook CatalogAgentPluginComponent = "hook"
+	// Bundled LSP servers.
+	CatalogAgentPluginComponentLspServer CatalogAgentPluginComponent = "lsp-server"
+	// Bundled MCP servers.
+	CatalogAgentPluginComponentMCPServer CatalogAgentPluginComponent = "mcp-server"
+	// Skills.
+	CatalogAgentPluginComponentSkill CatalogAgentPluginComponent = "skill"
+)
+
+// Typed installability state for an Agent Plugin candidate
+// Experimental: CatalogAgentPluginInstallability is part of an experimental API and may
+// change or be removed.
+type CatalogAgentPluginInstallability string
+
+const (
+	// Plugin installation is understood but disabled for the selected session.
+	CatalogAgentPluginInstallabilityFeatureDisabled CatalogAgentPluginInstallability = "feature-disabled"
+	// The candidate carries complete, verified install data and the selected session may
+	// install it. Its install plan is present.
+	CatalogAgentPluginInstallabilityInstallable CatalogAgentPluginInstallability = "installable"
+	// The catalogue supplied no complete, verified install data, so no install target is
+	// offered.
+	CatalogAgentPluginInstallabilityInstallDataUnavailable CatalogAgentPluginInstallability = "install-data-unavailable"
+	// Reserved for plugin formats this runtime cannot install. Every format surfaced today
+	// installs through a marketplace.
+	CatalogAgentPluginInstallabilityNotInstallableKind CatalogAgentPluginInstallability = "not-installable-kind"
+)
+
+// Kind discriminator for CatalogAgentPluginInstallSource.
+type CatalogAgentPluginInstallSourceKind string
+
+const (
+	CatalogAgentPluginInstallSourceKindMarketplace     CatalogAgentPluginInstallSourceKind = "marketplace"
+	CatalogAgentPluginInstallSourceKindMaterialization CatalogAgentPluginInstallSourceKind = "materialization"
+	CatalogAgentPluginInstallSourceKindRepository      CatalogAgentPluginInstallSourceKind = "repository"
+)
+
+// Discriminator for a marketplace install source
+// Experimental: CatalogAgentPluginMarketplaceSourceKind is part of an experimental API and
+// may change or be removed.
+type CatalogAgentPluginMarketplaceSourceKind string
+
+const (
+	// Install from a plugin marketplace.
+	CatalogAgentPluginMarketplaceSourceKindMarketplace CatalogAgentPluginMarketplaceSourceKind = "marketplace"
+)
+
+// Discriminator for a materialisation install source
+// Experimental: CatalogAgentPluginMaterializationSourceKind is part of an experimental API
+// and may change or be removed.
+type CatalogAgentPluginMaterializationSourceKind string
+
+const (
+	// Install from Agent Finder's verified materialisation.
+	CatalogAgentPluginMaterializationSourceKindMaterialization CatalogAgentPluginMaterializationSourceKind = "materialization"
+)
+
 // Media type naming the plugin format of an Agent Plugin candidate. Values other than
 // `application/vnd.github.copilot-plugin` appear only when the caller requires the
 // agent-plugin-formats capability.
@@ -25450,6 +25685,16 @@ const (
 	CatalogAgentPluginMediaTypeApplicationVndAnthropicClaudePluginJSON CatalogAgentPluginMediaType = "application/vnd.anthropic.claude-plugin+json"
 	// A GitHub Copilot Agent Plugin descriptor.
 	CatalogAgentPluginMediaTypeApplicationVndGitHubCopilotPlugin CatalogAgentPluginMediaType = "application/vnd.github.copilot-plugin"
+)
+
+// Discriminator for a repository install source
+// Experimental: CatalogAgentPluginRepositorySourceKind is part of an experimental API and
+// may change or be removed.
+type CatalogAgentPluginRepositorySourceKind string
+
+const (
+	// Install directly from a GitHub repository.
+	CatalogAgentPluginRepositorySourceKindRepository CatalogAgentPluginRepositorySourceKind = "repository"
 )
 
 // Discriminator for an AI skill candidate
@@ -25535,6 +25780,11 @@ const (
 type CatalogCapability string
 
 const (
+	// Understands `installability` and the reviewable `installPlan` on Agent Plugin candidates.
+	// Requires agent-plugin-discovery; without it, plugin candidates are unchanged. A plugin is
+	// installable only with complete, verified catalogue install data, and may still be
+	// reported as feature-disabled per selected session.
+	CatalogCapabilityAgentPluginConfirmedInstallation CatalogCapability = "agent-plugin-confirmed-installation"
 	// Understands opt-in `application/vnd.github.copilot-plugin` candidates and their typed
 	// identity, version, source, and compatibility fields.
 	CatalogCapabilityAgentPluginDiscovery CatalogCapability = "agent-plugin-discovery"
@@ -25590,6 +25840,11 @@ const (
 	// installation engine linked; acquisition may still be refused as feature-disabled per
 	// selected session.
 	CatalogCapabilitySkillConfirmedInstallation CatalogCapability = "skill-confirmed-installation"
+	// Extends skill-confirmed-installation to planning from an Agent Finder materialisation
+	// reference through skills.planInstallFromReference, and to its distinct reference failure
+	// reasons. Requires skill-confirmed-installation. Advertised only by runtimes with the
+	// Skill installation engine linked.
+	CatalogCapabilitySkillReferenceInstallation CatalogCapability = "skill-reference-installation"
 	// Understands versioned candidate trust snapshots. Protocol-3 callers must require this
 	// capability before the runtime adds the optional snapshot field.
 	CatalogCapabilityTrustSnapshot CatalogCapability = "trust-snapshot"
@@ -29147,6 +29402,8 @@ const (
 	SessionCapabilityCLIDocumentation SessionCapability = "cli-documentation"
 	// SDK elicitation support.
 	SessionCapabilityElicitation SessionCapability = "elicitation"
+	// Read-only GitHub cache SQL tool (github_sql).
+	SessionCapabilityGitHubCacheStore SessionCapability = "github-cache-store"
 	// Interactive CLI identity and behavior.
 	SessionCapabilityInteractiveMode SessionCapability = "interactive-mode"
 	// MCP Apps UI passthrough.
@@ -29731,8 +29988,17 @@ const (
 	SkillInstallationFailureReasonConfirmationUnavailable SkillInstallationFailureReason = "confirmation-unavailable"
 	// The verified Skill descriptor failed validation.
 	SkillInstallationFailureReasonDescriptorInvalid SkillInstallationFailureReason = "descriptor-invalid"
+	// Agent Finder has no materialisation for the referenced resource revision (HTTP 404).
+	// Returned only to callers that require skill-reference-installation.
+	SkillInstallationFailureReasonDescriptorNotFound SkillInstallationFailureReason = "descriptor-not-found"
 	// The verified Skill descriptor could not be retrieved safely.
 	SkillInstallationFailureReasonDescriptorUnavailable SkillInstallationFailureReason = "descriptor-unavailable"
+	// Agent Finder withdrew the referenced resource revision (HTTP 410). Returned only to
+	// callers that require skill-reference-installation.
+	SkillInstallationFailureReasonDescriptorWithdrawn SkillInstallationFailureReason = "descriptor-withdrawn"
+	// The retrieved descriptor does not match the referenced descriptor or bundle digest.
+	// Returned only to callers that require skill-reference-installation.
+	SkillInstallationFailureReasonDigestMismatch SkillInstallationFailureReason = "digest-mismatch"
 	// The Skill entrypoint could not be retrieved or verified.
 	SkillInstallationFailureReasonEntrypointUnavailable SkillInstallationFailureReason = "entrypoint-unavailable"
 	// The handle or operation expired.
@@ -29744,6 +30010,9 @@ const (
 	SkillInstallationFailureReasonForeignRuntime SkillInstallationFailureReason = "foreign-runtime"
 	// The candidate handle is not a verified installable Skill candidate.
 	SkillInstallationFailureReasonInvalidCandidate SkillInstallationFailureReason = "invalid-candidate"
+	// The materialisation reference is malformed or uses an unsupported schema version.
+	// Returned only to callers that require skill-reference-installation.
+	SkillInstallationFailureReasonInvalidReference SkillInstallationFailureReason = "invalid-reference"
 	// The request is unsupported or malformed.
 	SkillInstallationFailureReasonInvalidRequest SkillInstallationFailureReason = "invalid-request"
 	// The Skill entrypoint is not a valid Skill.
@@ -29774,6 +30043,9 @@ const (
 	SkillInstallationFailureReasonSearchMismatch SkillInstallationFailureReason = "search-mismatch"
 	// The retained Skill source changed after planning.
 	SkillInstallationFailureReasonSourceChanged SkillInstallationFailureReason = "source-changed"
+	// The referenced resource is not a Skill. Returned only to callers that require
+	// skill-reference-installation.
+	SkillInstallationFailureReasonUnsupportedResource SkillInstallationFailureReason = "unsupported-resource"
 	// A storage operation failed; inspect durable state before retrying.
 	SkillInstallationFailureReasonWriteFailed SkillInstallationFailureReason = "write-failed"
 	// The handle is not the expected Skill handle kind.
@@ -30871,6 +31143,39 @@ func (a *ServerConnectorsAPI) Refresh(ctx context.Context, params *ConnectorDisc
 		return nil, err
 	}
 	var result ConnectorDiscoveryCatalogResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Experimental: ServerContentExclusionAPI contains experimental APIs that may change or be
+// removed.
+type ServerContentExclusionAPI serverAPI
+
+// ValidatePolicies validates candidate content-exclusion policies and returns them
+// normalized, without starting a session. This runs the same parser the runtime's own
+// policy enforcement uses, so a host cannot accept a policy set the runtime would later
+// reject, nor reject one it would have honored. Call it when policies arrive from outside
+// the runtime — a command-line flag, a configuration file, a host's own settings — and must
+// be checked before a session exists to apply them to. A malformed document fails with a
+// message prefixed `Invalid JSON: `; a well-formed document that violates the policy schema
+// fails with the offending field paths.
+//
+// RPC method: contentExclusion.validatePolicies.
+//
+// Parameters: Candidate content-exclusion policies to validate, as the raw JSON text a host
+// received. The text is supplied unparsed so that a syntax error and a schema violation are
+// both reported by the runtime's own validator rather than by the caller's JSON parser.
+//
+// Returns: The accepted policies, parsed and normalized. A rejected input is reported as an
+// error rather than in this result.
+func (a *ServerContentExclusionAPI) ValidatePolicies(ctx context.Context, params *ContentExclusionValidatePoliciesRequest) (*ContentExclusionValidatePoliciesResult, error) {
+	raw, err := a.client.Request(ctx, "contentExclusion.validatePolicies", params)
+	if err != nil {
+		return nil, err
+	}
+	var result ContentExclusionValidatePoliciesResult
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, err
 	}
@@ -33002,6 +33307,31 @@ func (a *ServerSkillsAPI) PlanInstall(ctx context.Context, params *SkillPlanInst
 	return result, nil
 }
 
+// PlanInstallFromReference plans installation of the Skill pinned by an Agent Finder
+// materialisation reference without writing files. The runtime retrieves the descriptor
+// only from its fixed Agent Finder authority and applies the same verification as
+// skills.planInstall; the review shows only verified data. Apply the returned plan with
+// skills.applyInstall.
+//
+// RPC method: skills.planInstallFromReference.
+//
+// Parameters: Side-effect-free planning of one Skill from a materialisation reference
+// rather than a search candidate.
+//
+// Returns: Skill installation management result with the honoured contract, or a typed
+// refusal.
+func (a *ServerSkillsAPI) PlanInstallFromReference(ctx context.Context, params *SkillPlanInstallFromReferenceRequest) (SkillInstallationManagementResult, error) {
+	raw, err := a.client.Request(ctx, "skills.planInstallFromReference", params)
+	if err != nil {
+		return nil, err
+	}
+	result, err := unmarshalSkillInstallationManagementResult(raw)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // PlanUninstall prepares a read-only removal plan for an owned verified Agent Finder Skill
 // installation. Uninstall planning is never gated by the Skill-install feature flag.
 //
@@ -33268,30 +33598,31 @@ type ServerRPC struct {
 	// Reuse a single struct instead of allocating one for each service on the heap.
 	common serverAPI
 
-	Account         *ServerAccountAPI
-	AgentRegistry   *ServerAgentRegistryAPI
-	Agents          *ServerAgentsAPI
-	Catalog         *ServerCatalogAPI
-	Commands        *ServerCommandsAPI
-	Connectors      *ServerConnectorsAPI
-	Environments    *ServerEnvironmentsAPI
-	Extensions      *ServerExtensionsAPI
-	Hooks           *ServerHooksAPI
-	Host            *ServerHostAPI
-	Instructions    *ServerInstructionsAPI
-	LlmInference    *ServerLlmInferenceAPI
-	ManagedSettings *ServerManagedSettingsAPI
-	MCP             *ServerMCPAPI
-	Models          *ServerModelsAPI
-	Plugins         *ServerPluginsAPI
-	Runtime         *ServerRuntimeAPI
-	Sandbox         *ServerSandboxAPI
-	Secrets         *ServerSecretsAPI
-	SessionFS       *ServerSessionFSAPI
-	Sessions        *ServerSessionsAPI
-	Skills          *ServerSkillsAPI
-	Tools           *ServerToolsAPI
-	User            *ServerUserAPI
+	Account          *ServerAccountAPI
+	AgentRegistry    *ServerAgentRegistryAPI
+	Agents           *ServerAgentsAPI
+	Catalog          *ServerCatalogAPI
+	Commands         *ServerCommandsAPI
+	Connectors       *ServerConnectorsAPI
+	ContentExclusion *ServerContentExclusionAPI
+	Environments     *ServerEnvironmentsAPI
+	Extensions       *ServerExtensionsAPI
+	Hooks            *ServerHooksAPI
+	Host             *ServerHostAPI
+	Instructions     *ServerInstructionsAPI
+	LlmInference     *ServerLlmInferenceAPI
+	ManagedSettings  *ServerManagedSettingsAPI
+	MCP              *ServerMCPAPI
+	Models           *ServerModelsAPI
+	Plugins          *ServerPluginsAPI
+	Runtime          *ServerRuntimeAPI
+	Sandbox          *ServerSandboxAPI
+	Secrets          *ServerSecretsAPI
+	SessionFS        *ServerSessionFSAPI
+	Sessions         *ServerSessionsAPI
+	Skills           *ServerSkillsAPI
+	Tools            *ServerToolsAPI
+	User             *ServerUserAPI
 }
 
 // Ping checks server responsiveness and returns protocol information.
@@ -33343,6 +33674,7 @@ func NewServerRPC(client *jsonrpc2.Client) *ServerRPC {
 	r.Catalog = (*ServerCatalogAPI)(&r.common)
 	r.Commands = (*ServerCommandsAPI)(&r.common)
 	r.Connectors = (*ServerConnectorsAPI)(&r.common)
+	r.ContentExclusion = (*ServerContentExclusionAPI)(&r.common)
 	r.Environments = (*ServerEnvironmentsAPI)(&r.common)
 	r.Extensions = (*ServerExtensionsAPI)(&r.common)
 	r.Hooks = (*ServerHooksAPI)(&r.common)

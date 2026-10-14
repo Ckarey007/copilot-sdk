@@ -1,6 +1,7 @@
 package copilot
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -645,6 +646,9 @@ type AutoModeSwitchRequestHandler func(request AutoModeSwitchRequest, invocation
 
 // PreToolUseHookInput is the input for a pre-tool-use hook
 type PreToolUseHookInput struct {
+	AgentID          string    `json:"agentId,omitempty"`
+	AgentType        string    `json:"agentType,omitempty"`
+	ParentAgentID    string    `json:"parentAgentId,omitempty"`
 	SessionID        string    `json:"sessionId"`
 	Timestamp        time.Time `json:"-"`
 	WorkingDirectory string    `json:"cwd"`
@@ -689,6 +693,9 @@ type PreToolUseHandler func(input PreToolUseHookInput, invocation HookInvocation
 
 // PostToolUseHookInput is the input for a post-tool-use hook
 type PostToolUseHookInput struct {
+	AgentID          string    `json:"agentId,omitempty"`
+	AgentType        string    `json:"agentType,omitempty"`
+	ParentAgentID    string    `json:"parentAgentId,omitempty"`
 	SessionID        string    `json:"sessionId"`
 	Timestamp        time.Time `json:"-"`
 	WorkingDirectory string    `json:"cwd"`
@@ -736,6 +743,9 @@ type PostToolUseHandler func(input PostToolUseHookInput, invocation HookInvocati
 // the failure message from the tool result and passes it as the Error field
 // (rather than passing the full result object).
 type PostToolUseFailureHookInput struct {
+	AgentID          string    `json:"agentId,omitempty"`
+	AgentType        string    `json:"agentType,omitempty"`
+	ParentAgentID    string    `json:"parentAgentId,omitempty"`
 	SessionID        string    `json:"sessionId"`
 	Timestamp        time.Time `json:"-"`
 	WorkingDirectory string    `json:"cwd"`
@@ -781,6 +791,9 @@ type PostToolUseFailureHandler func(input PostToolUseFailureHookInput, invocatio
 
 // UserPromptSubmittedHookInput is the input for a user-prompt-submitted hook
 type UserPromptSubmittedHookInput struct {
+	AgentID          string    `json:"agentId,omitempty"`
+	AgentType        string    `json:"agentType,omitempty"`
+	ParentAgentID    string    `json:"parentAgentId,omitempty"`
 	SessionID        string    `json:"sessionId"`
 	Timestamp        time.Time `json:"-"`
 	WorkingDirectory string    `json:"cwd"`
@@ -822,6 +835,9 @@ type UserPromptSubmittedHandler func(input UserPromptSubmittedHookInput, invocat
 
 // UserPromptTransformedHookInput is the input for a user-prompt-transformed hook.
 type UserPromptTransformedHookInput struct {
+	AgentID           string    `json:"agentId,omitempty"`
+	AgentType         string    `json:"agentType,omitempty"`
+	ParentAgentID     string    `json:"parentAgentId,omitempty"`
 	SessionID         string    `json:"sessionId"`
 	Timestamp         time.Time `json:"-"`
 	WorkingDirectory  string    `json:"cwd"`
@@ -862,6 +878,9 @@ type UserPromptTransformedHandler func(input UserPromptTransformedHookInput, inv
 
 // SessionStartHookInput is the input for a session-start hook
 type SessionStartHookInput struct {
+	AgentID          string    `json:"agentId,omitempty"`
+	AgentType        string    `json:"agentType,omitempty"`
+	ParentAgentID    string    `json:"parentAgentId,omitempty"`
 	SessionID        string    `json:"sessionId"`
 	Timestamp        time.Time `json:"-"`
 	WorkingDirectory string    `json:"cwd"`
@@ -903,6 +922,9 @@ type SessionStartHandler func(input SessionStartHookInput, invocation HookInvoca
 
 // SessionEndHookInput is the input for a session-end hook
 type SessionEndHookInput struct {
+	AgentID          string    `json:"agentId,omitempty"`
+	AgentType        string    `json:"agentType,omitempty"`
+	ParentAgentID    string    `json:"parentAgentId,omitempty"`
 	SessionID        string    `json:"sessionId"`
 	Timestamp        time.Time `json:"-"`
 	WorkingDirectory string    `json:"cwd"`
@@ -920,17 +942,24 @@ func (h SessionEndHookInput) MarshalJSON() ([]byte, error) {
 	}{Timestamp: h.Timestamp.UnixMilli(), alias: alias(h)})
 }
 
-// UnmarshalJSON implements json.Unmarshaler, parsing Timestamp from Unix milliseconds.
+// UnmarshalJSON implements json.Unmarshaler, parsing Timestamp from Unix milliseconds
+// and Error from the CLI's error object (see hookErrorText).
 func (h *SessionEndHookInput) UnmarshalJSON(data []byte) error {
 	type alias SessionEndHookInput
 	aux := &struct {
-		Timestamp int64 `json:"timestamp"`
+		Timestamp int64           `json:"timestamp"`
+		Error     json.RawMessage `json:"error"`
 		*alias
 	}{alias: (*alias)(h)}
 	if err := json.Unmarshal(data, aux); err != nil {
 		return err
 	}
 	h.Timestamp = time.UnixMilli(aux.Timestamp)
+	errorText, err := hookErrorText(aux.Error)
+	if err != nil {
+		return err
+	}
+	h.Error = errorText
 	return nil
 }
 
@@ -946,6 +975,9 @@ type SessionEndHandler func(input SessionEndHookInput, invocation HookInvocation
 
 // ErrorOccurredHookInput is the input for an error-occurred hook
 type ErrorOccurredHookInput struct {
+	AgentID          string    `json:"agentId,omitempty"`
+	AgentType        string    `json:"agentType,omitempty"`
+	ParentAgentID    string    `json:"parentAgentId,omitempty"`
 	SessionID        string    `json:"sessionId"`
 	Timestamp        time.Time `json:"-"`
 	WorkingDirectory string    `json:"cwd"`
@@ -963,18 +995,60 @@ func (h ErrorOccurredHookInput) MarshalJSON() ([]byte, error) {
 	}{Timestamp: h.Timestamp.UnixMilli(), alias: alias(h)})
 }
 
-// UnmarshalJSON implements json.Unmarshaler, parsing Timestamp from Unix milliseconds.
+// UnmarshalJSON implements json.Unmarshaler, parsing Timestamp from Unix milliseconds
+// and Error from the CLI's error object (see hookErrorText).
 func (h *ErrorOccurredHookInput) UnmarshalJSON(data []byte) error {
 	type alias ErrorOccurredHookInput
 	aux := &struct {
-		Timestamp int64 `json:"timestamp"`
+		Timestamp int64           `json:"timestamp"`
+		Error     json.RawMessage `json:"error"`
 		*alias
 	}{alias: (*alias)(h)}
 	if err := json.Unmarshal(data, aux); err != nil {
 		return err
 	}
 	h.Timestamp = time.UnixMilli(aux.Timestamp)
+	errorText, err := hookErrorText(aux.Error)
+	if err != nil {
+		return err
+	}
+	h.Error = errorText
 	return nil
+}
+
+// hookErrorText decodes the error of an errorOccurred or sessionEnd hook input.
+// The CLI sends an error object ({"name", "message", "stack"} or {"message"}):
+// its message becomes the error text, and an object without a string message
+// becomes its compact JSON. A string passes through, and null or an absent
+// error leaves the text empty.
+func hookErrorText(raw json.RawMessage) (string, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return "", nil
+	}
+	if raw[0] == '{' {
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &object); err != nil {
+			return "", err
+		}
+		if message := bytes.TrimSpace(object["message"]); len(message) > 0 && message[0] == '"' {
+			var text string
+			if err := json.Unmarshal(message, &text); err != nil {
+				return "", err
+			}
+			return text, nil
+		}
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, raw); err != nil {
+			return "", err
+		}
+		return compact.String(), nil
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return "", err
+	}
+	return text, nil
 }
 
 // ErrorOccurredHookOutput is the output for an error-occurred hook
@@ -990,6 +1064,9 @@ type ErrorOccurredHandler func(input ErrorOccurredHookInput, invocation HookInvo
 
 // AgentStopHookInput is the input for an agent-stop hook.
 type AgentStopHookInput struct {
+	AgentID          string    `json:"agentId,omitempty"`
+	AgentType        string    `json:"agentType,omitempty"`
+	ParentAgentID    string    `json:"parentAgentId,omitempty"`
 	SessionID        string    `json:"sessionId"`
 	Timestamp        time.Time `json:"-"`
 	WorkingDirectory string    `json:"cwd"`
@@ -1032,6 +1109,9 @@ type AgentStopHandler func(input AgentStopHookInput, invocation HookInvocation) 
 
 // SubagentStartHookInput is the input before a subagent's first turn.
 type SubagentStartHookInput struct {
+	AgentID          string    `json:"agentId,omitempty"`
+	AgentType        string    `json:"agentType,omitempty"`
+	ParentAgentID    string    `json:"parentAgentId,omitempty"`
 	SessionID        string    `json:"sessionId"`
 	Timestamp        time.Time `json:"-"`
 	WorkingDirectory string    `json:"cwd"`
@@ -1074,6 +1154,7 @@ type SubagentStartHandler func(input SubagentStartHookInput, invocation HookInvo
 
 // SubagentStopHookInput is the input after a subagent completes a turn.
 type SubagentStopHookInput struct {
+	ParentAgentID    string    `json:"parentAgentId,omitempty"`
 	SessionID        string    `json:"sessionId"`
 	Timestamp        time.Time `json:"-"`
 	WorkingDirectory string    `json:"cwd"`
@@ -1124,6 +1205,9 @@ type SubagentStopHandler func(input SubagentStopHookInput, invocation HookInvoca
 
 // PreMCPToolCallHookInput is the input for a pre-mcp-tool-call hook
 type PreMCPToolCallHookInput struct {
+	AgentID          string    `json:"agentId,omitempty"`
+	AgentType        string    `json:"agentType,omitempty"`
+	ParentAgentID    string    `json:"parentAgentId,omitempty"`
 	SessionID        string    `json:"sessionId"`
 	Timestamp        time.Time `json:"-"`
 	WorkingDirectory string    `json:"cwd"`
@@ -1536,6 +1620,11 @@ type SessionConfig struct {
 	// and retrieval. When false, session content is not written to or read from the
 	// shared session store.
 	EnableSessionStore *bool
+	// EnableGitHubCacheStore, when true, requests the read-only GitHub cache store
+	// (the github-cache-store capability). The runtime registers the github_sql
+	// tool only when its GITHUB_CACHE_STORE feature flag is also on. Defaults to
+	// disabled.
+	EnableGitHubCacheStore *bool
 	// EnableSkills, when non-nil, controls skill loading (including builtin skills
 	// and discovered skill directories). When false, no skills are loaded regardless
 	// of SkillDirectories or EnableConfigDiscovery settings.
@@ -1849,6 +1938,11 @@ type SessionConfig struct {
 	// controls for this session. Conflicting changes are rejected; overridable
 	// managed defaults remain mutable.
 	EnforceManagedModelDefaults *bool
+	// InteractiveUser declares that a human drives this session's conversation,
+	// enabling user-message analysis telemetry for user-authored messages.
+	// Automated messages remain excluded. Defaults to false for SDK sessions.
+	// Ignored for cloud sessions.
+	InteractiveUser *bool
 	// ManagedSettings supplies host-injected enterprise managed settings for
 	// the session. Unlike EnableManagedSettings (which asks the runtime to
 	// self-fetch account/org and device policy), this provides the managed
@@ -2269,6 +2363,11 @@ type ResumeSessionConfig struct {
 	// EnableSessionStore, when non-nil, controls the cross-session store for search
 	// and retrieval across sessions.
 	EnableSessionStore *bool
+	// EnableGitHubCacheStore, when true, requests the read-only GitHub cache store
+	// (the github-cache-store capability). The runtime registers the github_sql
+	// tool only when its GITHUB_CACHE_STORE feature flag is also on. Defaults to
+	// disabled.
+	EnableGitHubCacheStore *bool
 	// EnableSkills, when non-nil, controls skill loading.
 	EnableSkills *bool
 	// Streaming enables streaming of assistant message and reasoning chunks.
@@ -2451,6 +2550,9 @@ type ResumeSessionConfig struct {
 	// EnforceManagedModelDefaults re-applies managed model lock enforcement on
 	// resume. See SessionConfig.EnforceManagedModelDefaults.
 	EnforceManagedModelDefaults *bool
+	// InteractiveUser re-supplies that a human drives this session. It is not
+	// persisted and is ignored if the session is already active in the runtime.
+	InteractiveUser *bool
 	// ManagedSettings re-injects host-provided managed settings on resume. See
 	// SessionConfig.ManagedSettings. It must be re-supplied on resume: it
 	// replaces the prior injected layer, and omitting it clears that layer so
@@ -2956,6 +3058,7 @@ type createSessionRequest struct {
 	EnableFileHooks                    *bool                                  `json:"enableFileHooks,omitempty"`
 	EnableHostGitOperations            *bool                                  `json:"enableHostGitOperations,omitempty"`
 	EnableSessionStore                 *bool                                  `json:"enableSessionStore,omitempty"`
+	EnableGitHubCacheStore             *bool                                  `json:"enableGitHubCacheStore,omitempty"`
 	EnableSkills                       *bool                                  `json:"enableSkills,omitempty"`
 	HasSkillProvider                   *bool                                  `json:"hasSkillProvider,omitempty"`
 	SkillDirectories                   []string                               `json:"skillDirectories,omitzero"`
@@ -2988,6 +3091,7 @@ type createSessionRequest struct {
 	FeatureFlags                       *map[string]bool                       `json:"featureFlags,omitempty"`
 	EnableManagedSettings              *bool                                  `json:"enableManagedSettings,omitempty"`
 	EnforceManagedModelDefaults        *bool                                  `json:"enforceManagedModelDefaults,omitempty"`
+	InteractiveUser                    *bool                                  `json:"interactiveUser,omitempty"`
 	ManagedSettings                    *ManagedSettings                       `json:"managedSettings,omitempty"`
 	Traceparent                        string                                 `json:"traceparent,omitempty"`
 	Tracestate                         string                                 `json:"tracestate,omitempty"`
@@ -3051,6 +3155,7 @@ type resumeSessionRequest struct {
 	EnableFileHooks                    *bool                                  `json:"enableFileHooks,omitempty"`
 	EnableHostGitOperations            *bool                                  `json:"enableHostGitOperations,omitempty"`
 	EnableSessionStore                 *bool                                  `json:"enableSessionStore,omitempty"`
+	EnableGitHubCacheStore             *bool                                  `json:"enableGitHubCacheStore,omitempty"`
 	EnableSkills                       *bool                                  `json:"enableSkills,omitempty"`
 	HasSkillProvider                   *bool                                  `json:"hasSkillProvider,omitempty"`
 	DisableResume                      *bool                                  `json:"disableResume,omitempty"`
@@ -3097,6 +3202,7 @@ type resumeSessionRequest struct {
 	FeatureFlags                       *map[string]bool                       `json:"featureFlags,omitempty"`
 	EnableManagedSettings              *bool                                  `json:"enableManagedSettings,omitempty"`
 	EnforceManagedModelDefaults        *bool                                  `json:"enforceManagedModelDefaults,omitempty"`
+	InteractiveUser                    *bool                                  `json:"interactiveUser,omitempty"`
 	ManagedSettings                    *ManagedSettings                       `json:"managedSettings,omitempty"`
 	Traceparent                        string                                 `json:"traceparent,omitempty"`
 	Tracestate                         string                                 `json:"tracestate,omitempty"`

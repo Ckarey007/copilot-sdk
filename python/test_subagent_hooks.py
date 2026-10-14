@@ -1,6 +1,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 
 from datetime import UTC, datetime
+from typing import NotRequired, get_origin, get_type_hints
 
 import pytest
 
@@ -11,7 +12,50 @@ from copilot import (
     SubagentStopHookInput,
     SubagentStopHookOutput,
 )
+from copilot import session as session_types
 from copilot.session import CopilotSession
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("hook", "handler", "input_type"),
+    [
+        ("preToolUse", "on_pre_tool_use", "PreToolUseHookInput"),
+        ("preMcpToolCall", "on_pre_mcp_tool_call", "PreMcpToolCallHookInput"),
+        ("postToolUse", "on_post_tool_use", "PostToolUseHookInput"),
+        ("postToolUseFailure", "on_post_tool_use_failure", "PostToolUseFailureHookInput"),
+        ("userPromptSubmitted", "on_user_prompt_submitted", "UserPromptSubmittedHookInput"),
+        ("userPromptTransformed", "on_user_prompt_transformed", "UserPromptTransformedHookInput"),
+        ("sessionStart", "on_session_start", "SessionStartHookInput"),
+        ("sessionEnd", "on_session_end", "SessionEndHookInput"),
+        ("errorOccurred", "on_error_occurred", "ErrorOccurredHookInput"),
+        ("agentStop", "on_agent_stop", "AgentStopHookInput"),
+        ("subagentStart", "on_subagent_start", "SubagentStartHookInput"),
+        ("subagentStop", "on_subagent_stop", "SubagentStopHookInput"),
+    ],
+)
+@pytest.mark.parametrize("enriched", [True, False])
+async def test_typed_hook_identity_retention_and_optional_declarations(
+    hook, handler, input_type, enriched
+):
+    captured = []
+    session = CopilotSession("callback-owner", None)
+    session._register_hooks({handler: lambda data, invocation: captured.append((data, invocation))})
+    payload = {"sessionId": "reported-session", "timestamp": 1, "cwd": "work"}
+    identity = {"agentId": "child-actor", "agentType": "explore", "parentAgentId": "parent-actor"}
+    if enriched:
+        payload.update(identity)
+    await session._handle_hooks_invoke(hook, payload)
+    assert len(captured) == 1
+    data, invocation = captured[0]
+    assert invocation == {"session_id": "callback-owner"}
+    assert data["sessionId"] == "reported-session"
+    declaration = getattr(session_types, input_type)
+    for key, value in identity.items():
+        assert data.get(key) == (value if enriched else None)
+        assert key in declaration.__annotations__
+        if not (hook == "subagentStop" and key == "agentType"):
+            assert get_origin(get_type_hints(declaration, include_extras=True)[key]) is NotRequired
 
 
 @pytest.mark.asyncio

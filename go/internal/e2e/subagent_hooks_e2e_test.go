@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -55,41 +56,13 @@ func (rt *recordingForwardingTransport) RoundTrip(req *http.Request) (*http.Resp
 			record.interactionType = rctx.InteractionType
 		}
 		if record.parentAgentID != "" {
-			var payload struct {
-				Messages []struct {
-					Role    string          `json:"role"`
-					Content json.RawMessage `json:"content"`
-				} `json:"messages"`
-			}
+			var payload map[string]any
 			if err := json.Unmarshal(body, &payload); err != nil {
 				return nil, err
 			}
-			for _, message := range payload.Messages {
-				if message.Role == "user" && len(message.Content) > 0 {
-					var prompts []string
-					switch message.Content[0] {
-					case '"':
-						var prompt string
-						if err := json.Unmarshal(message.Content, &prompt); err != nil {
-							return nil, err
-						}
-						prompts = append(prompts, prompt)
-					case '[':
-						var parts []struct {
-							Text string `json:"text"`
-						}
-						if err := json.Unmarshal(message.Content, &parts); err != nil {
-							return nil, err
-						}
-						for _, part := range parts {
-							prompts = append(prompts, part.Text)
-						}
-					}
-					for _, prompt := range prompts {
-						if strings.Contains(prompt, childContext+"\n\n") {
-							record.childPrompt = prompt
-						}
-					}
+			for _, prompt := range userMessageText(payload) {
+				if strings.Contains(prompt, childContext+"\n\n") {
+					record.childPrompt = prompt
 				}
 			}
 		} else if bytes.Contains(body, []byte(stopResponsePrefix)) {
@@ -103,6 +76,62 @@ func (rt *recordingForwardingTransport) RoundTrip(req *http.Request) (*http.Resp
 		rt.mu.Unlock()
 	}
 	return rt.inner.RoundTrip(req)
+}
+
+func userMessageText(body map[string]any) []string {
+	if input, ok := body["input"].(string); ok {
+		return []string{input}
+	}
+	messages := body["messages"]
+	if messages == nil {
+		messages = body["input"]
+	}
+	items, _ := messages.([]any)
+	var texts []string
+	for _, item := range items {
+		message, ok := item.(map[string]any)
+		if !ok || message["role"] != "user" {
+			continue
+		}
+		switch content := message["content"].(type) {
+		case string:
+			texts = append(texts, content)
+		case []any:
+			for _, item := range content {
+				part, ok := item.(map[string]any)
+				if !ok || (part["type"] != "text" && part["type"] != "input_text") {
+					continue
+				}
+				if text, ok := part["text"].(string); ok {
+					texts = append(texts, text)
+				}
+			}
+		}
+	}
+	return texts
+}
+
+func TestUserMessageText(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want []string
+	}{
+		{`{"messages":[{"role":"user","content":"chat"}]}`, []string{"chat"}},
+		{`{"input":"responses"}`, []string{"responses"}},
+		{`{"input":[{"role":"user","content":"responses"}]}`, []string{"responses"}},
+		{`{"input":[{"role":"assistant","content":"ignored"},{"type":"function_call_output","output":"ignored"},{"role":"user","content":[{"type":"text","text":"chat"},{"type":"input_text","text":"responses"},{"type":"input_image","text":"ignored"},{"type":"input_text","text":42},null,"ignored"]}]}`, []string{"chat", "responses"}},
+		{`{}`, nil},
+	} {
+		t.Run(tc.body, func(t *testing.T) {
+			var body map[string]any
+			if err := json.Unmarshal([]byte(tc.body), &body); err != nil {
+				t.Fatal(err)
+			}
+			if got := userMessageText(body); !slices.Equal(got, tc.want) {
+				t.Fatalf("userMessageText() = %q, want %q", got, tc.want)
+			}
+		})
+	}
 }
 
 func (rt *recordingForwardingTransport) inferenceRecords() []subagentRequestRecord {

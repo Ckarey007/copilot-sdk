@@ -363,11 +363,10 @@ fails the job. Java uses JDK 25 on these platforms,
 plus a Linux/glibc JDK 17 compatibility job using precompiled classes.
 Merge groups retain the reduced Linux TypeScript CAPI subprocess coverage.
 
-The `sdk-typescript` required rollup checks only the Linux CAPI job, including
-its build, packaging, and applicable static checks. Other platforms, BYOK
-backends, and languages keep their existing scheduling and failure reporting;
-they do not gate this rollup. The full `SDK` aggregate still requires all
-scheduled coverage to succeed.
+`sdk-typescript` gates only the Linux CAPI subprocess job's build, packaging,
+tests, and static checks. Full TypeScript in-process E2Es run on Linux/glibc x64
+outside merge groups. They, other platforms, BYOK backends, and languages do not
+gate this rollup; the full `SDK` aggregate requires all scheduled coverage to succeed.
 
 The three BYOK backend sweeps run in separate Linux TypeScript jobs, alongside
 the normal CAPI job; they do not repeat unit tests, packaging, or static

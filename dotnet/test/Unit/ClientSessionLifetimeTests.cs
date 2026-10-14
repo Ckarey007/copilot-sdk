@@ -24,6 +24,77 @@ public sealed partial class ClientSessionLifetimeTests
 {
     private sealed record RpcRequestRecord(string Method, JsonElement Params);
 
+    [Fact]
+    public async Task TypedHookDispatch_RetainsChildIdentityAndOldRootInputs()
+    {
+        await using var server = await FakeCopilotServer.StartAsync();
+        await using var client = new CopilotClient(new CopilotClientOptions { Connection = RuntimeConnection.ForUri(server.Url) });
+        var captured = new List<object>();
+        Task<T?> Capture<T>(object input, HookInvocation invocation) where T : class
+        {
+            captured.Add(input);
+            Assert.False(string.IsNullOrEmpty(invocation.SessionId));
+            return Task.FromResult<T?>(null);
+        }
+        var hooks = new SessionHooks
+        {
+            OnPreToolUse = (i, c) => Capture<PreToolUseHookOutput>(i, c),
+            OnPreMcpToolCall = (i, c) => Capture<PreMcpToolCallHookOutput>(i, c),
+            OnPostToolUse = (i, c) => Capture<PostToolUseHookOutput>(i, c),
+            OnPostToolUseFailure = (i, c) => Capture<PostToolUseFailureHookOutput>(i, c),
+            OnUserPromptSubmitted = (i, c) => Capture<UserPromptSubmittedHookOutput>(i, c),
+            OnUserPromptTransformed = (i, c) => Capture<UserPromptTransformedHookOutput>(i, c),
+            OnSessionStart = (i, c) => Capture<SessionStartHookOutput>(i, c),
+            OnSessionEnd = (i, c) => Capture<SessionEndHookOutput>(i, c),
+            OnErrorOccurred = (i, c) => Capture<ErrorOccurredHookOutput>(i, c),
+            OnAgentStop = (i, c) => Capture<AgentStopHookOutput>(i, c),
+            OnSubagentStart = (i, c) => Capture<SubagentStartHookOutput>(i, c),
+            OnSubagentStop = (i, c) => Capture<SubagentStopHookOutput>(i, c)
+        };
+        await using var session = await client.CreateSessionAsync(new SessionConfig { Hooks = hooks });
+        foreach (var hook in new[] { "preToolUse", "preMcpToolCall", "postToolUse", "postToolUseFailure",
+            "userPromptSubmitted", "userPromptTransformed", "sessionStart", "sessionEnd", "errorOccurred",
+            "agentStop", "subagentStart", "subagentStop" })
+        {
+            foreach (var enriched in new[] { true, false })
+            {
+                var input = new Dictionary<string, object?>
+                {
+                    ["sessionId"] = "reported-session",
+                    ["timestamp"] = 1L,
+                    ["cwd"] = "work"
+                };
+                if (enriched)
+                {
+                    input["agentId"] = "child-actor";
+                    input["agentType"] = "explore";
+                    input["parentAgentId"] = "parent-actor";
+                }
+                captured.Clear();
+                await server.SendRequestAsync("hooks.invoke", new Dictionary<string, object?>
+                {
+                    ["sessionId"] = session.SessionId,
+                    ["hookType"] = hook,
+                    ["input"] = input
+                }).WaitAsync(TimeSpan.FromSeconds(5));
+                var actual = Assert.Single(captured);
+                Assert.Equal("reported-session", actual.GetType().GetProperty("SessionId")!.GetValue(actual));
+                foreach (var field in new Dictionary<string, string>
+                {
+                    ["AgentId"] = "child-actor",
+                    ["AgentType"] = "explore",
+                    ["ParentAgentId"] = "parent-actor"
+                })
+                {
+                    var property = actual.GetType().GetProperty(field.Key);
+                    Assert.NotNull(property);
+                    var value = property.GetValue(actual) as string;
+                    Assert.Equal(enriched ? field.Value : "", value ?? "");
+                }
+            }
+        }
+    }
+
     [Theory]
     [InlineData(false, true)]
     [InlineData(false, false)]
@@ -3330,6 +3401,7 @@ public sealed partial class ClientSessionLifetimeTests
         await using var session = await client.CreateSessionAsync(new SessionConfig
         {
             EnforceManagedModelDefaults = true,
+            InteractiveUser = true,
             ManagedSettings = new ManagedSettings
             {
                 Permissions = new ManagedSettingsPermissions
@@ -3352,6 +3424,7 @@ public sealed partial class ClientSessionLifetimeTests
         var request = Assert.Single(server.Requests, request => request.Method == "session.create");
         Assert.True(request.Params.GetProperty("enforceManagedModelDefaults").GetBoolean());
         Assert.False(request.Params.TryGetProperty("enableManagedSettings", out _));
+        Assert.True(request.Params.GetProperty("interactiveUser").GetBoolean());
         var permissions = request.Params.GetProperty("managedSettings").GetProperty("permissions");
         Assert.Equal("disable", permissions.GetProperty("disableBypassPermissionsMode").GetString());
         Assert.True(permissions.GetProperty("disableAssistedPermissionsMode").GetBoolean());
@@ -3616,6 +3689,7 @@ public sealed partial class ClientSessionLifetimeTests
 
         var request = Assert.Single(server.Requests, request => request.Method == "session.create");
         Assert.False(request.Params.TryGetProperty("managedSettings", out _));
+        Assert.False(request.Params.TryGetProperty("interactiveUser", out _));
     }
 
     [Fact]
@@ -3627,6 +3701,7 @@ public sealed partial class ClientSessionLifetimeTests
         await using var session = await client.ResumeSessionAsync("session-managed", new ResumeSessionConfig
         {
             EnforceManagedModelDefaults = true,
+            InteractiveUser = true,
             ManagedSettings = new ManagedSettings
             {
                 Permissions = new ManagedSettingsPermissions
@@ -3640,8 +3715,51 @@ public sealed partial class ClientSessionLifetimeTests
 
         var request = Assert.Single(server.Requests, request => request.Method == "session.resume");
         Assert.True(request.Params.GetProperty("enforceManagedModelDefaults").GetBoolean());
+        Assert.True(request.Params.GetProperty("interactiveUser").GetBoolean());
         var permissions = request.Params.GetProperty("managedSettings").GetProperty("permissions");
         Assert.Equal("shell(rm*)", Assert.Single(permissions.GetProperty("deny").EnumerateArray()).GetString());
+    }
+
+    [Fact]
+    public async Task ResumeSessionAsync_Omits_InteractiveUser_When_Unset()
+    {
+        await using var server = await FakeCopilotServer.StartAsync();
+        await using var client = new CopilotClient(new CopilotClientOptions { Connection = RuntimeConnection.ForUri(server.Url) });
+
+        await using var session = await client.ResumeSessionAsync("session-no-interactive", new ResumeSessionConfig
+        {
+            OnPermissionRequest = PermissionHandler.ApproveAll,
+            OnEvent = _ => { }
+        });
+
+        var request = Assert.Single(server.Requests, request => request.Method == "session.resume");
+        Assert.False(request.Params.TryGetProperty("interactiveUser", out _));
+    }
+
+    [Fact]
+    public async Task CreateAndResumeSessionAsync_Serialize_Explicit_InteractiveUser_False()
+    {
+        await using var server = await FakeCopilotServer.StartAsync();
+        await using var client = new CopilotClient(new CopilotClientOptions { Connection = RuntimeConnection.ForUri(server.Url) });
+        await client.StartAsync();
+
+        await using var created = await client.CreateSessionAsync(new SessionConfig
+        {
+            InteractiveUser = false,
+            OnPermissionRequest = PermissionHandler.ApproveAll
+        });
+        await using var resumed = await client.ResumeSessionAsync("session-declined-interactive", new ResumeSessionConfig
+        {
+            InteractiveUser = false,
+            OnPermissionRequest = PermissionHandler.ApproveAll,
+            OnEvent = _ => { }
+        });
+
+        foreach (var method in new[] { "session.create", "session.resume" })
+        {
+            var request = Assert.Single(server.Requests, request => request.Method == method);
+            Assert.Equal(JsonValueKind.False, request.Params.GetProperty("interactiveUser").ValueKind);
+        }
     }
 
     [Theory]

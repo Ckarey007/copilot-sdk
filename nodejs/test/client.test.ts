@@ -4895,6 +4895,105 @@ connection.listen();
             });
             expect(topLevelStop).not.toHaveBeenCalled();
         });
+
+        it.each([
+            [
+                "an error object",
+                { name: "Error", message: "model timeout", stack: "Error: model timeout" },
+                "model timeout",
+            ],
+            ["a string", "boom", "boom"],
+            ["null", null, null],
+            ["an object without a string message", { code: 7 }, '{"code":7}'],
+        ])("decodes %s in the error hook inputs", async (_name, error, expected) => {
+            const client = new CopilotClient({ autoStart: false });
+            const received: { hookType: string; error: unknown }[] = [];
+            const session = new CopilotSession("session-1", {} as any);
+            session.registerHooks({
+                onErrorOccurred: (input) => {
+                    received.push({ hookType: "errorOccurred", error: input.error });
+                },
+                onSessionEnd: (input) => {
+                    received.push({ hookType: "sessionEnd", error: input.error });
+                },
+            });
+            (client as any).sessions.set(session.sessionId, session);
+            const base = { sessionId: session.sessionId, timestamp: 1700000000000, cwd: "/repo" };
+
+            await (client as any).handleHooksInvoke({
+                sessionId: session.sessionId,
+                hookType: "errorOccurred",
+                input: { ...base, error, errorContext: "model_call", recoverable: true },
+            });
+            await (client as any).handleHooksInvoke({
+                sessionId: session.sessionId,
+                hookType: "sessionEnd",
+                input: { ...base, reason: "error", error },
+            });
+
+            expect(received).toEqual([
+                { hookType: "errorOccurred", error: expected },
+                { hookType: "sessionEnd", error: expected },
+            ]);
+        });
+
+        it("keeps the decoded timestamp and working directory when it decodes the error", async () => {
+            const client = new CopilotClient({ autoStart: false });
+            const received: { timestamp: unknown; workingDirectory: unknown }[] = [];
+            const session = new CopilotSession("session-1", {} as any);
+            session.registerHooks({
+                onErrorOccurred: (input) => {
+                    received.push({
+                        timestamp: input.timestamp,
+                        workingDirectory: input.workingDirectory,
+                    });
+                },
+            });
+            (client as any).sessions.set(session.sessionId, session);
+
+            await (client as any).handleHooksInvoke({
+                sessionId: session.sessionId,
+                hookType: "errorOccurred",
+                input: {
+                    sessionId: session.sessionId,
+                    timestamp: 1700000000000,
+                    cwd: "/repo",
+                    error: { message: "model timeout" },
+                    errorContext: "model_call",
+                    recoverable: true,
+                },
+            });
+
+            expect(received).toEqual([
+                { timestamp: new Date(1700000000000), workingDirectory: "/repo" },
+            ]);
+        });
+
+        it("leaves an absent sessionEnd error absent", async () => {
+            const client = new CopilotClient({ autoStart: false });
+            const received: unknown[] = [];
+            const session = new CopilotSession("session-1", {} as any);
+            session.registerHooks({
+                onSessionEnd: (input) => {
+                    received.push(input);
+                },
+            });
+            (client as any).sessions.set(session.sessionId, session);
+
+            await (client as any).handleHooksInvoke({
+                sessionId: session.sessionId,
+                hookType: "sessionEnd",
+                input: {
+                    sessionId: session.sessionId,
+                    timestamp: 1700000000000,
+                    cwd: "/repo",
+                    reason: "complete",
+                },
+            });
+
+            expect(received).toHaveLength(1);
+            expect(received[0]).not.toHaveProperty("error");
+        });
     });
 
     describe("shutdown", () => {
@@ -5456,6 +5555,44 @@ describe("managedSettings serialization", () => {
             permissions: { ask: ["Domain(publish.example)"] },
         });
     });
+});
+
+describe("interactiveUser serialization", () => {
+    async function captureParams(
+        method: "session.create" | "session.resume",
+        config: Record<string, unknown>
+    ): Promise<any> {
+        const client = new CopilotClient();
+        await client.start();
+        onTestFinished(() => stopClient(client));
+        const spy = vi
+            .spyOn((client as any).connection!, "sendRequest")
+            .mockImplementation(async (requested: string, params: any) => {
+                if (requested === method) return { sessionId: params.sessionId };
+                throw new Error(`Unexpected method: ${requested}`);
+            });
+        if (method === "session.create") {
+            await client.createSession({ onPermissionRequest: approveAll, ...config });
+        } else {
+            await client.resumeSession("session-1", { onPermissionRequest: approveAll, ...config });
+        }
+        const call = spy.mock.calls.find(([requested]) => requested === method);
+        return call![1];
+    }
+
+    for (const method of ["session.create", "session.resume"] as const) {
+        for (const interactiveUser of [true, false]) {
+            it(`forwards interactiveUser: ${interactiveUser} on ${method}`, async () => {
+                const params = await captureParams(method, { interactiveUser });
+                expect(params.interactiveUser).toBe(interactiveUser);
+            });
+        }
+
+        it(`omits interactiveUser from ${method} when unset`, async () => {
+            const params = await captureParams(method, {});
+            expect(params.interactiveUser).toBeUndefined();
+        });
+    }
 });
 
 describe("connect handshake clientInfo", () => {

@@ -324,7 +324,7 @@ describe.skipIf(isByokBackend)("Dynamic Auto tiers", async () => {
         expect((await changed).data.autoTier).toBe("premium-v2");
         expect((await session.rpc.model.getCurrent()).autoTier).toBe("premium-v2");
         const request = (await proxy.getRequests()).find((entry) => entry.url === "/auto");
-        expect(JSON.parse(request!.body).tier).toBe("premium-v2");
+        expect(JSON.parse(request!.body)).toMatchObject({ tier: "premium-v2", ensemble: true });
         const sessionId = session.sessionId;
         await session.disconnect();
         await client.stop();

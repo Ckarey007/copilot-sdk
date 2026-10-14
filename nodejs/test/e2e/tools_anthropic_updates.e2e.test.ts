@@ -22,6 +22,16 @@ interface AnthropicRequest {
     messages: Array<{ role: string; content: unknown }>;
 }
 
+interface AnthropicToolBlock {
+    type?: string;
+    tool_name?: string;
+    content?: unknown;
+    tool?: {
+        name?: string;
+        definition?: { name?: string };
+    };
+}
+
 function streamResponse(block: Record<string, unknown>, stopReason: string): Response {
     const events: Array<[string, Record<string, unknown>]> = [
         [
@@ -225,6 +235,114 @@ class AnthropicToolUpdateHandler extends CopilotRequestHandler {
     }
 }
 
+class StaleToolReferenceHandler extends AnthropicToolUpdateHandler {
+    protected override async sendRequest(
+        request: Request,
+        ctx: CopilotRequestContext
+    ): Promise<Response> {
+        const url = new URL(request.url);
+        if (!url.pathname.endsWith("/messages")) {
+            return super.sendRequest(request, ctx);
+        }
+        const body = (await request.clone().json()) as AnthropicRequest;
+        const serialized = JSON.stringify(body.messages);
+        if (!serialized.includes("SDK_STALE_REFERENCE")) {
+            return super.sendRequest(request, ctx);
+        }
+        this.requests.push({ body, beta: request.headers.get("anthropic-beta") });
+
+        const available = new Set(
+            Array.isArray(body.tools)
+                ? body.tools
+                      .map((tool) => (tool as { name?: string }).name)
+                      .filter((name): name is string => typeof name === "string")
+                : []
+        );
+        const unresolved: string[] = [];
+        for (const message of body.messages) {
+            if (!Array.isArray(message.content)) {
+                continue;
+            }
+            for (const block of message.content as AnthropicToolBlock[]) {
+                if (block.type === "tool_addition") {
+                    const name = block.tool?.definition?.name;
+                    if (name) {
+                        available.add(name);
+                    }
+                } else if (block.type === "tool_removal") {
+                    const name = block.tool?.name;
+                    if (name) {
+                        available.delete(name);
+                    }
+                } else if (block.type === "tool_result" && Array.isArray(block.content)) {
+                    for (const result of block.content as AnthropicToolBlock[]) {
+                        if (
+                            result.type === "tool_reference" &&
+                            typeof result.tool_name === "string" &&
+                            !available.has(result.tool_name)
+                        ) {
+                            unresolved.push(result.tool_name);
+                        }
+                    }
+                }
+            }
+        }
+        if (unresolved.length > 0) {
+            return Response.json(
+                {
+                    error: {
+                        type: "invalid_request_error",
+                        message: `Tool reference '${unresolved[0]}' not found in available tools`,
+                    },
+                },
+                { status: 400 }
+            );
+        }
+
+        if (serialized.includes("SDK_STALE_REFERENCE_AFTER_RESUME")) {
+            return streamResponse(
+                { type: "text", text: "SDK_STALE_REFERENCE_AFTER_RESUME_OK" },
+                "end_turn"
+            );
+        }
+        if (serialized.includes("SDK_STALE_REFERENCE_STILL_USABLE")) {
+            return streamResponse(
+                { type: "text", text: "SDK_STALE_REFERENCE_STILL_USABLE_OK" },
+                "end_turn"
+            );
+        }
+        if (serialized.includes("SDK_STALE_REFERENCE_AFTER_REMOVAL")) {
+            return streamResponse(
+                { type: "text", text: "SDK_STALE_REFERENCE_AFTER_REMOVAL_OK" },
+                "end_turn"
+            );
+        }
+        if (
+            body.messages.some(
+                (message) =>
+                    Array.isArray(message.content) &&
+                    message.content.some(
+                        (block: AnthropicToolBlock) => block.type === "tool_result"
+                    )
+            )
+        ) {
+            return streamResponse(
+                { type: "text", text: "SDK_STALE_REFERENCE_SEARCH_OK" },
+                "end_turn"
+            );
+        }
+        return streamResponse(
+            {
+                type: "tool_use",
+                id: "toolu_stale_reference_search",
+                name: "tool_search_tool",
+                input: { pattern: "a_server-get_env", limit: 1 },
+            },
+            "tool_use"
+        );
+    }
+}
+
 describe("SDK tool updates on direct Anthropic Messages", async () => {
     const handler = new AnthropicToolUpdateHandler();
     const { copilotClient: client } = await createSdkTestContext({
@@ -359,6 +477,17 @@ describe("SDK tool updates on direct Anthropic Messages", async () => {
             const { copilotClient: client } = await createSdkTestContext({
                 copilotClientOptions: { requestHandler: handler },
             });
+            const strictHandler = new StaleToolReferenceHandler();
+            const { copilotClient: strictClient, createClient: createStrictClient } =
+                await createSdkTestContext({
+                    copilotClientOptions: {
+                        requestHandler: strictHandler,
+                        env: {
+                            COPILOT_EXP_COPILOT_CLI_TOOL_SEARCH_ANTHROPIC: "true",
+                            COPILOT_EXP_COPILOT_CLI_TOOL_SEARCH_BUILTIN_ANTHROPIC: "false",
+                        },
+                    },
+                });
             it("preserves the prefix across CAPI reordering, removal and restoration without a rejected attempt", async () => {
                 let addedCalls = 0;
                 const original = {
@@ -455,6 +584,98 @@ describe("SDK tool updates on direct Anthropic Messages", async () => {
                         expect(JSON.stringify(request.body.tools)).toBe(
                             JSON.stringify(before.body.tools)
                         );
+                    }
+                } finally {
+                    await session.disconnect();
+                }
+            });
+
+            it("keeps a session usable when an MCP tool referenced by deferred search disappears", async () => {
+                const config = mcpTestServerConfig("SDK_STALE_REFERENCE_TOOL_RESULT");
+                const session = await strictClient.createSession({
+                    model: "claude-opus-5.5",
+                    toolSearch: { enabled: true, deferThreshold: 0 },
+                    onPermissionRequest: approveAll,
+                    mcpServers: { a_server: config },
+                });
+                try {
+                    await session.rpc.mcp.setEnvValueMode({ mode: "direct" });
+                    await session.rpc.tools.initializeAndValidate();
+
+                    expect(
+                        (
+                            await session.sendAndWait({
+                                prompt: "SDK_STALE_REFERENCE_SEARCH",
+                            })
+                        )?.data.content
+                    ).toContain("SDK_STALE_REFERENCE_SEARCH_OK");
+                    expect(JSON.stringify(strictHandler.requests.at(-1)?.body.messages)).toContain(
+                        '"type":"tool_reference","tool_name":"a_server-get_env"'
+                    );
+
+                    await session.rpc.mcp.disable({ serverName: "a_server" });
+                    await session.rpc.tools.initializeAndValidate();
+                    expect((await session.rpc.mcp.list()).host?.disabledServers).toContain(
+                        "a_server"
+                    );
+                    expect(
+                        (
+                            await session.sendAndWait({
+                                prompt: "SDK_STALE_REFERENCE_AFTER_REMOVAL",
+                            })
+                        )?.data.content
+                    ).toContain("SDK_STALE_REFERENCE_AFTER_REMOVAL_OK");
+
+                    const removed = strictHandler.requests.at(-1);
+                    const removedMessages = JSON.stringify(removed?.body.messages);
+                    expect(removedMessages).not.toContain(
+                        '"type":"tool_reference","tool_name":"a_server-get_env"'
+                    );
+                    expect(removedMessages).toContain("Found 1 matching tool(s): a_server-get_env");
+                    expect(
+                        (
+                            await session.sendAndWait({
+                                prompt: "SDK_STALE_REFERENCE_STILL_USABLE",
+                            })
+                        )?.data.content
+                    ).toContain("SDK_STALE_REFERENCE_STILL_USABLE_OK");
+
+                    const sessionId = session.sessionId;
+                    await session.disconnect();
+                    await strictClient.stop();
+                    const coldClient = createStrictClient({ requestHandler: strictHandler });
+                    try {
+                        const resumed = await coldClient.resumeSession(sessionId, {
+                            model: "claude-opus-5.5",
+                            toolSearch: { enabled: true, deferThreshold: 0 },
+                            onPermissionRequest: approveAll,
+                            mcpServers: { a_server: config },
+                            disabledMcpServers: ["a_server"],
+                        });
+                        try {
+                            const beforeResumeRequests = strictHandler.requests.length;
+                            expect(
+                                (
+                                    await resumed.sendAndWait({
+                                        prompt: "SDK_STALE_REFERENCE_AFTER_RESUME",
+                                    })
+                                )?.data.content
+                            ).toContain("SDK_STALE_REFERENCE_AFTER_RESUME_OK");
+                            expect(strictHandler.requests).toHaveLength(beforeResumeRequests + 1);
+                            const resumedMessages = JSON.stringify(
+                                strictHandler.requests.at(-1)?.body.messages
+                            );
+                            expect(resumedMessages).not.toContain(
+                                '"type":"tool_reference","tool_name":"a_server-get_env"'
+                            );
+                            expect(resumedMessages).toContain(
+                                "Found 1 matching tool(s): a_server-get_env"
+                            );
+                        } finally {
+                            await resumed.disconnect();
+                        }
+                    } finally {
+                        await coldClient.stop();
                     }
                 } finally {
                     await session.disconnect();

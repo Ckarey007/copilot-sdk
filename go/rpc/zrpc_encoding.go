@@ -4,6 +4,7 @@
 package rpc
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 )
@@ -1259,6 +1260,123 @@ func (r *BuiltinToolDescriptor) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func unmarshalCatalogAgentPluginInstallSource(data []byte) (CatalogAgentPluginInstallSource, error) {
+	if string(data) == "null" {
+		return nil, nil
+	}
+	type rawUnion struct {
+		Kind CatalogAgentPluginInstallSourceKind `json:"kind"`
+	}
+	var raw rawUnion
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+
+	switch raw.Kind {
+	case CatalogAgentPluginInstallSourceKindMarketplace:
+		var d CatalogAgentPluginMarketplaceSource
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogAgentPluginInstallSourceKindMaterialization:
+		var d CatalogAgentPluginMaterializationSource
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogAgentPluginInstallSourceKindRepository:
+		var d CatalogAgentPluginRepositorySource
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	default:
+		return &RawCatalogAgentPluginInstallSourceData{Discriminator: raw.Kind, Raw: data}, nil
+	}
+}
+
+func (r RawCatalogAgentPluginInstallSourceData) MarshalJSON() ([]byte, error) {
+	if r.Raw != nil {
+		return r.Raw, nil
+	}
+	return json.Marshal(struct {
+		Kind CatalogAgentPluginInstallSourceKind `json:"kind"`
+	}{
+		Kind: r.Discriminator,
+	})
+}
+
+func (r CatalogAgentPluginMarketplaceSource) MarshalJSON() ([]byte, error) {
+	type alias CatalogAgentPluginMarketplaceSource
+	return json.Marshal(struct {
+		Kind CatalogAgentPluginInstallSourceKind `json:"kind"`
+		alias
+	}{
+		Kind:  r.Kind(),
+		alias: alias(r),
+	})
+}
+
+func (r CatalogAgentPluginMaterializationSource) MarshalJSON() ([]byte, error) {
+	type alias CatalogAgentPluginMaterializationSource
+	return json.Marshal(struct {
+		Kind CatalogAgentPluginInstallSourceKind `json:"kind"`
+		alias
+	}{
+		Kind:  r.Kind(),
+		alias: alias(r),
+	})
+}
+
+func (r CatalogAgentPluginRepositorySource) MarshalJSON() ([]byte, error) {
+	type alias CatalogAgentPluginRepositorySource
+	return json.Marshal(struct {
+		Kind CatalogAgentPluginInstallSourceKind `json:"kind"`
+		alias
+	}{
+		Kind:  r.Kind(),
+		alias: alias(r),
+	})
+}
+
+func (r *CatalogAgentPluginInstallPlan) UnmarshalJSON(data []byte) error {
+	type rawCatalogAgentPluginInstallPlan struct {
+		CanvasIDs             []string                      `json:"canvasIds"`
+		Commit                *string                       `json:"commit,omitempty"`
+		Components            []CatalogAgentPluginComponent `json:"components"`
+		ConnectorDependencies []string                      `json:"connectorDependencies"`
+		ExtensionIDs          []string                      `json:"extensionIds"`
+		MCPDependencies       []string                      `json:"mcpDependencies"`
+		PluginName            string                        `json:"pluginName"`
+		Sources               []json.RawMessage             `json:"sources"`
+		Version               *string                       `json:"version,omitempty"`
+	}
+	var raw rawCatalogAgentPluginInstallPlan
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	r.CanvasIDs = raw.CanvasIDs
+	r.Commit = raw.Commit
+	r.Components = raw.Components
+	r.ConnectorDependencies = raw.ConnectorDependencies
+	r.ExtensionIDs = raw.ExtensionIDs
+	r.MCPDependencies = raw.MCPDependencies
+	r.PluginName = raw.PluginName
+	if raw.Sources != nil {
+		r.Sources = make([]CatalogAgentPluginInstallSource, 0, len(raw.Sources))
+		for _, rawItem := range raw.Sources {
+			value, err := unmarshalCatalogAgentPluginInstallSource(rawItem)
+			if err != nil {
+				return err
+			}
+			r.Sources = append(r.Sources, value)
+		}
+	}
+	r.Version = raw.Version
+	return nil
+}
+
 func unmarshalCatalogCandidate(data []byte) (CatalogCandidate, error) {
 	if string(data) == "null" {
 		return nil, nil
@@ -1642,6 +1760,8 @@ func (r *CatalogAgentPluginCandidate) UnmarshalJSON(data []byte) error {
 		Description       *string                               `json:"description,omitempty"`
 		DisplayName       string                                `json:"displayName"`
 		Identity          string                                `json:"identity"`
+		Installability    *CatalogAgentPluginInstallability     `json:"installability,omitempty"`
+		InstallPlan       *CatalogAgentPluginInstallPlan        `json:"installPlan,omitempty"`
 		MediaType         CatalogAgentPluginMediaType           `json:"mediaType"`
 		Provenance        CatalogAgentPluginCandidateProvenance `json:"provenance"`
 		Publisher         *string                               `json:"publisher,omitempty"`
@@ -1657,6 +1777,8 @@ func (r *CatalogAgentPluginCandidate) UnmarshalJSON(data []byte) error {
 	r.Description = raw.Description
 	r.DisplayName = raw.DisplayName
 	r.Identity = raw.Identity
+	r.Installability = raw.Installability
+	r.InstallPlan = raw.InstallPlan
 	r.MediaType = raw.MediaType
 	r.Provenance = raw.Provenance
 	r.Publisher = raw.Publisher
@@ -2449,6 +2571,13 @@ func (r ConnectorConnectResultPending) MarshalJSON() ([]byte, error) {
 		Kind:  r.Kind(),
 		alias: alias(r),
 	})
+}
+
+func (r *ContentExclusionValidatePoliciesResult) UnmarshalJSON(data []byte) error {
+	type wire ContentExclusionValidatePoliciesResult
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	return decoder.Decode((*wire)(r))
 }
 
 func unmarshalDebugCollectLogsDestination(data []byte) (DebugCollectLogsDestination, error) {
@@ -7764,6 +7893,7 @@ func (r *SessionOpenOptions) UnmarshalJSON(data []byte) error {
 		InstalledPlugins                       []InstalledPlugin                                    `json:"installedPlugins,omitzero"`
 		InstructionDirectories                 []string                                             `json:"instructionDirectories,omitzero"`
 		IntegrationID                          *string                                              `json:"integrationId,omitempty"`
+		InteractiveUser                        *bool                                                `json:"interactiveUser,omitempty"`
 		IsExperimentalMode                     *bool                                                `json:"isExperimentalMode,omitempty"`
 		LogInteractiveShells                   *bool                                                `json:"logInteractiveShells,omitempty"`
 		LspClientName                          *string                                              `json:"lspClientName,omitempty"`
@@ -7855,6 +7985,7 @@ func (r *SessionOpenOptions) UnmarshalJSON(data []byte) error {
 	r.InstalledPlugins = raw.InstalledPlugins
 	r.InstructionDirectories = raw.InstructionDirectories
 	r.IntegrationID = raw.IntegrationID
+	r.InteractiveUser = raw.InteractiveUser
 	r.IsExperimentalMode = raw.IsExperimentalMode
 	r.LogInteractiveShells = raw.LogInteractiveShells
 	r.LspClientName = raw.LspClientName

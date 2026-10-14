@@ -925,6 +925,7 @@ macro_rules! host_settings {
             "featureFlags" => feature_flags,
             "enableManagedSettings" => enable_managed_settings,
             "enableSessionStore" => enable_session_store,
+            "enableGitHubCacheStore" => enable_github_cache_store,
             "availableTools" => available_tools,
             "excludedTools" => excluded_tools,
             "allowedModels" => allowed_models,

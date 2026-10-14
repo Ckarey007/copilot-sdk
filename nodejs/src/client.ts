@@ -1870,6 +1870,7 @@ export class CopilotClient {
                 enableFileHooks: config.enableFileHooks,
                 enableHostGitOperations: config.enableHostGitOperations,
                 enableSessionStore: config.enableSessionStore,
+                enableGitHubCacheStore: config.enableGitHubCacheStore,
                 enableSkills: config.enableSkills,
                 skillDirectories: config.skillDirectories,
                 ...(config.skillProvider ? { hasSkillProvider: true } : {}),
@@ -1889,6 +1890,7 @@ export class CopilotClient {
                 expAssignments: config.expAssignments,
                 enableManagedSettings: config.enableManagedSettings,
                 enforceManagedModelDefaults: config.enforceManagedModelDefaults,
+                interactiveUser: config.interactiveUser,
                 managedSettings: config.managedSettings,
             });
 
@@ -2164,6 +2166,7 @@ export class CopilotClient {
                 enableFileHooks: config.enableFileHooks,
                 enableHostGitOperations: config.enableHostGitOperations,
                 enableSessionStore: config.enableSessionStore,
+                enableGitHubCacheStore: config.enableGitHubCacheStore,
                 enableSkills: config.enableSkills,
                 streaming: config.streaming,
                 includeSubAgentStreamingEvents: config.includeSubAgentStreamingEvents ?? true,
@@ -2199,6 +2202,7 @@ export class CopilotClient {
                 expAssignments: config.expAssignments,
                 enableManagedSettings: config.enableManagedSettings,
                 enforceManagedModelDefaults: config.enforceManagedModelDefaults,
+                interactiveUser: config.interactiveUser,
                 managedSettings: config.managedSettings,
                 ...(extensionOptions?.requestedEnvironmentVariables
                     ? {

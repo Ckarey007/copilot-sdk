@@ -61,6 +61,14 @@ public final class CatalogAgentPluginCandidate extends CatalogCandidate {
     @JsonProperty("compatibilityTags")
     private List<CatalogAgentPluginCompatibilityTag> compatibilityTags;
 
+    /** Whether this plugin can be installed in the selected session. Present only when the caller requires the agent-plugin-confirmed-installation capability. */
+    @JsonProperty("installability")
+    private CatalogAgentPluginInstallability installability;
+
+    /** Reviewable install plan built only from verified catalogue install data. Present exactly when installability is `installable`; the runtime never derives it from the repository source, display text, or identity. */
+    @JsonProperty("installPlan")
+    private CatalogAgentPluginInstallPlan installPlan;
+
     /** Where the Agent Plugin catalog reference was observed, without its descriptor, URL, raw data, or content digest. */
     @JsonProperty("provenance")
     private CatalogAgentPluginCandidateProvenance provenance;
@@ -92,6 +100,12 @@ public final class CatalogAgentPluginCandidate extends CatalogCandidate {
 
     public List<CatalogAgentPluginCompatibilityTag> getCompatibilityTags() { return compatibilityTags; }
     public void setCompatibilityTags(List<CatalogAgentPluginCompatibilityTag> compatibilityTags) { this.compatibilityTags = compatibilityTags; }
+
+    public CatalogAgentPluginInstallability getInstallability() { return installability; }
+    public void setInstallability(CatalogAgentPluginInstallability installability) { this.installability = installability; }
+
+    public CatalogAgentPluginInstallPlan getInstallPlan() { return installPlan; }
+    public void setInstallPlan(CatalogAgentPluginInstallPlan installPlan) { this.installPlan = installPlan; }
 
     public CatalogAgentPluginCandidateProvenance getProvenance() { return provenance; }
     public void setProvenance(CatalogAgentPluginCandidateProvenance provenance) { this.provenance = provenance; }

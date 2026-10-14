@@ -30,22 +30,36 @@ class ManagedSettingsTest {
         var managedSettings = new ManagedSettings().setPermissions(permissions);
 
         var create = SessionRequestBuilder.buildCreateRequest(new SessionConfig().setEnableManagedSettings(true)
-                .setEnforceManagedModelDefaults(true).setManagedSettings(managedSettings), "managed-create");
+                .setEnforceManagedModelDefaults(true).setInteractiveUser(true).setManagedSettings(managedSettings),
+                "managed-create");
         var resume = SessionRequestBuilder.buildResumeRequest("managed-resume",
                 new ResumeSessionConfig().setEnableManagedSettings(true).setEnforceManagedModelDefaults(true)
-                        .setManagedSettings(managedSettings));
+                        .setInteractiveUser(true).setManagedSettings(managedSettings));
 
         assertEquals(managedSettings, create.getManagedSettings());
         assertEquals(managedSettings, resume.getManagedSettings());
         assertTrue(create.getEnforceManagedModelDefaults());
         assertTrue(resume.getEnforceManagedModelDefaults());
+        assertEquals(Boolean.TRUE, create.getInteractiveUser());
+        assertEquals(Boolean.TRUE, resume.getInteractiveUser());
         var json = new ObjectMapper().writeValueAsString(create);
         assertTrue(json.contains("\"enableManagedSettings\":true"));
         assertTrue(json.contains("\"enforceManagedModelDefaults\":true"));
+        assertTrue(json.contains("\"interactiveUser\":true"));
         assertTrue(json.contains("\"managedSettings\":{\"permissions\""));
         assertTrue(json.contains("\"disableBypassPermissionsMode\":\"disable\""));
         assertTrue(json.contains("\"limitTo\":[\"Domain(github.com)\"]"));
         assertTrue(json.contains("\"disableAssistedPermissionsMode\":true"));
+    }
+
+    @Test
+    void omitsInteractiveUserWhenUnset() throws Exception {
+        var create = SessionRequestBuilder.buildCreateRequest(new SessionConfig(), "default-create");
+        var resume = SessionRequestBuilder.buildResumeRequest("default-resume", new ResumeSessionConfig());
+        var mapper = new ObjectMapper();
+
+        assertFalse(mapper.writeValueAsString(create).contains("interactiveUser"));
+        assertFalse(mapper.writeValueAsString(resume).contains("interactiveUser"));
     }
 
     @Test

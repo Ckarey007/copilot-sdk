@@ -75,7 +75,17 @@ public enum SkillInstallationFailureReason {
     /** The {@code configuration-modified} variant. */
     CONFIGURATION_MODIFIED("configuration-modified"),
     /** The {@code write-failed} variant. */
-    WRITE_FAILED("write-failed");
+    WRITE_FAILED("write-failed"),
+    /** The {@code invalid-reference} variant. */
+    INVALID_REFERENCE("invalid-reference"),
+    /** The {@code descriptor-not-found} variant. */
+    DESCRIPTOR_NOT_FOUND("descriptor-not-found"),
+    /** The {@code descriptor-withdrawn} variant. */
+    DESCRIPTOR_WITHDRAWN("descriptor-withdrawn"),
+    /** The {@code digest-mismatch} variant. */
+    DIGEST_MISMATCH("digest-mismatch"),
+    /** The {@code unsupported-resource} variant. */
+    UNSUPPORTED_RESOURCE("unsupported-resource");
 
     private final String value;
     SkillInstallationFailureReason(String value) { this.value = value; }

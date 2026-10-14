@@ -83,6 +83,7 @@ public class ResumeSessionConfig {
     private Boolean enableFileHooks;
     private Boolean enableHostGitOperations;
     private Boolean enableSessionStore;
+    private Boolean enableGitHubCacheStore;
     private Boolean enableSkills;
     private SkillProvider skillProvider;
     private String embeddingCacheStorage;
@@ -123,6 +124,7 @@ public class ResumeSessionConfig {
     private CopilotExpAssignmentResponse expAssignments;
     private Boolean enableManagedSettings;
     private Boolean enforceManagedModelDefaults;
+    private Boolean interactiveUser;
     private Map<String, Boolean> featureFlags;
     private ManagedSettings managedSettings;
 
@@ -1286,6 +1288,45 @@ public class ResumeSessionConfig {
     }
 
     /**
+     * Gets whether the read-only GitHub cache store is requested.
+     *
+     * @return an {@link java.util.Optional} containing {@code true} to request the
+     *         {@code github-cache-store} capability or {@code false} to decline it,
+     *         or {@link java.util.Optional#empty()} to use the default behavior
+     *         (disabled)
+     */
+    @JsonIgnore
+    public Optional<Boolean> getEnableGitHubCacheStore() {
+        return Optional.ofNullable(enableGitHubCacheStore);
+    }
+
+    /**
+     * Sets whether the read-only GitHub cache store is requested.
+     * <p>
+     * The runtime registers the {@code github_sql} tool only when its
+     * {@code GITHUB_CACHE_STORE} feature flag is also on.
+     *
+     * @param enableGitHubCacheStore
+     *            {@code true} to request the {@code github-cache-store} capability,
+     *            {@code false} to decline it
+     * @return this config for method chaining
+     */
+    public ResumeSessionConfig setEnableGitHubCacheStore(boolean enableGitHubCacheStore) {
+        this.enableGitHubCacheStore = enableGitHubCacheStore;
+        return this;
+    }
+
+    /**
+     * Clears the enableGitHubCacheStore setting, reverting to the default behavior.
+     *
+     * @return this instance for method chaining
+     */
+    public ResumeSessionConfig clearEnableGitHubCacheStore() {
+        this.enableGitHubCacheStore = null;
+        return this;
+    }
+
+    /**
      * Gets whether skill loading is enabled.
      *
      * @return an {@link java.util.Optional} containing {@code true} to enable skill
@@ -2315,6 +2356,27 @@ public class ResumeSessionConfig {
         return this;
     }
 
+    /** @return optional declaration that this session is human-driven */
+    @JsonIgnore
+    public Optional<Boolean> getInteractiveUser() {
+        return Optional.ofNullable(interactiveUser);
+    }
+
+    /**
+     * Re-supplies that a human drives this session so a session loaded from storage
+     * keeps the declaration. It is not persisted and is ignored if the session is
+     * already active in the runtime process.
+     *
+     * @param interactiveUser
+     *            {@code true} for interactive hosts such as editors or IDE chat
+     *            panels
+     * @return this config for method chaining
+     */
+    public ResumeSessionConfig setInteractiveUser(boolean interactiveUser) {
+        this.interactiveUser = interactiveUser;
+        return this;
+    }
+
     /** @return host-injected managed settings, or {@code null} when unset */
     public ManagedSettings getManagedSettings() {
         return managedSettings;
@@ -2387,6 +2449,7 @@ public class ResumeSessionConfig {
         copy.enableFileHooks = this.enableFileHooks;
         copy.enableHostGitOperations = this.enableHostGitOperations;
         copy.enableSessionStore = this.enableSessionStore;
+        copy.enableGitHubCacheStore = this.enableGitHubCacheStore;
         copy.enableSkills = this.enableSkills;
         copy.skillProvider = this.skillProvider;
         copy.embeddingCacheStorage = this.embeddingCacheStorage;
@@ -2432,6 +2495,7 @@ public class ResumeSessionConfig {
         copy.expAssignments = this.expAssignments;
         copy.enableManagedSettings = this.enableManagedSettings;
         copy.enforceManagedModelDefaults = this.enforceManagedModelDefaults;
+        copy.interactiveUser = this.interactiveUser;
         copy.managedSettings = this.managedSettings;
         return copy;
     }

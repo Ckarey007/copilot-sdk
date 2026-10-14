@@ -231,15 +231,15 @@ function systemCacheMarkers(request: CacheWireRequest): unknown[] {
 }
 
 for (const oneHour of [false, true]) {
-    describe(`Disposable Anthropic prompt caching (one-hour ${oneHour})`, async () => {
-        const { createClient } = await createSdkTestContext({
-            replayOnly: true,
-            logLevel: "debug",
-        });
+    describe.each(["CAPI Messages", "CAPI Chat", "BYOK Messages"] as const)(
+        `Disposable Anthropic prompt caching (one-hour ${oneHour}, %s)`,
+        async (route) => {
+            const { createClient } = await createSdkTestContext({
+                replayOnly: true,
+                logLevel: "debug",
+            });
 
-        it.each(["CAPI Messages", "CAPI Chat", "BYOK Messages"] as const)(
-            "keeps reusable prefixes but not disposable writes on %s",
-            async (route) => {
+            it(`keeps reusable prefixes but not disposable writes on ${route}`, async () => {
                 const handler = new RefusalBudgetReplayHandler(
                     route === "CAPI Chat" ? "/chat/completions" : "/v1/messages"
                 );
@@ -412,16 +412,16 @@ for (const oneHour of [false, true]) {
                     phase = `stop client (after ${phase})`;
                     await cacheClient.stop();
                 }
-            }
-        );
-    });
+            });
+        }
+    );
 }
 
-describe("Disposable Anthropic prompt caching during automatic compaction", async () => {
-    const { createClient } = await createSdkTestContext({ replayOnly: true });
-    it.each(["CAPI Messages", "CAPI Chat", "BYOK Messages"] as const)(
-        "avoids discarded transcript writes during automatic compaction on %s",
-        async (route) => {
+describe.each(["CAPI Messages", "CAPI Chat", "BYOK Messages"] as const)(
+    "Disposable Anthropic prompt caching during automatic compaction (%s)",
+    async (route) => {
+        const { createClient } = await createSdkTestContext({ replayOnly: true });
+        it(`avoids discarded transcript writes during automatic compaction on ${route}`, async () => {
             const handler = new RefusalBudgetReplayHandler(
                 route === "CAPI Chat" ? "/chat/completions" : "/v1/messages"
             );
@@ -503,9 +503,9 @@ describe("Disposable Anthropic prompt caching during automatic compaction", asyn
             } finally {
                 await cacheClient.stop();
             }
-        }
-    );
-});
+        });
+    }
+);
 
 describe("Disposable Anthropic prompt caching during refusal fallback", async () => {
     const { createClient } = await createSdkTestContext({
@@ -1683,6 +1683,10 @@ describe("Compaction", async () => {
             await session.disconnect();
         }
     });
+});
+
+describe("selected-tier model catalog", async () => {
+    const { createClient } = await createSdkTestContext();
     it("should resolve selected-tier defaults and confirm a smaller-tier switch", async () => {
         const modelId = "gpt-5.4-mini";
         class TierBudgetReplayHandler extends BudgetReplayHandler {

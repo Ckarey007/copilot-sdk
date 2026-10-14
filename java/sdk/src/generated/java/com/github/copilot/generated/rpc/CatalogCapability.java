@@ -45,7 +45,11 @@ public enum CatalogCapability {
     /** The {@code mcp-configured-remote-installation} variant. */
     MCP_CONFIGURED_REMOTE_INSTALLATION("mcp-configured-remote-installation"),
     /** The {@code skill-confirmed-installation} variant. */
-    SKILL_CONFIRMED_INSTALLATION("skill-confirmed-installation");
+    SKILL_CONFIRMED_INSTALLATION("skill-confirmed-installation"),
+    /** The {@code agent-plugin-confirmed-installation} variant. */
+    AGENT_PLUGIN_CONFIRMED_INSTALLATION("agent-plugin-confirmed-installation"),
+    /** The {@code skill-reference-installation} variant. */
+    SKILL_REFERENCE_INSTALLATION("skill-reference-installation");
 
     private final String value;
     CatalogCapability(String value) { this.value = value; }

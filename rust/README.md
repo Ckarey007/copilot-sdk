@@ -728,6 +728,12 @@ Use `with_ask_user_variant(AskUserVariant::Elicitation)` together with
 tool. The default remains `AskUserVariant::Legacy`. Re-supply the option and
 handler through `ResumeSessionConfig` on a cold resume.
 
+Use `with_interactive_user(true)` to declare that a person types the session's
+messages, as in an editor chat panel. This enables the runtime's user-message
+analysis telemetry for user-authored messages; automated messages stay
+excluded. The default is off, and cloud sessions ignore it. Re-supply it through
+`ResumeSessionConfig` on a cold resume.
+
 For rotating per-session GitHub credentials, install a `GitHubTokenProvider`
 instead of setting `github_token`:
 
@@ -851,6 +857,29 @@ let session = client
 ```
 
 **Hook events:** `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmitted`, `UserPromptTransformed`, `SessionStart`, `SessionEnd`, `ErrorOccurred`, `AgentStop`, `SubagentStart`, and `SubagentStop`. Each carries typed input/output structs. `PostToolUse` only fires on success; override `on_post_tool_use_failure` to observe failed tool calls. `on_subagent_start` can inject `additional_context` into the child agent's initial prompt; `on_subagent_stop` can return a `decision` of `"block"` with a `reason` to continue the child or a `modified_response` to replace its final answer. Return `HookOutput::None` for events you don't handle.
+
+To inspect runtime-provided actor metadata, override `SessionHooks::on_hook_with_actor`.
+Its typed `HookActor` exposes optional `agent_id()`, `agent_type()`, and `parent_agent_id()` getters.
+Root hooks and older runtimes can omit these fields; existing `SubagentStopInput` actor fields remain unchanged.
+The default implementation delegates to `on_hook`, which retains the existing per-hook dispatch.
+Existing implementations, input struct literals, and exact destructuring patterns therefore need no migration.
+The enriched wire fields are opt-in metadata, not new fields on the legacy Rust input structs.
+
+```rust,no_run
+# use async_trait::async_trait;
+# use github_copilot_sdk::hooks::{HookActor, HookEvent, HookOutput, SessionHooks};
+struct ActorAwareHooks;
+
+#[async_trait]
+impl SessionHooks for ActorAwareHooks {
+    async fn on_hook_with_actor(&self, event: HookEvent, actor: HookActor) -> HookOutput {
+        if let Some(id) = actor.agent_id() {
+            eprintln!("Hook actor: {id}");
+        }
+        self.on_hook(event).await
+    }
+}
+```
 
 ### System Message Transforms
 
@@ -1067,7 +1096,13 @@ let config = SessionConfig::default()
     .with_elicitation_handler(Arc::new(MyElicitation));
 ```
 
-The handler receives a message, optional JSON Schema for form fields, and an optional mode. Known modes include `Form` and `Url`, but the mode may be absent or an unknown future value.
+The handler receives a message, optional JSON Schema for form fields, and an optional mode. The schema retains the wire object's field order and metadata, including keys not modeled by the generated event type. Known modes include `Form` and `Url`, but the mode may be absent or an unknown future value.
+
+Wire-schema preservation is a Rust SDK guarantee, not a guarantee shared by
+every SDK. For applications targeting multiple SDK languages, constrain form
+schemas to the [portable elicitation schema contract](../README.md#portable-elicitation-schemas):
+the modeled `type`, `properties`, and optional `required` fields, without
+depending on additional top-level metadata or property insertion order.
 
 ### User Input Requests
 
@@ -1211,6 +1246,8 @@ config.infinite_sessions = Some(infinite);
 The CLI emits `session.compaction_start` / `session.compaction_complete` events around each compaction. The session id remains stable across compactions; resume with `Client::resume_session` to pick up a prior conversation. Workspace state lives under `~/.copilot/session-state/{sessionId}` by default — override with `workspace_path` to relocate.
 
 `enable_session_store` on `SessionConfig` enables the cross-session store for search and retrieval across sessions. When unset in the default client mode, the runtime default applies (enabled). In `Empty` mode, defaults to disabled.
+
+`enable_github_cache_store` on `SessionConfig` and `ResumeSessionConfig` (builder `with_enable_github_cache_store`) requests the read-only GitHub cache store (`github-cache-store` capability) on create or resume. The runtime registers the `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is also on. Defaults to disabled in every mode.
 
 ### Memory
 

@@ -86,6 +86,38 @@ public class SessionRequestBuilderTest {
     }
 
     @Test
+    void enableGitHubCacheStoreIsForwardedOnCreateAndResumeInAllModes() throws Exception {
+        var mapper = JsonRpcClient.getObjectMapper();
+        for (var mode : new CopilotClientMode[]{CopilotClientMode.COPILOT_CLI, CopilotClientMode.EMPTY}) {
+            for (Boolean choice : new Boolean[]{null, false, true}) {
+                var create = new SessionConfig();
+                var resume = new ResumeSessionConfig();
+                if (choice != null) {
+                    create.setEnableGitHubCacheStore(choice);
+                    resume.setEnableGitHubCacheStore(choice);
+                }
+                var createJson = mapper.readTree(
+                        mapper.writeValueAsBytes(SessionRequestBuilder.buildCreateRequest(create.clone(), "s1", mode)));
+                var resumeJson = mapper.readTree(
+                        mapper.writeValueAsBytes(SessionRequestBuilder.buildResumeRequest("s1", resume.clone(), mode)));
+                for (var requestJson : List.of(createJson, resumeJson)) {
+                    if (choice == null) {
+                        assertFalse(requestJson.has("enableGitHubCacheStore"));
+                    } else {
+                        assertTrue(requestJson.path("enableGitHubCacheStore").isBoolean());
+                        assertEquals(choice.booleanValue(), requestJson.path("enableGitHubCacheStore").asBoolean());
+                    }
+                }
+            }
+        }
+
+        var cleared = new SessionConfig().setEnableGitHubCacheStore(true).clearEnableGitHubCacheStore();
+        assertTrue(cleared.getEnableGitHubCacheStore().isEmpty());
+        var clearedResume = new ResumeSessionConfig().setEnableGitHubCacheStore(true).clearEnableGitHubCacheStore();
+        assertTrue(clearedResume.getEnableGitHubCacheStore().isEmpty());
+    }
+
+    @Test
     void clearingTranscriptRecoveryRestoresRuntimeDefaultInAllModes() throws Exception {
         var mapper = JsonRpcClient.getObjectMapper();
         for (boolean choice : new boolean[]{false, true}) {

@@ -167,26 +167,36 @@ public class SubagentHooksE2ETests(E2ETestFixture fixture, ITestOutputHelper out
         {
             if (string.IsNullOrEmpty(r.ParentAgentId)) return false;
             using var body = JsonDocument.Parse(r.Body);
-            if (!body.RootElement.TryGetProperty("messages", out var messages)
-                && !body.RootElement.TryGetProperty("input", out messages))
-                return false;
-            return messages.ValueKind == JsonValueKind.Array && messages.EnumerateArray().Any(message =>
-                message.ValueKind == JsonValueKind.Object
-                && message.TryGetProperty("role", out var role)
-                && role.ValueKind == JsonValueKind.String
-                && role.GetString() == "user"
-                && message.TryGetProperty("content", out var content)
-                && (content.ValueKind == JsonValueKind.String
-                    ? content.GetString()!.Contains(ChildContext + "\n\nRead the file \"subagent-test.txt\"", StringComparison.Ordinal)
-                    : content.ValueKind == JsonValueKind.Array && content.EnumerateArray().Any(part =>
-                        part.ValueKind == JsonValueKind.Object
-                        && part.TryGetProperty("text", out var text)
-                        && text.ValueKind == JsonValueKind.String
-                        && text.GetString()!.Contains(ChildContext + "\n\nRead the file \"subagent-test.txt\"", StringComparison.Ordinal))));
+            return HasChildContext(body.RootElement);
         });
         Assert.Contains(requestHandler.InferenceRequests, r =>
             string.IsNullOrEmpty(r.ParentAgentId)
             && r.Body.Contains(StopResponsePrefix, StringComparison.Ordinal));
+    }
+
+    internal static bool HasChildContext(JsonElement body)
+    {
+        const string expected = ChildContext + "\n\nRead the file \"subagent-test.txt\"";
+        if (body.TryGetProperty("input", out var input) && input.ValueKind == JsonValueKind.String)
+            return input.GetString()!.Contains(expected, StringComparison.Ordinal);
+        if (!body.TryGetProperty("messages", out var messages) || messages.ValueKind == JsonValueKind.Null)
+            messages = input;
+        return messages.ValueKind == JsonValueKind.Array && messages.EnumerateArray().Any(message =>
+            message.ValueKind == JsonValueKind.Object
+            && message.TryGetProperty("role", out var role)
+            && role.ValueKind == JsonValueKind.String
+            && role.GetString() == "user"
+            && message.TryGetProperty("content", out var content)
+            && (content.ValueKind == JsonValueKind.String
+                ? content.GetString()!.Contains(expected, StringComparison.Ordinal)
+                : content.ValueKind == JsonValueKind.Array && content.EnumerateArray().Any(part =>
+                    part.ValueKind == JsonValueKind.Object
+                    && part.TryGetProperty("type", out var type)
+                    && type.ValueKind == JsonValueKind.String
+                    && (type.GetString() == "text" || type.GetString() == "input_text")
+                    && part.TryGetProperty("text", out var text)
+                    && text.ValueKind == JsonValueKind.String
+                    && text.GetString()!.Contains(expected, StringComparison.Ordinal))));
     }
 
     private static void AssertSubagentRequestMetadata(IReadOnlyCollection<RequestRecord> records)
@@ -229,4 +239,34 @@ public class SubagentHooksE2ETests(E2ETestFixture fixture, ITestOutputHelper out
         string? ParentAgentId,
         string? InteractionType,
         string Body);
+}
+
+public class SubagentRequestObserverTests
+{
+    [Fact]
+    public void Recognizes_User_Context_Across_Request_Formats()
+    {
+        var encoded = "\"" + JsonEncodedText.Encode("Subagent start hook verified: read the requested file.\n\nRead the file \"subagent-test.txt\"") + "\"";
+        var user = "{\"role\":\"user\",\"content\":" + encoded + "}";
+        foreach (var json in new[]
+        {
+            "{\"messages\":[" + user + "]}",
+            "{\"input\":" + encoded + "}",
+            "{\"input\":[" + user + "]}",
+            "{\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":" + encoded + "}]}]}",
+            "{\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":" + encoded + "}]}]}",
+        })
+        {
+            using var body = JsonDocument.Parse(json);
+            Assert.True(SubagentHooksE2ETests.HasChildContext(body.RootElement), json);
+        }
+        using var ignored = JsonDocument.Parse("{\"input\":["
+            + "{\"role\":\"assistant\",\"content\":" + encoded + "},"
+            + "{\"type\":\"function_call_output\",\"output\":" + encoded + "},"
+            + "{\"role\":\"user\",\"content\":[null,\"ignored\","
+            + "{\"type\":\"input_text\",\"text\":42},{\"type\":\"input_image\",\"text\":" + encoded + "}]}]}");
+        Assert.False(SubagentHooksE2ETests.HasChildContext(ignored.RootElement));
+        using var empty = JsonDocument.Parse("{}");
+        Assert.False(SubagentHooksE2ETests.HasChildContext(empty.RootElement));
+    }
 }

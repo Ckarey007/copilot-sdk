@@ -41,6 +41,8 @@ rust_library(
     crate_features = [
         "alloc",
         "default",
+        "indexmap",
+        "preserve_order",
         "std",
     ],
     crate_root = "src/lib.rs",
@@ -70,6 +72,7 @@ rust_library(
     version = "1.0.151",
     deps = [
         ":build_script_build",
+        "@sdk_vendor__indexmap-2.14.2//:indexmap",
         "@sdk_vendor__itoa-1.0.18//:itoa",
         "@sdk_vendor__memchr-2.8.3//:memchr",
         "@sdk_vendor__serde_core-1.0.229//:serde_core",
@@ -102,6 +105,8 @@ cargo_build_script(
     crate_features = [
         "alloc",
         "default",
+        "indexmap",
+        "preserve_order",
         "std",
     ],
     crate_name = "build_script_build",

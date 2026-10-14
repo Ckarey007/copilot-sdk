@@ -51,6 +51,7 @@ async fn should_forward_advanced_session_creation_options_to_the_cli() {
                 .with_enable_file_hooks(false)
                 .with_enable_host_git_operations(false)
                 .with_enable_session_store(false)
+                .with_enable_github_cache_store(true)
                 .with_enable_skills(false)
                 .with_working_directory(working_dir.clone())
                 .with_streaming(true)
@@ -118,6 +119,7 @@ async fn should_forward_advanced_session_creation_options_to_the_cli() {
             ("enableFileHooks", json!(false)),
             ("enableHostGitOperations", json!(false)),
             ("enableSessionStore", json!(false)),
+            ("enableGitHubCacheStore", json!(true)),
             ("enableSkills", json!(false)),
             ("workingDirectory", json!(path_string(&working_dir))),
             ("streaming", json!(true)),

@@ -26,6 +26,7 @@ from copilot import (
 from copilot.client import CopilotClient, RuntimeConnection
 from copilot.session import PermissionHandler
 
+from .inference_request import user_message_text
 from .testharness import E2ETestContext
 from .testharness.helper import write_file
 
@@ -55,21 +56,9 @@ class _RecordingRequestHandler(CopilotRequestHandler):
         if _is_inference_url(str(request.url)):
             body = json.loads(request.content)
             if ctx.parent_agent_id:
-                for message in body.get("messages", []):
-                    if message["role"] != "user":
-                        continue
-                    content = message.get("content")
-                    parts = [content] if isinstance(content, str) else content
-                    if isinstance(parts, list):
-                        for part in parts:
-                            if isinstance(part, str):
-                                text = part
-                            elif isinstance(part, dict):
-                                text = part.get("text")
-                            else:
-                                continue
-                            if isinstance(text, str) and f"{CHILD_CONTEXT}\n\n" in text:
-                                self.child_prompts.append(text)
+                for text in user_message_text(body):
+                    if f"{CHILD_CONTEXT}\n\n" in text:
+                        self.child_prompts.append(text)
             elif STOP_RESPONSE_PREFIX in json.dumps(body):
                 self.modified_parent_request.set()
         return await super().send_request(request, ctx)

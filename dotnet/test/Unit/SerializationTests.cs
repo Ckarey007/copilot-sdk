@@ -1105,6 +1105,42 @@ public class SerializationTests
         Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1700000000000), input.Timestamp);
     }
 
+    [Theory]
+    [InlineData("""{"name":"Error","message":"model timeout","stack":"Error: model timeout"}""", "model timeout")]
+    [InlineData("\"boom\"", "boom")]
+    [InlineData("""{"code":7}""", """{"code":7}""")]
+    public void ErrorOccurredHookInput_DecodesCliErrorShapes(string error, string expected)
+    {
+        var options = GetSerializerOptions();
+        var input = JsonSerializer.Deserialize<ErrorOccurredHookInput>(
+            $$"""{"sessionId":"session-1","timestamp":1700000000000,"cwd":"/repo","error":{{error}},"errorContext":"model_call","recoverable":true}""",
+            options);
+
+        Assert.NotNull(input);
+        Assert.Equal(expected, input.Error);
+        Assert.Equal("model_call", input.ErrorContext);
+        Assert.True(input.Recoverable);
+    }
+
+    [Theory]
+    [InlineData("""{"message":"model timeout"}""", "model timeout")]
+    [InlineData("\"boom\"", "boom")]
+    [InlineData("null", null)]
+    [InlineData(null, null)]
+    [InlineData("""{"code":7}""", """{"code":7}""")]
+    public void SessionEndHookInput_DecodesCliErrorShapes(string? error, string? expected)
+    {
+        var options = GetSerializerOptions();
+        var errorField = error is null ? string.Empty : $",\"error\":{error}";
+        var input = JsonSerializer.Deserialize<SessionEndHookInput>(
+            $$"""{"sessionId":"session-1","timestamp":1700000000000,"cwd":"/repo","reason":"error"{{errorField}}}""",
+            options);
+
+        Assert.NotNull(input);
+        Assert.Equal(expected, input.Error);
+        Assert.Equal("error", input.Reason);
+    }
+
     [Fact]
     public void AgentStopHookOutput_SerializesBlockDecision_WithSdkOptions()
     {

@@ -1985,6 +1985,77 @@ func TestSession_PostToolUseFailureHook(t *testing.T) {
 	})
 }
 
+func TestSession_ErrorHooksDecodeCliErrorObject(t *testing.T) {
+	cases := []struct {
+		name  string
+		error string
+		want  string
+	}{
+		{"error object", `"error": {"name": "Error", "message": "model timeout", "stack": "Error: model timeout"},`, "model timeout"},
+		{"string", `"error": "boom",`, "boom"},
+		{"null", `"error": null,`, ""},
+		{"absent", ``, ""},
+		{"object without a string message", `"error": {"code": 7},`, `{"code":7}`},
+	}
+	for _, tc := range cases {
+		t.Run("errorOccurred/"+tc.name, func(t *testing.T) {
+			session, cleanup := newTestSession()
+			defer cleanup()
+
+			var captured *ErrorOccurredHookInput
+			session.registerHooks(&SessionHooks{
+				OnErrorOccurred: func(input ErrorOccurredHookInput, _ HookInvocation) (*ErrorOccurredHookOutput, error) {
+					captured = &input
+					return nil, nil
+				},
+			})
+
+			raw := json.RawMessage(`{"sessionId": "sess-1", "timestamp": 1700000000, "cwd": "/work", ` + tc.error +
+				` "errorContext": "model_call", "recoverable": true}`)
+			if _, err := session.handleHooksInvoke("errorOccurred", raw); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if captured == nil {
+				t.Fatal("OnErrorOccurred did not run")
+			}
+			if captured.Error != tc.want {
+				t.Errorf("expected error %q, got %q", tc.want, captured.Error)
+			}
+			if captured.ErrorContext != "model_call" || !captured.Recoverable {
+				t.Errorf("unexpected input: %+v", *captured)
+			}
+		})
+
+		t.Run("sessionEnd/"+tc.name, func(t *testing.T) {
+			session, cleanup := newTestSession()
+			defer cleanup()
+
+			var captured *SessionEndHookInput
+			session.registerHooks(&SessionHooks{
+				OnSessionEnd: func(input SessionEndHookInput, _ HookInvocation) (*SessionEndHookOutput, error) {
+					captured = &input
+					return nil, nil
+				},
+			})
+
+			raw := json.RawMessage(`{"sessionId": "sess-1", "timestamp": 1700000000, "cwd": "/work", ` + tc.error +
+				` "reason": "error"}`)
+			if _, err := session.handleHooksInvoke("sessionEnd", raw); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if captured == nil {
+				t.Fatal("OnSessionEnd did not run")
+			}
+			if captured.Error != tc.want {
+				t.Errorf("expected error %q, got %q", tc.want, captured.Error)
+			}
+			if captured.Reason != "error" {
+				t.Errorf("expected reason 'error', got %q", captured.Reason)
+			}
+		})
+	}
+}
+
 func TestSession_AgentStopHook(t *testing.T) {
 	session, cleanup := newTestSession()
 	defer cleanup()

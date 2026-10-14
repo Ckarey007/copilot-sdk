@@ -3369,9 +3369,12 @@ async fn handle_notification(
                 };
             let request = ElicitationRequest {
                 message: elicitation_data.message,
+                // Forward the wire schema verbatim: the generated type keys
+                // `properties` by `HashMap`, so re-serializing it scrambles
+                // the form's field order and drops keys it does not model.
                 requested_schema: elicitation_data
                     .requested_schema
-                    .map(|s| serde_json::to_value(s).unwrap_or(Value::Null)),
+                    .and(notification.event.data.get("requestedSchema").cloned()),
                 mode: elicitation_data.mode.map(|m| match m {
                     crate::generated::session_events::ElicitationRequestedMode::Form => {
                         crate::types::ElicitationMode::Form

@@ -2343,89 +2343,116 @@ Related files (use view tool to read):
       }
     });
 
-    test("matches shell tool results with shell ID completion markers", async () => {
-      const originalShellConfig =
-        process.platform === "win32"
-          ? ShellConfig.powerShell
-          : ShellConfig.bash;
-      const cachePath = path.join(tempDir, "cache.yaml");
-      const cacheContent = yaml.stringify({
-        models: ["test-model"],
-        conversations: [
-          {
-            messages: [
-              { role: "system", content: "${system}" },
-              { role: "user", content: "Run command" },
-              {
-                role: "assistant",
-                tool_calls: [
-                  {
-                    id: "toolcall_0",
-                    type: "function",
-                    function: {
-                      name: "${shell}",
-                      arguments: '{"command":"echo ok"}',
+    test.each([
+      {
+        toolName: "${shell}",
+        recorded: "ok\n<exited with exit code 0>",
+        actual: "ok\n<shellId: 42 completed with exit code 0>",
+      },
+      {
+        toolName: "${shell}",
+        recorded: "<command started in background with shellId: 0>",
+        actual: "<command started in background with shellId: 42>",
+      },
+      {
+        toolName: "view",
+        recorded: "ok\n<shellId: 42 completed with exit code 0>",
+        actual: "ok\n<shellId: 42 completed with exit code 0>",
+      },
+      {
+        toolName: "view",
+        recorded: "<command started in background with shellId: 42>",
+        actual: "<command started in background with shellId: 42>",
+      },
+    ])(
+      "matches $toolName results containing shell markers: $actual",
+      async ({ toolName, recorded, actual }) => {
+        const originalShellConfig =
+          process.platform === "win32"
+            ? ShellConfig.powerShell
+            : ShellConfig.bash;
+        const cachePath = path.join(tempDir, "cache.yaml");
+        const cacheContent = yaml.stringify({
+          models: ["test-model"],
+          conversations: [
+            {
+              messages: [
+                { role: "system", content: "${system}" },
+                { role: "user", content: "Run command" },
+                {
+                  role: "assistant",
+                  tool_calls: [
+                    {
+                      id: "toolcall_0",
+                      type: "function",
+                      function: {
+                        name: toolName,
+                        arguments: '{"command":"echo ok"}',
+                      },
                     },
-                  },
-                ],
-              },
-              {
-                role: "tool",
-                tool_call_id: "toolcall_0",
-                content: "ok\n<exited with exit code 0>",
-              },
-              { role: "assistant", content: "Done" },
-            ],
-          },
-        ],
-      } satisfies NormalizedData);
-      await writeFile(cachePath, cacheContent);
+                  ],
+                },
+                {
+                  role: "tool",
+                  tool_call_id: "toolcall_0",
+                  content: recorded,
+                },
+                { role: "assistant", content: "Done" },
+              ],
+            },
+          ],
+        } satisfies NormalizedData);
+        await writeFile(cachePath, cacheContent);
 
-      const proxy = new ReplayingCapiProxy(
-        "http://localhost:9999",
-        cachePath,
-        workDir,
-      );
-      const proxyUrl = await proxy.start();
+        const proxy = new ReplayingCapiProxy(
+          "http://localhost:9999",
+          cachePath,
+          workDir,
+        );
+        const proxyUrl = await proxy.start();
 
-      try {
-        const response = await makeRequest(proxyUrl, "/chat/completions", {
-          body: {
-            model: "test-model",
-            messages: [
-              { role: "system", content: "System prompt" },
-              { role: "user", content: "Run command" },
-              {
-                role: "assistant",
-                tool_calls: [
-                  {
-                    id: "runtime-call-id",
-                    type: "function",
-                    function: {
-                      name: originalShellConfig.shellToolName,
-                      arguments: '{"command":"echo ok"}',
+        try {
+          const response = await makeRequest(proxyUrl, "/chat/completions", {
+            body: {
+              model: "test-model",
+              messages: [
+                { role: "system", content: "System prompt" },
+                { role: "user", content: "Run command" },
+                {
+                  role: "assistant",
+                  tool_calls: [
+                    {
+                      id: "runtime-call-id",
+                      type: "function",
+                      function: {
+                        name:
+                          toolName === "${shell}"
+                            ? originalShellConfig.shellToolName
+                            : toolName,
+                        arguments: '{"command":"echo ok"}',
+                      },
                     },
-                  },
-                ],
-              },
-              {
-                role: "tool",
-                tool_call_id: "runtime-call-id",
-                content: "ok\n<shellId: 42 completed with exit code 0>",
-              },
-            ],
-          },
-        });
+                  ],
+                },
+                {
+                  role: "tool",
+                  tool_call_id: "runtime-call-id",
+                  content: actual,
+                },
+              ],
+            },
+          });
 
-        expect(response.status).toBe(200);
-        expect(
-          (JSON.parse(response.body) as ChatCompletion).choices[0].message
-            .content,
-        ).toBe("Done");
-      } finally {
-        await proxy.stop();
-      }
-    });
+          expect(response.status).toBe(200);
+          expect(
+            (JSON.parse(response.body) as ChatCompletion).choices[0].message
+              .content,
+          ).toBe("Done");
+        } finally {
+          await proxy.stop();
+        }
+      },
+    );
 
     test("matches semantically equivalent interrupted tool results", async () => {
       const originalShellConfig =

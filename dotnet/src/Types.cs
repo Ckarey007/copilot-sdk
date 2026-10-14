@@ -1473,6 +1473,18 @@ public sealed class HookInvocation
 /// </summary>
 public sealed class PreToolUseHookInput
 {
+    /// <summary>Subagent actor ID, absent for root hooks and older runtimes.</summary>
+    [JsonPropertyName("agentId")]
+    public string? AgentId { get; set; }
+
+    /// <summary>Subagent type, when known by the runtime.</summary>
+    [JsonPropertyName("agentType")]
+    public string? AgentType { get; set; }
+
+    /// <summary>Immediate parent actor ID, when available.</summary>
+    [JsonPropertyName("parentAgentId")]
+    public string? ParentAgentId { get; set; }
+
     /// <summary>
     /// The runtime session ID of the session that triggered the hook.
     /// </summary>
@@ -1551,6 +1563,18 @@ public sealed class PreToolUseHookOutput
 /// </summary>
 public sealed class PreMcpToolCallHookInput
 {
+    /// <summary>Subagent actor ID, absent for root hooks and older runtimes.</summary>
+    [JsonPropertyName("agentId")]
+    public string? AgentId { get; set; }
+
+    /// <summary>Subagent type, when known by the runtime.</summary>
+    [JsonPropertyName("agentType")]
+    public string? AgentType { get; set; }
+
+    /// <summary>Immediate parent actor ID, when available.</summary>
+    [JsonPropertyName("parentAgentId")]
+    public string? ParentAgentId { get; set; }
+
     /// <summary>
     /// The runtime session ID of the session that triggered the hook.
     /// </summary>
@@ -1628,6 +1652,18 @@ public sealed class PreMcpToolCallHookOutput
 /// </summary>
 public sealed class PostToolUseHookInput
 {
+    /// <summary>Subagent actor ID, absent for root hooks and older runtimes.</summary>
+    [JsonPropertyName("agentId")]
+    public string? AgentId { get; set; }
+
+    /// <summary>Subagent type, when known by the runtime.</summary>
+    [JsonPropertyName("agentType")]
+    public string? AgentType { get; set; }
+
+    /// <summary>Immediate parent actor ID, when available.</summary>
+    [JsonPropertyName("parentAgentId")]
+    public string? ParentAgentId { get; set; }
+
     /// <summary>
     /// The runtime session ID of the session that triggered the hook.
     /// </summary>
@@ -1699,6 +1735,18 @@ public sealed class PostToolUseHookOutput
 /// </summary>
 public sealed class PostToolUseFailureHookInput
 {
+    /// <summary>Subagent actor ID, absent for root hooks and older runtimes.</summary>
+    [JsonPropertyName("agentId")]
+    public string? AgentId { get; set; }
+
+    /// <summary>Subagent type, when known by the runtime.</summary>
+    [JsonPropertyName("agentType")]
+    public string? AgentType { get; set; }
+
+    /// <summary>Immediate parent actor ID, when available.</summary>
+    [JsonPropertyName("parentAgentId")]
+    public string? ParentAgentId { get; set; }
+
     /// <summary>
     /// The runtime session ID of the session that triggered the hook.
     /// </summary>
@@ -1757,6 +1805,18 @@ public sealed class PostToolUseFailureHookOutput
 /// </summary>
 public sealed class UserPromptSubmittedHookInput
 {
+    /// <summary>Subagent actor ID, absent for root hooks and older runtimes.</summary>
+    [JsonPropertyName("agentId")]
+    public string? AgentId { get; set; }
+
+    /// <summary>Subagent type, when known by the runtime.</summary>
+    [JsonPropertyName("agentType")]
+    public string? AgentType { get; set; }
+
+    /// <summary>Immediate parent actor ID, when available.</summary>
+    [JsonPropertyName("parentAgentId")]
+    public string? ParentAgentId { get; set; }
+
     /// <summary>
     /// The runtime session ID of the session that triggered the hook.
     /// </summary>
@@ -1812,6 +1872,18 @@ public sealed class UserPromptSubmittedHookOutput
 /// </summary>
 public sealed class UserPromptTransformedHookInput
 {
+    /// <summary>Subagent actor ID, absent for root hooks and older runtimes.</summary>
+    [JsonPropertyName("agentId")]
+    public string? AgentId { get; set; }
+
+    /// <summary>Subagent type, when known by the runtime.</summary>
+    [JsonPropertyName("agentType")]
+    public string? AgentType { get; set; }
+
+    /// <summary>Immediate parent actor ID, when available.</summary>
+    [JsonPropertyName("parentAgentId")]
+    public string? ParentAgentId { get; set; }
+
     /// <summary>
     /// The runtime session ID of the session that triggered the hook.
     /// </summary>
@@ -1861,6 +1933,18 @@ public sealed class UserPromptTransformedHookOutput
 /// </summary>
 public sealed class SessionStartHookInput
 {
+    /// <summary>Subagent actor ID, absent for root hooks and older runtimes.</summary>
+    [JsonPropertyName("agentId")]
+    public string? AgentId { get; set; }
+
+    /// <summary>Subagent type, when known by the runtime.</summary>
+    [JsonPropertyName("agentType")]
+    public string? AgentType { get; set; }
+
+    /// <summary>Immediate parent actor ID, when available.</summary>
+    [JsonPropertyName("parentAgentId")]
+    public string? ParentAgentId { get; set; }
+
     /// <summary>
     /// The runtime session ID of the session that triggered the hook.
     /// </summary>
@@ -1921,6 +2005,18 @@ public sealed class SessionStartHookOutput
 /// </summary>
 public sealed class SessionEndHookInput
 {
+    /// <summary>Subagent actor ID, absent for root hooks and older runtimes.</summary>
+    [JsonPropertyName("agentId")]
+    public string? AgentId { get; set; }
+
+    /// <summary>Subagent type, when known by the runtime.</summary>
+    [JsonPropertyName("agentType")]
+    public string? AgentType { get; set; }
+
+    /// <summary>Immediate parent actor ID, when available.</summary>
+    [JsonPropertyName("parentAgentId")]
+    public string? ParentAgentId { get; set; }
+
     /// <summary>
     /// The runtime session ID of the session that triggered the hook.
     /// </summary>
@@ -1963,6 +2059,7 @@ public sealed class SessionEndHookInput
     /// Error message if the session ended due to an error.
     /// </summary>
     [JsonPropertyName("error")]
+    [JsonConverter(typeof(HookErrorTextConverter))]
     public string? Error { get; set; }
 }
 
@@ -1995,6 +2092,18 @@ public sealed class SessionEndHookOutput
 /// </summary>
 public sealed class ErrorOccurredHookInput
 {
+    /// <summary>Subagent actor ID, absent for root hooks and older runtimes.</summary>
+    [JsonPropertyName("agentId")]
+    public string? AgentId { get; set; }
+
+    /// <summary>Subagent type, when known by the runtime.</summary>
+    [JsonPropertyName("agentType")]
+    public string? AgentType { get; set; }
+
+    /// <summary>Immediate parent actor ID, when available.</summary>
+    [JsonPropertyName("parentAgentId")]
+    public string? ParentAgentId { get; set; }
+
     /// <summary>
     /// The runtime session ID of the session that triggered the hook.
     /// </summary>
@@ -2018,6 +2127,7 @@ public sealed class ErrorOccurredHookInput
     /// Error message describing what went wrong.
     /// </summary>
     [JsonPropertyName("error")]
+    [JsonConverter(typeof(HookErrorTextConverter))]
     public string Error { get; set; } = string.Empty;
 
     /// <summary>
@@ -2079,6 +2189,18 @@ public sealed class ErrorOccurredHookOutput
 /// </summary>
 public sealed class AgentStopHookInput
 {
+    /// <summary>Subagent actor ID, absent for root hooks and older runtimes.</summary>
+    [JsonPropertyName("agentId")]
+    public string? AgentId { get; set; }
+
+    /// <summary>Subagent type, when known by the runtime.</summary>
+    [JsonPropertyName("agentType")]
+    public string? AgentType { get; set; }
+
+    /// <summary>Immediate parent actor ID, when available.</summary>
+    [JsonPropertyName("parentAgentId")]
+    public string? ParentAgentId { get; set; }
+
     /// <summary>
     /// The runtime session ID of the session that triggered the hook.
     /// </summary>
@@ -2140,6 +2262,18 @@ public sealed class AgentStopHookOutput
 /// </summary>
 public sealed class SubagentStartHookInput
 {
+    /// <summary>Subagent actor ID, absent for root hooks and older runtimes.</summary>
+    [JsonPropertyName("agentId")]
+    public string? AgentId { get; set; }
+
+    /// <summary>Subagent type, when known by the runtime.</summary>
+    [JsonPropertyName("agentType")]
+    public string? AgentType { get; set; }
+
+    /// <summary>Immediate parent actor ID, when available.</summary>
+    [JsonPropertyName("parentAgentId")]
+    public string? ParentAgentId { get; set; }
+
     /// <summary>
     /// The runtime session ID of the parent session.
     /// </summary>
@@ -2201,6 +2335,10 @@ public sealed class SubagentStartHookOutput
 /// </summary>
 public sealed class SubagentStopHookInput
 {
+    /// <summary>Immediate parent actor ID, when available.</summary>
+    [JsonPropertyName("parentAgentId")]
+    public string? ParentAgentId { get; set; }
+
     /// <summary>
     /// The runtime session ID of the parent session.
     /// </summary>
@@ -3629,6 +3767,7 @@ public abstract class SessionConfigBase
         EnableFileHooks = other.EnableFileHooks;
         EnableHostGitOperations = other.EnableHostGitOperations;
         EnableSessionStore = other.EnableSessionStore;
+        EnableGitHubCacheStore = other.EnableGitHubCacheStore;
         EnableSkills = other.EnableSkills;
         EnableMcpApps = other.EnableMcpApps;
         GitHubMcpToolConfig = other.GitHubMcpToolConfig is null
@@ -3694,6 +3833,7 @@ public abstract class SessionConfigBase
         ExpAssignments = other.ExpAssignments;
         EnableManagedSettings = other.EnableManagedSettings;
         EnforceManagedModelDefaults = other.EnforceManagedModelDefaults;
+        InteractiveUser = other.InteractiveUser;
         ManagedSettings = other.ManagedSettings;
         SkillProvider = other.SkillProvider;
 #pragma warning disable GHCP001
@@ -3831,6 +3971,14 @@ public abstract class SessionConfigBase
     /// not written to or read from the shared session store.
     /// </summary>
     public bool? EnableSessionStore { get; set; }
+
+    /// <summary>
+    /// When <see langword="true"/>, requests the read-only GitHub cache store
+    /// (the <c>github-cache-store</c> capability). The runtime registers the
+    /// <c>github_sql</c> tool only when its <c>GITHUB_CACHE_STORE</c> feature flag
+    /// is also on. Defaults to disabled.
+    /// </summary>
+    public bool? EnableGitHubCacheStore { get; set; }
 
     /// <summary>
     /// When <see langword="true"/>, enables skill loading, including built-in
@@ -4280,6 +4428,15 @@ public abstract class SessionConfigBase
     /// remain mutable.
     /// </summary>
     public bool? EnforceManagedModelDefaults { get; set; }
+
+    /// <summary>
+    /// Declares that a human drives this session's conversation, enabling
+    /// user-message analysis telemetry for user-authored messages. Automated
+    /// messages remain excluded. Defaults to false for SDK sessions; ignored
+    /// for cloud sessions and when resuming a session already active in the
+    /// runtime process.
+    /// </summary>
+    public bool? InteractiveUser { get; set; }
 
     /// <summary>
     /// Optional managed-settings layer injected at session bootstrap. Currently

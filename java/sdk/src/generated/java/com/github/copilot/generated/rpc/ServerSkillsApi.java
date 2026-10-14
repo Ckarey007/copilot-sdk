@@ -46,6 +46,17 @@ public final class ServerSkillsApi {
     }
 
     /**
+     * Plans installation of the Skill pinned by an Agent Finder materialisation reference without writing files. The runtime retrieves the descriptor only from its fixed Agent Finder authority and applies the same verification as skills.planInstall; the review shows only verified data. Apply the returned plan with skills.applyInstall.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    public CompletableFuture<SkillInstallationManagementResult> planInstallFromReference(SkillsPlanInstallFromReferenceParams params) {
+        return caller.invoke("skills.planInstallFromReference", params, SkillInstallationManagementResult.class);
+    }
+
+    /**
      * Consumes one verified Skill installation plan, requests explicit human consent through installations.confirm on the original connection, then revalidates and installs the Skill disabled.
      *
      * @apiNote This method is experimental and may change in a future version.

@@ -1519,6 +1519,12 @@ export type AutoModeSwitchHandler = (
  * Base interface for all hook inputs
  */
 export interface BaseHookInput {
+    /** Subagent actor ID, absent for root hooks and older runtimes. */
+    agentId?: string;
+    /** Subagent type, when known by the runtime. */
+    agentType?: string;
+    /** Immediate parent actor ID, when available. */
+    parentAgentId?: string;
     /** The runtime session ID associated with the hook. Child tool hooks use
      * the child session ID; sub-agent lifecycle hooks use the parent session ID,
      * matching `invocation.sessionId`. */
@@ -3095,6 +3101,14 @@ export interface SessionConfigBase {
     enforceManagedModelDefaults?: boolean;
 
     /**
+     * Declares that a human drives this session's conversation, enabling
+     * user-message analysis telemetry for user-authored messages. Automated
+     * messages remain excluded. Defaults to false for SDK sessions; ignored
+     * for cloud sessions and when resuming a session that is already active.
+     */
+    interactiveUser?: boolean;
+
+    /**
      * Host-injected enterprise managed settings for this session.
      *
      * Unlike {@link SessionConfigBase.enableManagedSettings} — which asks the
@@ -3166,6 +3180,14 @@ export interface SessionConfigBase {
      * read from the shared session store.
      */
     enableSessionStore?: boolean;
+
+    /**
+     * When true, requests the read-only GitHub cache store for this session
+     * (the `github-cache-store` capability). The runtime registers the
+     * `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is
+     * also on. Defaults to disabled.
+     */
+    enableGitHubCacheStore?: boolean;
 
     /**
      * When true, enables skill loading (including builtin skills and discovered

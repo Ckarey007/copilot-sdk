@@ -64,6 +64,13 @@ impl<'a> ClientRpc<'a> {
         }
     }
 
+    /// `contentExclusion.*` sub-namespace.
+    pub fn content_exclusion(&self) -> ClientRpcContentExclusion<'a> {
+        ClientRpcContentExclusion {
+            client: self.client,
+        }
+    }
+
     /// `environments.*` sub-namespace.
     pub fn environments(&self) -> ClientRpcEnvironments<'a> {
         ClientRpcEnvironments {
@@ -1181,6 +1188,48 @@ impl<'a> ClientRpcConnectors<'a> {
         let _value = self
             .client
             .call(rpc_methods::CONNECTORS_REFRESH, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+}
+
+/// `contentExclusion.*` RPCs.
+#[derive(Clone, Copy)]
+pub struct ClientRpcContentExclusion<'a> {
+    pub(crate) client: &'a Client,
+}
+
+impl<'a> ClientRpcContentExclusion<'a> {
+    /// Validates candidate content-exclusion policies and returns them normalized, without starting a session. This runs the same parser the runtime's own policy enforcement uses, so a host cannot accept a policy set the runtime would later reject, nor reject one it would have honored. Call it when policies arrive from outside the runtime — a command-line flag, a configuration file, a host's own settings — and must be checked before a session exists to apply them to. A malformed document fails with a message prefixed `Invalid JSON: `; a well-formed document that violates the policy schema fails with the offending field paths.
+    ///
+    /// Wire method: `contentExclusion.validatePolicies`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Candidate content-exclusion policies to validate, as the raw JSON text a host received. The text is supplied unparsed so that a syntax error and a schema violation are both reported by the runtime's own validator rather than by the caller's JSON parser.
+    ///
+    /// # Returns
+    ///
+    /// The accepted policies, parsed and normalized. A rejected input is reported as an error rather than in this result.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn validate_policies(
+        &self,
+        params: ContentExclusionValidatePoliciesRequest,
+    ) -> Result<ContentExclusionValidatePoliciesResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::CONTENTEXCLUSION_VALIDATEPOLICIES,
+                Some(wire_params),
+            )
             .await?;
         Ok(serde_json::from_value(_value)?)
     }
@@ -6586,6 +6635,40 @@ impl<'a> ClientRpcSkills<'a> {
         let _value = self
             .client
             .call(rpc_methods::SKILLS_PLANINSTALL, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Plans installation of the Skill pinned by an Agent Finder materialisation reference without writing files. The runtime retrieves the descriptor only from its fixed Agent Finder authority and applies the same verification as skills.planInstall; the review shows only verified data. Apply the returned plan with skills.applyInstall.
+    ///
+    /// Wire method: `skills.planInstallFromReference`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Side-effect-free planning of one Skill from a materialisation reference rather than a search candidate.
+    ///
+    /// # Returns
+    ///
+    /// Skill installation management result with the honoured contract, or a typed refusal.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn plan_install_from_reference(
+        &self,
+        params: SkillPlanInstallFromReferenceRequest,
+    ) -> Result<SkillInstallationManagementResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::SKILLS_PLANINSTALLFROMREFERENCE,
+                Some(wire_params),
+            )
             .await?;
         Ok(serde_json::from_value(_value)?)
     }

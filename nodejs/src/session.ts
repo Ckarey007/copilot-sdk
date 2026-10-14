@@ -183,6 +183,27 @@ function deserializeHookInput(raw: unknown): unknown {
     };
 }
 
+/**
+ * The CLI sends the `error` of an errorOccurred or sessionEnd hook input as an
+ * error object (`{ name, message, stack }` or `{ message }`), where the hook
+ * input types declare a string. The object's message becomes the error, and an
+ * object without a string message becomes its JSON. Other values pass through.
+ */
+function normalizeHookError(hookType: string, input: unknown): unknown {
+    if (hookType !== "errorOccurred" && hookType !== "sessionEnd") {
+        return input;
+    }
+    if (!input || typeof input !== "object" || !("error" in input)) {
+        return input;
+    }
+    const { error } = input as { error: unknown };
+    if (!error || typeof error !== "object" || Array.isArray(error)) {
+        return input;
+    }
+    const { message } = error as { message?: unknown };
+    return { ...input, error: typeof message === "string" ? message : JSON.stringify(error) };
+}
+
 function isOpenCanvasInstance(value: unknown): value is OpenCanvasInstance {
     if (!value || typeof value !== "object") {
         return false;
@@ -2364,7 +2385,7 @@ export class CopilotSession {
         // is left alone — the user-facing handler types still cast unknown to the
         // specific HookInput, so a runtime type mismatch surfaces as a normal
         // TypeError in user code rather than being silently masked.
-        const normalized = deserializeHookInput(input);
+        const normalized = normalizeHookError(hookType, deserializeHookInput(input));
 
         type GenericHandler = (
             input: unknown,

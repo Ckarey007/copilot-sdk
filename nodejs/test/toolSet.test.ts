@@ -565,6 +565,38 @@ describe("Empty-mode safe defaults", () => {
         expect(resumePayload.enableSkills).toBe(false);
     });
 
+    it("passes enableGitHubCacheStore through on create and resume and omits it when unset", async () => {
+        const { client, spy } = await setupClient("copilot-cli");
+        const session = await client.createSession({
+            onPermissionRequest: approveAll,
+            enableGitHubCacheStore: true,
+        });
+        expect(createPayload(spy).enableGitHubCacheStore).toBe(true);
+        await client.resumeSession(session.sessionId, {
+            onPermissionRequest: approveAll,
+            enableGitHubCacheStore: false,
+        });
+        const resumePayload = spy.mock.calls.find(([m]) => m === "session.resume")![1] as any;
+        expect(resumePayload.enableGitHubCacheStore).toBe(false);
+
+        spy.mockClear();
+        const unset = await client.createSession({ onPermissionRequest: approveAll });
+        await client.resumeSession(unset.sessionId, { onPermissionRequest: approveAll });
+        for (const method of ["session.create", "session.resume"]) {
+            const payload = spy.mock.calls.find(([m]) => m === method)![1] as any;
+            expect(payload.enableGitHubCacheStore).toBeUndefined();
+        }
+    });
+
+    it("does not default enableGitHubCacheStore in empty mode", async () => {
+        const { client, spy } = await setupClient();
+        await client.createSession({
+            onPermissionRequest: approveAll,
+            availableTools: new ToolSet().addBuiltIn(BuiltInTools.Isolated),
+        });
+        expect(createPayload(spy).enableGitHubCacheStore).toBeUndefined();
+    });
+
     it("forwards the four flags in copilot-cli mode when the app sets them", async () => {
         const { client, spy } = await setupClient("copilot-cli");
         await client.createSession({

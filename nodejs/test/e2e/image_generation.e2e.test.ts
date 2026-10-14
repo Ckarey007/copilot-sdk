@@ -96,7 +96,7 @@ async function imageToolOffered(session: CopilotSession): Promise<boolean> {
 
 describe("Native image generation consent", async () => {
     // Native image inference is CAPI-only, independent of the chat-provider CI matrix.
-    const { createClient, openAiEndpoint } = await createSdkTestContext({
+    const { createClient } = await createSdkTestContext({
         replayOnly: true,
         backend: "capi",
     });
@@ -144,18 +144,6 @@ describe("Native image generation consent", async () => {
                 stream: false,
             },
         ]);
-    });
-
-    it("still requires an image model from CAPI", async () => {
-        const service = new ImageService(false);
-        await using client = createClient({ requestHandler: service });
-        await using session = await client.createSession({
-            onPermissionRequest: approveAll,
-            imageGeneration: { enabled: true },
-            featureFlags: { IMAGE_GENERATION_TOOL: true },
-        });
-        expect(await imageToolOffered(session)).toBe(false);
-        expect(service.imageRequests).toEqual([]);
     });
 
     it("preserves resident consent but applies an explicit opt-out", async () => {
@@ -228,6 +216,25 @@ describe("Native image generation consent", async () => {
             featureFlags: { IMAGE_GENERATION_TOOL: false },
         });
         expect(await imageToolOffered(optedIn)).toBe(true);
+    });
+});
+
+describe("Native image generation without a CAPI image model", async () => {
+    const { createClient, openAiEndpoint } = await createSdkTestContext({
+        replayOnly: true,
+        backend: "capi",
+    });
+
+    it("still requires an image model from CAPI", async () => {
+        const service = new ImageService(false);
+        await using client = createClient({ requestHandler: service });
+        await using session = await client.createSession({
+            onPermissionRequest: approveAll,
+            imageGeneration: { enabled: true },
+            featureFlags: { IMAGE_GENERATION_TOOL: true },
+        });
+        expect(await imageToolOffered(session)).toBe(false);
+        expect(service.imageRequests).toEqual([]);
     });
 
     it.each(["anthropic-messages", "openai-responses", "openai-completions"] as const)(

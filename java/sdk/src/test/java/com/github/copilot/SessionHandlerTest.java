@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -21,6 +22,7 @@ import org.junit.jupiter.api.Test;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.copilot.rpc.AgentStopHookOutput;
 import com.github.copilot.rpc.PermissionRequestResult;
 import com.github.copilot.rpc.PermissionRequestResultKind;
@@ -46,6 +48,75 @@ public class SessionHandlerTest {
     private static final ObjectMapper MAPPER = JsonRpcClient.getObjectMapper();
 
     private CopilotSession session;
+
+    @Test
+    void typedHookDispatchRetainsChildIdentityAndOldRootInputs() throws Exception {
+        var captured = new ArrayList<Object>();
+        var hooks = new SessionHooks().setOnPreToolUse((i, c) -> {
+            captured.add(i);
+            return CompletableFuture.completedFuture(null);
+        }).setOnPreMcpToolCall((i, c) -> {
+            captured.add(i);
+            return CompletableFuture.completedFuture(null);
+        }).setOnPostToolUse((i, c) -> {
+            captured.add(i);
+            return CompletableFuture.completedFuture(null);
+        }).setOnPostToolUseFailure((i, c) -> {
+            captured.add(i);
+            return CompletableFuture.completedFuture(null);
+        }).setOnUserPromptSubmitted((i, c) -> {
+            captured.add(i);
+            return CompletableFuture.completedFuture(null);
+        }).setOnUserPromptTransformed((i, c) -> {
+            captured.add(i);
+            return CompletableFuture.completedFuture(null);
+        }).setOnSessionStart((i, c) -> {
+            captured.add(i);
+            return CompletableFuture.completedFuture(null);
+        }).setOnSessionEnd((i, c) -> {
+            captured.add(i);
+            return CompletableFuture.completedFuture(null);
+        }).setOnAgentStop((i, c) -> {
+            captured.add(i);
+            return CompletableFuture.completedFuture(null);
+        }).setOnSubagentStart((i, c) -> {
+            captured.add(i);
+            return CompletableFuture.completedFuture(null);
+        }).setOnSubagentStop((i, c) -> {
+            captured.add(i);
+            return CompletableFuture.completedFuture(null);
+        });
+        session.registerHooks(hooks);
+        for (String hook : List.of("preToolUse", "preMcpToolCall", "postToolUse", "postToolUseFailure",
+                "userPromptSubmitted", "userPromptTransformed", "sessionStart", "sessionEnd", "agentStop",
+                "subagentStart", "subagentStop")) {
+            for (boolean enriched : List.of(true, false)) {
+                var input = MAPPER.createObjectNode().put("sessionId", "reported-session").put("timestamp", 1)
+                        .put("cwd", "work");
+                if (enriched) {
+                    input.put("agentId", "child-actor").put("agentType", "explore").put("parentAgentId",
+                            "parent-actor");
+                }
+                if (hook.equals("sessionEnd")) {
+                    input.putObject("error").put("message", "session-end-error");
+                }
+                captured.clear();
+                session.handleHooksInvoke(hook, input).get();
+                assertEquals(1, captured.size(), hook);
+                JsonNode actual = MAPPER.valueToTree(captured.get(0));
+                assertEquals("reported-session", actual.path("sessionId").asText(), hook);
+                if (hook.equals("sessionEnd")) {
+                    assertEquals("session-end-error", actual.path("error").asText(), actual.toString());
+                }
+                for (var field : Map
+                        .of("agentId", "child-actor", "agentType", "explore", "parentAgentId", "parent-actor")
+                        .entrySet()) {
+                    assertEquals(enriched ? field.getValue() : "", actual.path(field.getKey()).asText(""),
+                            hook + ": " + actual);
+                }
+            }
+        }
+    }
 
     @BeforeEach
     void setup() throws Exception {
@@ -289,6 +360,34 @@ public class SessionHandlerTest {
         assertInstanceOf(SessionEndHookOutput.class, result);
         var output = (SessionEndHookOutput) result;
         assertEquals("summary", output.sessionSummary());
+    }
+
+    @Test
+    void testHandleHooksInvokeSessionEndErrorShapes() throws Exception {
+        assertEquals("model timeout", sessionEndError(MAPPER.readTree("{\"message\":\"model timeout\"}")));
+        assertEquals("boom", sessionEndError(MAPPER.readTree("\"boom\"")));
+        assertNull(sessionEndError(MAPPER.nullNode()));
+        assertNull(sessionEndError(null));
+        assertEquals("{\"code\":7}", sessionEndError(MAPPER.readTree("{\"code\":7}")));
+    }
+
+    /**
+     * Runs a sessionEnd hook with the given wire {@code error} (absent when null)
+     * and returns the handler's error.
+     */
+    private String sessionEndError(JsonNode error) throws Exception {
+        var captured = new AtomicReference<String>("handler did not run");
+        session.registerHooks(new SessionHooks().setOnSessionEnd((hookInput, invocation) -> {
+            captured.set(hookInput.error());
+            return CompletableFuture.completedFuture(new SessionEndHookOutput(false, null, null));
+        }));
+        ObjectNode input = MAPPER.createObjectNode().put("timestamp", 1735689600L).put("cwd", "/tmp").put("reason",
+                "error");
+        if (error != null) {
+            input.set("error", error);
+        }
+        session.handleHooksInvoke("sessionEnd", input).get();
+        return captured.get();
     }
 
     // ===== handleHooksInvoke: agentStop =====

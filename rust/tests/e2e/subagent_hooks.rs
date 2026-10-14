@@ -142,8 +142,6 @@ async fn should_apply_subagent_lifecycle_hook_outputs() {
                 );
                 let requests = request_log.inference_records();
                 assert_subagent_request_metadata(&requests);
-                let context_and_task = format!("{CHILD_CONTEXT}\n\nRead the file \"subagent-test.txt\"");
-                let prompt_has_context = |prompt: &str| prompt.contains(context_and_task.as_str());
                 assert!(
                     requests
                         .iter()
@@ -151,22 +149,7 @@ async fn should_apply_subagent_lifecycle_hook_outputs() {
                         .any(|request| {
                             let body: serde_json::Value = serde_json::from_str(&request.body)
                                 .expect("child inference request body");
-                            body["messages"].as_array().is_some_and(|messages| {
-                                messages.iter().any(|message| {
-                                    message["role"] == "user"
-                                        && (message["content"]
-                                            .as_str()
-                                            .is_some_and(prompt_has_context)
-                                            || message["content"].as_array().is_some_and(|parts| {
-                                                parts.iter().any(|part| {
-                                                    part["type"] == "text"
-                                                        && part["text"]
-                                                            .as_str()
-                                                            .is_some_and(prompt_has_context)
-                                                })
-                                            }))
-                                })
-                            })
+                            has_child_context(&body)
                         }),
                     "start hook context should be prepended to the child inference prompt"
                 );
@@ -217,6 +200,55 @@ async fn should_apply_subagent_lifecycle_hook_outputs() {
         },
     )
     .await;
+}
+
+fn has_child_context(body: &serde_json::Value) -> bool {
+    let expected = format!("{CHILD_CONTEXT}\n\nRead the file \"subagent-test.txt\"");
+    let prompt_has_context = |prompt: &str| prompt.contains(expected.as_str());
+    if let Some(input) = body["input"].as_str() {
+        return prompt_has_context(input);
+    }
+    body.get("messages")
+        .filter(|messages| !messages.is_null())
+        .unwrap_or(&body["input"])
+        .as_array()
+        .is_some_and(|messages| {
+            messages.iter().any(|message| {
+                message["role"] == "user"
+                    && (message["content"].as_str().is_some_and(prompt_has_context)
+                        || message["content"].as_array().is_some_and(|parts| {
+                            parts.iter().any(|part| {
+                                (part["type"] == "text" || part["type"] == "input_text")
+                                    && part["text"].as_str().is_some_and(prompt_has_context)
+                            })
+                        }))
+            })
+        })
+}
+
+#[test]
+fn recognizes_user_context_across_request_formats() {
+    use serde_json::json;
+
+    let text = format!("{CHILD_CONTEXT}\n\nRead the file \"subagent-test.txt\"");
+    let user = json!({"role": "user", "content": text});
+    assert!(has_child_context(&json!({"messages": [user]})));
+    assert!(has_child_context(&json!({"input": text})));
+    assert!(has_child_context(&json!({"input": [user]})));
+    for kind in ["text", "input_text"] {
+        assert!(has_child_context(&json!({"input": [{
+            "role": "user", "content": [{"type": kind, "text": text}]
+        }]})));
+    }
+    assert!(!has_child_context(&json!({"input": [
+        {"role": "assistant", "content": text},
+        {"type": "function_call_output", "output": text},
+        {"role": "user", "content": [
+            null, "ignored", {"type": "input_text", "text": 42},
+            {"type": "input_image", "text": text}
+        ]}
+    ]})));
+    assert!(!has_child_context(&json!({})));
 }
 
 #[derive(Clone, Debug)]

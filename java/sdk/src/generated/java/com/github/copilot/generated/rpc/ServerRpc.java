@@ -47,6 +47,8 @@ public final class ServerRpc {
     public final ServerHooksApi hooks;
     /** API methods for the {@code models} namespace. */
     public final ServerModelsApi models;
+    /** API methods for the {@code contentExclusion} namespace. */
+    public final ServerContentExclusionApi contentExclusion;
     /** API methods for the {@code tools} namespace. */
     public final ServerToolsApi tools;
     /** API methods for the {@code account} namespace. */
@@ -108,6 +110,7 @@ public final class ServerRpc {
         this.host = new ServerHostApi(caller);
         this.hooks = new ServerHooksApi(caller);
         this.models = new ServerModelsApi(caller);
+        this.contentExclusion = new ServerContentExclusionApi(caller);
         this.tools = new ServerToolsApi(caller);
         this.account = new ServerAccountApi(caller);
         this.secrets = new ServerSecretsApi(caller);

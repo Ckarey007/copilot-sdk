@@ -221,6 +221,8 @@ pub mod rpc_methods {
     pub const MODELS_LIST: &str = "models.list";
     /// `models.getBuiltInCatalog`
     pub const MODELS_GETBUILTINCATALOG: &str = "models.getBuiltInCatalog";
+    /// `contentExclusion.validatePolicies`
+    pub const CONTENTEXCLUSION_VALIDATEPOLICIES: &str = "contentExclusion.validatePolicies";
     /// `tools.list`
     pub const TOOLS_LIST: &str = "tools.list";
     /// `account.getQuota`
@@ -305,6 +307,8 @@ pub mod rpc_methods {
     pub const INSTRUCTIONS_CLEARCACHE: &str = "instructions.clearCache";
     /// `skills.planInstall`
     pub const SKILLS_PLANINSTALL: &str = "skills.planInstall";
+    /// `skills.planInstallFromReference`
+    pub const SKILLS_PLANINSTALLFROMREFERENCE: &str = "skills.planInstallFromReference";
     /// `skills.applyInstall`
     pub const SKILLS_APPLYINSTALL: &str = "skills.applyInstall";
     /// `skills.installations.list`
@@ -4689,6 +4693,150 @@ impl CardDigest {
     }
 }
 
+/// Agent Finder's verified materialisation of the plugin. Present only when the candidate carries a complete materialisation reference; the reference itself stays runtime-private.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogAgentPluginMaterializationSource {
+    /// Discriminator: the plugin installs from Agent Finder's materialisation.
+    #[serde(deserialize_with = "CatalogAgentPluginMaterializationSource::deserialize_kind")]
+    pub kind: CatalogAgentPluginMaterializationSourceKind,
+}
+
+impl CatalogAgentPluginMaterializationSource {
+    fn deserialize_kind<'de, D>(
+        deserializer: D,
+    ) -> Result<CatalogAgentPluginMaterializationSourceKind, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value != "materialization" {
+            return Err(serde::de::Error::unknown_variant(
+                &value,
+                &["materialization"],
+            ));
+        }
+        <CatalogAgentPluginMaterializationSourceKind>::deserialize(
+            serde::de::value::StringDeserializer::<D::Error>::new(value),
+        )
+    }
+}
+
+/// A plugin marketplace named by verified catalogue install data, installed as `pluginName@name`.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogAgentPluginMarketplaceSource {
+    /// Discriminator: the plugin installs from a marketplace.
+    #[serde(deserialize_with = "CatalogAgentPluginMarketplaceSource::deserialize_kind")]
+    pub kind: CatalogAgentPluginMarketplaceSourceKind,
+    /// Marketplace name.
+    pub name: String,
+    /// Canonical lowercase GitHub owner/repository hosting the marketplace.
+    pub repository: String,
+}
+
+impl CatalogAgentPluginMarketplaceSource {
+    fn deserialize_kind<'de, D>(
+        deserializer: D,
+    ) -> Result<CatalogAgentPluginMarketplaceSourceKind, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value != "marketplace" {
+            return Err(serde::de::Error::unknown_variant(&value, &["marketplace"]));
+        }
+        <CatalogAgentPluginMarketplaceSourceKind>::deserialize(
+            serde::de::value::StringDeserializer::<D::Error>::new(value),
+        )
+    }
+}
+
+/// A GitHub repository holding the plugin, installed directly as `owner/repo[:path]` at the plan's commit, without a marketplace.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogAgentPluginRepositorySource {
+    /// Discriminator: the plugin installs directly from a repository.
+    #[serde(deserialize_with = "CatalogAgentPluginRepositorySource::deserialize_kind")]
+    pub kind: CatalogAgentPluginRepositorySourceKind,
+    /// Relative POSIX path of the plugin directory in the repository. Omitted when the plugin is at the repository root.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Canonical lowercase GitHub owner/repository holding the plugin.
+    pub repository: String,
+}
+
+impl CatalogAgentPluginRepositorySource {
+    fn deserialize_kind<'de, D>(
+        deserializer: D,
+    ) -> Result<CatalogAgentPluginRepositorySourceKind, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value != "repository" {
+            return Err(serde::de::Error::unknown_variant(&value, &["repository"]));
+        }
+        <CatalogAgentPluginRepositorySourceKind>::deserialize(
+            serde::de::value::StringDeserializer::<D::Error>::new(value),
+        )
+    }
+}
+
+/// What installing an Agent Plugin would do, for the user to review and confirm. Provisional: the catalogue install data it is built from is not final.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogAgentPluginInstallPlan {
+    /// Canvas IDs the plugin contributes. Non-empty exactly when components include `canvas`.
+    pub canvas_ids: Vec<String>,
+    /// Exact full commit ID to install, in lowercase hex. Always present when the plan has a repository source; a plan with a marketplace source carries at least one of version and commit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    /// Components the plugin contributes, in canonical order.
+    pub components: Vec<CatalogAgentPluginComponent>,
+    /// Connectors the plugin depends on.
+    pub connector_dependencies: Vec<String>,
+    /// Extension IDs the plugin contributes. Non-empty exactly when components include `extension`.
+    pub extension_ids: Vec<String>,
+    /// MCP servers the plugin depends on but does not bundle.
+    pub mcp_dependencies: Vec<String>,
+    /// The plugin's name, as named in its marketplace or manifest.
+    pub plugin_name: String,
+    /// Every valid install source, in preference order: materialization, then marketplace, then repository. Each kind appears at most once.
+    pub sources: Vec<CatalogAgentPluginInstallSource>,
+    /// Exact plugin version to install. A plan with a marketplace source carries at least one of version and commit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
 /// Where and when an Agent Plugin catalog reference was observed. Discovery provenance deliberately carries no descriptor URL, raw data, candidate handle, or content digest.
 ///
 /// <div class="warning">
@@ -4745,6 +4893,12 @@ pub struct CatalogAgentPluginCandidate {
     pub display_name: String,
     /// Validated, normalised catalogue resource URN. This identity comes only from the catalog identifier and is never inferred from display text or installed-plugin state.
     pub identity: String,
+    /// Whether this plugin can be installed in the selected session. Present only when the caller requires the agent-plugin-confirmed-installation capability.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installability: Option<CatalogAgentPluginInstallability>,
+    /// Reviewable install plan built only from verified catalogue install data. Present exactly when installability is `installable`; the runtime never derives it from the repository source, display text, or identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub install_plan: Option<CatalogAgentPluginInstallPlan>,
     /// Discriminator: this candidate describes an Agent Plugin.
     #[serde(deserialize_with = "CatalogAgentPluginCandidate::deserialize_kind")]
     pub kind: CatalogAgentPluginCandidateKind,
@@ -5111,6 +5265,33 @@ pub struct CatalogMalformedCardError {
     pub message: String,
     /// How the card failed validation.
     pub reason: CatalogMalformedCardReason,
+}
+
+/// An Agent Finder materialisation reference pinning one exact resource revision.
+///
+/// It carries no origin or URL: the runtime always builds the descriptor URL on its fixed Agent
+/// Finder authority. It carries no display data either; every reviewed field comes from the
+/// verified descriptor and Skill files.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogMaterializationReference {
+    /// Expected `sha256:<lowercase hex>` digest of the descriptor's bundle manifest.
+    pub bundle_digest: String,
+    /// Expected `sha256:<lowercase hex>` digest of the canonical descriptor.
+    pub descriptor_digest: String,
+    /// Agent Finder resource identifier, a positive decimal integer.
+    pub resource_id: String,
+    /// Agent Finder materialisation revision identifier, a positive decimal integer. This is not a Git commit.
+    pub revision_id: String,
+    /// Materialisation descriptor schema version, currently `1.0.0`.
+    pub schema_version: String,
 }
 
 /// The protocol version and capability set the runtime actually honoured for a successful catalog operation.
@@ -6981,6 +7162,36 @@ pub struct ContentExclusionCheckPathsResult {
     pub available: bool,
     /// Per-path decisions in request order. Empty when available is false.
     pub checks: Vec<ContentExclusionPathCheck>,
+}
+
+/// Candidate content-exclusion policies to validate, as the raw JSON text a host received. The text is supplied unparsed so that a syntax error and a schema violation are both reported by the runtime's own validator rather than by the caller's JSON parser.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentExclusionValidatePoliciesRequest {
+    /// Unparsed JSON text expected to hold an array of content-exclusion policies.
+    pub policies_json: String,
+}
+
+/// The accepted policies, parsed and normalized. A rejected input is reported as an error rather than in this result.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentExclusionValidatePoliciesResult {
+    /// Validated policy objects in input order. Raw JSON preserves every field returned by the runtime's policy parser.
+    pub policies: Vec<serde_json::Value>,
 }
 
 /// A single large message currently in context.
@@ -25653,6 +25864,9 @@ pub struct SessionOpenOptions {
     /// Stable integration identifier for analytics.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub integration_id: Option<String>,
+    /// Declares that a human drives this session's conversation, enabling user-message analysis (sentiment, task completion criteria, and task analytics) for user-authored messages. Automated messages remain excluded. Defaults to false for SDK sessions. Applied when the session is created or loaded from storage; ignored when resuming a session that is already active, and for cloud sessions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interactive_user: Option<bool>,
     /// Whether experimental behavior is enabled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_experimental_mode: Option<bool>,
@@ -28201,6 +28415,25 @@ pub struct SkillInstallationsRequest {
 pub struct SkillList {
     /// Available skills
     pub skills: Vec<Skill>,
+}
+
+/// Side-effect-free planning of one Skill from a materialisation reference rather than a search candidate.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillPlanInstallFromReferenceRequest {
+    /// Required authenticated bound catalogue, skill-confirmed-installation and skill-reference-installation capabilities.
+    pub contract: CatalogClientContract,
+    /// Existing local session attached to this connection.
+    pub policy_session_id: String,
+    /// Materialisation reference to verify and plan.
+    pub reference: CatalogMaterializationReference,
 }
 
 /// Side-effect-free planning of one verified Agent Finder Skill candidate.
@@ -42724,6 +42957,147 @@ pub enum CatalogAgentPluginCompatibilityTag {
     Unknown,
 }
 
+/// Typed installability state for an Agent Plugin candidate
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogAgentPluginInstallability {
+    /// The candidate carries complete, verified install data and the selected session may install it. Its install plan is present.
+    #[serde(rename = "installable")]
+    Installable,
+    /// The catalogue supplied no complete, verified install data, so no install target is offered.
+    #[serde(rename = "install-data-unavailable")]
+    InstallDataUnavailable,
+    /// Plugin installation is understood but disabled for the selected session.
+    #[serde(rename = "feature-disabled")]
+    FeatureDisabled,
+    /// Reserved for plugin formats this runtime cannot install. Every format surfaced today installs through a marketplace.
+    #[serde(rename = "not-installable-kind")]
+    NotInstallableKind,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// A kind of component an Agent Plugin contributes
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogAgentPluginComponent {
+    /// Custom agents.
+    #[serde(rename = "agent")]
+    Agent,
+    /// Slash commands.
+    #[serde(rename = "command")]
+    Command,
+    /// Skills.
+    #[serde(rename = "skill")]
+    Skill,
+    /// Hooks.
+    #[serde(rename = "hook")]
+    Hook,
+    /// Bundled MCP servers.
+    #[serde(rename = "mcp-server")]
+    McpServer,
+    /// Bundled LSP servers.
+    #[serde(rename = "lsp-server")]
+    LspServer,
+    /// Extensions.
+    #[serde(rename = "extension")]
+    Extension,
+    /// Canvases.
+    #[serde(rename = "canvas")]
+    Canvas,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Discriminator for a materialisation install source
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogAgentPluginMaterializationSourceKind {
+    /// Install from Agent Finder's verified materialisation.
+    #[serde(rename = "materialization")]
+    Materialization,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Discriminator for a marketplace install source
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogAgentPluginMarketplaceSourceKind {
+    /// Install from a plugin marketplace.
+    #[serde(rename = "marketplace")]
+    Marketplace,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Discriminator for a repository install source
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogAgentPluginRepositorySourceKind {
+    /// Install directly from a GitHub repository.
+    #[serde(rename = "repository")]
+    Repository,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// One place an Agent Plugin can install from: Agent Finder's materialisation, a marketplace, or a GitHub repository. Each variant carries only its own fields.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CatalogAgentPluginInstallSource {
+    Materialization(CatalogAgentPluginMaterializationSource),
+    Marketplace(CatalogAgentPluginMarketplaceSource),
+    Repository(CatalogAgentPluginRepositorySource),
+}
+
 /// Discriminator for an Agent Plugin candidate
 ///
 /// <div class="warning">
@@ -43060,6 +43434,12 @@ pub enum CatalogCapability {
     /// Understands verified Agent Finder Skill install, uninstall, recovery and installation-scoped enablement APIs. Advertised only by runtimes with the Skill installation engine linked; acquisition may still be refused as feature-disabled per selected session.
     #[serde(rename = "skill-confirmed-installation")]
     SkillConfirmedInstallation,
+    /// Understands `installability` and the reviewable `installPlan` on Agent Plugin candidates. Requires agent-plugin-discovery; without it, plugin candidates are unchanged. A plugin is installable only with complete, verified catalogue install data, and may still be reported as feature-disabled per selected session.
+    #[serde(rename = "agent-plugin-confirmed-installation")]
+    AgentPluginConfirmedInstallation,
+    /// Extends skill-confirmed-installation to planning from an Agent Finder materialisation reference through skills.planInstallFromReference, and to its distinct reference failure reasons. Requires skill-confirmed-installation. Advertised only by runtimes with the Skill installation engine linked.
+    #[serde(rename = "skill-reference-installation")]
+    SkillReferenceInstallation,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]
@@ -49486,6 +49866,9 @@ pub enum SessionCapability {
     /// Cross-session history tools and session-store SQL prompt/tool metadata.
     #[serde(rename = "session-store")]
     SessionStore,
+    /// Read-only GitHub cache SQL tool (github_sql).
+    #[serde(rename = "github-cache-store")]
+    GitHubCacheStore,
     /// MCP Apps UI passthrough.
     #[serde(rename = "mcp-apps")]
     McpApps,
@@ -50448,6 +50831,21 @@ pub enum SkillInstallationFailureReason {
     /// A storage operation failed; inspect durable state before retrying.
     #[serde(rename = "write-failed")]
     WriteFailed,
+    /// The materialisation reference is malformed or uses an unsupported schema version. Returned only to callers that require skill-reference-installation.
+    #[serde(rename = "invalid-reference")]
+    InvalidReference,
+    /// Agent Finder has no materialisation for the referenced resource revision (HTTP 404). Returned only to callers that require skill-reference-installation.
+    #[serde(rename = "descriptor-not-found")]
+    DescriptorNotFound,
+    /// Agent Finder withdrew the referenced resource revision (HTTP 410). Returned only to callers that require skill-reference-installation.
+    #[serde(rename = "descriptor-withdrawn")]
+    DescriptorWithdrawn,
+    /// The retrieved descriptor does not match the referenced descriptor or bundle digest. Returned only to callers that require skill-reference-installation.
+    #[serde(rename = "digest-mismatch")]
+    DigestMismatch,
+    /// The referenced resource is not a Skill. Returned only to callers that require skill-reference-installation.
+    #[serde(rename = "unsupported-resource")]
+    UnsupportedResource,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]

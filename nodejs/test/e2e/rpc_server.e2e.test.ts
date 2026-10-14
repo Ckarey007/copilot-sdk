@@ -114,6 +114,7 @@ describe("Server-scoped RPC", async () => {
         const policy = {
             model: "auto",
             autoTier: "balance",
+            vscode: { temporaryDefaultToLocalHarness: true },
             permissions: {
                 limitTo: ["Domain(*.example.com)"],
                 deny: ["Domain(blocked.example.com)"],
@@ -125,6 +126,7 @@ describe("Server-scoped RPC", async () => {
             model: "gpt-5",
             effortLevel: { overridable: "high" },
             contextTier: "long_context",
+            vscode: { temporaryDefaultToLocalHarness: false },
         };
         fs.writeFileSync(policyPath, JSON.stringify(policy));
         const policyClient = new CopilotClient({
@@ -150,6 +152,10 @@ describe("Server-scoped RPC", async () => {
         const schema = await api.schema();
         expect(schema.runtimeVersion).toEqual(expect.any(String));
         expect(schema.schema).toHaveProperty("properties.model");
+        expect(schema.schema).toHaveProperty(
+            "properties.vscode.properties.temporaryDefaultToLocalHarness.type",
+            "boolean"
+        );
 
         const validated = await api.validate({ content: policy });
         expect(validated.valid).toBe(true);
@@ -164,6 +170,7 @@ describe("Server-scoped RPC", async () => {
         expect(resolved.account).toBeUndefined();
         expect(resolved.resolved.deviceManaged).toBe(true);
         expect(resolved.values?.model).toBe(policy.model);
+        expect(resolved.resolved.settings).toHaveProperty("vscode", policy.vscode);
         const device = resolved.layers.find((layer) => layer.source === "device");
         expect(device?.settings).toMatchObject(policy);
 
@@ -224,6 +231,9 @@ describe("Server-scoped RPC", async () => {
             model: "auto",
         });
         onTestFinished(() => managedSession.disconnect());
+        await expect(managedSession.rpc.managedSettings.get()).resolves.toMatchObject({
+            settings: { vscode: policy.vscode },
+        });
         await expect
             .poll(() => managedSession.rpc.model.getCurrent())
             .toMatchObject({ modelId: "auto", autoTier: "balance" });
@@ -241,11 +251,7 @@ describe("Server-scoped RPC", async () => {
         const concretePolicyPath = path.join(workDir, "managed-concrete-settings.json");
         fs.writeFileSync(
             concretePolicyPath,
-            JSON.stringify({
-                model: "gpt-5",
-                effortLevel: "high",
-                contextTier: "long_context",
-            })
+            JSON.stringify({ ...concretePolicy, effortLevel: "high" })
         );
         const concretePolicyClient = new CopilotClient({
             workingDirectory: workDir,
@@ -277,6 +283,7 @@ describe("Server-scoped RPC", async () => {
                 model: "gpt-5",
                 effortLevel: "high",
                 contextTier: "long_context",
+                vscode: concretePolicy.vscode,
             },
         });
         await expect
@@ -295,6 +302,9 @@ describe("Server-scoped RPC", async () => {
             enforceManagedModelDefaults: false,
         });
         onTestFinished(() => relaxedSession.disconnect());
+        await expect(relaxedSession.rpc.managedSettings.get()).resolves.toMatchObject({
+            settings: { vscode: concretePolicy.vscode },
+        });
         await expect(
             relaxedSession.rpc.model.setReasoningEffort({ reasoningEffort: "low" })
         ).resolves.toMatchObject({ reasoningEffort: "low" });
@@ -514,6 +524,119 @@ describe("Server-scoped RPC", async () => {
             }
         }
     }, 60_000);
+
+    it("should resolve lifecycle-only session prefixes in the configured home", async () => {
+        const sessionId = randomUUID();
+        const home = createUniqueWorkDirectory("prefix-home");
+        const sessionDirectory = path.join(home, "session-state", sessionId);
+        fs.mkdirSync(sessionDirectory, { recursive: true });
+        fs.writeFileSync(
+            path.join(sessionDirectory, "events.jsonl"),
+            `${JSON.stringify({ type: "session.start", data: { sessionId } })}\n`
+        );
+        const prefixClient = createClientWithEnv({ COPILOT_HOME: home });
+        await prefixClient.start();
+
+        expect(
+            await prefixClient.rpc.sessions.findByPrefix({ prefix: sessionId.slice(0, 8) })
+        ).toEqual({ sessionId });
+        const listed = await prefixClient.rpc.sessions.list({});
+        expect(listed.sessions.map((session) => session.sessionId)).not.toContain(sessionId);
+        const defaultHomeClient = createClientWithEnv({});
+        await defaultHomeClient.start();
+        expect(
+            await defaultHomeClient.rpc.sessions.findByPrefix({ prefix: sessionId.slice(0, 8) })
+        ).toEqual({});
+    });
+
+    it("should omit detached session prefixes", async () => {
+        const home = createUniqueWorkDirectory("detached-prefix-home");
+        const prefixClient = createClientWithEnv({ COPILOT_HOME: home });
+        await prefixClient.start();
+
+        for (const detachedKind of ["marker", "event"] as const) {
+            const sessionId = randomUUID();
+            const sessionDirectory = path.join(home, "session-state", sessionId);
+            fs.mkdirSync(sessionDirectory, { recursive: true });
+            const eventsPath = path.join(sessionDirectory, "events.jsonl");
+            fs.writeFileSync(
+                eventsPath,
+                `${JSON.stringify({ type: "session.start", data: { sessionId } })}\n`
+            );
+            expect(
+                await prefixClient.rpc.sessions.findByPrefix({ prefix: sessionId.slice(0, 8) })
+            ).toEqual({ sessionId });
+            fs.writeFileSync(
+                eventsPath,
+                `${JSON.stringify({
+                    type: "session.start",
+                    data: {
+                        sessionId,
+                        ...(detachedKind === "event"
+                            ? { detachedFromSpawningParentSessionId: randomUUID() }
+                            : {}),
+                    },
+                })}\n`
+            );
+            if (detachedKind === "marker") {
+                fs.writeFileSync(path.join(sessionDirectory, ".detached"), "");
+            }
+
+            expect(
+                await prefixClient.rpc.sessions.findByPrefix({ prefix: sessionId.slice(0, 8) })
+            ).toEqual({});
+        }
+    });
+
+    it("should omit linked session directories for exact and abbreviated prefixes", async () => {
+        const home = createUniqueWorkDirectory("linked-prefix-home");
+        const outside = createUniqueWorkDirectory("linked-prefix-target");
+        const transcript = `${JSON.stringify({ type: "session.start", data: {} })}\n`;
+        fs.writeFileSync(path.join(outside, "events.jsonl"), transcript);
+        const sessionsHome = path.join(home, "session-state");
+        fs.mkdirSync(sessionsHome);
+        const prefixClient = createClientWithEnv({ COPILOT_HOME: home });
+        await prefixClient.start();
+
+        const sessionId = randomUUID();
+        const prefix = sessionId.slice(0, 8);
+        for (const linkedId of [prefix, sessionId]) {
+            const link = path.join(sessionsHome, linkedId);
+            fs.symlinkSync(outside, link, process.platform === "win32" ? "junction" : "dir");
+            try {
+                expect(await prefixClient.rpc.sessions.findByPrefix({ prefix })).toEqual({});
+            } finally {
+                fs.unlinkSync(link);
+            }
+        }
+        expect(fs.readFileSync(path.join(outside, "events.jsonl"), "utf8")).toBe(transcript);
+    });
+
+    it("should omit linked event files for exact and abbreviated prefixes", async () => {
+        const home = createUniqueWorkDirectory("linked-events-home");
+        const outside = createUniqueWorkDirectory("linked-events-target");
+        const target = path.join(outside, "events.jsonl");
+        const transcript = `${JSON.stringify({ type: "session.start", data: {} })}\n`;
+        fs.writeFileSync(target, transcript);
+        const prefixClient = createClientWithEnv({ COPILOT_HOME: home });
+        await prefixClient.start();
+
+        const sessionId = randomUUID();
+        const prefix = sessionId.slice(0, 8);
+        for (const linkedId of [prefix, sessionId]) {
+            const sessionDirectory = path.join(home, "session-state", linkedId);
+            fs.mkdirSync(sessionDirectory, { recursive: true });
+            const link = path.join(sessionDirectory, "events.jsonl");
+            fs.symlinkSync(target, link, "file");
+            try {
+                expect(await prefixClient.rpc.sessions.findByPrefix({ prefix })).toEqual({});
+            } finally {
+                fs.unlinkSync(link);
+                fs.rmdirSync(sessionDirectory);
+            }
+        }
+        expect(fs.readFileSync(target, "utf8")).toBe(transcript);
+    });
 
     it("should enrich basic session metadata", async () => {
         const sessionId = randomUUID();

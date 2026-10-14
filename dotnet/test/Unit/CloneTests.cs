@@ -666,6 +666,32 @@ public class CloneTests
     }
 
     [Fact]
+    public void SessionConfig_Clone_CopiesEnableGitHubCacheStore()
+    {
+        var original = new SessionConfig
+        {
+            EnableGitHubCacheStore = true,
+        };
+
+        var clone = original.Clone();
+
+        Assert.True(clone.EnableGitHubCacheStore);
+    }
+
+    [Fact]
+    public void ResumeSessionConfig_Clone_CopiesEnableGitHubCacheStore()
+    {
+        var original = new ResumeSessionConfig
+        {
+            EnableGitHubCacheStore = false,
+        };
+
+        var clone = original.Clone();
+
+        Assert.False(clone.EnableGitHubCacheStore);
+    }
+
+    [Fact]
     public void SessionConfig_Clone_CopiesMcpOAuthTokenStorage()
     {
         var original = new SessionConfig

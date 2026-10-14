@@ -1343,6 +1343,7 @@ class TestCreateSessionConfig:
                 on_permission_request=PermissionHandler.approve_all,
                 enable_managed_settings=True,
                 enforce_managed_model_defaults=True,
+                interactive_user=True,
                 managed_settings=ManagedSettings(
                     permissions=ManagedSettingsPermissions(
                         disable_bypass_permissions_mode=DisableBypassPermissionsModes.ALLOW_AUTO_ONLY,
@@ -1358,6 +1359,7 @@ class TestCreateSessionConfig:
                 session.session_id,
                 on_permission_request=PermissionHandler.approve_all,
                 enforce_managed_model_defaults=True,
+                interactive_user=True,
                 managed_settings=ManagedSettings(
                     permissions=ManagedSettingsPermissions(
                         disable_bypass_permissions_mode="future-fail-closed-mode",
@@ -1371,6 +1373,8 @@ class TestCreateSessionConfig:
             assert captured["session.create"]["enableManagedSettings"] is True
             assert captured["session.create"]["enforceManagedModelDefaults"] is True
             assert captured["session.resume"]["enforceManagedModelDefaults"] is True
+            assert captured["session.create"]["interactiveUser"] is True
+            assert captured["session.resume"]["interactiveUser"] is True
             assert captured["session.create"]["managedSettings"] == {
                 "permissions": {
                     "disableBypassPermissionsMode": "allow-auto-only",
@@ -1401,6 +1405,39 @@ class TestCreateSessionConfig:
                     "disableBypassPermissionsMode": "disable",
                 }
             }
+        finally:
+            await client.force_stop()
+
+    @pytest.mark.asyncio
+    async def test_create_and_resume_session_forward_explicit_interactive_user_false(self):
+        client = CopilotClient(connection=RuntimeConnection.for_stdio(path=CLI_PATH))
+        await client.start()
+        try:
+            captured = {}
+
+            async def mock_request(method, params, **kwargs):
+                captured[method] = params
+                if method in ("session.create", "session.resume"):
+                    result = {"sessionId": params.get("sessionId") or "session-1"}
+                    callback = kwargs.get("on_response_inline")
+                    if callback is not None:
+                        callback(result)
+                    return result
+                return {}
+
+            client._client.request = mock_request
+            session = await client.create_session(
+                on_permission_request=PermissionHandler.approve_all,
+                interactive_user=False,
+            )
+            await client.resume_session(
+                session.session_id,
+                on_permission_request=PermissionHandler.approve_all,
+                interactive_user=False,
+            )
+
+            assert captured["session.create"]["interactiveUser"] is False
+            assert captured["session.resume"]["interactiveUser"] is False
         finally:
             await client.force_stop()
 
@@ -1441,6 +1478,8 @@ class TestCreateSessionConfig:
 
                 assert captured["session.create"]["isExperimentalMode"] is False
                 assert captured["session.resume"]["isExperimentalMode"] is False
+                assert "interactiveUser" not in captured["session.create"]
+                assert "interactiveUser" not in captured["session.resume"]
             finally:
                 await client.force_stop()
 
@@ -1466,6 +1505,7 @@ class TestCreateSessionConfig:
             )
 
             assert "managedSettings" not in captured["session.create"]
+            assert "interactiveUser" not in captured["session.create"]
         finally:
             await client.force_stop()
 
@@ -1935,6 +1975,49 @@ class TestCreateSessionConfig:
 
             assert "memory" not in captured["session.create"]
             assert "memory" not in captured["session.resume"]
+        finally:
+            await client.force_stop()
+
+    @pytest.mark.asyncio
+    async def test_create_and_resume_session_forward_github_cache_store(self):
+        client = CopilotClient(connection=RuntimeConnection.for_stdio(path=CLI_PATH))
+        await client.start()
+        try:
+            captured = {}
+
+            async def mock_request(method, params, **kwargs):
+                captured[method] = params
+                if method in ("session.create", "session.resume"):
+                    result = {"sessionId": params.get("sessionId") or "session-1"}
+                    callback = kwargs.get("on_response_inline")
+                    if callback is not None:
+                        callback(result)
+                    return result
+                return {}
+
+            client._client.request = mock_request
+
+            session = await client.create_session(
+                on_permission_request=PermissionHandler.approve_all,
+                enable_github_cache_store=True,
+            )
+            await client.resume_session(
+                session.session_id,
+                on_permission_request=PermissionHandler.approve_all,
+                enable_github_cache_store=False,
+            )
+            assert captured["session.create"]["enableGitHubCacheStore"] is True
+            assert captured["session.resume"]["enableGitHubCacheStore"] is False
+
+            unset = await client.create_session(
+                on_permission_request=PermissionHandler.approve_all,
+            )
+            await client.resume_session(
+                unset.session_id,
+                on_permission_request=PermissionHandler.approve_all,
+            )
+            assert "enableGitHubCacheStore" not in captured["session.create"]
+            assert "enableGitHubCacheStore" not in captured["session.resume"]
         finally:
             await client.force_stop()
 
@@ -3839,6 +3922,63 @@ class TestPostToolUseFailureHookDispatch:
             },
         )
         assert result == {"additionalContext": "sync-ok"}
+
+
+class TestHookErrorObjectNormalization:
+    """The CLI's error object reaches errorOccurred and sessionEnd handlers as a string."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("error", "expected"),
+        [
+            (
+                {"name": "Error", "message": "model timeout", "stack": "Error: model timeout"},
+                "model timeout",
+            ),
+            ("boom", "boom"),
+            (None, None),
+            ({"code": 7}, '{"code":7}'),
+        ],
+    )
+    @pytest.mark.parametrize("hook_type", ["errorOccurred", "sessionEnd"])
+    async def test_decodes_the_error(self, hook_type, error, expected):
+        from copilot.session import CopilotSession, SessionHooks
+
+        captured: dict = {}
+
+        def handler(input_data, invocation):
+            captured["input"] = input_data
+
+        session = CopilotSession.__new__(CopilotSession)
+        CopilotSession.__init__(session, "sess-123", client=None)
+        session._hooks = SessionHooks(  # type: ignore[typeddict-item]
+            on_error_occurred=handler, on_session_end=handler
+        )
+
+        await session._handle_hooks_invoke(
+            hook_type,
+            {"sessionId": "sess-x", "timestamp": 1700000000, "cwd": "/work", "error": error},
+        )
+        assert captured["input"]["error"] == expected
+
+    @pytest.mark.asyncio
+    async def test_leaves_an_absent_session_end_error_absent(self):
+        from copilot.session import CopilotSession, SessionHooks
+
+        captured: dict = {}
+
+        def handler(input_data, invocation):
+            captured["input"] = input_data
+
+        session = CopilotSession.__new__(CopilotSession)
+        CopilotSession.__init__(session, "sess-123", client=None)
+        session._hooks = SessionHooks(on_session_end=handler)  # type: ignore[typeddict-item]
+
+        await session._handle_hooks_invoke(
+            "sessionEnd",
+            {"sessionId": "sess-x", "timestamp": 1700000000, "cwd": "/work", "reason": "complete"},
+        )
+        assert "error" not in captured["input"]
 
 
 class TestAgentStopHookDispatch:

@@ -327,7 +327,12 @@ describe("Generated RPC surface coverage", () => {
             ...collectRuntimeFunctions(session.rpc, "session"),
         ]);
 
-        expect(inventory).toHaveLength(410);
+        expect(inventory).toHaveLength(412);
+        expect(
+            inventory.filter((method) => method.wireMethod === "contentExclusion.validatePolicies")
+        ).toEqual([
+            expect.objectContaining({ scope: "server", path: "contentExclusion.validatePolicies" }),
+        ]);
         expect(
             inventory.filter(
                 (method) => method.wireMethod === "session.model.getReasoningSummaries"

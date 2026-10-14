@@ -666,6 +666,83 @@ export type CatalogAgentPluginCompatibilityTag =
   /** The plugin targets GitHub Copilot. */
   | "github-copilot";
 /**
+ * Typed installability state for an Agent Plugin candidate
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogAgentPluginInstallability".
+ */
+/** @experimental */
+export type CatalogAgentPluginInstallability =
+  /** The candidate carries complete, verified install data and the selected session may install it. Its install plan is present. */
+  | "installable"
+  /** The catalogue supplied no complete, verified install data, so no install target is offered. */
+  | "install-data-unavailable"
+  /** Plugin installation is understood but disabled for the selected session. */
+  | "feature-disabled"
+  /** Reserved for plugin formats this runtime cannot install. Every format surfaced today installs through a marketplace. */
+  | "not-installable-kind";
+/**
+ * One place an Agent Plugin can install from: Agent Finder's materialisation, a marketplace, or a GitHub repository. Each variant carries only its own fields.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogAgentPluginInstallSource".
+ */
+/** @experimental */
+export type CatalogAgentPluginInstallSource =
+  | CatalogAgentPluginMaterializationSource
+  | CatalogAgentPluginMarketplaceSource
+  | CatalogAgentPluginRepositorySource;
+/**
+ * Discriminator for a materialisation install source
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogAgentPluginMaterializationSourceKind".
+ */
+/** @experimental */
+export type CatalogAgentPluginMaterializationSourceKind =
+  /** Install from Agent Finder's verified materialisation. */
+  "materialization";
+/**
+ * Discriminator for a marketplace install source
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogAgentPluginMarketplaceSourceKind".
+ */
+/** @experimental */
+export type CatalogAgentPluginMarketplaceSourceKind = /** Install from a plugin marketplace. */ "marketplace";
+/**
+ * Discriminator for a repository install source
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogAgentPluginRepositorySourceKind".
+ */
+/** @experimental */
+export type CatalogAgentPluginRepositorySourceKind = /** Install directly from a GitHub repository. */ "repository";
+/**
+ * A kind of component an Agent Plugin contributes
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogAgentPluginComponent".
+ */
+/** @experimental */
+export type CatalogAgentPluginComponent =
+  /** Custom agents. */
+  | "agent"
+  /** Slash commands. */
+  | "command"
+  /** Skills. */
+  | "skill"
+  /** Hooks. */
+  | "hook"
+  /** Bundled MCP servers. */
+  | "mcp-server"
+  /** Bundled LSP servers. */
+  | "lsp-server"
+  /** Extensions. */
+  | "extension"
+  /** Canvases. */
+  | "canvas";
+/**
  * A versioned, bounded trust observation carried unchanged with a catalog candidate and its private handle context. Current observations require a recognised T1/T2 tier; every non-current state structurally forbids a tier. Eligibility remains `unknown` while Agent Finder supplies no exposure decision, and states absent from its current wire are never inferred from age, relevance, popularity, or a tier transition.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -937,7 +1014,11 @@ export type CatalogCapability =
   /** Extends mcp-confirmed-remote-installation to declared non-secret header and URL values and receipt-owned header secrets for personal remote MCP choices. Requires mcp-confirmed-remote-installation and bound session authority. Secret values are written only to the reviewed backend after confirmation and are never returned; package and stdio choices remain unsupported. Advertised only when owned secret effects and owned secret activation are linked. */
   | "mcp-configured-remote-installation"
   /** Understands verified Agent Finder Skill install, uninstall, recovery and installation-scoped enablement APIs. Advertised only by runtimes with the Skill installation engine linked; acquisition may still be refused as feature-disabled per selected session. */
-  | "skill-confirmed-installation";
+  | "skill-confirmed-installation"
+  /** Understands `installability` and the reviewable `installPlan` on Agent Plugin candidates. Requires agent-plugin-discovery; without it, plugin candidates are unchanged. A plugin is installable only with complete, verified catalogue install data, and may still be reported as feature-disabled per selected session. */
+  | "agent-plugin-confirmed-installation"
+  /** Extends skill-confirmed-installation to planning from an Agent Finder materialisation reference through skills.planInstallFromReference, and to its distinct reference failure reasons. Requires skill-confirmed-installation. Advertised only by runtimes with the Skill installation engine linked. */
+  | "skill-reference-installation";
 /**
  * Bounded extensible wire-feature identifier. Known values are described by `CatalogCapability`; newer callers may send future identifiers so an older runtime can return a typed negotiation refusal instead of failing schema validation. Capability negotiation establishes contract understanding, while each operation's result separately reports runtime availability.
  *
@@ -4819,6 +4900,8 @@ export type SessionCapability =
   | "elicitation"
   /** Cross-session history tools and session-store SQL prompt/tool metadata. */
   | "session-store"
+  /** Read-only GitHub cache SQL tool (github_sql). */
+  | "github-cache-store"
   /** MCP Apps UI passthrough. */
   | "mcp-apps"
   /** Host-provided canvas rendering support. */
@@ -5497,7 +5580,17 @@ export type SkillInstallationFailureReason =
   /** Installed Skill files no longer match ownership evidence. */
   | "configuration-modified"
   /** A storage operation failed; inspect durable state before retrying. */
-  | "write-failed";
+  | "write-failed"
+  /** The materialisation reference is malformed or uses an unsupported schema version. Returned only to callers that require skill-reference-installation. */
+  | "invalid-reference"
+  /** Agent Finder has no materialisation for the referenced resource revision (HTTP 404). Returned only to callers that require skill-reference-installation. */
+  | "descriptor-not-found"
+  /** Agent Finder withdrew the referenced resource revision (HTTP 410). Returned only to callers that require skill-reference-installation. */
+  | "descriptor-withdrawn"
+  /** The retrieved descriptor does not match the referenced descriptor or bundle digest. Returned only to callers that require skill-reference-installation. */
+  | "digest-mismatch"
+  /** The referenced resource is not a Skill. Returned only to callers that require skill-reference-installation. */
+  | "unsupported-resource";
 /**
  * Management outcome for verified Skill inventory, planning and removal.
  *
@@ -9079,6 +9172,8 @@ export interface CatalogAgentPluginCandidate {
     | [CatalogAgentPluginCompatibilityTag]
     | [CatalogAgentPluginCompatibilityTag, CatalogAgentPluginCompatibilityTag]
     | [CatalogAgentPluginCompatibilityTag, CatalogAgentPluginCompatibilityTag, CatalogAgentPluginCompatibilityTag];
+  installability?: CatalogAgentPluginInstallability;
+  installPlan?: CatalogAgentPluginInstallPlan;
   provenance: CatalogAgentPluginCandidateProvenance;
   trust?: CatalogTrustSnapshot;
 }
@@ -9098,6 +9193,102 @@ export interface CatalogPluginRepositorySource {
    * Case-preserving safe relative POSIX path derived from metadata.repoPath.
    */
   path: string;
+}
+/**
+ * What installing an Agent Plugin would do, for the user to review and confirm. Provisional: the catalogue install data it is built from is not final.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogAgentPluginInstallPlan".
+ */
+/** @experimental */
+export interface CatalogAgentPluginInstallPlan {
+  /**
+   * Every valid install source, in preference order: materialization, then marketplace, then repository. Each kind appears at most once.
+   *
+   * @minItems 1
+   * @maxItems 3
+   */
+  sources:
+    | [CatalogAgentPluginInstallSource]
+    | [CatalogAgentPluginInstallSource, CatalogAgentPluginInstallSource]
+    | [CatalogAgentPluginInstallSource, CatalogAgentPluginInstallSource, CatalogAgentPluginInstallSource];
+  /**
+   * The plugin's name, as named in its marketplace or manifest.
+   */
+  pluginName: string;
+  version?: CatalogResourceVersion;
+  /**
+   * Exact full commit ID to install, in lowercase hex. Always present when the plan has a repository source; a plan with a marketplace source carries at least one of version and commit.
+   */
+  commit?: string;
+  /**
+   * Components the plugin contributes, in canonical order.
+   *
+   * @minItems 1
+   */
+  components: [CatalogAgentPluginComponent, ...CatalogAgentPluginComponent[]];
+  /**
+   * Canvas IDs the plugin contributes. Non-empty exactly when components include `canvas`.
+   */
+  canvasIds: string[];
+  /**
+   * Extension IDs the plugin contributes. Non-empty exactly when components include `extension`.
+   */
+  extensionIds: string[];
+  /**
+   * MCP servers the plugin depends on but does not bundle.
+   */
+  mcpDependencies: string[];
+  /**
+   * Connectors the plugin depends on.
+   */
+  connectorDependencies: string[];
+}
+/**
+ * Agent Finder's verified materialisation of the plugin. Present only when the candidate carries a complete materialisation reference; the reference itself stays runtime-private.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogAgentPluginMaterializationSource".
+ */
+/** @experimental */
+export interface CatalogAgentPluginMaterializationSource {
+  kind: CatalogAgentPluginMaterializationSourceKind;
+}
+/**
+ * A plugin marketplace named by verified catalogue install data, installed as `pluginName@name`.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogAgentPluginMarketplaceSource".
+ */
+/** @experimental */
+export interface CatalogAgentPluginMarketplaceSource {
+  kind: CatalogAgentPluginMarketplaceSourceKind;
+  /**
+   * Marketplace name.
+   */
+  name: string;
+  /**
+   * Canonical lowercase GitHub owner/repository hosting the marketplace.
+   */
+  repository: string;
+}
+/**
+ * A GitHub repository holding the plugin, installed directly as `owner/repo[:path]` at the plan's commit, without a marketplace.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogAgentPluginRepositorySource".
+ */
+/** @experimental */
+export interface CatalogAgentPluginRepositorySource {
+  kind: CatalogAgentPluginRepositorySourceKind;
+  /**
+   * Canonical lowercase GitHub owner/repository holding the plugin.
+   */
+  repository: string;
+  /**
+   * Relative POSIX path of the plugin directory in the repository. Omitted when the plugin is at the repository root.
+   */
+  path?: string;
 }
 /**
  * Where and when an Agent Plugin catalog reference was observed. Discovery provenance deliberately carries no descriptor URL, raw data, candidate handle, or content digest.
@@ -9469,6 +9660,39 @@ export interface CatalogMalformedCardError {
    * Human-readable explanation, safe to surface. Never echoes card content, nor a query, URL, handle, or secret.
    */
   message: string;
+}
+/**
+ * An Agent Finder materialisation reference pinning one exact resource revision.
+ *
+ * It carries no origin or URL: the runtime always builds the descriptor URL on its fixed Agent
+ * Finder authority. It carries no display data either; every reviewed field comes from the
+ * verified descriptor and Skill files.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogMaterializationReference".
+ */
+/** @experimental */
+export interface CatalogMaterializationReference {
+  /**
+   * Agent Finder resource identifier, a positive decimal integer.
+   */
+  resourceId: string;
+  /**
+   * Agent Finder materialisation revision identifier, a positive decimal integer. This is not a Git commit.
+   */
+  revisionId: string;
+  /**
+   * Materialisation descriptor schema version, currently `1.0.0`.
+   */
+  schemaVersion: string;
+  /**
+   * Expected `sha256:<lowercase hex>` digest of the canonical descriptor.
+   */
+  descriptorDigest: string;
+  /**
+   * Expected `sha256:<lowercase hex>` digest of the descriptor's bundle manifest.
+   */
+  bundleDigest: string;
 }
 /**
  * The protocol version and capability set the runtime actually honoured for a successful catalog operation.
@@ -10937,6 +11161,32 @@ export interface ContentExclusionPathCheck {
    * Whether the session's complete content-exclusion policy excludes the path.
    */
   excluded: boolean;
+}
+/**
+ * Candidate content-exclusion policies to validate, as the raw JSON text a host received. The text is supplied unparsed so that a syntax error and a schema violation are both reported by the runtime's own validator rather than by the caller's JSON parser.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "ContentExclusionValidatePoliciesRequest".
+ */
+/** @experimental */
+export interface ContentExclusionValidatePoliciesRequest {
+  /**
+   * Unparsed JSON text expected to hold an array of content-exclusion policies.
+   */
+  policiesJson: string;
+}
+/**
+ * The accepted policies, parsed and normalized. A rejected input is reported as an error rather than in this result.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "ContentExclusionValidatePoliciesResult".
+ */
+/** @experimental */
+export interface ContentExclusionValidatePoliciesResult {
+  /**
+   * Validated policy objects in input order. Raw JSON preserves every field returned by the runtime's policy parser.
+   */
+  policies: JsonValue[];
 }
 /**
  * A single large message currently in context.
@@ -27092,6 +27342,10 @@ export interface SessionOpenOptions {
   enforceManagedModelDefaults?: boolean;
   managedSettings?: SessionManagedSettings;
   /**
+   * Declares that a human drives this session's conversation, enabling user-message analysis (sentiment, task completion criteria, and task analytics) for user-authored messages. Automated messages remain excluded. Defaults to false for SDK sessions. Applied when the session is created or loaded from storage; ignored when resuming a session that is already active, and for cloud sessions.
+   */
+  interactiveUser?: boolean;
+  /**
    * Opt in to capturing file changes for session rewind and session diff. Capture cannot reconstruct changes made before it was enabled. On create it starts capture from the first turn. It is also honored on resume: for a session that already has tracked prior turns, tracking continues automatically even if this is omitted; passing it on resume additionally enables tracking for an eligible session that has no prior root turn yet. Resuming a session whose prior root turns were never tracked has no restorable baseline, so tracking stays disabled for it and rewind reports file change tracking as unavailable; the resume itself still succeeds, so sessions that predate tracking remain loadable. The opt-in is only rejected when the session can never track (a subagent session, or one without local session storage). It is intentionally absent from the mutable options update because enabling it after edits have occurred would create an incomplete, misleading baseline. Subagents share the parent session's capture store and are not tracked as separate rewind points: a file a subagent writes is attributed to whichever root user turn was open when the capture was staged, just before the tool body ran. A turn cannot open while a staged capture is still in flight, so a subagent tool that staged under the spawning turn stays attributed to it however late the write lands, while a capture it stages after the user's next message belongs to that later turn. Attribution decides which turn's rewind point counts and file preview include that write; it does not narrow which rewinds revert it, because a rewind restores every capture from the selected turn onward, so the earlier spawning turn reverts it as well.
    */
   enableFileChangeTracking?: boolean;
@@ -29518,6 +29772,21 @@ export interface SkillList {
    * Available skills
    */
   skills: Skill[];
+}
+/**
+ * Side-effect-free planning of one Skill from a materialisation reference rather than a search candidate.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "SkillPlanInstallFromReferenceRequest".
+ */
+/** @experimental */
+export interface SkillPlanInstallFromReferenceRequest {
+  contract: CatalogClientContract;
+  reference: CatalogMaterializationReference;
+  /**
+   * Existing local session attached to this connection.
+   */
+  policySessionId: string;
 }
 /**
  * Side-effect-free planning of one verified Agent Finder Skill candidate.
@@ -35306,6 +35575,18 @@ export function createServerRpc(connection: MessageConnection) {
                 connection.sendRequest("models.getBuiltInCatalog", {}),
         },
         /** @experimental */
+        contentExclusion: {
+            /**
+             * Validates candidate content-exclusion policies and returns them normalized, without starting a session. This runs the same parser the runtime's own policy enforcement uses, so a host cannot accept a policy set the runtime would later reject, nor reject one it would have honored. Call it when policies arrive from outside the runtime — a command-line flag, a configuration file, a host's own settings — and must be checked before a session exists to apply them to. A malformed document fails with a message prefixed `Invalid JSON: `; a well-formed document that violates the policy schema fails with the offending field paths.
+             *
+             * @param params Candidate content-exclusion policies to validate, as the raw JSON text a host received. The text is supplied unparsed so that a syntax error and a schema violation are both reported by the runtime's own validator rather than by the caller's JSON parser.
+             *
+             * @returns The accepted policies, parsed and normalized. A rejected input is reported as an error rather than in this result.
+             */
+            validatePolicies: async (params: ContentExclusionValidatePoliciesRequest): Promise<ContentExclusionValidatePoliciesResult> =>
+                connection.sendRequest("contentExclusion.validatePolicies", params),
+        },
+        /** @experimental */
         tools: {
             /**
              * Lists built-in tools available for a model.
@@ -35575,6 +35856,15 @@ export function createServerRpc(connection: MessageConnection) {
              */
             planInstall: async (params: SkillPlanInstallRequest): Promise<SkillInstallationManagementResult> =>
                 connection.sendRequest("skills.planInstall", params),
+            /**
+             * Plans installation of the Skill pinned by an Agent Finder materialisation reference without writing files. The runtime retrieves the descriptor only from its fixed Agent Finder authority and applies the same verification as skills.planInstall; the review shows only verified data. Apply the returned plan with skills.applyInstall.
+             *
+             * @param params Side-effect-free planning of one Skill from a materialisation reference rather than a search candidate.
+             *
+             * @returns Skill installation management result with the honoured contract, or a typed refusal.
+             */
+            planInstallFromReference: async (params: SkillPlanInstallFromReferenceRequest): Promise<SkillInstallationManagementResult> =>
+                connection.sendRequest("skills.planInstallFromReference", params),
             /**
              * Consumes one verified Skill installation plan, requests explicit human consent through installations.confirm on the original connection, then revalidates and installs the Skill disabled.
              *

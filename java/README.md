@@ -289,6 +289,12 @@ Pass `new ResumeSessionConfig().setContinuePendingWork(true)` to
 instead. Leave the option unset to use the runtime default. Re-register any
 external tools needed to handle continued work.
 
+`SessionConfig.setInteractiveUser(true)` declares that a person types the
+session's messages, as in an editor chat panel. This enables the runtime's
+user-message analysis telemetry for user-authored messages. Automated messages
+stay excluded. The default is off, and cloud sessions ignore it. Re-supply it
+through `ResumeSessionConfig` on a cold resume.
+
 For rotating per-session GitHub credentials, use
 `SessionConfig.setGitHubTokenProvider(...)` (or the equivalent
 `ResumeSessionConfig` setter) instead of `setGitHubToken(...)`:
@@ -698,6 +704,8 @@ The two constructor arguments are the persisted visibility setting (`null` when 
 ## Session Store
 
 `enableSessionStore` on `SessionConfig` enables the cross-session store for search and retrieval across sessions. When unset in the default `CopilotClientMode.COPILOT_CLI` mode, the runtime default applies (enabled). In `CopilotClientMode.EMPTY` mode, defaults to disabled.
+
+`enableGitHubCacheStore` on `SessionConfig` and `ResumeSessionConfig` requests the read-only GitHub cache store (`github-cache-store` capability) on create or resume. The runtime registers the `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is also on. Defaults to disabled in every mode.
 
 ## Memory
 

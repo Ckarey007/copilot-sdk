@@ -15,7 +15,7 @@ import { isByokBackend } from "./harness/testBackend";
  * they assert what the runtime actually recorded rather than what the SDK serialized.
  */
 describe("Auto tier switching", async () => {
-    const { copilotClient: client, createClient } = await createSdkTestContext();
+    const { copilotClient: client, createClient, openAiEndpoint } = await createSdkTestContext();
 
     it("rejects new tier activation while dynamic discovery is disabled", async () => {
         const session = await client.createSession({
@@ -167,6 +167,15 @@ describe("Auto tier switching", async () => {
         await session.sendAndWait({
             prompt: "Reply with exactly AUTO_TIER_FAST_COMMITTED.",
         });
+
+        // Dynamic Auto tiers are disabled in this suite, so routing omits `ensemble`.
+        const routing = (await openAiEndpoint.getRequests()).filter(
+            (entry) => entry.url === "/auto"
+        );
+        expect(routing.length).toBeGreaterThan(0);
+        for (const request of routing) {
+            expect(JSON.parse(request.body)).not.toHaveProperty("ensemble");
+        }
 
         const modelChange = await modelChangePromise;
         expect(modelChange.data.previousModel).toBe("auto");

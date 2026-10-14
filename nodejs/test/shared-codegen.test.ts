@@ -63,10 +63,10 @@ describe("shared schema definition codegen utilities", () => {
                         kind: { const: "workflow" },
                     },
                 },
-                PermissionRequestFactory: {
+                PermissionRequestUnrelated: {
                     type: "object",
                     properties: {
-                        kind: { const: "factory" },
+                        kind: { const: "unrelated" },
                     },
                 },
             },
@@ -81,7 +81,7 @@ describe("shared schema definition codegen utilities", () => {
                 },
             },
         });
-        expect(result.definitions?.PermissionRequestFactory).not.toHaveProperty(
+        expect(result.definitions?.PermissionRequestUnrelated).not.toHaveProperty(
             "properties.managedApprovalRequired"
         );
     });

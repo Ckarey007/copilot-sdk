@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import inspect
+import json
 import logging
 import os
 import pathlib
@@ -254,6 +255,22 @@ def _tool_handlers_for(tools: list[Tool] | None) -> dict[str, ToolHandler]:
     return {
         tool.name: tool.handler for tool in tools or [] if tool.name and tool.handler is not None
     }
+
+
+def _hook_error_text(error: Any) -> Any:
+    """Decode the ``error`` of an errorOccurred or sessionEnd hook input.
+
+    The CLI sends an error object (``{"name", "message", "stack"}`` or
+    ``{"message"}``) where the hook input types declare a string: its message
+    becomes the error, and an object without a string message becomes its
+    compact JSON. Other values pass through.
+    """
+    if isinstance(error, dict):
+        message = error.get("message")
+        if isinstance(message, str):
+            return message
+        return json.dumps(error, separators=(",", ":"), ensure_ascii=False)
+    return error
 
 
 def _consume_task_exception(task: asyncio.Task[Any]) -> None:
@@ -994,6 +1011,10 @@ class PreToolUseHookInput(TypedDict):
     toolName: str
     toolArgs: Any
 
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
+
 
 class PreToolUseHookOutput(TypedDict, total=False):
     """Output for pre-tool-use hook"""
@@ -1023,6 +1044,10 @@ class PreMcpToolCallHookInput(TypedDict):
     toolCallId: NotRequired[str]
     _meta: NotRequired[dict[str, Any]]
 
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
+
 
 class PreMcpToolCallHookOutput(TypedDict, total=False):
     """Output for pre-MCP-tool-call hook.
@@ -1051,6 +1076,10 @@ class PostToolUseHookInput(TypedDict):
     toolName: str
     toolArgs: Any
     toolResult: Any
+
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
 
 
 class PostToolUseHookOutput(TypedDict, total=False):
@@ -1082,6 +1111,10 @@ class PostToolUseFailureHookInput(TypedDict):
     toolArgs: Any
     error: str
 
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
+
 
 class PostToolUseFailureHookOutput(TypedDict, total=False):
     """Output for post-tool-use-failure hook.
@@ -1107,6 +1140,10 @@ class UserPromptSubmittedHookInput(TypedDict):
     workingDirectory: str
     prompt: str
 
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
+
 
 class UserPromptSubmittedHookOutput(TypedDict, total=False):
     """Output for user-prompt-submitted hook"""
@@ -1131,6 +1168,10 @@ class UserPromptTransformedHookInput(TypedDict):
     prompt: str
     transformedPrompt: str
 
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
+
 
 class UserPromptTransformedHookOutput(TypedDict, total=False):
     """Output for the user-prompt-transformed hook."""
@@ -1152,6 +1193,10 @@ class SessionStartHookInput(TypedDict):
     workingDirectory: str
     source: Literal["startup", "resume", "new"]
     initialPrompt: NotRequired[str]
+
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
 
 
 class SessionStartHookOutput(TypedDict, total=False):
@@ -1177,6 +1222,10 @@ class SessionEndHookInput(TypedDict):
     finalMessage: NotRequired[str]
     error: NotRequired[str]
 
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
+
 
 class SessionEndHookOutput(TypedDict, total=False):
     """Output for session-end hook"""
@@ -1201,6 +1250,10 @@ class ErrorOccurredHookInput(TypedDict):
     error: str
     errorContext: Literal["model_call", "tool_execution", "system", "user_input"]
     recoverable: bool
+
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
 
 
 class ErrorOccurredHookOutput(TypedDict, total=False):
@@ -1228,6 +1281,10 @@ class AgentStopHookInput(TypedDict):
     transcriptPath: NotRequired[str]
     stopHookActive: NotRequired[bool]
 
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
+
 
 class AgentStopHookOutput(TypedDict, total=False):
     """Output for the agent-stop hook."""
@@ -1252,6 +1309,10 @@ class SubagentStartHookInput(TypedDict):
     agentName: str
     agentDisplayName: NotRequired[str]
     agentDescription: NotRequired[str]
+
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
 
 
 class SubagentStartHookOutput(TypedDict, total=False):
@@ -1280,6 +1341,8 @@ class SubagentStopHookInput(TypedDict):
     agentId: NotRequired[str]
     agentDisplayName: NotRequired[str]
     agentDescription: NotRequired[str]
+
+    parentAgentId: NotRequired[str]
 
 
 class _SubagentStopBlockHookOutput(TypedDict):
@@ -3575,6 +3638,10 @@ class CopilotSession:
             timestamp = transformed.get("timestamp")
             if isinstance(timestamp, (int, float)):
                 transformed["timestamp"] = datetime.fromtimestamp(timestamp / 1000, tz=UTC)
+            # The CLI sends errorOccurred's and sessionEnd's ``error`` as an
+            # error object; the hook input types declare a string.
+            if hook_type in ("errorOccurred", "sessionEnd") and "error" in transformed:
+                transformed["error"] = _hook_error_text(transformed["error"])
             # Each per-hook-type TypedDict is structurally compatible with the
             # normalized dict; cast to ``Any`` so ty doesn't try to narrow the
             # specific TypedDict variant from the runtime ``dict``.
