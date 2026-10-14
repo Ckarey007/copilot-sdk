@@ -29,7 +29,7 @@ public final class CatalogAgentPluginCandidate extends CatalogCandidate {
     @Override
     public String getKind() { return kind; }
 
-    /** Media type naming the plugin's format. */
+    /** Canonical Agent Plugin media type. */
     @JsonProperty("mediaType")
     private CatalogAgentPluginMediaType mediaType;
 
@@ -60,14 +60,6 @@ public final class CatalogAgentPluginCandidate extends CatalogCandidate {
     /** Explicit validated compatibility tags, in canonical order. An empty list means the source declared no recognised compatibility; clients must not infer compatibility from other fields. `canvas-only` requires both `canvas` and `github-copilot`. */
     @JsonProperty("compatibilityTags")
     private List<CatalogAgentPluginCompatibilityTag> compatibilityTags;
-
-    /** Whether this plugin can be installed in the selected session. Present only when the caller requires the agent-plugin-confirmed-installation capability. */
-    @JsonProperty("installability")
-    private CatalogAgentPluginInstallability installability;
-
-    /** Reviewable install plan built only from verified catalogue install data. Present exactly when installability is `installable`; the runtime never derives it from the repository source, display text, or identity. */
-    @JsonProperty("installPlan")
-    private CatalogAgentPluginInstallPlan installPlan;
 
     /** Where the Agent Plugin catalog reference was observed, without its descriptor, URL, raw data, or content digest. */
     @JsonProperty("provenance")
@@ -100,12 +92,6 @@ public final class CatalogAgentPluginCandidate extends CatalogCandidate {
 
     public List<CatalogAgentPluginCompatibilityTag> getCompatibilityTags() { return compatibilityTags; }
     public void setCompatibilityTags(List<CatalogAgentPluginCompatibilityTag> compatibilityTags) { this.compatibilityTags = compatibilityTags; }
-
-    public CatalogAgentPluginInstallability getInstallability() { return installability; }
-    public void setInstallability(CatalogAgentPluginInstallability installability) { this.installability = installability; }
-
-    public CatalogAgentPluginInstallPlan getInstallPlan() { return installPlan; }
-    public void setInstallPlan(CatalogAgentPluginInstallPlan installPlan) { this.installPlan = installPlan; }
 
     public CatalogAgentPluginCandidateProvenance getProvenance() { return provenance; }
     public void setProvenance(CatalogAgentPluginCandidateProvenance provenance) { this.provenance = provenance; }

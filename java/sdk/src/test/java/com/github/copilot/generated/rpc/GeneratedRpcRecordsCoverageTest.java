@@ -21,7 +21,6 @@ import org.junit.jupiter.params.provider.MethodSource;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.copilot.AllowCopilotExperimental;
 import com.github.copilot.TestUtil;
-import com.github.copilot.generated.SessionManagedSettingsResolvedEvent.SessionManagedSettingsResolvedEventData;
 
 /**
  * Tests for generated RPC param and result record types. Exercises
@@ -29,27 +28,6 @@ import com.github.copilot.generated.SessionManagedSettingsResolvedEvent.SessionM
  * of the generated code without requiring network access.
  */
 class GeneratedRpcRecordsCoverageTest {
-
-    @Test
-    @AllowCopilotExperimental
-    void managedPermissions_reuses_event_context_and_evaluated_operations() throws Exception {
-        var mapper = new ObjectMapper();
-        var eventJson = mapper.readTree("""
-                {"permissionsContext":{"permissions":{"_limitToLists":[["https://example.com"]]},"failClosed":false}}
-                """);
-        var eventData = mapper.treeToValue(eventJson, SessionManagedSettingsResolvedEventData.class);
-        var evaluation = mapper.readValue("""
-                {"operation":{"kind":"url","url":"https://example.com/a"},"verdict":"allow"}
-                """, ManagedPermissionEvaluation.class);
-        var params = new ManagedSettingsPermissionsEvaluateParams(eventData.permissionsContext(),
-                List.of(evaluation.operation()));
-        var paramsJson = mapper.valueToTree(params);
-        assertEquals(eventJson.get("permissionsContext"), paramsJson.get("context"));
-        assertEquals("url", paramsJson.get("operations").get(0).get("kind").asText());
-        assertEquals("https://example.com/a", paramsJson.get("operations").get(0).get("url").asText());
-        assertEquals(ManagedPermissionOperation.ManagedPermissionOperationKind.URL, evaluation.operation().kind());
-        assertEquals(params, mapper.treeToValue(paramsJson, ManagedSettingsPermissionsEvaluateParams.class));
-    }
 
     // ── Params records ─────────────────────────────────────────────────────
 
@@ -371,7 +349,7 @@ class GeneratedRpcRecordsCoverageTest {
     @Test
     void sessionModeSetParams_record() {
         var params = new SessionModeSetParams("sess-30", SessionMode.PLAN, null, null, null, null, null, null, null,
-                null, null, null, null, null);
+                null, null, null, null);
         assertEquals("sess-30", params.sessionId());
         assertEquals(SessionMode.PLAN, params.mode());
     }
@@ -491,7 +469,6 @@ class GeneratedRpcRecordsCoverageTest {
         var switchTo = mapper.valueToTree(new SessionModelSwitchToParams("sess-32", "auto", null, null, null, null,
                 null, null, null, null, null, null, null, null, null, null));
         assertFalse(switchTo.has("autoTier"));
-        assertFalse(switchTo.has("providerId"));
     }
 
     @Test
@@ -723,7 +700,7 @@ class GeneratedRpcRecordsCoverageTest {
     @Test
     void sessionAgentListResult_with_items() {
         var item = new AgentInfo("name1", "Name One", "Desc 1", "/path/to/agent1", null, null, null, null, null, null,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null);
         var result = new SessionAgentListResult(List.of(item));
         assertEquals(1, result.agents().size());
         assertEquals("name1", result.agents().get(0).name());
@@ -735,7 +712,7 @@ class GeneratedRpcRecordsCoverageTest {
     @Test
     void sessionAgentGetCurrentResult_nested() {
         var agent = new AgentInfo("agent-1", "Agent One", "Does things", null, null, null, null, null, null, null, null,
-                null, null, null, null, null, null);
+                null, null, null, null, null);
         var result = new SessionAgentGetCurrentResult(agent);
         assertEquals("agent-1", result.agent().name());
         assertEquals("Agent One", result.agent().displayName());
@@ -752,25 +729,18 @@ class GeneratedRpcRecordsCoverageTest {
     @Test
     void sessionAgentReloadResult_with_items() {
         var item = new AgentInfo("a", "A", "Desc", "/path/to/a", null, null, null, null, null, null, null, null, null,
-                null, null, null, null);
+                null, null, null);
         var result = new SessionAgentReloadResult(List.of(item));
         assertEquals(1, result.agents().size());
         assertEquals("a", result.agents().get(0).name());
     }
 
     @Test
-    void sessionAgentSelectResult_nested() throws Exception {
-        Map<String, List<Object>> hooks = Map.of("Stop",
-                List.of(Map.of("type", "command", "command", "echo scoped-stop")));
+    void sessionAgentSelectResult_nested() {
         var agent = new AgentInfo("selected", "Selected", "The selected agent", "/path/to/selected", null, null, null,
-                null, null, null, null, null, null, null, null, null, hooks);
+                null, null, null, null, null, null, null, null, null);
         var result = new SessionAgentSelectResult(agent);
         assertEquals("selected", result.agent().name());
-        var mapper = new ObjectMapper();
-        var json = mapper.writeValueAsString(result);
-        assertEquals("echo scoped-stop",
-                mapper.readTree(json).get("agent").get("hooks").get("Stop").get(0).get("command").asText());
-        assertEquals(hooks, mapper.readValue(json, SessionAgentSelectResult.class).agent().hooks());
     }
 
     @Test
@@ -921,8 +891,8 @@ class GeneratedRpcRecordsCoverageTest {
 
     @Test
     void sessionModelGetCurrentResult_record() {
-        var result = new SessionModelGetCurrentResult("claude-sonnet-5", null, "claude-sonnet-4.5", null, null, null,
-                null, null, null);
+        var result = new SessionModelGetCurrentResult("claude-sonnet-5", "claude-sonnet-4.5", null, null, null, null,
+                null);
         assertEquals("claude-sonnet-5", result.modelId());
         assertEquals("claude-sonnet-4.5", result.planBaseModelId());
     }
@@ -1033,8 +1003,8 @@ class GeneratedRpcRecordsCoverageTest {
     @Test
     void sessionUsageGetMetricsResult_nested() {
         var changes = new UsageMetricsCodeChanges(100L, 50L, 5L, null);
-        var result = new SessionUsageGetMetricsResult(null, 0.5, 10L, null, null, 2000L, null, changes, null, null,
-                null, "gpt-5", 1000L, 500L);
+        var result = new SessionUsageGetMetricsResult(0.5, 10L, null, null, 2000L, null, changes, null, null, "gpt-5",
+                1000L, 500L);
         assertEquals(0.5, result.totalPremiumRequestCost());
         assertEquals(10L, result.totalUserRequests());
         assertNotNull(result.codeChanges());

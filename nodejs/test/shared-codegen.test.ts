@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, onTestFinished } from "vitest";
 
 import {
-    addManagedApprovalRequiredToPermissionRequests,
     collectDefinitionCollections,
     collectExperimentalOnlyRpcReferencedDefinitionNames,
     collectReachableDefinitionNames,
@@ -54,38 +53,6 @@ describe("codegen entrypoints", () => {
 });
 
 describe("shared schema definition codegen utilities", () => {
-    it("adds managed approval metadata to workflow permission requests", () => {
-        const schema = {
-            definitions: {
-                PermissionRequestWorkflow: {
-                    type: "object",
-                    properties: {
-                        kind: { const: "workflow" },
-                    },
-                },
-                PermissionRequestUnrelated: {
-                    type: "object",
-                    properties: {
-                        kind: { const: "unrelated" },
-                    },
-                },
-            },
-        } satisfies JSONSchema7;
-
-        const result = addManagedApprovalRequiredToPermissionRequests(schema);
-
-        expect(result.definitions?.PermissionRequestWorkflow).toMatchObject({
-            properties: {
-                managedApprovalRequired: {
-                    type: ["boolean", "null"],
-                },
-            },
-        });
-        expect(result.definitions?.PermissionRequestUnrelated).not.toHaveProperty(
-            "properties.managedApprovalRequired"
-        );
-    });
-
     it("shares open tier definitions across raw RPC and processed event schemas", () => {
         const tier = {
             type: "string",

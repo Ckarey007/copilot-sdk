@@ -25,7 +25,6 @@ public sealed class E2ETestContext : IAsyncDisposable
 
     /// <summary>Optional logger injected by tests; applied to all clients created via <see cref="CreateClient"/>.</summary>
     public ILogger? Logger { get; set; }
-    public bool DiagnosticsEnabled { get; set; }
 
     private readonly ReplayProxy _proxy;
     private readonly string _repoRoot;
@@ -85,7 +84,7 @@ public sealed class E2ETestContext : IAsyncDisposable
             await proxy.SetCopilotUserByTokenAsync(DefaultGitHubToken, new CopilotUserConfig(
                 Login: "e2e-test-user",
                 CopilotPlan: "individual_pro",
-                Endpoints: new CopilotUserEndpoints(Api: context.ProxyUrl, Telemetry: context.ProxyUrl),
+                Endpoints: new CopilotUserEndpoints(Api: context.ProxyUrl, Telemetry: "https://localhost:1/telemetry"),
                 AnalyticsTrackingId: "e2e-test-tracking-id", Id: 12345));
 
             return context;
@@ -303,10 +302,6 @@ public sealed class E2ETestContext : IAsyncDisposable
         // disables the method (runtime filters out empty HMAC keys).
         env["COPILOT_HMAC_KEY"] = "";
         env["CAPI_HMAC_KEY"] = "";
-        if (DiagnosticsEnabled)
-        {
-            env["RUST_LOG"] = "error,sdk_diagnostics=debug";
-        }
 
         return env!;
     }
@@ -327,10 +322,6 @@ public sealed class E2ETestContext : IAsyncDisposable
         options ??= new CopilotClientOptions();
 
         options.Logger ??= Logger;
-        if (DiagnosticsEnabled)
-        {
-            options.LogLevel = CopilotLogLevel.Debug;
-        }
 
         // Resolve the working directory the worker should run in. Child-process and
         // URI transports take it as a per-client option; the in-process transport

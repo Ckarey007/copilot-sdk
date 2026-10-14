@@ -60,9 +60,7 @@ describe("Telemetry export", async () => {
         createClient,
         workDir,
     } = await createSdkTestContext({
-        logLevel: "debug",
         copilotClientOptions: {
-            env: { RUST_LOG: "error,sdk_diagnostics=debug" },
             gitHubToken: DEFAULT_GITHUB_TOKEN,
             // Telemetry is lowered to environment variables the native runtime reads, which
             // the in-process transport cannot carry per-client (the runtime runs in the shared
@@ -186,11 +184,6 @@ describe("Telemetry export", async () => {
             `{"value":"${marker}"}`
         );
         expect(getStringAttribute(toolSpan!, "gen_ai.tool.call.result")).toBe(marker);
-        expect(toolSpan!.attributes).not.toHaveProperty(
-            "github.copilot.tool.parameters.mcp_server_name_hash"
-        );
-        expect(toolSpan!.attributes).not.toHaveProperty("github.copilot.mcp.server.transport");
-        expect(toolSpan!.attributes).not.toHaveProperty("github.copilot.mcp.server.source");
     });
 
     it("should export per request subagent chat spans", { timeout: 90_000 }, async () => {

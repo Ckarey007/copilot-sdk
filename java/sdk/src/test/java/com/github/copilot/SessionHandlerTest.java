@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -22,7 +21,6 @@ import org.junit.jupiter.api.Test;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.copilot.rpc.AgentStopHookOutput;
 import com.github.copilot.rpc.PermissionRequestResult;
 import com.github.copilot.rpc.PermissionRequestResultKind;
@@ -291,34 +289,6 @@ public class SessionHandlerTest {
         assertInstanceOf(SessionEndHookOutput.class, result);
         var output = (SessionEndHookOutput) result;
         assertEquals("summary", output.sessionSummary());
-    }
-
-    @Test
-    void testHandleHooksInvokeSessionEndErrorShapes() throws Exception {
-        assertEquals("model timeout", sessionEndError(MAPPER.readTree("{\"message\":\"model timeout\"}")));
-        assertEquals("boom", sessionEndError(MAPPER.readTree("\"boom\"")));
-        assertNull(sessionEndError(MAPPER.nullNode()));
-        assertNull(sessionEndError(null));
-        assertEquals("{\"code\":7}", sessionEndError(MAPPER.readTree("{\"code\":7}")));
-    }
-
-    /**
-     * Runs a sessionEnd hook with the given wire {@code error} (absent when null)
-     * and returns the handler's error.
-     */
-    private String sessionEndError(JsonNode error) throws Exception {
-        var captured = new AtomicReference<String>("handler did not run");
-        session.registerHooks(new SessionHooks().setOnSessionEnd((hookInput, invocation) -> {
-            captured.set(hookInput.error());
-            return CompletableFuture.completedFuture(new SessionEndHookOutput(false, null, null));
-        }));
-        ObjectNode input = MAPPER.createObjectNode().put("timestamp", 1735689600L).put("cwd", "/tmp").put("reason",
-                "error");
-        if (error != null) {
-            input.set("error", error);
-        }
-        session.handleHooksInvoke("sessionEnd", input).get();
-        return captured.get();
     }
 
     // ===== handleHooksInvoke: agentStop =====

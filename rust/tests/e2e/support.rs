@@ -219,9 +219,6 @@ pub async fn with_shared_e2e_context<F>(
                 "timed out after {SHARED_E2E_CLEANUP_TIMEOUT:?} preparing shared E2E test"
             ))),
         };
-        if !matches!(&result, Ok(Ok(Ok(())))) {
-            state.context.print_sdk_diagnostics();
-        }
         let cleanup_result = match tokio::time::timeout(
             SHARED_E2E_CLEANUP_TIMEOUT,
             state.cleanup_after_test(),
@@ -321,9 +318,6 @@ where
     let timed_out = tokio::time::timeout(default_test_timeout(), test(&mut ctx))
         .await
         .is_err();
-    if timed_out {
-        ctx.print_sdk_diagnostics();
-    }
     ctx.cleanup(timed_out)
         .await
         .unwrap_or_else(|err| panic!("clean up E2E context: {err}"));
@@ -405,7 +399,6 @@ pub struct E2eContext {
     home_dir: tempfile::TempDir,
     work_dir: tempfile::TempDir,
     proxy: Option<CapiProxy>,
-    diagnostics: bool,
 }
 
 impl E2eContext {
@@ -435,7 +428,6 @@ impl E2eContext {
             home_dir,
             work_dir,
             proxy: Some(proxy),
-            diagnostics: matches!(category, "pending_work_resume" | "telemetry"),
         };
         ctx.configure(category, snapshot_name)?;
         ctx.set_default_copilot_user();
@@ -457,7 +449,6 @@ impl E2eContext {
             home_dir,
             work_dir,
             proxy: Some(proxy),
-            diagnostics: false,
         };
         // Initialize proxy state without replaying any recorded exchanges: the
         // snapshot path intentionally does not exist, so `/copilot_internal/user`
@@ -499,13 +490,7 @@ impl E2eContext {
     }
 
     pub fn client_options(&self) -> ClientOptions {
-        let options =
-            client_options_for_cli(&self.cli_path, self.work_dir.path(), self.environment());
-        if self.diagnostics {
-            options.with_log_level(github_copilot_sdk::LogLevel::Debug)
-        } else {
-            options
-        }
+        client_options_for_cli(&self.cli_path, self.work_dir.path(), self.environment())
     }
 
     pub fn client_options_with_transport(&self, transport: Transport) -> ClientOptions {
@@ -665,9 +650,6 @@ impl E2eContext {
             ),
         ]);
         env.extend(isolated_cache_environment(self.home_dir.path()));
-        if self.diagnostics {
-            env.push(("RUST_LOG".into(), "error,sdk_diagnostics=debug".into()));
-        }
         env.extend([
             ("COPILOT_MCP_APPS".into(), "true".into()),
             ("MCP_APPS".into(), "true".into()),
@@ -683,27 +665,6 @@ impl E2eContext {
 
     fn proxy(&self) -> &CapiProxy {
         self.proxy.as_ref().expect("proxy already stopped")
-    }
-
-    fn print_sdk_diagnostics(&self) {
-        if !self.diagnostics {
-            return;
-        }
-        let mut command = Command::new("node");
-        command
-            .arg(self.repo_root.join("test/harness/sdk-diagnostics.mjs"))
-            .arg(self.home_dir.path());
-        #[cfg(windows)]
-        {
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
-        match command.output() {
-            Ok(output) if output.status.success() => {
-                eprintln!("{}", String::from_utf8_lossy(&output.stdout));
-            }
-            _ => eprintln!("SDK diagnostics unavailable"),
-        }
     }
 }
 
@@ -850,9 +811,6 @@ fn is_transient_windows_file_lock(error: &std::io::Error) -> bool {
 
 impl Drop for E2eContext {
     fn drop(&mut self) {
-        if std::thread::panicking() {
-            self.print_sdk_diagnostics();
-        }
         if let Some(mut proxy) = self.proxy.take() {
             let _ = proxy.stop(true);
         }

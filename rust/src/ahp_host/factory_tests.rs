@@ -186,10 +186,7 @@ async fn resume_rejects_superseded_retained_original() {
     assert_eq!(reload["method"], "session.skills.reload");
     peer.respond(&reload, json!({})).await;
     let current = timeout(TIMEOUT, resuming).await.unwrap().unwrap().unwrap();
-    let original_retired = original.cancellation_token();
-    timeout(TIMEOUT, original_retired.cancelled())
-        .await
-        .unwrap();
+    assert!(!original.cancellation_token().is_cancelled());
     let retained = original.clone();
     let (released_tx, mut resumed_released) = mpsc::unbounded_channel();
     let pending = start(
@@ -215,13 +212,6 @@ async fn resume_rejects_superseded_retained_original() {
     let response = peer.request().await;
     assert_eq!(response["id"], 901);
     assert!(response.get("error").is_some());
-    assert!(
-        response["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("AHP callback must return the requested session from this client"),
-        "{response}"
-    );
     assert!(Arc::ptr_eq(
         &original,
         &receive(&mut resumed_released).await
@@ -587,35 +577,6 @@ async fn failed_and_cancelled_start_remove_factory() {
 }
 
 #[test]
-fn host_create_refresh_custom_instructions_round_trips_without_widening_resume() {
-    for refresh in [None, Some(false), Some(true)] {
-        let mut value = json!({"sessionId": "refresh-instructions"});
-        if let Some(refresh) = refresh {
-            value["refreshCustomInstructions"] = json!(refresh);
-        }
-        let settings = serde_json::from_value(value.clone()).unwrap();
-        let config = config_from_host(&settings).unwrap();
-        assert_eq!(config.refresh_custom_instructions, refresh);
-        assert_eq!(config_for_host(&config).unwrap(), value);
-        if refresh.is_some() {
-            assert!(resume_config_from_host(&settings).is_err());
-        } else {
-            assert!(resume_config_from_host(&settings).is_ok());
-        }
-    }
-}
-
-#[test]
-fn host_create_refresh_custom_instructions_rejects_invalid_and_unknown_settings() {
-    for value in [
-        json!({"sessionId": "id", "refreshCustomInstructions": "true"}),
-        json!({"sessionId": "id", "refreshCustomInstructions": true, "unknown": true}),
-    ] {
-        assert!(config_from_host(&serde_json::from_value(value).unwrap()).is_err());
-    }
-}
-
-#[test]
 fn host_settings_round_trip_without_callbacks_or_losing_constraints() {
     let value = json!({
         "sessionId": "id", "workingDirectory": "/work", "additionalDirectories": ["/extra"],
@@ -624,20 +585,17 @@ fn host_settings_round_trip_without_callbacks_or_losing_constraints() {
         "streaming": true, "gitHubToken": "test", "mcpOAuthTokenStorage": "in-memory",
         "enableConfigDiscovery": false, "featureFlags": {"flag": true},
         "enableManagedSettings": false, "enableSessionStore": true,
-        "enableGitHubCacheStore": true,
         "availableTools": ["read_file"], "excludedTools": ["shell"], "allowedModels": ["model"],
         "systemMessage": {"mode":"append","content":"app"}, "skipCustomInstructions": true,
         "customAgentsLocalOnly": true, "coauthorEnabled": false, "manageScheduleEnabled": false,
         "memory": {"enabled":false}, "pluginDirectories": ["/plugins"],
         "skillDirectories": ["/skills"], "instructionDirectories": ["/instructions"],
-        "agentDirectories": ["relative-agents"], "hookDirectories": [],
         "enableMcpApps": true, "model":"model", "reasoningEffort":"high", "contextTier":"long_context"
     });
     let config = config_from_host(&serde_json::from_value(value.clone()).unwrap()).unwrap();
     assert!(config.permission_handler.is_none());
     assert_eq!(config.config_directory, Some(PathBuf::from("/config")));
     assert_eq!(config.enable_experimental_mode, Some(true));
-    assert_eq!(config.enable_github_cache_store, Some(true));
     assert_eq!(
         config.infinite_sessions.as_ref().unwrap().enabled,
         Some(false)
@@ -650,7 +608,6 @@ fn host_settings_round_trip_without_callbacks_or_losing_constraints() {
     assert!(resume.permission_handler.is_none());
     assert_eq!(resume.config_directory, Some(PathBuf::from("/config")));
     assert_eq!(resume.enable_experimental_mode, Some(true));
-    assert_eq!(resume.enable_github_cache_store, Some(true));
     assert_eq!(
         resume.infinite_sessions.as_ref().unwrap().enabled,
         Some(false)

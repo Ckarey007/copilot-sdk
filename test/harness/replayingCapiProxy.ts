@@ -27,7 +27,6 @@ import {
   chatCompletionResponseToAnthropicSseChunks,
 } from "./anthropicMessagesAdapter";
 import { canonicalUserMessageSeparator } from "./modelProtocolAdapterShared";
-import { isLegacyExitPlanNotice } from "./legacyExitPlanNotice";
 import {
   chatCompletionResponseToResponsesApiMessage,
   chatCompletionResponseToResponsesApiSseChunks,
@@ -348,15 +347,6 @@ export class ReplayingCapiProxy extends CapturingHttpProxy {
           };
           this.copilotUserByToken.set(config.token, config.response);
           options.onResponseStart(200, {});
-          options.onResponseEnd();
-          return;
-        }
-
-        if (
-          options.requestOptions.path === "/telemetry" &&
-          options.requestOptions.method === "POST"
-        ) {
-          options.onResponseStart(204, {});
           options.onResponseEnd();
           return;
         }
@@ -1190,7 +1180,7 @@ function coalesceAdjacentUserMessages(requestBody: string): string {
     if (
       message.role === "user" &&
       typeof message.content === "string" &&
-      containsRuntimeNotice(message.content) &&
+      containsModeChangedNotice(message.content) &&
       normalizeUserMessage(message.content) === ""
     ) {
       continue;
@@ -1631,19 +1621,19 @@ function transformOpenAIRequestMessage(
   m: ChatCompletionMessageParam,
 ): NormalizedMessage | undefined {
   let content: string | undefined;
-  let strippedRuntimeNoticeOnly = false;
+  let strippedModeNoticeOnly = false;
   if (m.role === "system") {
     // System message changes too often to include in snapshots - just store placeholder
     content = "${system}";
   } else if (m.role === "user" && typeof m.content === "string") {
     content = normalizeUserMessage(m.content);
-    strippedRuntimeNoticeOnly =
-      content === "" && containsRuntimeNotice(m.content);
+    strippedModeNoticeOnly =
+      content === "" && containsModeChangedNotice(m.content);
   } else if (m.role === "user" && Array.isArray(m.content)) {
     // Multimodal user messages have array content with text and image_url parts.
     // Extract and normalize text parts; represent image_url parts as a stable marker.
     const parts: string[] = [];
-    let sawRuntimeNotice = false;
+    let sawModeNotice = false;
     let sawVisibleContent = false;
     for (const part of m.content) {
       if (
@@ -1651,7 +1641,7 @@ function transformOpenAIRequestMessage(
         part.type === "text" &&
         typeof part.text === "string"
       ) {
-        sawRuntimeNotice ||= containsRuntimeNotice(part.text);
+        sawModeNotice ||= containsModeChangedNotice(part.text);
         const normalized = normalizeUserMessage(part.text);
         if (normalized) {
           parts.push(normalized);
@@ -1663,7 +1653,7 @@ function transformOpenAIRequestMessage(
       }
     }
     content = parts.join("\n") || undefined;
-    strippedRuntimeNoticeOnly = sawRuntimeNotice && !sawVisibleContent;
+    strippedModeNoticeOnly = sawModeNotice && !sawVisibleContent;
   } else if (m.role === "tool" && typeof m.content === "string") {
     // If it's a JSON tool call result, normalize the whitespace and property ordering.
     // For successful tool results wrapped in {resultType, textResultForLlm}, unwrap to
@@ -1690,7 +1680,7 @@ function transformOpenAIRequestMessage(
     content = m.content;
   }
 
-  if (strippedRuntimeNoticeOnly) {
+  if (strippedModeNoticeOnly) {
     return undefined;
   }
   const msg: NormalizedMessage = { role: m.role };
@@ -1705,7 +1695,7 @@ function transformOpenAIRequestMessage(
 }
 
 function normalizeUserMessage(content: string): string {
-  return stripRuntimeNotice(normalizeSkillContext(content))
+  return stripModeChangedNotice(normalizeSkillContext(content))
     .replace(
       taskCompletionNotificationPattern,
       taskCompletionNotificationReplacement,
@@ -1727,44 +1717,41 @@ const taskCompletionNotificationPattern =
 const taskCompletionNotificationReplacement =
   'Agent "$1" ($2) has completed successfully. Use read_agent with agent_id "$1" to retrieve the full results.';
 
-// Only the obsolete exit_plan_mode withdrawal is optional; other catalog deltas stay strict.
-const runtimeNoticePattern =
-  /<(mode_changed_notice|tools_changed_notice)>([\s\S]*?)<\/\1>/g;
+const modeChangedNoticePattern =
+  /(\s*)<mode_changed_notice>[\s\S]*?<\/mode_changed_notice>(\s*)/g;
 
-function containsRuntimeNotice(content: string): boolean {
-  return /<(mode_changed_notice|tools_changed_notice)>[\s\S]*?<\/\1>/.test(
-    content,
-  );
+function containsModeChangedNotice(content: string): boolean {
+  return /<mode_changed_notice>[\s\S]*?<\/mode_changed_notice>/.test(content);
 }
 
-function stripRuntimeNotice(content: string): string {
-  let stripped = content;
-  // Work backward to preserve offsets and include separators held by retained notices.
-  for (const match of [...content.matchAll(runtimeNoticePattern)].reverse()) {
-    const [, tag, body] = match;
-    if (tag === "tools_changed_notice" && !isLegacyExitPlanNotice(body)) {
-      continue;
-    }
-    const before = stripped.slice(0, match.index);
-    const after = stripped.slice(match.index + match[0].length);
-    const whitespace = [
-      before.match(/\s*$/)?.[0],
-      after.match(/^\s*/)?.[0],
-    ].join("");
-    let separator = "";
-    if (before.trim() && after.trim()) {
-      separator = /[\r\n]/.test(whitespace) ? "\n\n" : " ";
-    }
-    stripped = before.trimEnd() + separator + after.trimStart();
-  }
-  return stripped === content ? content : stripped.trim();
+function stripModeChangedNotice(content: string): string {
+  let removed = false;
+  const stripped = content.replace(
+    modeChangedNoticePattern,
+    (
+      match,
+      leading: string,
+      trailing: string,
+      offset: number,
+      source: string,
+    ) => {
+      removed = true;
+      const before = source.slice(0, offset);
+      const after = source.slice(offset + match.length);
+      if (!before.trim() || !after.trim()) {
+        return "";
+      }
+      return /[\r\n]/.test(leading + trailing) ? "\n\n" : " ";
+    },
+  );
+  return removed ? stripped.trim() : content;
 }
 
 function normalizeStoredUserMessages(conversations: NormalizedConversation[]) {
   for (const conversation of conversations) {
     for (const message of conversation.messages) {
       if (message.role === "user" && typeof message.content === "string") {
-        message.content = stripRuntimeNotice(
+        message.content = stripModeChangedNotice(
           normalizeSkillContext(message.content).replace(
             taskCompletionNotificationPattern,
             taskCompletionNotificationReplacement,
@@ -1829,17 +1816,8 @@ function coalesceMessages(
 // older CLI versions as well as to live requests.
 function normalizeStoredToolMessages(conversations: NormalizedConversation[]) {
   for (const conversation of conversations) {
-    const shellToolCallIds = new Set<string>();
     for (const message of conversation.messages) {
-      for (const toolCall of message.tool_calls ?? []) {
-        if (toolCall.function?.name === "${shell}") {
-          shellToolCallIds.add(toolCall.id);
-        }
-      }
       if (message.role === "tool" && typeof message.content === "string") {
-        if (message.tool_call_id && shellToolCallIds.has(message.tool_call_id)) {
-          message.content = normalizeShellExitMarkers(message.content);
-        }
         message.content = normalizeInterruptedToolResult(message.content);
         message.content = normalizeAvailableToolNames(message.content);
         message.content = normalizeBackgroundAgentStartMessage(message.content);
@@ -1878,15 +1856,10 @@ function normalizeLargeOutputFilepaths(result: string): string {
 }
 
 function normalizeShellExitMarkers(result: string): string {
-  return result
-    .replace(
-      /<shellId:\s*[^>\r\n]+?\s+completed with exit code (-?\d+)>/g,
-      "<exited with exit code $1>",
-    )
-    .replace(
-      /<command started in background with shellId: \d+>/g,
-      "<command started in background with shellId: ${shellId}>",
-    );
+  return result.replace(
+    /<shellId:\s*[^>\r\n]+?\s+completed with exit code (-?\d+)>/g,
+    "<exited with exit code $1>",
+  );
 }
 
 // The `gh` CLI emits different "not authenticated" help text depending on the

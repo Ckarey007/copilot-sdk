@@ -10,7 +10,6 @@ using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
-using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -122,53 +121,6 @@ public sealed class SetToolsTests
 
         var result = await InvokeToolAsync(server, session, "stable_tool", "stable-request");
         Assert.Equal("old", result);
-    }
-
-    [Fact]
-    public async Task SetToolsAsync_Acceptance_After_Disposal_Cannot_Restore_Handlers_Or_Close_Connection()
-    {
-        await using var server = await SetToolsFakeServer.StartAsync();
-        var releaseSet = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        server.BeforeSetToolsResponseAsync = _ => releaseSet.Task;
-        await using var client = new CopilotClient(new CopilotClientOptions { Connection = RuntimeConnection.ForUri(server.Url) });
-        await using var session = await client.CreateSessionAsync(new SessionConfig());
-        var replacement = session.SetToolsAsync([Tool("retired_tool", "must-not-install")]);
-        var timeout = TimeSpan.FromSeconds(5);
-        Exception? bodyFailure = null;
-        try
-        {
-            await server.WaitForRequestAsync("session.tools.set").WaitAsync(timeout);
-            await session.DisposeAsync().AsTask().WaitAsync(timeout);
-            releaseSet.TrySetResult();
-
-            await Assert.ThrowsAsync<ObjectDisposedException>(() => replacement.WaitAsync(timeout));
-            await using var liveSession = await client.CreateSessionAsync(new SessionConfig()).WaitAsync(timeout);
-            Assert.NotEqual(session.SessionId, liveSession.SessionId);
-        }
-        catch (Exception error)
-        {
-            bodyFailure = error;
-        }
-        finally
-        {
-            releaseSet.TrySetResult();
-            try
-            {
-                await replacement.WaitAsync(timeout);
-            }
-            catch (ObjectDisposedException)
-            {
-                // The acknowledged replacement was rejected by local retirement.
-            }
-            catch (Exception cleanupError)
-            {
-                bodyFailure = bodyFailure is null ? cleanupError : new AggregateException(bodyFailure, cleanupError);
-            }
-        }
-        if (bodyFailure is not null)
-        {
-            ExceptionDispatchInfo.Capture(bodyFailure).Throw();
-        }
     }
 
     [Fact]
@@ -616,7 +568,6 @@ public sealed class SetToolsTests
         private readonly List<RpcRequestRecord> _requests = [];
         private readonly object _requestsLock = new();
         private readonly Task _serverTask;
-        private readonly List<Task> _requestTasks = [];
         private NetworkStream? _stream;
         private string? _nextSetToolsRejection;
         private readonly Dictionary<int, string> _setToolsRejections = [];
@@ -742,19 +693,8 @@ public sealed class SetToolsTests
             {
             }
 
-            try
-            {
-                await Task.WhenAll(_requestTasks).WaitAsync(TimeSpan.FromSeconds(5));
-            }
-            catch (OperationCanceledException) when (_requestTasks.All(task => task.IsCanceled || task.IsCompletedSuccessfully))
-            {
-                // Shutdown cancellation may stop a writer, but every owned request must finish.
-            }
-            finally
-            {
-                _cts.Dispose();
-                _writeLock.Dispose();
-            }
+            _cts.Dispose();
+            _writeLock.Dispose();
         }
 
         private async Task RunAsync()
@@ -777,7 +717,7 @@ public sealed class SetToolsTests
                     continue;
                 }
 
-                _requestTasks.Add(HandleRequestAsync(stream, root, id.Clone(), _cts.Token));
+                _ = HandleRequestAsync(stream, root, id.Clone(), _cts.Token);
             }
         }
 

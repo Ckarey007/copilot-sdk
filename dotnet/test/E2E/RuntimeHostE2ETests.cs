@@ -44,8 +44,6 @@ public sealed class RuntimeHostE2ETests(E2ETestFixture fixture, ITestOutputHelpe
         public CopilotSession? Session;
         public int Creates;
         public int Resumes;
-        public string? CreateSessionId;
-        public string? ResumeSessionId;
         public int ToolCalls;
         public readonly ConcurrentQueue<string> HookSessions = new();
         public readonly ConcurrentQueue<CopilotSession> Releases = new();
@@ -84,12 +82,8 @@ public sealed class RuntimeHostE2ETests(E2ETestFixture fixture, ITestOutputHelpe
                 Interlocked.Increment(ref Creates);
                 Assert.False(request.CancellationToken.IsCancellationRequested);
                 Assert.Equal(context.WorkDir, request.Config.WorkingDirectory);
-                CreateSessionId = request.Config.SessionId;
-                Assert.False(string.IsNullOrEmpty(CreateSessionId));
                 Configure(request.Config);
-                Session = await context.CreateSessionAsync(client, request.Config);
-                Assert.Equal(CreateSessionId, Session.SessionId);
-                return Session;
+                return Session = await context.CreateSessionAsync(client, request.Config);
             },
             ResumeSession = async request =>
             {
@@ -97,11 +91,8 @@ public sealed class RuntimeHostE2ETests(E2ETestFixture fixture, ITestOutputHelpe
                 Assert.False(request.CancellationToken.IsCancellationRequested);
                 Assert.False(request.Config.ContinuePendingWork);
                 Assert.Equal(context.WorkDir, request.Config.WorkingDirectory);
-                ResumeSessionId = request.SessionId;
                 Configure(request.Config);
-                Session = await context.ResumeSessionAsync(client, request.SessionId, request.Config);
-                Assert.Equal(ResumeSessionId, Session.SessionId);
-                return Session;
+                return Session = await context.ResumeSessionAsync(client, request.SessionId, request.Config);
             },
             OnSessionReleased = session =>
             {
@@ -175,8 +166,7 @@ public sealed class RuntimeHostE2ETests(E2ETestFixture fixture, ITestOutputHelpe
             var created = await ahp.RequestAsync(new() { ["op"] = "create", ["clientId"] = clientId, ["workDir"] = Ctx.WorkDir });
             sessionId = created.GetProperty("sessionId").GetString()!;
             Assert.Equal(1, app.Creates);
-            Assert.Equal(app.CreateSessionId, app.Session!.SessionId);
-            Assert.NotEqual(sessionId, app.Session.SessionId);
+            Assert.Equal(sessionId, app.Session!.SessionId);
         }
         var response = await ahp.RequestAsync(new()
         {
@@ -186,7 +176,7 @@ public sealed class RuntimeHostE2ETests(E2ETestFixture fixture, ITestOutputHelpe
             ["prompt"] = ToolPrompt
         });
         Assert.Contains("MAGIC_hello_42", response.GetProperty("text").GetString());
-        await AssertApplicationAsync(app, app.Session!.SessionId);
+        await AssertApplicationAsync(app, sessionId);
         await Task.WhenAll(host.DisposeAsync().AsTask(), host.DisposeAsync().AsTask());
         await ahp.RequestAsync(new() { ["op"] = "stopped", ["clientId"] = clientId, ["url"] = host.Url });
         if (publish)
@@ -225,9 +215,6 @@ public sealed class RuntimeHostE2ETests(E2ETestFixture fixture, ITestOutputHelpe
                 ["clientTools"] = true
             });
             sessionId = created.GetProperty("sessionId").GetString()!;
-            Assert.Equal(1, first.Creates);
-            Assert.Equal(first.CreateSessionId, first.Session!.SessionId);
-            Assert.NotEqual(sessionId, first.Session.SessionId);
             var answer = await ahp.RequestAsync(new()
             {
                 ["op"] = "turn",
@@ -260,8 +247,7 @@ public sealed class RuntimeHostE2ETests(E2ETestFixture fixture, ITestOutputHelpe
             .Select(turn => turn.GetProperty("message").GetProperty("text").GetString()));
         Assert.Equal(0, resumed.Creates);
         Assert.Equal(1, resumed.Resumes);
-        Assert.Equal(first.Session!.SessionId, resumed.ResumeSessionId);
-        Assert.Equal(first.Session.SessionId, resumed.Session!.SessionId);
+        Assert.Equal(sessionId, resumed.Session!.SessionId);
         Assert.NotSame(first.Session, resumed.Session);
         var response = await ahp.RequestAsync(new()
         {
@@ -274,7 +260,7 @@ public sealed class RuntimeHostE2ETests(E2ETestFixture fixture, ITestOutputHelpe
         Assert.Contains("MAGIC_hello_42", response.GetProperty("text").GetString());
         Assert.Contains("CLIENT_ECHO_ping", response.GetProperty("text").GetString());
         Assert.Equal(1, response.GetProperty("clientToolCalls").GetInt32());
-        await AssertApplicationAsync(resumed, first.Session.SessionId);
+        await AssertApplicationAsync(resumed, sessionId);
         await replacement.DisposeAsync();
         await ahp.RequestAsync(new() { ["op"] = "stopped", ["clientId"] = clientId, ["url"] = replacement.Url });
         await resumed.Released.Task.WaitAsync(TimeSpan.FromSeconds(10));

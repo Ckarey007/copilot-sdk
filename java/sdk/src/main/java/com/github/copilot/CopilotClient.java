@@ -99,7 +99,7 @@ public final class CopilotClient implements AutoCloseable {
     public static final int AUTOCLOSEABLE_TIMEOUT_SECONDS = 10;
     private static final int RUNTIME_SHUTDOWN_TIMEOUT_SECONDS = 10;
     private static final int PROCESS_EXIT_TIMEOUT_SECONDS = 10;
-    private static final int FORCE_KILL_TIMEOUT_SECONDS = CliServerManager.FORCE_KILL_TIMEOUT_SECONDS;
+    private static final int FORCE_KILL_TIMEOUT_SECONDS = 10;
 
     /**
      * One-shot dispatcher used to run the owned-executor shutdown off any caller
@@ -488,10 +488,8 @@ public final class CopilotClient implements AutoCloseable {
     private static InProcessTransport openInProcessTransport(CopilotClientOptions options) throws IOException {
         FfiRuntimeHost host = new FfiRuntimeHost();
         try {
-            String integrationId = System.getenv("GITHUB_COPILOT_INTEGRATION_ID");
-            integrationId = integrationId == null || integrationId.isBlank() ? null : integrationId.trim();
-            Path cliEntrypoint = NativeRuntimeLoader.resolveConfiguredEntrypoint();
-            host.start(cliEntrypoint == null ? null : cliEntrypoint.toString(), integrationId, options);
+            Path explicitEntrypoint = NativeRuntimeLoader.resolveConfiguredEntrypoint();
+            host.start(explicitEntrypoint == null ? null : explicitEntrypoint.toString(), options);
         } catch (RuntimeException | Error e) {
             host.close();
             throw e;
@@ -666,11 +664,7 @@ public final class CopilotClient implements AutoCloseable {
                 if (drainBeforeCleanup) {
                     serverManager.awaitStderrReader();
                 }
-                try {
-                    CliServerManager.cleanupCliProcess(process, CliServerManager.captureDescendants(process), true);
-                } catch (RuntimeException cleanupError) {
-                    e.addSuppressed(cleanupError);
-                }
+                cleanupCliProcess(process, true);
                 if (!drainBeforeCleanup) {
                     serverManager.awaitStderrReader();
                 }
@@ -771,7 +765,7 @@ public final class CopilotClient implements AutoCloseable {
      * <li>Requests runtime shutdown for SDK-owned CLI processes</li>
      * <li>Closes stdin for an owned stdio process and waits for its host
      * cleanup</li>
-     * <li>Closes the JSON-RPC connection, terminating an owned process tree if
+     * <li>Closes the JSON-RPC connection, terminating an owned process if
      * needed</li>
      * </ol>
      * <p>
@@ -811,8 +805,7 @@ public final class CopilotClient implements AutoCloseable {
     }
 
     /**
-     * Immediately stops the client, retires sessions and pending waits, and drops
-     * unadmitted callbacks.
+     * Forces an immediate stop of the client without graceful cleanup.
      *
      * @return A future that completes when the client is stopped
      */
@@ -820,8 +813,9 @@ public final class CopilotClient implements AutoCloseable {
         ahpHosts.disconnect();
         disposed = true;
         var activeSessions = new ArrayList<>(sessions.values());
-        activeSessions.forEach(CopilotSession::forceStopLocally);
         sessions.clear();
+        activeSessions.forEach(CopilotSession::cancelPendingExternalTools);
+        activeSessions.forEach(CopilotSession::clearSkillProvider);
         gitHubTokenProviders.clear();
         // Dispatch the blocking shutdownOwnedExecutor() on a dedicated thread:
         // cleanupConnection() is chained off async work running on the owned
@@ -849,10 +843,6 @@ public final class CopilotClient implements AutoCloseable {
                 return CompletableFuture.<Void>completedFuture(null);
             }
 
-            // Retain children before EOF or shutdown can let their launcher exit.
-            List<ProcessHandle> descendants = connection.process == null
-                    ? List.of()
-                    : CliServerManager.captureDescendants(connection.process);
             CompletableFuture<Void> shutdownFuture = CompletableFuture.completedFuture(null);
             if (gracefulRuntimeShutdown && (connection.process != null || connection.runtimeHost != null)) {
                 long runtimeShutdownStartNanos = System.nanoTime();
@@ -872,10 +862,8 @@ public final class CopilotClient implements AutoCloseable {
             }
 
             return shutdownFuture.handleAsync((ignored, error) -> {
-                boolean preserveDetachedServices = gracefulRuntimeShutdown && error == null && !options.isUseStdio();
                 if (gracefulRuntimeShutdown && connection.process != null && options.isUseStdio()) {
-                    boolean exitObserved = awaitOwnedRuntimeExit(connection);
-                    preserveDetachedServices = exitObserved && error == null;
+                    awaitStdioProcessExit(connection.process);
                 }
                 try {
                     connection.rpc.close();
@@ -884,11 +872,7 @@ public final class CopilotClient implements AutoCloseable {
                 }
 
                 if (connection.process != null) {
-                    // Successful shutdown leaves intentionally detached services alive.
-                    // Keep the captured tree only for failed or forced shutdown.
-                    CliServerManager.cleanupCliProcess(connection.process,
-                            preserveDetachedServices ? List.of() : descendants,
-                            !gracefulRuntimeShutdown || error != null);
+                    cleanupCliProcess(connection.process, !gracefulRuntimeShutdown || error != null);
                 }
                 if (connection.runtimeHost != null) {
                     closeRuntimeHost(connection.runtimeHost);
@@ -898,24 +882,54 @@ public final class CopilotClient implements AutoCloseable {
         }).thenCompose(result -> result);
     }
 
-    private static boolean awaitOwnedRuntimeExit(Connection connection) {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(PROCESS_EXIT_TIMEOUT_SECONDS);
+    private static void awaitStdioProcessExit(Process process) {
         try {
-            // Host telemetry flushes after stdin EOF, not the shutdown response.
-            connection.process.getOutputStream().close();
-            if (!connection.rpc.awaitPeerEof(deadline - System.nanoTime(), TimeUnit.NANOSECONDS)) {
-                LOG.fine("Runtime transport did not reach EOF within graceful shutdown timeout; terminating tree");
-                return false;
+            // Host telemetry flushes after stdio EOF, not the shutdown RPC response.
+            // Keep the reader draining stdout until the child has finished.
+            process.getOutputStream().close();
+            if (!process.waitFor(PROCESS_EXIT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                LOG.fine("Process did not exit after stdin EOF within graceful shutdown timeout; terminating");
             }
-            if (!connection.process.waitFor(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS)) {
-                LOG.fine("Launcher did not exit after runtime EOF; terminating launcher");
-            }
-            return true;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             LOG.log(Level.FINE, "Interrupted while waiting for process exit", e);
         } catch (IOException e) {
-            LOG.log(Level.FINE, "Error awaiting runtime exit after closing stdin", e);
+            LOG.log(Level.FINE, "Error closing process stdin", e);
+        }
+    }
+
+    /**
+     * Returns true only when the child had already exited and no streams were
+     * destroyed.
+     */
+    private static boolean cleanupCliProcess(Process process, boolean forceImmediately) {
+        try {
+            if (process.isAlive()) {
+                if (forceImmediately) {
+                    process.destroyForcibly();
+                    if (!process.waitFor(FORCE_KILL_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                        LOG.fine("Process did not terminate within force kill timeout");
+                    }
+                    return false;
+                }
+
+                process.destroy();
+                if (process.waitFor(FORCE_KILL_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                    return false;
+                }
+
+                process.destroyForcibly();
+                if (!process.waitFor(FORCE_KILL_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                    LOG.fine("Process did not terminate within force kill timeout");
+                }
+                return false;
+            }
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.log(Level.FINE, "Interrupted while killing process", e);
+        } catch (Exception e) {
+            LOG.log(Level.FINE, "Error killing process", e);
         }
         return false;
     }
@@ -1442,9 +1456,6 @@ public final class CopilotClient implements AutoCloseable {
                 null, // envValueMode
                 null, // allowAllMcpServerInstructions
                 null, // skillDirectories
-                null, // agentDirectories
-                null, // instructionDirectories
-                null, // hookDirectories
                 null, // ignoredSkillsLocations
                 patchSkills, // includedBuiltinSkills
                 null, // disabledSkills
@@ -1504,13 +1515,12 @@ public final class CopilotClient implements AutoCloseable {
      * @see ConnectionState
      */
     public ConnectionState getState() {
-        CompletableFuture<Connection> future = connectionFuture;
-        if (future == null)
+        if (connectionFuture == null)
             return ConnectionState.DISCONNECTED;
-        if (!future.isDone())
-            return ConnectionState.CONNECTING;
-        if (future.isCompletedExceptionally())
+        if (connectionFuture.isCompletedExceptionally())
             return ConnectionState.ERROR;
+        if (!connectionFuture.isDone())
+            return ConnectionState.CONNECTING;
         return ConnectionState.CONNECTED;
     }
 

@@ -25,7 +25,7 @@ public record CatalogAgentPluginCandidateProvenance(
     @JsonProperty("authority") String authority,
     /** ISO 8601 timestamp at which the runtime observed the catalog reference. This is not a retrieval or validation timestamp. */
     @JsonProperty("observedAt") String observedAt,
-    /** Media type naming the plugin's format. */
+    /** Canonical Agent Plugin media type. */
     @JsonProperty("mediaType") CatalogAgentPluginMediaType mediaType
 ) {
 }

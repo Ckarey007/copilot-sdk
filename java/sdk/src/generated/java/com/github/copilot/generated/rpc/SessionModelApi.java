@@ -8,7 +8,6 @@
 package com.github.copilot.generated.rpc;
 
 import com.github.copilot.CopilotExperimental;
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import javax.annotation.processing.Generated;
 
@@ -59,21 +58,6 @@ public final class SessionModelApi {
     }
 
     /**
-     * Switches the session to a model and optional reasoning configuration.
-     * <p>
-     * Accepts the extensible request, including inputs added after the params record.
-     *
-     * @apiNote This method is experimental and may change in a future version.
-     * @since 1.0.0
-     */
-    @CopilotExperimental
-    public CompletableFuture<SessionModelSwitchToResult> switchTo(SessionModelSwitchToRequest request) {
-        com.fasterxml.jackson.databind.node.ObjectNode _p = MAPPER.valueToTree(Objects.requireNonNull(request, "request"));
-        _p.put("sessionId", this.sessionId);
-        return caller.invoke("session.model.switchTo", _p, SessionModelSwitchToResult.class);
-    }
-
-    /**
      * Requests an Auto preference change without changing the session's selected model. The latest unclaimed request wins; the runtime commits it only after a later prompt using the `auto` model mints a usable model and token pair. A `pending` response confirms that the request was accepted, not that it committed. Observe eventual success through `session.model_change`, failure through the ephemeral `session.auto_tier_switch_failed` event, or current unclaimed state through `session.model.getCurrent`.
      * <p>
      * Note: the {@code sessionId} field in the params record is overridden
@@ -106,22 +90,6 @@ public final class SessionModelApi {
     }
 
     /**
-     * Clears an unchanged startup model/provider seed before default-model resolution. Never clears a resumed or user-selected model.
-     * <p>
-     * Note: the {@code sessionId} field in the params record is overridden
-     * by the session-scoped wrapper; any value provided is ignored.
-     *
-     * @apiNote This method is experimental and may change in a future version.
-     * @since 1.0.0
-     */
-    @CopilotExperimental
-    CompletableFuture<ModelClearStartupSeedResult> clearStartupSeed(SessionModelClearStartupSeedParams params) {
-        com.fasterxml.jackson.databind.node.ObjectNode _p = MAPPER.valueToTree(params);
-        _p.put("sessionId", this.sessionId);
-        return caller.invoke("session.model.clearStartupSeed", _p, ModelClearStartupSeedResult.class);
-    }
-
-    /**
      * Replaces or clears the host-supplied model allowlist for a running session.
      * <p>
      * Note: the {@code sessionId} field in the params record is overridden
@@ -151,22 +119,6 @@ public final class SessionModelApi {
         com.fasterxml.jackson.databind.node.ObjectNode _p = MAPPER.valueToTree(params);
         _p.put("sessionId", this.sessionId);
         return caller.invoke("session.model.setReasoningEffort", _p, SessionModelSetReasoningEffortResult.class);
-    }
-
-    /**
-     * Computes whether the session's current model shows reasoning summaries and how a host should present them: the default Ctrl+T visibility, reasoning headers, the hidden-summaries hint, and whether a persisted `showReasoning` setting is redundant. The runtime folds in the session's model catalog, selection and reasoning-summaries experiment assignment; the host supplies only its own persisted setting and current visibility. This method reads the session's resolved model catalog rather than resolving it, so call `session.model.list` first on a session that has not listed models or run a turn; until then the result is `ready: false`. A session that resolves models without a Copilot catalog, that is a BYOK registry or an alternate provider, never caches one and stays `ready: false`.
-     * <p>
-     * Note: the {@code sessionId} field in the params record is overridden
-     * by the session-scoped wrapper; any value provided is ignored.
-     *
-     * @apiNote This method is experimental and may change in a future version.
-     * @since 1.0.0
-     */
-    @CopilotExperimental
-    public CompletableFuture<SessionModelGetReasoningSummariesResult> getReasoningSummaries(SessionModelGetReasoningSummariesParams params) {
-        com.fasterxml.jackson.databind.node.ObjectNode _p = MAPPER.valueToTree(params);
-        _p.put("sessionId", this.sessionId);
-        return caller.invoke("session.model.getReasoningSummaries", _p, SessionModelGetReasoningSummariesResult.class);
     }
 
     /**

@@ -9,15 +9,10 @@
  *
  * The `/mcp` endpoint issues a real `mcp-session-id` per connection and serves
  * enough JSON-RPC MCP methods for the runtime to initialize, list tools and call
- * one tool. It negotiates its supported stateful protocol version rather than
- * echoing a newer, stateless client proposal. `POST /__expire` invalidates every
- * active session so subsequent requests (including the runtime's liveness
- * `ping`) answer `404`, which is how a
+ * one tool. `POST /__expire` invalidates every active session so subsequent
+ * requests (including the runtime's liveness `ping`) answer `404`, which is how a
  * server-side idle expiry is observed by a real Streamable HTTP client.
- * `GET /__stats` reports the counters tests assert on, including answered
- * expired-session probes so recovery assertions need not budget the idle delay.
- * HTTP connections close after each response so socket idle retirement cannot
- * interfere with the independently managed MCP session lifetime.
+ * `GET /__stats` reports the counters tests assert on.
  */
 
 import http from "node:http";
@@ -26,37 +21,21 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const PROTOCOL_VERSION = "2025-03-26";
-const MAX_RECENT_REQUESTS = 32;
 
 export async function startSessionExpiryMcpServer({ host = "127.0.0.1", port = 0 } = {}) {
   const activeSessions = new Set();
   const expiredSessions = new Set();
-  let expiredAt = 0;
-  const stats = {
-    initializations: 0,
-    toolsListRequests: 0,
-    toolCalls: 0,
-    pings: 0,
-    expiredRequests: 0,
-    expiredRequestLog: [],
-    protocolVersions: [],
-    expiredSessionProbes: 0,
-  };
-  const recentRequests = [];
-  const startedAt = performance.now();
+  const stats = { initializations: 0, toolsListRequests: 0, toolCalls: 0 };
 
   const server = http.createServer(async (req, res) => {
-    // MCP session expiry is independent of TCP keep-alive expiry.
-    res.setHeader("connection", "close");
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? `${host}:${port}`}`);
 
     if (req.method === "GET" && url.pathname === "/__stats") {
-      respondJson(res, 200, { ...stats, activeSessions: activeSessions.size, recentRequests });
+      respondJson(res, 200, { ...stats, activeSessions: activeSessions.size });
       return;
     }
 
     if (req.method === "POST" && url.pathname === "/__expire") {
-      expiredAt = performance.now();
       for (const sessionId of activeSessions) {
         expiredSessions.add(sessionId);
       }
@@ -71,39 +50,7 @@ export async function startSessionExpiryMcpServer({ host = "127.0.0.1", port = 0
     }
 
     const sessionId = req.headers["mcp-session-id"];
-    const expiredSession = typeof sessionId === "string" && expiredSessions.has(sessionId);
-    const observation = {
-      elapsedMs: Math.round(performance.now() - startedAt),
-      httpMethod: req.method,
-      sessionAttached: typeof sessionId === "string",
-      expiredSession,
-      rpcMethods: [],
-      status: null,
-    };
-    recentRequests.push(observation);
-    if (recentRequests.length > MAX_RECENT_REQUESTS) recentRequests.shift();
-    res.once("finish", () => {
-      observation.status = res.statusCode;
-    });
-    if (expiredSession) {
-      stats.expiredRequests++;
-      if (stats.expiredRequestLog.length < 8) {
-        stats.expiredRequestLog.push({
-          method: req.method ?? "UNKNOWN",
-          elapsedMs: Math.round(performance.now() - expiredAt),
-        });
-      }
-      let isProbe = false;
-      if (req.method === "POST") {
-        const body = parseJsonBody(await readBody(req));
-        if (body.ok) {
-          const messages = Array.isArray(body.value) ? body.value : [body.value];
-          isProbe = messages.some((message) => message?.method === "ping" && "id" in message);
-        }
-      }
-      if (isProbe) {
-        res.once("finish", () => stats.expiredSessionProbes++);
-      }
+    if (typeof sessionId === "string" && expiredSessions.has(sessionId)) {
       respondJson(res, 404, { error: "session_expired" });
       return;
     }
@@ -120,10 +67,6 @@ export async function startSessionExpiryMcpServer({ host = "127.0.0.1", port = 0
     }
 
     const messages = Array.isArray(parsedBody.value) ? parsedBody.value : [parsedBody.value];
-    observation.rpcMethods = messages
-      .map((message) => message?.method)
-      .filter((method) => typeof method === "string")
-      .slice(0, 4);
     const isInitialize = messages.some((message) => message?.method === "initialize");
     let responseSessionId = typeof sessionId === "string" ? sessionId : undefined;
 
@@ -186,7 +129,6 @@ function handleJsonRpcMessage(message, stats) {
 
   switch (message.method) {
     case "initialize":
-      stats.protocolVersions.push(message.params?.protocolVersion ?? PROTOCOL_VERSION);
       return {
         jsonrpc: "2.0",
         id: message.id,
@@ -198,7 +140,6 @@ function handleJsonRpcMessage(message, stats) {
         },
       };
     case "ping":
-      stats.pings++;
       return { jsonrpc: "2.0", id: message.id, result: {} };
     case "tools/list":
       stats.toolsListRequests++;

@@ -1790,7 +1790,6 @@ export class CopilotClient {
                 model: config.model,
                 allowedModels: config.allowedModels,
                 sessionId: localSessionId,
-                name: config.name,
                 clientName: config.clientName,
                 reasoningEffort: config.reasoningEffort,
                 reasoningSummary: config.reasoningSummary,
@@ -1807,7 +1806,6 @@ export class CopilotClient {
                     isTerminal: tool.isTerminal,
                 })),
                 toolSearch: config.toolSearch,
-                imageGeneration: config.imageGeneration,
                 canvases: config.canvases?.map((canvas) => canvas.declaration),
                 requestCanvasRenderer: config.requestCanvasRenderer,
                 requestExtensions: config.requestExtensions,
@@ -1870,12 +1868,9 @@ export class CopilotClient {
                 enableFileHooks: config.enableFileHooks,
                 enableHostGitOperations: config.enableHostGitOperations,
                 enableSessionStore: config.enableSessionStore,
-                enableGitHubCacheStore: config.enableGitHubCacheStore,
                 enableSkills: config.enableSkills,
                 skillDirectories: config.skillDirectories,
                 ...(config.skillProvider ? { hasSkillProvider: true } : {}),
-                agentDirectories: config.agentDirectories,
-                hookDirectories: config.hookDirectories,
                 pluginDirectories: config.pluginDirectories,
                 instructionDirectories: config.instructionDirectories,
                 disabledSkills: config.disabledSkills,
@@ -1889,7 +1884,6 @@ export class CopilotClient {
                 featureFlags: config.featureFlags,
                 expAssignments: config.expAssignments,
                 enableManagedSettings: config.enableManagedSettings,
-                enforceManagedModelDefaults: config.enforceManagedModelDefaults,
                 managedSettings: config.managedSettings,
             });
 
@@ -2124,7 +2118,6 @@ export class CopilotClient {
                     isTerminal: tool.isTerminal,
                 })),
                 toolSearch: config.toolSearch,
-                imageGeneration: config.imageGeneration,
                 canvases: config.canvases?.map((canvas) => canvas.declaration),
                 workflows: workflows?.map((workflow) => workflow.meta),
                 requestCanvasRenderer: config.requestCanvasRenderer,
@@ -2165,7 +2158,6 @@ export class CopilotClient {
                 enableFileHooks: config.enableFileHooks,
                 enableHostGitOperations: config.enableHostGitOperations,
                 enableSessionStore: config.enableSessionStore,
-                enableGitHubCacheStore: config.enableGitHubCacheStore,
                 enableSkills: config.enableSkills,
                 streaming: config.streaming,
                 includeSubAgentStreamingEvents: config.includeSubAgentStreamingEvents ?? true,
@@ -2183,8 +2175,6 @@ export class CopilotClient {
                 agent: config.agent,
                 skillDirectories: config.skillDirectories,
                 ...(config.skillProvider ? { hasSkillProvider: true } : {}),
-                agentDirectories: config.agentDirectories,
-                hookDirectories: config.hookDirectories,
                 pluginDirectories: config.pluginDirectories,
                 instructionDirectories: config.instructionDirectories,
                 disabledSkills: config.disabledSkills,
@@ -2200,7 +2190,6 @@ export class CopilotClient {
                 featureFlags: config.featureFlags,
                 expAssignments: config.expAssignments,
                 enableManagedSettings: config.enableManagedSettings,
-                enforceManagedModelDefaults: config.enforceManagedModelDefaults,
                 managedSettings: config.managedSettings,
                 ...(extensionOptions?.requestedEnvironmentVariables
                     ? {
@@ -2278,7 +2267,7 @@ export class CopilotClient {
      * This connection owns the host. Disposing it or disconnecting the client
      * stops the listener without deleting sessions. The host uses a separate
      * SDK connection to the same runtime, not another runtime process.
-     * Only one AHP host may own a compute-scoped catalog in an effective Copilot home
+     * Only one AHP host may own the catalog in an effective Copilot home
      * at a time. Other SDK clients and sessions remain usable in that home.
      * Select localServer, githubEnvironment, or both. An empty localServer
      * selects 127.0.0.1 on an available port. `onExit` runs at most once; owner disconnection cannot
@@ -2296,7 +2285,6 @@ export class CopilotClient {
         const rpc = this.rpc;
         const hostId = randomUUID();
         const {
-            computeId,
             localServer,
             githubEnvironment,
             onExit,
@@ -2317,7 +2305,6 @@ export class CopilotClient {
         try {
             const info = await rpc.host.start({
                 hostId,
-                computeId,
                 localServer,
                 githubEnvironment,
                 sessionFactory: createSession ? true : undefined,
@@ -2328,8 +2315,7 @@ export class CopilotClient {
                 async () => {
                     await rpc.host.dispose({ hostId });
                 },
-                (sessionId) => rpc.host.publishSession({ hostId, sessionId }),
-                () => rpc.host.listSessions({ hostId })
+                (sessionId) => rpc.host.publishSession({ hostId, sessionId })
             );
         } catch (error) {
             this.hostExitCallbacks.delete(hostId);
@@ -3262,8 +3248,6 @@ export class CopilotClient {
     /** Starts the in-process FFI runtime with SDK-managed typed options. */
     private async startInProcessFfi(): Promise<void> {
         const explicitEntrypoint = this.resolvedEnv.COPILOT_CLI_PATH;
-        const cliLoginSyncIntegrationId =
-            this.resolvedEnv.GITHUB_COPILOT_INTEGRATION_ID?.trim() || undefined;
         let runtimeLibrary: string;
         if (explicitEntrypoint) {
             const entrypointDirectory = dirname(resolve(explicitEntrypoint));
@@ -3277,8 +3261,7 @@ export class CopilotClient {
                       "runtime.node"
                   );
         } else {
-            const bundledRuntimePath = await getBundledRuntimePath();
-            runtimeLibrary = join(dirname(bundledRuntimePath), "runtime.node");
+            runtimeLibrary = join(dirname(await getBundledRuntimePath()), "runtime.node");
         }
         // Load the FFI host lazily so the native `koffi` addon (and its
         // platform-specific `koffi.node`) is only loaded on the in-process path;
@@ -3312,9 +3295,6 @@ export class CopilotClient {
         }
         if (this.options.enableRemoteSessions) {
             args.push("--remote");
-        }
-        if (cliLoginSyncIntegrationId) {
-            args.push(`--cli-login-sync-integration-id=${cliLoginSyncIntegrationId}`);
         }
 
         const host = FfiRuntimeHost.create(runtimeLibrary, explicitEntrypoint, environment, args);

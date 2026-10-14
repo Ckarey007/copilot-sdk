@@ -1,7 +1,6 @@
 package copilot
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -921,24 +920,17 @@ func (h SessionEndHookInput) MarshalJSON() ([]byte, error) {
 	}{Timestamp: h.Timestamp.UnixMilli(), alias: alias(h)})
 }
 
-// UnmarshalJSON implements json.Unmarshaler, parsing Timestamp from Unix milliseconds
-// and Error from the CLI's error object (see hookErrorText).
+// UnmarshalJSON implements json.Unmarshaler, parsing Timestamp from Unix milliseconds.
 func (h *SessionEndHookInput) UnmarshalJSON(data []byte) error {
 	type alias SessionEndHookInput
 	aux := &struct {
-		Timestamp int64           `json:"timestamp"`
-		Error     json.RawMessage `json:"error"`
+		Timestamp int64 `json:"timestamp"`
 		*alias
 	}{alias: (*alias)(h)}
 	if err := json.Unmarshal(data, aux); err != nil {
 		return err
 	}
 	h.Timestamp = time.UnixMilli(aux.Timestamp)
-	errorText, err := hookErrorText(aux.Error)
-	if err != nil {
-		return err
-	}
-	h.Error = errorText
 	return nil
 }
 
@@ -971,60 +963,18 @@ func (h ErrorOccurredHookInput) MarshalJSON() ([]byte, error) {
 	}{Timestamp: h.Timestamp.UnixMilli(), alias: alias(h)})
 }
 
-// UnmarshalJSON implements json.Unmarshaler, parsing Timestamp from Unix milliseconds
-// and Error from the CLI's error object (see hookErrorText).
+// UnmarshalJSON implements json.Unmarshaler, parsing Timestamp from Unix milliseconds.
 func (h *ErrorOccurredHookInput) UnmarshalJSON(data []byte) error {
 	type alias ErrorOccurredHookInput
 	aux := &struct {
-		Timestamp int64           `json:"timestamp"`
-		Error     json.RawMessage `json:"error"`
+		Timestamp int64 `json:"timestamp"`
 		*alias
 	}{alias: (*alias)(h)}
 	if err := json.Unmarshal(data, aux); err != nil {
 		return err
 	}
 	h.Timestamp = time.UnixMilli(aux.Timestamp)
-	errorText, err := hookErrorText(aux.Error)
-	if err != nil {
-		return err
-	}
-	h.Error = errorText
 	return nil
-}
-
-// hookErrorText decodes the error of an errorOccurred or sessionEnd hook input.
-// The CLI sends an error object ({"name", "message", "stack"} or {"message"}):
-// its message becomes the error text, and an object without a string message
-// becomes its compact JSON. A string passes through, and null or an absent
-// error leaves the text empty.
-func hookErrorText(raw json.RawMessage) (string, error) {
-	raw = bytes.TrimSpace(raw)
-	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
-		return "", nil
-	}
-	if raw[0] == '{' {
-		var object map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &object); err != nil {
-			return "", err
-		}
-		if message := bytes.TrimSpace(object["message"]); len(message) > 0 && message[0] == '"' {
-			var text string
-			if err := json.Unmarshal(message, &text); err != nil {
-				return "", err
-			}
-			return text, nil
-		}
-		var compact bytes.Buffer
-		if err := json.Compact(&compact, raw); err != nil {
-			return "", err
-		}
-		return compact.String(), nil
-	}
-	var text string
-	if err := json.Unmarshal(raw, &text); err != nil {
-		return "", err
-	}
-	return text, nil
 }
 
 // ErrorOccurredHookOutput is the output for an error-occurred hook
@@ -1302,8 +1252,6 @@ func (c MCPHTTPServerConfig) MarshalJSON() ([]byte, error) {
 
 // CustomAgentConfig configures a custom agent.
 type CustomAgentConfig struct {
-	// Hooks contains declarative actions keyed by event name, active only for this agent.
-	Hooks map[string][]map[string]any `json:"hooks,omitempty"`
 	// Name is the unique name of the custom agent
 	Name string `json:"name"`
 	// DisplayName is the display name for UI purposes
@@ -1373,16 +1321,6 @@ type LargeToolOutputConfig struct {
 	// OutputDirectory is the directory to write temp files to. Defaults to the OS
 	// temp directory.
 	OutputDirectory string `json:"outputDir,omitempty"`
-}
-
-// ImageGenerationConfig opts in to an authorized Copilot image model.
-// Experimental: this API may change or be removed in a future release.
-// Omission disables on create/cold resume and preserves resident resume state.
-// Not persisted: re-supply after runtime restart. Policy, permissions, offline
-// mode, and tool filters still apply. BYOK image generation is not supported.
-type ImageGenerationConfig struct {
-	// Enabled opts in when true and disables image generation when false.
-	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // ToolSearchConfig allows to configure tool search behavior.
@@ -1529,13 +1467,6 @@ type SkillProvider interface {
 type SessionConfig struct {
 	// SessionID is an optional custom session ID
 	SessionID string
-	// Name names the session at creation, as session.name.set would, and is
-	// validated the same way: non-empty, no leading or trailing whitespace, at
-	// most 100 UTF-16 units, no control characters, and no double quotes. A name
-	// also makes the session persist from the start, so it can be listed and
-	// resumed without ever running a turn. Local sessions only: cloud creation
-	// rejects it.
-	Name string
 	// ClientName identifies the application using the SDK.
 	// Included in the User-Agent header for API requests.
 	ClientName string
@@ -1574,9 +1505,9 @@ type SessionConfig struct {
 	// of instruction files (AGENTS.md, .github/copilot-instructions.md, etc.) after
 	// successful file views.
 	EnableOnDemandInstructionDiscovery *bool
-	// EnableFileHooks, when non-nil, controls repository-origin file hooks from
-	// .github/hooks/ and trusted repository-configured roots. It does not control
-	// explicit HookDirectories or Hooks callbacks.
+	// EnableFileHooks, when non-nil, controls loading of file-based hooks from
+	// .github/hooks/. This is separate from the Hooks callback parameter which
+	// gates SDK hook event registration.
 	EnableFileHooks *bool
 	// EnableHostGitOperations, when non-nil, controls git operations on the host
 	// filesystem (branch detection, file status, commit history). When false, no
@@ -1586,11 +1517,6 @@ type SessionConfig struct {
 	// and retrieval. When false, session content is not written to or read from the
 	// shared session store.
 	EnableSessionStore *bool
-	// EnableGitHubCacheStore, when true, requests the read-only GitHub cache store
-	// (the github-cache-store capability). The runtime registers the github_sql
-	// tool only when its GITHUB_CACHE_STORE feature flag is also on. Defaults to
-	// disabled.
-	EnableGitHubCacheStore *bool
 	// EnableSkills, when non-nil, controls skill loading (including builtin skills
 	// and discovered skill directories). When false, no skills are loaded regardless
 	// of SkillDirectories or EnableConfigDiscovery settings.
@@ -1734,11 +1660,7 @@ type SessionConfig struct {
 	// Agent is the name of the custom agent to activate when the session starts.
 	// Must match the Name of one of the agents in CustomAgents.
 	Agent string
-	// SkillDirectories contains explicit discovery-only skill roots, not filesystem grants.
-	// Available without EnableConfigDiscovery, subject to skill/managed disables.
-	// Relative paths resolve once when supplied against the request's effective WorkingDirectory;
-	// retained roots do not move on cwd changes. Nil and omission are equivalent;
-	// an empty non-nil list clears only the explicit SDK contribution.
+	// SkillDirectories is a list of directories to load skills from
 	SkillDirectories []string
 	// SkillProvider supplies ephemeral SDK-hosted skills for this session. The
 	// provider is never serialized or persisted; re-supply it when resuming.
@@ -1746,29 +1668,13 @@ type SessionConfig struct {
 	// Experimental: this API may change or be removed in future SDK or CLI
 	// releases. Implementations must be safe for concurrent calls.
 	SkillProvider SkillProvider `json:"-"`
-	// AgentDirectories contains explicit discovery-only agent roots, separate from CustomAgents.
-	// No filesystem grant. Available without EnableConfigDiscovery, subject to source/managed
-	// disables. Relative paths resolve once when supplied against the request's effective
-	// WorkingDirectory; retained roots do not move. Nil and omission are equivalent;
-	// an empty non-nil list clears only the explicit SDK contribution.
-	AgentDirectories []string
-	// HookDirectories contains explicit discovery-only file-hook roots, separate from Hooks callbacks.
-	// No filesystem grant. Available without EnableConfigDiscovery or EnableFileHooks
-	// (repository-origin hooks only), subject to hook/managed disables. Relative paths resolve
-	// once when supplied against the request's effective WorkingDirectory; retained roots do not
-	// move. Nil and omission are equivalent; an empty non-nil list clears only the explicit SDK contribution.
-	HookDirectories []string
 	// PluginDirectories is a list of local filesystem paths to Open Plugins-format
 	// directories (https://open-plugins.com/) to load for this session.
 	// Relative paths resolve against WorkingDirectory (or the runtime cwd if unset).
 	// Treated as an explicit opt-in: plugin agents and rules load even when
 	// EnableConfigDiscovery is false.
 	PluginDirectories []string
-	// InstructionDirectories contains explicit discovery-only instruction roots using existing SDK formats.
-	// No filesystem grant. Available without EnableConfigDiscovery, subject to instruction/managed
-	// disables. Relative paths resolve once when supplied against the request's effective
-	// WorkingDirectory; retained roots do not move. Nil and omission are equivalent;
-	// an empty non-nil list clears only the explicit SDK contribution.
+	// InstructionDirectories is a list of additional directories to search for custom instruction files
 	InstructionDirectories []string
 	// DisabledSkills is a list of skill names to disable
 	DisabledSkills []string
@@ -1787,9 +1693,6 @@ type SessionConfig struct {
 	// defers rarely used tools behind a searchable index. When nil, the runtime
 	// default applies.
 	ToolSearch *ToolSearchConfig
-	// ImageGeneration is the non-persisted image generation opt-in.
-	// Experimental: this API may change or be removed in a future release.
-	ImageGeneration *ImageGenerationConfig
 	// Memory configures the memory feature for the session. When omitted, the
 	// runtime default applies.
 	Memory *MemoryConfiguration
@@ -1900,10 +1803,6 @@ type SessionConfig struct {
 	// be set; if omitted, the runtime is expected to reject session creation
 	// (fail-closed). Unset behaves exactly as before.
 	EnableManagedSettings *bool
-	// EnforceManagedModelDefaults, when true, enforces locked managed model
-	// controls for this session. Conflicting changes are rejected; overridable
-	// managed defaults remain mutable.
-	EnforceManagedModelDefaults *bool
 	// ManagedSettings supplies host-injected enterprise managed settings for
 	// the session. Unlike EnableManagedSettings (which asks the runtime to
 	// self-fetch account/org and device policy), this provides the managed
@@ -1947,9 +1846,6 @@ type ManagedSettingsPermissions struct {
 	// session. See the DisableBypassPermissionsMode constants for known values.
 	// Newer values are forwarded unchanged so runtime policies remain fail-closed.
 	DisableBypassPermissionsMode DisableBypassPermissionsMode `json:"disableBypassPermissionsMode,omitempty"`
-	// DisableAssistedPermissionsMode prevents Assisted Permissions from being
-	// activated when true. Nil or false imposes no restriction.
-	DisableAssistedPermissionsMode *bool `json:"disableAssistedPermissionsMode,omitempty"`
 	// Deny lists operations that must always be denied. Unioned across layers.
 	Deny []string `json:"deny,omitzero"`
 	// Ask lists operations that must prompt for approval. Unioned across layers.
@@ -2021,22 +1917,6 @@ type ToolInvocation struct {
 	// disconnects, so background work must derive its own lifetime if it should
 	// outlive the invocation.
 	TraceContext context.Context
-
-	// AgentID is the sub-agent instance that issued this call (the AgentID of
-	// its session events). It is empty for a root-agent call, and for every
-	// call when the runtime does not attribute sub-agent tool calls.
-	//
-	// Experimental: this field may change or be removed.
-	AgentID string
-
-	// RequestID is the runtime request id of this call: the key
-	// session.tools.handlePendingToolCall and session.tools.listPendingRequests use.
-	// A root-agent call stays answerable after the session is resumed with
-	// pending work continued; a sub-agent's call can be answered only while that
-	// sub-agent is still running.
-	//
-	// Experimental: this field may change or be removed.
-	RequestID string
 }
 
 // ToolHandler executes a tool invocation.
@@ -2314,9 +2194,9 @@ type ResumeSessionConfig struct {
 	// EnableOnDemandInstructionDiscovery, when non-nil, controls on-demand discovery
 	// of instruction files after successful file views.
 	EnableOnDemandInstructionDiscovery *bool
-	// EnableFileHooks, when non-nil, controls repository-origin file hooks from
-	// .github/hooks/ and trusted repository-configured roots. It does not control
-	// explicit HookDirectories or Hooks callbacks.
+	// EnableFileHooks, when non-nil, controls loading of file-based hooks from
+	// .github/hooks/. This is separate from the Hooks callback parameter which
+	// gates SDK hook event registration.
 	EnableFileHooks *bool
 	// EnableHostGitOperations, when non-nil, controls git operations on the host
 	// filesystem.
@@ -2324,11 +2204,6 @@ type ResumeSessionConfig struct {
 	// EnableSessionStore, when non-nil, controls the cross-session store for search
 	// and retrieval across sessions.
 	EnableSessionStore *bool
-	// EnableGitHubCacheStore, when true, requests the read-only GitHub cache store
-	// (the github-cache-store capability). The runtime registers the github_sql
-	// tool only when its GITHUB_CACHE_STORE feature flag is also on. Defaults to
-	// disabled.
-	EnableGitHubCacheStore *bool
 	// EnableSkills, when non-nil, controls skill loading.
 	EnableSkills *bool
 	// Streaming enables streaming of assistant message and reasoning chunks.
@@ -2361,11 +2236,7 @@ type ResumeSessionConfig struct {
 	// Agent is the name of the custom agent to activate when the session starts.
 	// Must match the Name of one of the agents in CustomAgents.
 	Agent string
-	// SkillDirectories contains explicit discovery-only skill roots, not filesystem grants.
-	// Available without EnableConfigDiscovery, subject to skill/managed disables.
-	// Relative paths resolve once when supplied against the request's effective WorkingDirectory;
-	// retained roots do not move on cwd changes. Nil and omission are equivalent;
-	// an empty non-nil list clears only the explicit SDK contribution.
+	// SkillDirectories is a list of directories to load skills from
 	SkillDirectories []string
 	// SkillProvider supplies ephemeral SDK-hosted skills for this resumed
 	// session. Re-supply it on every resume; omitting it unbinds any previous
@@ -2374,29 +2245,13 @@ type ResumeSessionConfig struct {
 	// Experimental: this API may change or be removed in future SDK or CLI
 	// releases. Implementations must be safe for concurrent calls.
 	SkillProvider SkillProvider `json:"-"`
-	// AgentDirectories contains explicit discovery-only agent roots, separate from CustomAgents.
-	// No filesystem grant. Available without EnableConfigDiscovery, subject to source/managed
-	// disables. Relative paths resolve once when supplied against the request's effective
-	// WorkingDirectory; retained roots do not move. Nil and omission are equivalent;
-	// an empty non-nil list clears only the explicit SDK contribution.
-	AgentDirectories []string
-	// HookDirectories contains explicit discovery-only file-hook roots, separate from Hooks callbacks.
-	// No filesystem grant. Available without EnableConfigDiscovery or EnableFileHooks
-	// (repository-origin hooks only), subject to hook/managed disables. Relative paths resolve
-	// once when supplied against the request's effective WorkingDirectory; retained roots do not
-	// move. Nil and omission are equivalent; an empty non-nil list clears only the explicit SDK contribution.
-	HookDirectories []string
 	// PluginDirectories is a list of local filesystem paths to Open Plugins-format
 	// directories (https://open-plugins.com/) to load for this session.
 	// Relative paths resolve against WorkingDirectory (or the runtime cwd if unset).
 	// Treated as an explicit opt-in: plugin agents and rules load even when
 	// EnableConfigDiscovery is false.
 	PluginDirectories []string
-	// InstructionDirectories contains explicit discovery-only instruction roots using existing SDK formats.
-	// No filesystem grant. Available without EnableConfigDiscovery, subject to instruction/managed
-	// disables. Relative paths resolve once when supplied against the request's effective
-	// WorkingDirectory; retained roots do not move. Nil and omission are equivalent;
-	// an empty non-nil list clears only the explicit SDK contribution.
+	// InstructionDirectories is a list of additional directories to search for custom instruction files
 	InstructionDirectories []string
 	// DisabledSkills is a list of skill names to disable
 	DisabledSkills []string
@@ -2414,9 +2269,6 @@ type ResumeSessionConfig struct {
 	// defers rarely used tools behind a searchable index. When nil, the runtime
 	// default applies.
 	ToolSearch *ToolSearchConfig
-	// ImageGeneration is the non-persisted image generation opt-in.
-	// Experimental: this API may change or be removed in a future release.
-	ImageGeneration *ImageGenerationConfig
 	// Memory configures the memory feature for the session. When omitted, the
 	// runtime default applies.
 	Memory *MemoryConfiguration
@@ -2508,9 +2360,6 @@ type ResumeSessionConfig struct {
 	// SessionConfig.EnableManagedSettings. Re-supply on resume so the runtime
 	// re-applies the managed-settings self-fetch after a CLI process restart.
 	EnableManagedSettings *bool
-	// EnforceManagedModelDefaults re-applies managed model lock enforcement on
-	// resume. See SessionConfig.EnforceManagedModelDefaults.
-	EnforceManagedModelDefaults *bool
 	// ManagedSettings re-injects host-provided managed settings on resume. See
 	// SessionConfig.ManagedSettings. It must be re-supplied on resume: it
 	// replaces the prior injected layer, and omitting it clears that layer so
@@ -2962,7 +2811,6 @@ type SessionLifecycleHandler func(event SessionLifecycleEvent)
 type createSessionRequest struct {
 	Model                              string                                 `json:"model,omitempty"`
 	SessionID                          string                                 `json:"sessionId,omitempty"`
-	Name                               string                                 `json:"name,omitempty"`
 	ClientName                         string                                 `json:"clientName,omitempty"`
 	ReasoningEffort                    string                                 `json:"reasoningEffort,omitempty"`
 	ReasoningSummary                   ReasoningSummary                       `json:"reasoningSummary,omitempty"`
@@ -3016,20 +2864,16 @@ type createSessionRequest struct {
 	EnableFileHooks                    *bool                                  `json:"enableFileHooks,omitempty"`
 	EnableHostGitOperations            *bool                                  `json:"enableHostGitOperations,omitempty"`
 	EnableSessionStore                 *bool                                  `json:"enableSessionStore,omitempty"`
-	EnableGitHubCacheStore             *bool                                  `json:"enableGitHubCacheStore,omitempty"`
 	EnableSkills                       *bool                                  `json:"enableSkills,omitempty"`
 	HasSkillProvider                   *bool                                  `json:"hasSkillProvider,omitempty"`
-	SkillDirectories                   []string                               `json:"skillDirectories,omitzero"`
-	AgentDirectories                   []string                               `json:"agentDirectories,omitzero"`
-	HookDirectories                    []string                               `json:"hookDirectories,omitzero"`
+	SkillDirectories                   []string                               `json:"skillDirectories,omitempty"`
 	PluginDirectories                  []string                               `json:"pluginDirectories,omitempty"`
-	InstructionDirectories             []string                               `json:"instructionDirectories,omitzero"`
+	InstructionDirectories             []string                               `json:"instructionDirectories,omitempty"`
 	DisabledSkills                     []string                               `json:"disabledSkills,omitempty"`
 	DisabledMCPServers                 *[]string                              `json:"disabledMcpServers,omitempty"`
 	InfiniteSessions                   *InfiniteSessionConfig                 `json:"infiniteSessions,omitempty"`
 	LargeOutput                        *LargeToolOutputConfig                 `json:"largeOutput,omitempty"`
 	ToolSearch                         *ToolSearchConfig                      `json:"toolSearch,omitempty"`
-	ImageGeneration                    *ImageGenerationConfig                 `json:"imageGeneration,omitempty"`
 	Memory                             *MemoryConfiguration                   `json:"memory,omitempty"`
 	Commands                           []wireCommand                          `json:"commands,omitempty"`
 	RequestElicitation                 *bool                                  `json:"requestElicitation,omitempty"`
@@ -3048,7 +2892,6 @@ type createSessionRequest struct {
 	ExpAssignments                     *CopilotExpAssignmentResponse          `json:"expAssignments,omitempty"`
 	FeatureFlags                       *map[string]bool                       `json:"featureFlags,omitempty"`
 	EnableManagedSettings              *bool                                  `json:"enableManagedSettings,omitempty"`
-	EnforceManagedModelDefaults        *bool                                  `json:"enforceManagedModelDefaults,omitempty"`
 	ManagedSettings                    *ManagedSettings                       `json:"managedSettings,omitempty"`
 	Traceparent                        string                                 `json:"traceparent,omitempty"`
 	Tracestate                         string                                 `json:"tracestate,omitempty"`
@@ -3112,7 +2955,6 @@ type resumeSessionRequest struct {
 	EnableFileHooks                    *bool                                  `json:"enableFileHooks,omitempty"`
 	EnableHostGitOperations            *bool                                  `json:"enableHostGitOperations,omitempty"`
 	EnableSessionStore                 *bool                                  `json:"enableSessionStore,omitempty"`
-	EnableGitHubCacheStore             *bool                                  `json:"enableGitHubCacheStore,omitempty"`
 	EnableSkills                       *bool                                  `json:"enableSkills,omitempty"`
 	HasSkillProvider                   *bool                                  `json:"hasSkillProvider,omitempty"`
 	DisableResume                      *bool                                  `json:"disableResume,omitempty"`
@@ -3129,17 +2971,14 @@ type resumeSessionRequest struct {
 	CustomAgents                       []CustomAgentConfig                    `json:"customAgents,omitempty"`
 	DefaultAgent                       *DefaultAgentConfig                    `json:"defaultAgent,omitempty"`
 	Agent                              string                                 `json:"agent,omitempty"`
-	SkillDirectories                   []string                               `json:"skillDirectories,omitzero"`
-	AgentDirectories                   []string                               `json:"agentDirectories,omitzero"`
-	HookDirectories                    []string                               `json:"hookDirectories,omitzero"`
+	SkillDirectories                   []string                               `json:"skillDirectories,omitempty"`
 	PluginDirectories                  []string                               `json:"pluginDirectories,omitempty"`
-	InstructionDirectories             []string                               `json:"instructionDirectories,omitzero"`
+	InstructionDirectories             []string                               `json:"instructionDirectories,omitempty"`
 	DisabledSkills                     []string                               `json:"disabledSkills,omitempty"`
 	DisabledMCPServers                 *[]string                              `json:"disabledMcpServers,omitempty"`
 	InfiniteSessions                   *InfiniteSessionConfig                 `json:"infiniteSessions,omitempty"`
 	LargeOutput                        *LargeToolOutputConfig                 `json:"largeOutput,omitempty"`
 	ToolSearch                         *ToolSearchConfig                      `json:"toolSearch,omitempty"`
-	ImageGeneration                    *ImageGenerationConfig                 `json:"imageGeneration,omitempty"`
 	Memory                             *MemoryConfiguration                   `json:"memory,omitempty"`
 	Commands                           []wireCommand                          `json:"commands,omitempty"`
 	RequestElicitation                 *bool                                  `json:"requestElicitation,omitempty"`
@@ -3158,7 +2997,6 @@ type resumeSessionRequest struct {
 	ExpAssignments                     *CopilotExpAssignmentResponse          `json:"expAssignments,omitempty"`
 	FeatureFlags                       *map[string]bool                       `json:"featureFlags,omitempty"`
 	EnableManagedSettings              *bool                                  `json:"enableManagedSettings,omitempty"`
-	EnforceManagedModelDefaults        *bool                                  `json:"enforceManagedModelDefaults,omitempty"`
 	ManagedSettings                    *ManagedSettings                       `json:"managedSettings,omitempty"`
 	Traceparent                        string                                 `json:"traceparent,omitempty"`
 	Tracestate                         string                                 `json:"tracestate,omitempty"`

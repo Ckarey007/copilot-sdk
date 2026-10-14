@@ -74,9 +74,6 @@ without deleting underlying sessions. Reconnecting does not reclaim a host.
 The optional `onExit` callback reports exits at most once. If the owner connection
 is lost, it reports that loss rather than claiming that listener cleanup was
 acknowledged.
-Call `const { sessions } = await host.listSessions()` to read the complete catalog
-of live and dormant sessions advertised by the host. The method returns a
-`HostListSessionsResult` containing `sessions`, not a session array directly.
 
 `host.pid` is absent for in-process listeners. The optional field is retained
 for separate host process IDs returned by legacy runtimes, never the runtime PID.
@@ -107,10 +104,6 @@ The listener follows the owning client's lifetime. Call `await host.dispose()`
 only when you want to stop it earlier; `await using host` also supports a shorter
 scope. Each disposal call forwards to the runtime, which owns idempotent cleanup.
 The AHP transport remains owned by the host.
-Set top-level `computeId` to reuse the same durable catalog for local and Mission
-Control hosting; it must agree with `githubEnvironment.computeId` when both are
-supplied. Omitted local-only identities are persisted by the runtime, not generated
-by the SDK. Published sessions remain discoverable after hosting stops.
 
 ### Application-owned sessions
 
@@ -172,9 +165,8 @@ still matches the requested identity and workspace.
 Only catalog entries marked as application-owned invoke this callback.
 If the callback is missing, restoring such an entry fails instead of falling
 back to host-owned creation.
-Currently resident published sessions attach directly, without invoking it or replacing
-their current registrations. Dormant published application sessions require this
-resume callback to restore their tools and handlers. Resumed sessions follow the same original-object
+Published resident sessions attach directly, without invoking it or replacing
+their current registrations. Resumed sessions follow the same original-object
 retention, cancellation, late-result release, and `onSessionReleased` rules.
 
 The `copilotd-hosting` library runs inside the runtime provider.
@@ -353,11 +345,6 @@ This graceful-exit timeout is separate from the shutdown RPC and post-terminatio
 ##### `forceStop(): Promise<void>`
 
 Force stop the CLI server without graceful cleanup. Use when `stop()` takes too long.
-Retained sessions are disconnected locally, and pending `sendAndWait()` calls reject
-without waiting for `session.idle` or their response timeout.
-Retirement releases session-owned tool, hook, auth/input, provider, workflow, canvas,
-and transform registrations without changing caller-owned configuration. Late
-registration and callback dispatch are rejected; callbacks already admitted may finish.
 
 ##### `createSession(config?: SessionConfig): Promise<CopilotSession>`
 
@@ -375,7 +362,6 @@ Create a new conversation session.
 - `workingDirectory?: string` - Working directory for the session (default: runtime process cwd).
 - `refreshCustomInstructions?: boolean` - Invalidates the process-wide custom-instruction discovery cache before creating this session, so instruction-file edits made in the same runtime are read again. Defaults to `false` (cache reuse). Other sessions in this runtime may observe updated instructions on later turns or discovery. This does not watch files or enable disabled instruction loading. Available on `SessionConfig`, not `ResumeSessionConfig`.
 - `enableSessionStore?: boolean` - Enables the cross-session store for search and retrieval across sessions. When unset in `"copilot-cli"` mode, the runtime default applies (enabled). In `"empty"` mode, defaults to disabled.
-- `enableGitHubCacheStore?: boolean` - Requests the read-only GitHub cache store (`github-cache-store` capability) on create or resume. The runtime registers the `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is also on. Defaults to disabled in every mode.
 - `gitHubTokenProvider?: GitHubTokenProvider` - Acquires rotating, session-scoped GitHub tokens. Token results require a positive `expiresIn` value in seconds remaining when the callback completes; production tokens typically last eight hours. Cannot be combined with `gitHubToken`.
 - `provider?: ProviderConfig` - Custom API provider configuration (BYOK - Bring Your Own Key). See [Custom Providers](#custom-providers) section.
 - `onPermissionRequest?: PermissionHandler` - Optional handler called before each tool execution to approve or deny it. When omitted, permission requests are emitted as events and left pending for manual resolution. `approveAll` approves requests when managed settings are disabled and throws when `enableManagedSettings` is true. Custom handlers can inspect `managedApprovalRequired` for human-facing confirmation logic. See [Permission Handling](#permission-handling) section.
@@ -671,23 +657,6 @@ if (result.status === "pending") {
 ```
 
 See [Auto tier persistence](../docs/features/session-persistence.md#auto-tier-persistence) for the full lifecycle rules.
-
-##### `rpc.model.getReasoningSummaries(params)` (experimental)
-
-Read the current model's reasoning-summary presentation policy without changing session state. Call `session.rpc.model.list()` first to load the model catalog; otherwise the result may have `ready: false`. The request and result types are exported from `@github/copilot-sdk`.
-
-```typescript
-import type {
-    ModelGetReasoningSummariesRequest,
-    ModelGetReasoningSummariesResult,
-} from "@github/copilot-sdk";
-
-const presentation: ModelGetReasoningSummariesRequest = { summariesVisible: false };
-const policy: ModelGetReasoningSummariesResult =
-    await session.rpc.model.getReasoningSummaries(presentation);
-```
-
-Omit `persistedShowReasoning` when no visibility setting is saved. `visibility` can remain unset while experiment assignment is pending; `clearRedundantSetting` tells the host when its persisted setting matches the model default.
 
 ##### `setTools(tools: Tool[]): Promise<void>`
 
@@ -1395,36 +1364,6 @@ const session = await client.createSession({
 });
 ```
 
-### Managed network policy for client-owned browsers
-
-Obtain a reusable `permissionsContext` from
-`client.rpc.managedSettings.resolve({ selectionId })` for account and device
-policy, or `session.rpc.managedSettings.get()` for the session's retained policy,
-including SDK injection and policy-helper rules. Omit `selectionId` for the current
-account, or device policy only when signed out. Resolution uses the managed-policy
-cache and can fetch server policy; keep it off latency-critical startup paths.
-Older runtimes may omit `permissionsContext`. Treat an absent context as unsupported
-evaluation, not unmanaged policy; do not navigate without a policy decision.
-
-Call `client.rpc.managedSettings.permissions.evaluate({ context: permissionsContext, operations: [{ kind: "url", url: "https://docs.example.com/guide" }] })`.
-This is pure, sessionless evaluation: it performs no policy discovery, I/O,
-prompting, or sandbox changes. Reuse an in-memory context for repeated checks and
-refresh it when managed policy changes. Retain the runtime-owned `permissions`
-object verbatim rather than rebuilding it from the flattened settings display.
-
-The result is `{ results: [{ operation, verdict }], failClosed }`, with one entry per
-input operation in the same order. `deny` blocks navigation, `ask` requires approval,
-`allow` approves under managed policy, and `unmanaged` leaves the consumer's normal
-permission flow in effect. A check never prompts or grants a saved approval.
-Invalid URLs reject the batch. Unknown policy rejects or returns `failClosed: true`
-with all URLs denied; do not navigate on an error.
-
-Check every navigation, redirect, and new-window destination before opening it.
-These APIs evaluate managed permission rules only: they do not replace browser
-security checks, user permissions, or sandbox policy. `permissions.limitTo` neither
-enables the sandbox nor changes `sandbox.userPolicy.network`; configure sandbox
-network restrictions explicitly.
-
 ### Permission Result Kinds
 
 The handler must return one of the `PermissionDecision` shapes (or `{ kind: "no-result" }`). Approval scopes are present-tense — they describe the decision to apply, not the outcome reported back on session events:
@@ -1652,26 +1591,6 @@ cd nodejs
 npm ci
 npm test
 ```
-
-### Internal feature-flag example
-
-[`examples/internal-feature-flags.ts`](examples/internal-feature-flags.ts) uses
-the generated internal RPC factory against a real runtime over stdio.
-It lists the catalog and shows environment, settings, and explicit-override
-precedence. It also checks that static resolution does not apply `COPILOT_EXP_*`
-experiment assignments. It creates no session and sends no model request.
-
-After you prepare matching runtime artifacts, run this from the runtime repository root:
-
-```bash
-COPILOT_RUNTIME_PROVIDER_LIB="$PWD/bazel-bin/src/native/runtime/runtime.node" \
-  src/sdk/nodejs/node_modules/.bin/tsx \
-  src/sdk/nodejs/examples/internal-feature-flags.ts \
-  "$PWD/bazel-bin/src/runtime-bin/copilot-runtime"
-```
-
-The JSON output includes `staticResolution` values of `false`, `true`, `false`,
-and `true`, in that order. These methods are internal, not public SDK APIs.
 
 ## License
 

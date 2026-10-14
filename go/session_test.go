@@ -22,7 +22,7 @@ import (
 // Returns a cleanup function that stops the consumer.
 func newTestSession() (*Session, func()) {
 	s := &Session{
-		handlers:        make([]*sessionHandler, 0),
+		handlers:        make([]sessionHandler, 0),
 		commandHandlers: make(map[string]CommandHandler),
 		eventCh:         make(chan SessionEvent, 128),
 		eventDone:       make(chan struct{}),
@@ -68,68 +68,6 @@ func TestExternalToolCompletedCancelsBlockedHandler(t *testing.T) {
 	case <-cancelled:
 	case <-time.After(time.Second):
 		t.Fatal("tool handler was not cancelled")
-	}
-}
-
-func TestToolInvocationNamesTheSubAgentAndRequestBehindTheCall(t *testing.T) {
-	session, cleanup := newTestSession()
-	defer cleanup()
-
-	invocations := make(chan ToolInvocation, 3)
-	session.registerTools([]Tool{{
-		Name: "calc",
-		Handler: func(invocation ToolInvocation) (ToolResult, error) {
-			invocations <- invocation
-			<-invocation.TraceContext.Done()
-			return ToolResult{}, invocation.TraceContext.Err()
-		},
-	}})
-
-	session.dispatchEvent(SessionEvent{
-		AgentID: ptr("task-agent-1"),
-		Data: &ExternalToolRequestedData{
-			RequestID:  "req-sub-agent",
-			SessionID:  "session-1",
-			ToolCallID: "tc-sub-agent",
-			ToolName:   "calc",
-		},
-	})
-	defer session.dispatchEvent(SessionEvent{Data: &ExternalToolCompletedData{RequestID: "req-sub-agent"}})
-	session.dispatchEvent(SessionEvent{Data: &ExternalToolRequestedData{
-		RequestID:  "req-root",
-		SessionID:  "session-1",
-		ToolCallID: "tc-root",
-		ToolName:   "calc",
-	}})
-	defer session.dispatchEvent(SessionEvent{Data: &ExternalToolCompletedData{RequestID: "req-root"}})
-	session.dispatchEvent(SessionEvent{
-		AgentID: ptr(""),
-		Data: &ExternalToolRequestedData{
-			RequestID:  "req-blank-agent",
-			SessionID:  "session-1",
-			ToolCallID: "tc-blank-agent",
-			ToolName:   "calc",
-		},
-	})
-	defer session.dispatchEvent(SessionEvent{Data: &ExternalToolCompletedData{RequestID: "req-blank-agent"}})
-
-	got := make(map[string]ToolInvocation)
-	for range 3 {
-		select {
-		case invocation := <-invocations:
-			got[invocation.ToolCallID] = invocation
-		case <-time.After(time.Second):
-			t.Fatal("tool handler did not start")
-		}
-	}
-	if sub := got["tc-sub-agent"]; sub.AgentID != "task-agent-1" || sub.RequestID != "req-sub-agent" {
-		t.Fatalf("sub-agent call: got AgentID %q RequestID %q", sub.AgentID, sub.RequestID)
-	}
-	if root := got["tc-root"]; root.AgentID != "" || root.RequestID != "req-root" {
-		t.Fatalf("root call: got AgentID %q RequestID %q", root.AgentID, root.RequestID)
-	}
-	if blank := got["tc-blank-agent"]; blank.AgentID != "" || blank.RequestID != "req-blank-agent" {
-		t.Fatalf("blank-agent call: got AgentID %q RequestID %q", blank.AgentID, blank.RequestID)
 	}
 }
 
@@ -376,7 +314,7 @@ func TestSession_SetToolsRunningCallsFinishOnOriginalHandler(t *testing.T) {
 		SessionID:  "session-1",
 		ToolCallID: "tool-call-1",
 		ToolName:   "lookup",
-	}, "")
+	})
 	select {
 	case <-started:
 	case <-time.After(2 * time.Second):
@@ -1126,7 +1064,7 @@ func checkSendAndWaitSkipsSubagentAndAutopilotContinuationIdle(t *testing.T, roo
 		SessionID: "session-1",
 		client:    client,
 		RPC:       rpc.NewSessionRPC(client, "session-1"),
-		handlers:  make([]*sessionHandler, 0),
+		handlers:  make([]sessionHandler, 0),
 		eventCh:   make(chan SessionEvent, 8),
 		eventDone: make(chan struct{}),
 	}
@@ -1983,77 +1921,6 @@ func TestSession_PostToolUseFailureHook(t *testing.T) {
 			t.Errorf("expected nil output, got %v", output)
 		}
 	})
-}
-
-func TestSession_ErrorHooksDecodeCliErrorObject(t *testing.T) {
-	cases := []struct {
-		name  string
-		error string
-		want  string
-	}{
-		{"error object", `"error": {"name": "Error", "message": "model timeout", "stack": "Error: model timeout"},`, "model timeout"},
-		{"string", `"error": "boom",`, "boom"},
-		{"null", `"error": null,`, ""},
-		{"absent", ``, ""},
-		{"object without a string message", `"error": {"code": 7},`, `{"code":7}`},
-	}
-	for _, tc := range cases {
-		t.Run("errorOccurred/"+tc.name, func(t *testing.T) {
-			session, cleanup := newTestSession()
-			defer cleanup()
-
-			var captured *ErrorOccurredHookInput
-			session.registerHooks(&SessionHooks{
-				OnErrorOccurred: func(input ErrorOccurredHookInput, _ HookInvocation) (*ErrorOccurredHookOutput, error) {
-					captured = &input
-					return nil, nil
-				},
-			})
-
-			raw := json.RawMessage(`{"sessionId": "sess-1", "timestamp": 1700000000, "cwd": "/work", ` + tc.error +
-				` "errorContext": "model_call", "recoverable": true}`)
-			if _, err := session.handleHooksInvoke("errorOccurred", raw); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if captured == nil {
-				t.Fatal("OnErrorOccurred did not run")
-			}
-			if captured.Error != tc.want {
-				t.Errorf("expected error %q, got %q", tc.want, captured.Error)
-			}
-			if captured.ErrorContext != "model_call" || !captured.Recoverable {
-				t.Errorf("unexpected input: %+v", *captured)
-			}
-		})
-
-		t.Run("sessionEnd/"+tc.name, func(t *testing.T) {
-			session, cleanup := newTestSession()
-			defer cleanup()
-
-			var captured *SessionEndHookInput
-			session.registerHooks(&SessionHooks{
-				OnSessionEnd: func(input SessionEndHookInput, _ HookInvocation) (*SessionEndHookOutput, error) {
-					captured = &input
-					return nil, nil
-				},
-			})
-
-			raw := json.RawMessage(`{"sessionId": "sess-1", "timestamp": 1700000000, "cwd": "/work", ` + tc.error +
-				` "reason": "error"}`)
-			if _, err := session.handleHooksInvoke("sessionEnd", raw); err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if captured == nil {
-				t.Fatal("OnSessionEnd did not run")
-			}
-			if captured.Error != tc.want {
-				t.Errorf("expected error %q, got %q", tc.want, captured.Error)
-			}
-			if captured.Reason != "error" {
-				t.Errorf("expected reason 'error', got %q", captured.Reason)
-			}
-		})
-	}
 }
 
 func TestSession_AgentStopHook(t *testing.T) {

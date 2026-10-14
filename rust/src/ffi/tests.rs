@@ -37,7 +37,6 @@ unsafe extern "C" fn test_connection_close(_connection_id: u32) -> bool {
 fn argv_without_entrypoint_contains_only_client_options() {
     let argv: Vec<String> = serde_json::from_slice(&build_argv_json(
         None,
-        None,
         &["--log-level".into(), "debug".into()],
     ))
     .unwrap();
@@ -47,22 +46,12 @@ fn argv_without_entrypoint_contains_only_client_options() {
 
 #[test]
 fn explicit_javascript_entrypoint_uses_node() {
-    let argv: Vec<String> = serde_json::from_slice(&build_argv_json(
-        Some(Path::new("index.js")),
-        Some("microsoft/vscode"),
-        &[],
-    ))
-    .unwrap();
+    let argv: Vec<String> =
+        serde_json::from_slice(&build_argv_json(Some(Path::new("index.js")), &[])).unwrap();
 
     assert_eq!(
         argv,
-        [
-            "node",
-            "index.js",
-            "--embedded-host",
-            "--no-auto-update",
-            "--cli-login-sync-integration-id=microsoft/vscode",
-        ]
+        ["node", "index.js", "--embedded-host", "--no-auto-update"]
     );
 }
 

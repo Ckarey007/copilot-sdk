@@ -41,9 +41,6 @@ type AhpSessionResumeRequest struct {
 // At least one transport must be supplied. Both may be enabled.
 // Experimental: AHP hosting may change or be removed.
 type AhpHostOptions struct {
-	// ComputeID selects a durable catalog identity; defaults are runtime-owned.
-	// It must agree with GitHubEnvironment.ComputeID when both are supplied.
-	ComputeID *string
 	// LocalServer explicitly enables the local WebSocket listener.
 	LocalServer *rpc.HostLocalServerOptions
 	// GitHubEnvironment registers the host with Mission Control; Name and ComputeID are required.
@@ -76,15 +73,10 @@ func (h *AhpHost) Dispose(ctx context.Context) error {
 	return err
 }
 
-// PublishSession durably advertises the exact attached session in the compute-scoped catalog.
+// PublishSession exposes the exact resident session attached to the owning client.
 // It does not invoke factories or transfer ownership.
 func (h *AhpHost) PublishSession(ctx context.Context, sessionID string) (*rpc.HostPublishSessionResult, error) {
 	return h.rpc.PublishSession(ctx, &rpc.HostPublishSessionRequest{HostID: h.HostID, SessionID: sessionID})
-}
-
-// ListSessions returns all live and dormant catalog sessions advertised by this host.
-func (h *AhpHost) ListSessions(ctx context.Context) (*rpc.HostListSessionsResult, error) {
-	return h.rpc.ListSessions(ctx, &rpc.HostListSessionsRequest{HostID: &h.HostID})
 }
 
 type ahpHostState struct {
@@ -137,7 +129,7 @@ func (c *Client) StartAhpHost(ctx context.Context, options *AhpHostOptions) (*Ah
 	c.ahp.hosts[hostID] = opts
 	c.ahp.mu.Unlock()
 	params := &rpc.HostStartRequest{
-		HostID: hostID, ComputeID: opts.ComputeID, LocalServer: opts.LocalServer,
+		HostID: hostID, LocalServer: opts.LocalServer,
 		GitHubEnvironment: opts.GitHubEnvironment,
 	}
 	if opts.CreateSession != nil {

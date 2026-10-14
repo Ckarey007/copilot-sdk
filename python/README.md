@@ -79,12 +79,6 @@ Select `local_server=HostLocalServerOptions()` for a local listener,
 for Mission Control/WPS, or both. Import the transport types from `copilot.rpc`.
 At least one transport is required. GitHub-only hosts have no `url` or `token`;
 `host.environment_id` exposes their Mission Control identity.
-Call `await host.list_sessions()` to read the complete advertised catalog of live
-and dormant sessions.
-Set top-level `compute_id` to reuse the durable catalog across local and Mission
-Control hosting; it must agree with `github_environment.compute_id` when both are
-supplied. The runtime persists an omitted local-only identity. Publication
-survives host shutdown; dormant application sessions require your resume callback.
 See [runtime-supervised AHP hosting](../docs/runtime-supervised-host.md) for creation
 and resume callbacks, resident-session publication, ownership, and shared-snapshot E2Es.
 
@@ -161,9 +155,6 @@ shutdown, close stdin, and wait up to 10 seconds for the process to finish host
 cleanup, including telemetry flushing. A process that does not exit is terminated,
 then killed if necessary, with bounded waits. `force_stop()` skips graceful cleanup;
 externally managed runtimes are not shut down.
-It disconnects retained sessions locally, releases their registered callbacks, and
-fails pending `send_and_wait()` calls without waiting for idle or their response timeout.
-Disconnected sessions reject new event subscriptions.
 
 ```python
 import asyncio
@@ -441,7 +432,6 @@ These are passed as keyword arguments to `create_session()`:
 - `infinite_sessions` (InfiniteSessionConfig): Automatic context compaction configuration
 - `working_directory` (str | None): Working directory for the session (default: runtime process working directory).
 - `enable_session_store` (bool): Enables the cross-session store for search and retrieval across sessions. When unset in `"copilot-cli"` mode, the runtime default applies (enabled). In `"empty"` mode, defaults to disabled.
-- `enable_github_cache_store` (bool): Requests the read-only GitHub cache store (`github-cache-store` capability) on create or resume. The runtime registers the `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is also on. Defaults to disabled in every mode.
 - `github_token_provider` (callable): Acquires rotating, session-scoped GitHub tokens. Token results require a positive `expiresIn` value in seconds remaining when the callback completes; production tokens typically last eight hours. Cannot be combined with `github_token`.
 - `on_permission_request` (callable): Optional handler called before each tool execution to approve or deny it. When omitted, permission requests are emitted as events and left pending for manual resolution. `PermissionHandler.approve_all` approves requests when managed settings are disabled and raises an error when `enable_managed_settings` is true. Custom handlers can inspect `managed_approval_required` for human-facing confirmation logic. See [Permission Handling](#permission-handling) section.
 - `on_user_input_request` (callable): Handler for legacy question-and-answer requests from the agent. Enables the legacy `ask_user` tool. See [User Input Requests](#user-input-requests) section.

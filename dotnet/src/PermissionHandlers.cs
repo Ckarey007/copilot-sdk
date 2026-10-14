@@ -40,7 +40,7 @@ public static class PermissionHandler
                 or "custom-tool"
                 or "hook"
                 or "extension-management"
-                or "workflow"
+                or "factory"
                 or "extension-permission-access"
                 or "extension-env-access");
     }

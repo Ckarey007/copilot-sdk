@@ -28,8 +28,6 @@ public record ManagedSettingMeta(
     /** Whether users and repositories may choose a different value. `false` means policy locks the value. */
     @JsonProperty("overridable") Boolean overridable,
     /** Channel that supplied this scalar value, matching a `layers[].source`: `device`, `server`, or `policyHelper`. These scalar defaults select one winning channel, not a mixed source. Treat unknown values as additional channels; more may be added. */
-    @JsonProperty("source") String source,
-    /** Original managed value when the runtime adjusted it to a supported effective value. Omitted when no adjustment was needed. */
-    @JsonProperty("requested") String requested
+    @JsonProperty("source") String source
 ) {
 }

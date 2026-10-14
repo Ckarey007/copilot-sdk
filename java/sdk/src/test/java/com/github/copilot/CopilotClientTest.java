@@ -433,12 +433,6 @@ public class CopilotClientTest {
                 public void write(byte[] bytes, int offset, int length) throws IOException {
                     throw writeFailure;
                 }
-
-                @Override
-                public void close() throws IOException {
-                    // No write succeeds, so there is nothing to flush on this failed transport.
-                    out.close();
-                }
             };
             failedOutput.set(output);
             var transportProcess = mock(Process.class, org.mockito.AdditionalAnswers.delegatesTo(info.process()));
@@ -458,18 +452,7 @@ public class CopilotClientTest {
             return invocation.callRealMethod();
         }).when(manager).awaitStderrReader();
 
-        try (AutoCloseable childCleanup = () -> {
-            var process = child.get();
-            if (process != null && process.isAlive()) {
-                process.destroyForcibly();
-                assertTrue(process.waitFor(10, TimeUnit.SECONDS), "Could not reap the controlled child.");
-            }
-        }; var client = new CopilotClient(options); AutoCloseable outputCleanup = () -> {
-            var output = failedOutput.get();
-            if (output != null) {
-                output.close();
-            }
-        }) {
+        try (var client = new CopilotClient(options)) {
             Field managerField = CopilotClient.class.getDeclaredField("serverManager");
             managerField.setAccessible(true);
             managerField.set(client, manager);
@@ -486,6 +469,14 @@ public class CopilotClientTest {
             assertSame(writeFailure, original, "Startup must preserve the actual failed transport write.");
             assertNotSame(cause, original, "The startup error must retain its original transport failure.");
             assertFalse(child.get().isAlive(), "Failed startup retained its child process.");
+        } finally {
+            if (failedOutput.get() != null) {
+                failedOutput.get().close();
+            }
+            if (child.get() != null && child.get().isAlive()) {
+                child.get().destroyForcibly();
+                assertTrue(child.get().waitFor(10, TimeUnit.SECONDS), "Could not reap the controlled child.");
+            }
         }
     }
 
@@ -751,38 +742,6 @@ public class CopilotClientTest {
     // ===== getState() coverage =====
 
     @Test
-    void testGetStateDoesNotReportConnectedWhenStartFailsDuringStateRead() throws Exception {
-        var failure = new IOException("Startup failed");
-        // Complete after the first status observation, whichever status getState reads
-        // first.
-        var future = new CompletableFuture<Object>() {
-            @Override
-            public boolean isDone() {
-                boolean done = super.isDone();
-                completeExceptionally(failure);
-                return done;
-            }
-
-            @Override
-            public boolean isCompletedExceptionally() {
-                boolean failed = super.isCompletedExceptionally();
-                completeExceptionally(failure);
-                return failed;
-            }
-        };
-
-        try (var client = new CopilotClient(new CopilotClientOptions().setAutoStart(false))) {
-            setConnectionFuture(client, future);
-
-            ConnectionState state = client.getState();
-            assertTrue(state == ConnectionState.CONNECTING || state == ConnectionState.ERROR,
-                    "Failed startup must not report CONNECTED, was: " + state);
-            assertTrue(future.isCompletedExceptionally());
-            assertEquals(ConnectionState.ERROR, client.getState());
-        }
-    }
-
-    @Test
     void testGetStateErrorAfterFailedStart() throws Exception {
         // Use a non-existent CLI path to trigger a startup failure
         var options = new CopilotClientOptions().setCliPath("/nonexistent/path/to/cli").setAutoStart(false);
@@ -996,13 +955,9 @@ public class CopilotClientTest {
         constructor.setAccessible(true);
         var connection = constructor.newInstance(rpc, process, null, null);
 
-        setConnectionFuture(client, CompletableFuture.completedFuture(connection));
-    }
-
-    private static void setConnectionFuture(CopilotClient client, CompletableFuture<?> future) throws Exception {
         Field field = CopilotClient.class.getDeclaredField("connectionFuture");
         field.setAccessible(true);
-        field.set(client, future);
+        field.set(client, CompletableFuture.completedFuture(connection));
     }
 
     @AllowCopilotExperimental

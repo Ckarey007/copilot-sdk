@@ -62,11 +62,10 @@ describe("Session workspace checkpoint RPC", async () => {
             );
             writeFileSync(join(gitWorkDir, modifiedName), "after");
             unlinkSync(join(gitWorkDir, deletedName));
-            const gitClient = createClient();
+            const gitClient = createClient({ workingDirectory: gitWorkDir });
             try {
                 const session = await gitClient.createSession({
                     onPermissionRequest: approveAll,
-                    workingDirectory: gitWorkDir,
                 });
                 try {
                     const result = await session.rpc.workspaces.diff({ mode });

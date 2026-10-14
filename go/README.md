@@ -43,12 +43,6 @@ registers a Mission Control environment. Both can be enabled. Import `rpc` from
 Local hostname, port, token, and authentication settings belong inside `LocalServer`.
 The returned handle's `URL`, `Token`, `PID`, and `EnvironmentID` are optional pointers;
 Mission Control-only hosting has no local URL. These APIs are experimental.
-Call `host.ListSessions(ctx)` to read the complete advertised catalog of live and
-dormant sessions.
-Set top-level `ComputeID` to reuse the durable catalog across local and Mission
-Control hosting; it must agree with `GitHubEnvironment.ComputeID` when both are
-supplied. The runtime persists an omitted local-only identity. Publication
-survives host shutdown; dormant application sessions require your resume callback.
 Use the generated `client.RPC.Environments` namespace for environment list/get/delete operations.
 See [runtime-supervised AHP hosting](../docs/runtime-supervised-host.md) for creation
 and resume callbacks, resident-session publication, ownership, and shared-snapshot E2Es.
@@ -114,13 +108,6 @@ tool name is `<server-key>-<tool-name>`. For `AvailableTools` and
 `ExcludedTools`, prefer the source-qualified form
 `mcp:<server-key>-<tool-name>`. For `CustomAgents[].Tools` and
 `DefaultAgent.ExcludedTools`, use `<server-key>-<tool-name>` directly.
-
-## Untyped JSON numbers
-
-Only `ContentExclusionValidatePoliciesResult` decodes untyped JSON numbers as `json.Number` to preserve policy values without precision loss.
-Existing RPC results, requests, callbacks, and session events keep their existing numeric representation, including `float64` for untyped numbers.
-Typed numeric fields keep their declared Go types.
-Use `json.Number.Int64()` or `json.Number.Float64()` when you need a numeric conversion, and handle the returned error.
 
 ## JSON-RPC errors
 
@@ -320,8 +307,7 @@ Implemented with pure-Go FFI (via [purego](https://github.com/ebitengine/purego)
 - `NewClient(options *ClientOptions) *Client` - Create a new client
 - `Start(ctx context.Context) error` - Start the CLI server
 - `Stop() error` - Gracefully stop the CLI server. For an owned stdio process, requests runtime shutdown, closes stdin, and waits up to 10 seconds for host cleanup (including telemetry) and natural exit before falling back to a forced termination.
-- `ForceStop()` - Forcefully stop without graceful RPC cleanup. Retires local event subscriptions and session callbacks, including entries held by dispatch snapshots or unsubscribe handles. Pending response waits fail without waiting for idle or their context deadlines; already-dispatched handlers are not joined. Late event registration is logged and returns a no-op unsubscribe, and a late tool-replacement acknowledgment cannot restore retired handlers.
-- A plain `SendAndWait` that has already received its terminal idle or error preserves that result when local session retirement races the wait. An earlier event handler may also call `Disconnect` on the terminal event without losing that result. Without retirement, the wait still lets earlier synchronous handlers finish; a forced stop does not join those handlers or complete waits whose terminal dispatch they are still blocking.
+- `ForceStop()` - Forcefully stop without graceful cleanup
 - `CreateSession(ctx context.Context, config *SessionConfig) (*Session, error)` - Create a new session
 - `ResumeSession(ctx context.Context, sessionID string, config *ResumeSessionConfig) (*Session, error)` - Resume an existing session
 - `ResumeSessionWithOptions(ctx context.Context, sessionID string, config *ResumeSessionConfig) (*Session, error)` - Resume with additional configuration
@@ -390,7 +376,6 @@ Event types: `SessionLifecycleCreated`, `SessionLifecycleDeleted`, `SessionLifec
 - `InfiniteSessions` (\*InfiniteSessionConfig): Automatic context compaction configuration
 - `WorkingDirectory` (string): Working directory for the session (default: runtime process working directory)
 - `EnableSessionStore` (\*bool): Enables the cross-session store for search and retrieval across sessions. When unset in `ModeCopilotCli`, the runtime default applies (enabled). In `ModeEmpty`, defaults to disabled.
-- `EnableGitHubCacheStore` (\*bool): Requests the read-only GitHub cache store (`github-cache-store` capability) on create or resume. The runtime registers the `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is also on. Defaults to disabled in every mode.
 - `GitHubTokenProvider` (GitHubTokenProvider): Acquires session-scoped GitHub tokens on demand. Return `GitHubTokenResult` with a positive `ExpiresIn` value (production GitHub tokens typically use `8 * 60 * 60` seconds), or `GitHubTokenCancelled`. Cannot be combined with `GitHubToken`.
 - `OnPermissionRequest` (PermissionHandlerFunc): Optional handler called before each tool execution to approve or deny it. When nil, permission requests are emitted as events and left pending for manual resolution. `copilot.PermissionHandler.ApproveAll` approves requests when managed settings are disabled and returns an error when `EnableManagedSettings` is true. Custom handlers can inspect `RequiresManagedApproval()` for human-facing confirmation logic. See [Permission Handling](#permission-handling) section.
 - `OnUserInputRequest` (UserInputHandler): Handler for legacy question-and-answer requests from the agent. Enables the legacy `ask_user` tool. See [User Input Requests](#user-input-requests) section.

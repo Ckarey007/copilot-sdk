@@ -7,6 +7,7 @@ env:
   HUSKY: 0
   POWERSHELL_UPDATECHECK: Off
   SDK_HOME: ${{ inputs.sdk-home }}
+  SETUP_NODE_TIMEOUT_MINUTES: 10
 
 on:
   workflow_call:
@@ -29,8 +30,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.platform == 'linux-x64' && '["ubuntu-26.04-2core-agent-runtime"]' || inputs.platform == 'darwin-arm64' && '["macos-26-agent-runtime"]' || inputs.platform == 'win32-x64' && '["windows-2025-4core-agent-runtime"]' || '["ubuntu-26.04-2core-agent-runtime","macos-26-agent-runtime","windows-2025-4core-agent-runtime"]') }}
+        os: ${{ fromJSON(inputs.platform == 'linux-x64' && '["ubuntu-latest"]' || inputs.platform == 'darwin-arm64' && '["macos-26"]' || inputs.platform == 'win32-x64' && '["windows-latest"]' || '["ubuntu-latest","macos-26","windows-latest"]') }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
@@ -39,6 +41,7 @@ jobs:
       PYTHONUTF8: 1
     steps:
       - uses: actions/checkout@v7
+        timeout-minutes: 4
         with:
           persist-credentials: false
       - uses: ./.github/actions/download-sdk-runtime
@@ -101,9 +104,11 @@ jobs:
   python-musl-x64:
     name: "Python (Alpine x64)"
     if: inputs.platform == 'all' || inputs.platform == 'linuxmusl-x64'
-    runs-on: ubuntu-26.04-2core-agent-runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        timeout-minutes: 4
         with:
           persist-credentials: false
       - uses: ./.github/actions/download-sdk-runtime

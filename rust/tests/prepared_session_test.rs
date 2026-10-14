@@ -1425,13 +1425,9 @@ async fn check_stopping_resume_bootstrap(claim: bool) {
         expect_startup_burst(&mut events).await;
         expect_event_id(&mut events, "publication-fence").await;
     } else {
-        let result = events.recv().now_or_never();
         assert!(
-            matches!(
-                &result,
-                Some(Err(error)) if matches!(error.kind(), RecvErrorKind::Closed)
-            ),
-            "subscription created after stop must close without replaying backlog, got {result:?}"
+            events.recv().now_or_never().is_none(),
+            "unclaimed backlog was replayed"
         );
         drop(session);
     }

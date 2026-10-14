@@ -131,12 +131,7 @@ instead, or configure both transports. GitHub environment name and compute ID ar
 required; there is no implicit local listener. The host's `getUrl()`, `getToken()`,
 and `getPid()` may return `null`; `getEnvironmentId()` returns the GitHub environment
 ID when configured. Environment list/get/delete operations are available only
-through the generated RPC API. Call `host.listSessions()` to read the complete
-advertised catalog of live and dormant sessions.
-Use `AhpHostOptions.setComputeId(...)` to reuse the durable catalog across local
-and Mission Control hosting; it must agree with the GitHub environment's compute
-ID when both are supplied. The runtime persists an omitted local-only identity.
-Publication survives host shutdown; dormant application sessions require your resume callback.
+through the generated RPC API.
 See [runtime-supervised AHP hosting](../docs/runtime-supervised-host.md) for creation
 and resume callbacks, resident-session publication, ownership, and shared-snapshot E2Es.
 
@@ -188,24 +183,6 @@ public class CopilotSDK {
 }
 ```
 
-`client.forceStop()` retires tracked sessions locally without `session.detach`
-RPCs. Retained session objects reject new work and subscriptions, unused handler
-captures are released, and pending plain and structured response waits fail.
-Already-admitted event handlers and response continuations are not joined.
-Forced retirement also drops callbacks when a graceful `session.close()` is
-already awaiting detach. Graceful close fails pending response waits without
-joining their continuations; ordinary callbacks remain active until detach completes.
-Plain response waits preserve terminal results and errors already received before
-retirement, even when a blocked continuation delays forwarding them to the caller.
-Graceful owned-process shutdown over stdio waits for the runtime transport and
-launcher to exit. Over TCP, it closes the connection and terminates the owned
-process after the shutdown acknowledgment, without waiting for peer EOF.
-Both preserve intentionally detached services; failed or forced shutdown retains
-process-tree cleanup.
-For a custom TCP launcher that spawns the runtime as a child, graceful cleanup
-terminates only the launcher. The launcher must supervise and reap its runtime
-child; a shutdown acknowledgment alone does not prove that child exited.
-
 When targeting MCP tools configured through `setMcpServers(...)`, remember the
 runtime tool name is `<server-key>-<tool-name>`. For `setAvailableTools(...)`
 and `setExcludedTools(...)`, prefer the source-qualified filter form
@@ -221,7 +198,6 @@ Register `setOnSubagentStart` and `setOnSubagentStop` on `SessionHooks` to inspe
 the parent session and subagent metadata around each child run:
 
 ```java
-import com.github.copilot.rpc.PermissionHandler;
 import com.github.copilot.rpc.SessionConfig;
 import com.github.copilot.rpc.SessionHooks;
 import com.github.copilot.rpc.SubagentStartHookOutput;
@@ -235,7 +211,7 @@ var hooks = new SessionHooks()
     .setOnSubagentStop((input, invocation) ->
         CompletableFuture.completedFuture(
             new SubagentStopHookOutput(null, null, input.response())));
-var config = new SessionConfig().setOnPermissionRequest(PermissionHandler.APPROVE_ALL).setHooks(hooks);
+var config = new SessionConfig().setHooks(hooks);
 ```
 
 `SubagentStartHookInput` includes the parent `sessionId`, `timestamp`, `cwd`,
@@ -682,24 +658,9 @@ session.setAutoTier(null).get();
 
 `setModel(SetModelOptions)` accepts the same preference through `SetModelOptions.setAutoTier(...)`, which stages the tier atomically with selecting `auto`. Call `setResetAutoTier(true)` instead to return to provider-default routing; the two options are mutually exclusive.
 
-## Reasoning-summary presentation (experimental)
-
-Read the current model's reasoning-summary policy through `session.getRpc().model.getReasoningSummaries(...)`. Load the model catalog with `session.getRpc().model.list().get()` first, or accept a result with `ready() == false`.
-
-```java
-import com.github.copilot.generated.rpc.SessionModelGetReasoningSummariesParams;
-
-var presentation = new SessionModelGetReasoningSummariesParams(null, false);
-var policy = session.getRpc().model.getReasoningSummaries(presentation).get();
-```
-
-The two constructor arguments are the persisted visibility setting (`null` when unset) and whether the host currently shows summaries (`null` defaults to false). The session wrapper supplies the session ID; callers do not need a placeholder ID. The original three-argument constructor remains available. `visibility()` can be `null` while experiment assignment is pending, and `clearRedundantSetting()` tells the host when its persisted setting matches the model default.
-
 ## Session Store
 
 `enableSessionStore` on `SessionConfig` enables the cross-session store for search and retrieval across sessions. When unset in the default `CopilotClientMode.COPILOT_CLI` mode, the runtime default applies (enabled). In `CopilotClientMode.EMPTY` mode, defaults to disabled.
-
-`enableGitHubCacheStore` on `SessionConfig` and `ResumeSessionConfig` requests the read-only GitHub cache store (`github-cache-store` capability) on create or resume. The runtime registers the `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is also on. Defaults to disabled in every mode.
 
 ## Memory
 

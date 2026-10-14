@@ -578,7 +578,6 @@ interface GoCodegenCtx {
     encodingBlocks?: Set<string>;
     unionVariantMarshalers?: Set<string>;
     packageName?: string;
-    numberPreservingTypes?: ReadonlySet<string>;
 }
 
 function extractGoEventVariants(schema: JSONSchema7): GoEventVariant[] {
@@ -1143,27 +1142,11 @@ function registerGoExternalUnionUnmarshalers(
     }
 }
 
-function pushGoNumberPreservingUnmarshal(typeName: string, ctx: GoCodegenCtx): void {
-    pushGoEncodingBlock([
-        `func (r *${typeName}) UnmarshalJSON(data []byte) error {`,
-        `\ttype wire ${typeName}`,
-        `\tdecoder := json.NewDecoder(bytes.NewReader(data))`,
-        `\tdecoder.UseNumber()`,
-        `\treturn decoder.Decode((*wire)(r))`,
-        `}`,
-    ], ctx);
-}
-
 function pushGoStructUnmarshalJSON(lines: string[], typeName: string, fields: GoStructField[], ctx: GoCodegenCtx): void {
     const unionFields = fields
         .map((field) => ({ field, unionField: goDiscriminatedUnionField(field.goType, ctx) }))
         .filter((entry): entry is { field: GoStructField; unionField: GoDiscriminatedUnionField } => entry.unionField !== undefined);
-    const preservesNumbers = ctx.numberPreservingTypes?.has(typeName) === true
-        && fields.some((field) => /\bany\b/.test(field.goType));
-    if (unionFields.length === 0) {
-        if (preservesNumbers) pushGoNumberPreservingUnmarshal(typeName, ctx);
-        return;
-    }
+    if (unionFields.length === 0) return;
 
     const blockLines: string[] = [];
     blockLines.push(`func (r *${typeName}) UnmarshalJSON(data []byte) error {`);
@@ -1178,11 +1161,7 @@ function pushGoStructUnmarshalJSON(lines: string[], typeName: string, fields: Go
     }
     blockLines.push(`\t}`);
     blockLines.push(`\tvar raw raw${typeName}`);
-    if (preservesNumbers) {
-        blockLines.push(`\tdecoder := json.NewDecoder(bytes.NewReader(data))`);
-        blockLines.push(`\tdecoder.UseNumber()`);
-    }
-    blockLines.push(`\tif err := ${preservesNumbers ? "decoder.Decode(&raw)" : "json.Unmarshal(data, &raw)"}; err != nil {`);
+    blockLines.push(`\tif err := json.Unmarshal(data, &raw); err != nil {`);
     blockLines.push(`\t\treturn err`);
     blockLines.push(`\t}`);
 
@@ -3034,12 +3013,8 @@ function emitGoAlias(typeName: string, schema: JSONSchema7, ctx: GoCodegenCtx): 
     if (isSchemaDeprecated(schema)) {
         pushGoCommentForContext(lines, `Deprecated: ${typeName} is deprecated and will be removed in a future version.`, ctx);
     }
-    const goType = resolveGoPropertyType(schema, typeName, "Value", true, ctx);
-    lines.push(`type ${typeName} ${goType}`);
+    lines.push(`type ${typeName} ${resolveGoPropertyType(schema, typeName, "Value", true, ctx)}`);
     ctx.structs.push(lines.join("\n"));
-    if (ctx.numberPreservingTypes?.has(typeName) && (goType.startsWith("map[") || goType.startsWith("[]")) && /\bany\b/.test(goType)) {
-        pushGoNumberPreservingUnmarshal(typeName, ctx);
-    }
 }
 
 /**
@@ -3159,9 +3134,6 @@ function goGeneratedEncodingFileCode(schemaFileName: string, packageName: string
     lines.push(``);
 
     const imports = [`"encoding/json"`];
-    if (generatedEncodingCode.includes("bytes.")) {
-        imports.push(`"bytes"`);
-    }
     if (generatedEncodingCode.includes("errors.")) {
         imports.push(`"errors"`);
     }
@@ -3183,7 +3155,7 @@ function goGeneratedEncodingFileCode(schemaFileName: string, packageName: string
     return wrapComments ? wrapGeneratedGoComments(code) : code;
 }
 
-function generateGoRpcTypeCode(definitions: Record<string, JSONSchema7>, definitionCollections: DefinitionCollections, numberPreservingTypes: ReadonlySet<string>): GoGeneratedTypeCode {
+function generateGoRpcTypeCode(definitions: Record<string, JSONSchema7>, definitionCollections: DefinitionCollections): GoGeneratedTypeCode {
     const ctx: GoCodegenCtx = {
         structs: [],
         encoding: [],
@@ -3193,7 +3165,6 @@ function generateGoRpcTypeCode(definitions: Record<string, JSONSchema7>, definit
         generatedNames: new Set(),
         definitions: definitionCollections,
         packageName: "rpc",
-        numberPreservingTypes,
     };
     ctx.skipDefinitionTypeNames = collectGoDiscriminatedUnionVariantDefinitionTypeNames(definitions, ctx);
     const schemaKeysByTypeName = new Map<string, string>();
@@ -4038,10 +4009,8 @@ async function generateRpc(schemaPath?: string): Promise<void> {
     };
     rpcDefinitions = allDefinitionCollections;
 
-    // Opt in only the policy result; existing RPC consumers depend on float64 values.
-    const numberPreservingTypes = new Set(["ContentExclusionValidatePoliciesResult"]);
-    const generatedRpcCode = generateGoRpcTypeCode(allDefinitions, allDefinitionCollections, numberPreservingTypes);
     // Strip trailing whitespace from generated output (gofmt requirement)
+    const generatedRpcCode = generateGoRpcTypeCode(allDefinitions, allDefinitionCollections);
     let generatedTypeCode = stripTrailingGoWhitespace(generatedRpcCode.typeCode);
     const generatedEncodingCode = stripTrailingGoWhitespace(generatedRpcCode.encodingCode);
 
@@ -4121,10 +4090,9 @@ async function generateRpc(schemaPath?: string): Promise<void> {
         }
     }
     for (const typeName of internalTypeNames) {
-        const emittedTypeName = resolveType(typeName);
         generatedTypeCode = generatedTypeCode.replace(
-            new RegExp(`^(type ${escapeRegExp(emittedTypeName)} struct)`, "m"),
-            `// Internal: ${emittedTypeName} is an internal SDK API and is not part of the public surface.\n$1`
+            new RegExp(`^(type ${typeName} struct)`, "m"),
+            `// Internal: ${typeName} is an internal SDK API and is not part of the public surface.\n$1`
         );
     }
     // Remove trailing blank lines before appending.
@@ -4335,7 +4303,6 @@ function emitMethod(lines: string[], receiver: string, name: string, method: Rpc
     const paramsType = hasParams ? resolveType(goParamsTypeName(method)) : "";
     const hasRequiredNonSessionParams = nonSessionParams.some((name) => requiredParams.has(name));
     const paramsAreOptional = hasParams && !!method.params && !!getNullableInner(method.params) && !hasRequiredNonSessionParams;
-    const supportsExplicitNullValue = method.rpcMethod === "user.settings.edit";
 
     // For wrapper-level methods, access fields through a.common; for service type aliases, use a directly
     const clientRef = isWrapper ? "a.common.client" : "a.client";
@@ -4394,41 +4361,14 @@ function emitMethod(lines: string[], receiver: string, name: string, method: Rpc
         }
         lines.push(`\traw, err := ${clientRef}.Request(ctx, "${method.rpcMethod}", req)`);
     } else {
-        if (hasParams && supportsExplicitNullValue) {
-            lines.push(`\treq := map[string]any{}`);
-            lines.push(`\tif ${paramsRef} != nil {`);
-            for (const pName of nonSessionParams) {
-                const field = fields.get(paramsType)?.get(pName);
-                const goField = field?.name ?? toGoFieldName(pName);
-                const goType = field?.type;
-                const isOptional = !requiredParams.has(pName);
-                if (isOptional) {
-                    lines.push(`\t\tif ${paramsRef}.${goField} != nil {`);
-                    const valueExpr = goOptionalFieldNeedsDereference(goType) ? `*${paramsRef}.${goField}` : `${paramsRef}.${goField}`;
-                    lines.push(`\t\t\treq["${pName}"] = ${valueExpr}`);
-                    lines.push(`\t\t}`);
-                } else {
-                    lines.push(`\t\treq["${pName}"] = ${paramsRef}.${goField}`);
-                }
-            }
-            const operationField = fields.get(paramsType)?.get("operation")?.name ?? toGoFieldName("operation");
-            lines.push(`\t\tif ${paramsRef}.${operationField} != SettingsEditOperationRemove {`);
-            lines.push(`\t\t\tif _, ok := req["value"]; !ok {`);
-            lines.push(`\t\t\t\treq["value"] = nil`);
-            lines.push(`\t\t\t}`);
-            lines.push(`\t\t}`);
+        if (method.rpcMethod === "managedSettings.resolve") {
+            // A typed nil inside Request's any argument marshals as null, not omitted params.
+            lines.push(`\tif ${paramsRef} == nil {`);
+            lines.push(`\t\t${paramsRef} = &${paramsType}{}`);
             lines.push(`\t}`);
-            lines.push(`\traw, err := ${clientRef}.Request(ctx, "${method.rpcMethod}", req)`);
-        } else {
-            if (method.rpcMethod === "managedSettings.resolve") {
-                // A typed nil inside Request's any argument marshals as null, not omitted params.
-                lines.push(`\tif ${paramsRef} == nil {`);
-                lines.push(`\t\t${paramsRef} = &${paramsType}{}`);
-                lines.push(`\t}`);
-            }
-            const arg = hasParams ? paramsRef : "nil";
-            lines.push(`\traw, err := ${clientRef}.Request(ctx, "${method.rpcMethod}", ${arg})`);
         }
+        const arg = hasParams ? paramsRef : "nil";
+        lines.push(`\traw, err := ${clientRef}.Request(ctx, "${method.rpcMethod}", ${arg})`);
     }
 
     lines.push(`\tif err != nil {`);

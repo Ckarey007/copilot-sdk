@@ -748,24 +748,6 @@ export interface ToolInvocation {
     tracestate?: string;
     /** Aborted when the runtime completes this request or the session disconnects. */
     signal?: AbortSignal;
-    /**
-     * Sub-agent instance that issued this call (the `agentId` of its session
-     * events). `undefined` for a root-agent call, and for every call when the
-     * runtime does not attribute sub-agent tool calls.
-     *
-     * @experimental
-     */
-    agentId?: string;
-    /**
-     * Runtime request id of this call: the key
-     * `session.tools.handlePendingToolCall` and `session.tools.listPendingRequests`
-     * use. A root-agent call stays answerable after the session is resumed with
-     * pending work continued; a sub-agent's call can be answered only while that
-     * sub-agent is still running.
-     *
-     * @experimental
-     */
-    requestId?: string;
 }
 
 export type ToolHandler<TArgs = unknown> = (
@@ -861,21 +843,6 @@ export function defineTool<T = unknown>(
     }
 ): Tool<T> {
     return { name, ...config };
-}
-
-/**
- * Non-persisted opt-in to image generation.
- * @experimental This API may change or be removed in a future release.
- */
-export interface ImageGenerationConfig {
-    /**
-     * Opt in to image generation through an authorized Copilot image model.
-     * False disables it; omission defaults to disabled on create/cold resume and
-     * preserves the setting on resident resume. Not persisted: re-supply after
-     * runtime restart. Policy, permissions, offline mode, and tool filters still
-     * apply. BYOK image generation is not supported.
-     */
-    enabled?: boolean;
 }
 
 /**
@@ -2025,8 +1992,6 @@ export type MCPServerConfig = MCPStdioServerConfig | MCPHTTPServerConfig;
  * Configuration for a custom agent.
  */
 export interface CustomAgentConfig {
-    /** Declarative hook actions keyed by event name, active only for this agent. */
-    hooks?: Record<string, Record<string, unknown>[]>;
     /**
      * Unique name of the custom agent.
      */
@@ -2384,11 +2349,6 @@ export interface ManagedSettingsPermissions {
      * values are forwarded so newer runtime policies fail closed.
      */
     disableBypassPermissionsMode?: string;
-    /**
-     * When true, prevents Assisted Permissions from being activated. Omit or
-     * set to false to impose no restriction.
-     */
-    disableAssistedPermissionsMode?: boolean;
     /** Operations that must always be denied. Unioned across managed layers. */
     deny?: string[];
     /**
@@ -2644,12 +2604,6 @@ export interface SessionConfigBase {
      * {@link SessionConfigBase.tools}.
      */
     toolSearch?: ToolSearchConfig;
-
-    /**
-     * Image generation opt-in. Re-supply after runtime restart.
-     * @experimental This API may change or be removed in a future release.
-     */
-    imageGeneration?: ImageGenerationConfig;
 
     /**
      * List of tool names to allow. When specified, only these tools will be available.
@@ -2962,11 +2916,7 @@ export interface SessionConfigBase {
     agent?: string;
 
     /**
-     * Explicit discovery-only skill roots. No general filesystem access is granted.
-     * Available without `enableConfigDiscovery`; skill and managed disables still apply.
-     * Relative paths resolve once when supplied against the request's effective
-     * `workingDirectory`, and retained roots do not move when it changes.
-     * Null and omission are equivalent; `[]` clears only the explicit SDK contribution.
+     * Directories to load skills from.
      */
     skillDirectories?: string[];
 
@@ -2988,27 +2938,6 @@ export interface SessionConfigBase {
     skillProvider?: SkillProvider;
 
     /**
-     * Explicit discovery-only agent roots, separate from `customAgents` objects.
-     * No general filesystem access is granted. Available without `enableConfigDiscovery`;
-     * source and managed disables still apply.
-     * Relative paths resolve once when supplied against the request's effective
-     * `workingDirectory`, and retained roots do not move when it changes.
-     * Null and omission are equivalent; `[]` clears only the explicit SDK contribution.
-     */
-    agentDirectories?: string[];
-
-    /**
-     * Explicit discovery-only file-hook roots, separate from callback `hooks`.
-     * No general filesystem access is granted. Available without `enableConfigDiscovery`
-     * or `enableFileHooks` (which controls repository-origin hooks only);
-     * hook and managed disables still apply.
-     * Relative paths resolve once when supplied against the request's effective
-     * `workingDirectory`, and retained roots do not move when it changes.
-     * Null and omission are equivalent; `[]` clears only the explicit SDK contribution.
-     */
-    hookDirectories?: string[];
-
-    /**
      * Local filesystem paths to Open Plugins-format directories
      * (https://open-plugins.com/) to load for this session.
      *
@@ -3024,12 +2953,7 @@ export interface SessionConfigBase {
     pluginDirectories?: string[];
 
     /**
-     * Explicit discovery-only instruction roots using the existing SDK instruction formats.
-     * No general filesystem access is granted. Available without `enableConfigDiscovery`;
-     * instruction and managed disables still apply.
-     * Relative paths resolve once when supplied against the request's effective
-     * `workingDirectory`, and retained roots do not move when it changes.
-     * Null and omission are equivalent; `[]` clears only the explicit SDK contribution.
+     * Additional directories to search for custom instruction files.
      */
     instructionDirectories?: string[];
 
@@ -3088,13 +3012,6 @@ export interface SessionConfigBase {
     enableManagedSettings?: boolean;
 
     /**
-     * When true, locked managed model controls are enforced for this session.
-     * Conflicting model changes are rejected, and locked startup values replace
-     * conflicting session options. Overridable managed defaults remain mutable.
-     */
-    enforceManagedModelDefaults?: boolean;
-
-    /**
      * Host-injected enterprise managed settings for this session.
      *
      * Unlike {@link SessionConfigBase.enableManagedSettings} — which asks the
@@ -3147,9 +3064,9 @@ export interface SessionConfigBase {
     enableOnDemandInstructionDiscovery?: boolean;
 
     /**
-     * When true, enables repository-origin file hooks from `.github/hooks/` and
-     * trusted repository-configured roots. Does not control explicit `hookDirectories`
-     * or the `hooks` callback parameter.
+     * When true, enables loading of file-based hooks from `.github/hooks/`.
+     * This is separate from the `hooks` callback parameter which gates SDK
+     * hook event registration.
      */
     enableFileHooks?: boolean;
 
@@ -3166,14 +3083,6 @@ export interface SessionConfigBase {
      * read from the shared session store.
      */
     enableSessionStore?: boolean;
-
-    /**
-     * When true, requests the read-only GitHub cache store for this session
-     * (the `github-cache-store` capability). The runtime registers the
-     * `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is
-     * also on. Defaults to disabled.
-     */
-    enableGitHubCacheStore?: boolean;
 
     /**
      * When true, enables skill loading (including builtin skills and discovered
@@ -3236,15 +3145,6 @@ export interface SessionConfig extends SessionConfigBase {
      * Optional custom session ID. If not provided, the server generates one.
      */
     sessionId?: string;
-
-    /**
-     * Names the session at creation, as `session.name.set` would, and is validated the
-     * same way: non-empty, no leading or trailing whitespace, at most 100 UTF-16 units,
-     * no control characters, and no double quotes. A name also makes the session persist
-     * from the start, so it can be listed and resumed without ever running a turn.
-     * Local sessions only: cloud creation rejects it.
-     */
-    name?: string;
 
     /**
      * Invalidates the process-wide custom-instruction discovery cache before

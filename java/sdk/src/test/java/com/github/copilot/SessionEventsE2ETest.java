@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.ArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -67,7 +67,7 @@ public class SessionEventsE2ETest {
         // Use existing session snapshot that emits turn events
         ctx.configureForTest("session", "should_receive_session_events");
 
-        var allEvents = new CopyOnWriteArrayList<SessionEvent>();
+        var allEvents = new ArrayList<SessionEvent>();
 
         try (CopilotClient client = ctx.createClient()) {
             CopilotSession session = client
@@ -109,7 +109,7 @@ public class SessionEventsE2ETest {
         // Use existing session snapshot
         ctx.configureForTest("session", "should_receive_session_events");
 
-        var userMessages = new CopyOnWriteArrayList<UserMessageEvent>();
+        var userMessages = new ArrayList<UserMessageEvent>();
 
         try (CopilotClient client = ctx.createClient()) {
             CopilotSession session = client
@@ -135,8 +135,8 @@ public class SessionEventsE2ETest {
         // Use existing tools snapshot for built-in tool invocation
         ctx.configureForTest("tools", "invokes_built_in_tools");
 
-        var toolStarts = new CopyOnWriteArrayList<ToolExecutionStartEvent>();
-        var toolCompletes = new CopyOnWriteArrayList<ToolExecutionCompleteEvent>();
+        var toolStarts = new ArrayList<ToolExecutionStartEvent>();
+        var toolCompletes = new ArrayList<ToolExecutionCompleteEvent>();
 
         try (CopilotClient client = ctx.createClient()) {
             CopilotSession session = client
@@ -175,7 +175,7 @@ public class SessionEventsE2ETest {
         // Use existing session snapshot
         ctx.configureForTest("session", "should_receive_session_events");
 
-        var usageEvents = new CopyOnWriteArrayList<AssistantUsageEvent>();
+        var usageEvents = new ArrayList<AssistantUsageEvent>();
 
         try (CopilotClient client = ctx.createClient()) {
             CopilotSession session = client
@@ -206,7 +206,7 @@ public class SessionEventsE2ETest {
         // Use existing session snapshot
         ctx.configureForTest("session", "should_receive_session_events");
 
-        var allEvents = new CopyOnWriteArrayList<SessionEvent>();
+        var allEvents = new ArrayList<SessionEvent>();
         var idleEntered = new CountDownLatch(1);
         var releaseIdle = new CountDownLatch(1);
         var idleCallbackCompleted = new AtomicBoolean();
@@ -274,7 +274,7 @@ public class SessionEventsE2ETest {
         // Use existing tools snapshot for built-in tool invocation
         ctx.configureForTest("tools", "invokes_built_in_tools");
 
-        var eventTypes = new CopyOnWriteArrayList<String>();
+        var eventTypes = new ArrayList<String>();
         // Track this listener's receipt of session.idle explicitly.
         var idleReceived = new java.util.concurrent.CompletableFuture<Void>();
 

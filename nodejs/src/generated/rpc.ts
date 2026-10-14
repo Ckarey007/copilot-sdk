@@ -5,7 +5,7 @@
 
 import type { MessageConnection } from "vscode-jsonrpc/node.js";
 
-import type { AbortReason, AgentModelPolicy, Attachment, AutoTier, ContextTier, EmbeddedBlobResourceContents, EmbeddedTextResourceContents, IndexedSearchState, ManagedPermissionsContext, ManagedSettingsResolvedData, McpOauthHttpResponse, McpOauthWWWAuthenticateParams, McpServerMetadata, McpServerSource, McpServerStatus, ModelChangeSource, ModelProviderKind, ModelProviderRef, PermissionDecisionSource, PermissionMode, PermissionPromptRequest, PermissionRule, ProviderQuotaState, ReasoningSummary, RemediationAction, SessionEvent, SessionLimitsConfig, SessionMode, ShutdownType, SkillSource, TaskCompleteData, TaskCompletionOutcome, UsageGetMetricsResult, UserToolSessionApproval, Verbosity } from "./session-events.js";
+import type { AbortReason, AgentModelPolicy, Attachment, AutoTier, ContextTier, EmbeddedBlobResourceContents, EmbeddedTextResourceContents, IndexedSearchState, ManagedSettingsResolvedData, McpOauthHttpResponse, McpOauthWWWAuthenticateParams, McpServerMetadata, McpServerSource, McpServerStatus, ModelChangeSource, PermissionDecisionSource, PermissionMode, PermissionPromptRequest, PermissionRule, ReasoningSummary, RemediationAction, SessionEvent, SessionLimitsConfig, SessionMode, ShutdownType, SkillSource, TaskCompleteData, TaskCompletionOutcome, UserToolSessionApproval, Verbosity } from "./session-events.js";
 
 /** A value that can be represented losslessly on the SDK JSON wire. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -34,32 +34,6 @@ export type AuthInfo =
   | AccountAuthInfo
   | GhCliAuthInfo
   | ApiKeyAuthInfo;
-/**
- * Authentication type
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "AuthInfoType".
- */
-/** @experimental */
-export type AuthInfoType =
-  /** Authentication provided by a GitHub App HMAC credential. */
-  | "hmac"
-  /** Authentication resolved from environment-provided credentials. */
-  | "env"
-  /** Authentication from an interactive user sign-in. */
-  | "user"
-  /** Authentication from a selected provider-owned account, without a GitHub credential. */
-  | "account"
-  /** Authentication delegated to the GitHub CLI. */
-  | "gh-cli"
-  /** Authentication from an API key credential. */
-  | "api-key"
-  /** Authentication from a GitHub token. */
-  | "token"
-  /** Authentication from an SDK GitHub token callback. */
-  | "token-provider"
-  /** Authentication from a Copilot API token. */
-  | "copilot-api-token";
 /**
  * The provider kind stamped on a signed-in account.
  *
@@ -430,6 +404,32 @@ export type LoginProviderKind =
   /** Microsoft Entra sign-in that derives a GitHub (EMU) credential. */
   | "entra";
 /**
+ * Authentication type
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AuthInfoType".
+ */
+/** @experimental */
+export type AuthInfoType =
+  /** Authentication provided by a GitHub App HMAC credential. */
+  | "hmac"
+  /** Authentication resolved from environment-provided credentials. */
+  | "env"
+  /** Authentication from an interactive user sign-in. */
+  | "user"
+  /** Authentication from a selected provider-owned account, without a GitHub credential. */
+  | "account"
+  /** Authentication delegated to the GitHub CLI. */
+  | "gh-cli"
+  /** Authentication from an API key credential. */
+  | "api-key"
+  /** Authentication from a GitHub token. */
+  | "token"
+  /** Authentication from an SDK GitHub token callback. */
+  | "token-provider"
+  /** Authentication from a Copilot API token. */
+  | "copilot-api-token";
+/**
  * One step in an interactive login flow. The consumer acts on the step and calls advance to proceed. Browser-open is encoded as two distinct steps by design: `open-url` is CONSUMER-driven (the provider surfaces the authorize URL and the consumer opens it — github.com/GHEC web), while `needs-interaction` is PROVIDER-driven (the provider opens the browser or broker UI itself and does not surface a URL — Entra).
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -622,7 +622,7 @@ export type CardDigestValue = string;
 /** @experimental */
 export type CatalogAgentPluginCandidateKind = /** An Agent Plugin. */ "plugin";
 /**
- * Media type naming the plugin format of an Agent Plugin candidate. Values other than `application/vnd.github.copilot-plugin` appear only when the caller requires the agent-plugin-formats capability.
+ * Canonical Agent Plugin media type
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
  * via the `definition` "CatalogAgentPluginMediaType".
@@ -630,11 +630,7 @@ export type CatalogAgentPluginCandidateKind = /** An Agent Plugin. */ "plugin";
 /** @experimental */
 export type CatalogAgentPluginMediaType =
   /** A GitHub Copilot Agent Plugin descriptor. */
-  | "application/vnd.github.copilot-plugin"
-  /** A Claude plugin descriptor (`.claude-plugin/plugin.json` layout). */
-  | "application/vnd.anthropic.claude-plugin+json"
-  /** A portable Agent Plugin descriptor. */
-  | "application/agent-plugin+json";
+  "application/vnd.github.copilot-plugin";
 /**
  * Canonical catalogue resource identity. The runtime rewrites accepted urn:ai and urn:air identifiers to urn:air, lowercases the authority, and preserves the remaining resource components.
  *
@@ -665,83 +661,6 @@ export type CatalogAgentPluginCompatibilityTag =
   | "canvas-only"
   /** The plugin targets GitHub Copilot. */
   | "github-copilot";
-/**
- * Typed installability state for an Agent Plugin candidate
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginInstallability".
- */
-/** @experimental */
-export type CatalogAgentPluginInstallability =
-  /** The candidate carries complete, verified install data and the selected session may install it. Its install plan is present. */
-  | "installable"
-  /** The catalogue supplied no complete, verified install data, so no install target is offered. */
-  | "install-data-unavailable"
-  /** Plugin installation is understood but disabled for the selected session. */
-  | "feature-disabled"
-  /** Reserved for plugin formats this runtime cannot install. Every format surfaced today installs through a marketplace. */
-  | "not-installable-kind";
-/**
- * One place an Agent Plugin can install from: Agent Finder's materialisation, a marketplace, or a GitHub repository. Each variant carries only its own fields.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginInstallSource".
- */
-/** @experimental */
-export type CatalogAgentPluginInstallSource =
-  | CatalogAgentPluginMaterializationSource
-  | CatalogAgentPluginMarketplaceSource
-  | CatalogAgentPluginRepositorySource;
-/**
- * Discriminator for a materialisation install source
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginMaterializationSourceKind".
- */
-/** @experimental */
-export type CatalogAgentPluginMaterializationSourceKind =
-  /** Install from Agent Finder's verified materialisation. */
-  "materialization";
-/**
- * Discriminator for a marketplace install source
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginMarketplaceSourceKind".
- */
-/** @experimental */
-export type CatalogAgentPluginMarketplaceSourceKind = /** Install from a plugin marketplace. */ "marketplace";
-/**
- * Discriminator for a repository install source
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginRepositorySourceKind".
- */
-/** @experimental */
-export type CatalogAgentPluginRepositorySourceKind = /** Install directly from a GitHub repository. */ "repository";
-/**
- * A kind of component an Agent Plugin contributes
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginComponent".
- */
-/** @experimental */
-export type CatalogAgentPluginComponent =
-  /** Custom agents. */
-  | "agent"
-  /** Slash commands. */
-  | "command"
-  /** Skills. */
-  | "skill"
-  /** Hooks. */
-  | "hook"
-  /** Bundled MCP servers. */
-  | "mcp-server"
-  /** Bundled LSP servers. */
-  | "lsp-server"
-  /** Extensions. */
-  | "extension"
-  /** Canvases. */
-  | "canvas";
 /**
  * A versioned, bounded trust observation carried unchanged with a catalog candidate and its private handle context. Current observations require a recognised T1/T2 tier; every non-current state structurally forbids a tier. Eligibility remains `unknown` while Agent Finder supplies no exposure decision, and states absent from its current wire are never inferred from age, relevance, popularity, or a tier transition.
  *
@@ -993,8 +912,6 @@ export type CatalogCapability =
   | "ai-skill-discovery"
   /** Understands opt-in `application/vnd.github.copilot-plugin` candidates and their typed identity, version, source, and compatibility fields. */
   | "agent-plugin-discovery"
-  /** Extends agent-plugin-discovery to Claude plugin (`application/vnd.anthropic.claude-plugin+json`) and portable Agent Plugin (`application/agent-plugin+json`) candidates, each reporting its format as its media type. Requires agent-plugin-discovery; without it, plugin searches return only Copilot plugins. */
-  | "agent-plugin-formats"
   /** Understands side-effect-free MCP install-plan requests, results, and plan handles; `planning-unavailable` separately reports that planning is not enabled. */
   | "mcp-install-planning"
   /** Understands plans that enumerate every eligible transport rather than a single preferred one. */
@@ -1014,9 +931,7 @@ export type CatalogCapability =
   /** Extends mcp-confirmed-remote-installation to declared non-secret header and URL values and receipt-owned header secrets for personal remote MCP choices. Requires mcp-confirmed-remote-installation and bound session authority. Secret values are written only to the reviewed backend after confirmation and are never returned; package and stdio choices remain unsupported. Advertised only when owned secret effects and owned secret activation are linked. */
   | "mcp-configured-remote-installation"
   /** Understands verified Agent Finder Skill install, uninstall, recovery and installation-scoped enablement APIs. Advertised only by runtimes with the Skill installation engine linked; acquisition may still be refused as feature-disabled per selected session. */
-  | "skill-confirmed-installation"
-  /** Understands `installability` and the reviewable `installPlan` on Agent Plugin candidates. Requires agent-plugin-discovery; without it, plugin candidates are unchanged. A plugin is installable only with complete, verified catalogue install data, and may still be reported as feature-disabled per selected session. */
-  | "agent-plugin-confirmed-installation";
+  | "skill-confirmed-installation";
 /**
  * Bounded extensible wire-feature identifier. Known values are described by `CatalogCapability`; newer callers may send future identifiers so an older runtime can return a typed negotiation refusal instead of failing schema validation. Capability negotiation establishes contract understanding, while each operation's result separately reports runtime availability.
  *
@@ -1140,11 +1055,7 @@ export type CatalogMediaType =
   /** An AI skill card. Representable and searchable, but typed non-installable. */
   | "application/ai-skill"
   /** An inert Agent Plugin descriptor. */
-  | "application/vnd.github.copilot-plugin"
-  /** An inert Claude plugin descriptor, surfaced only under the agent-plugin-formats capability. */
-  | "application/vnd.anthropic.claude-plugin+json"
-  /** An inert portable Agent Plugin descriptor, surfaced only under the agent-plugin-formats capability. */
-  | "application/agent-plugin+json";
+  | "application/vnd.github.copilot-plugin";
 /**
  * Why capability and protocol-version negotiation refused a caller
  *
@@ -2120,33 +2031,6 @@ export type ExternalToolTextResultForLlmContentResourceDetails =
   | EmbeddedTextResourceContents
   | EmbeddedBlobResourceContents;
 /**
- * The population a feature flag is declared for, before overrides.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "FeatureFlagAvailability".
- */
-/** @experimental */
-/** @internal */
-export type FeatureFlagAvailability =
-  /** Enabled for everyone, before any override. */
-  | "on"
-  /** Enabled only for accounts on the owning team. */
-  | "team"
-  /** Enabled only for staff accounts that have also opted into experimental features. */
-  | "staff-and-experimental"
-  /** Enabled for staff accounts and for accounts that opted into experimental features. */
-  | "staff-or-experimental"
-  /** Enabled for any staff account, GitHub or Microsoft. */
-  | "staff"
-  /** Enabled for GitHub staff accounts only. */
-  | "staff-github"
-  /** Enabled for Microsoft staff accounts only. */
-  | "staff-microsoft"
-  /** Enabled only for accounts that opted into experimental features. */
-  | "experimental"
-  /** Disabled for everyone, before any override. */
-  | "off";
-/**
  * Content filtering mode to apply to all tools, or a map of tool name to content filtering mode.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -2796,84 +2680,6 @@ export type SessionLogLevel =
   | "warning"
   /** Error message describing a failure. */
   | "error";
-
-/** @experimental */
-export type ManagedPermissionOperation = {
-  /**
-   * Absolute HTTP(S) URL with a host. Invalid URLs reject the entire evaluation batch.
-   */
-  url: string;
-  /**
-   * Operation to evaluate. Currently only url is supported.
-   */
-  kind: "url";
-};
-/**
- * Managed-policy verdict only: deny blocks the URL, ask requires approval, allow approves under managed policy, and unmanaged leaves the normal consumer permission flow in effect. No verdict bypasses other security controls.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedPermissionVerdict".
- */
-/** @experimental */
-export type ManagedPermissionVerdict =
-  /** Managed policy prohibits the operation; do not offer approval. */
-  | "deny"
-  /** Managed policy requires the consumer to obtain approval. */
-  | "ask"
-  /** Managed policy allows the operation, subject to other security controls. */
-  | "allow"
-  /** Managed policy does not decide the operation; use the consumer's normal permission flow. */
-  | "unmanaged";
-/**
- * What retrying did for one plugin required by managed settings.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedPluginRetryStatus".
- */
-/** @experimental */
-export type ManagedPluginRetryStatus =
-  /** The plugin was missing and is now installed. */
-  | "installed"
-  /** An update was available and is now installed. */
-  | "updated"
-  /** The plugin was already installed and current, so nothing was done. */
-  | "already_present"
-  /** Checking, installing, or updating the plugin failed. See `error`. */
-  | "failed"
-  /** The plugin was not prepared because another session was changing plugins or the managed settings changed during the retry. It is prepared again before a later message. */
-  | "deferred"
-  /** The session's managed settings do not require this plugin, so nothing was done. */
-  | "not_required";
-/**
- * Which layer disabled bypass-permissions mode. The layer matters because only a server-delivered disable is pinned to an account and can later be lifted by signing in elsewhere.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsBypassDisableSource".
- */
-/** @experimental */
-/** @internal */
-export type ManagedSettingsBypassDisableSource =
-  /** The user turned bypass mode off themselves. */
-  | "user"
-  /** The account's server-delivered org policy disabled it. Pinned to the account named by `currentManagedIdentity`. */
-  | "managed"
-  /** The device/MDM layer disabled it. Outranks the account, so no server answer lifts it. */
-  | "mdm";
-/**
- * What the managed-policy resolution said about bypass-permissions mode. `unknown` is a third answer rather than a missing one, and the caller must send it explicitly when it has no verdict.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsBypassPolicyResolution".
- */
-/** @experimental */
-/** @internal */
-export type ManagedSettingsBypassPolicyResolution =
-  /** The policy resolved and does not disable bypass mode. */
-  | "allowed"
-  /** The policy resolved and disables bypass mode. */
-  | "disabled"
-  /** No verdict: the fetch failed, or the service declared a policy this build may not enforce. Whatever is in force is preserved, because reverting to permissive on an unreadable policy would widen access. */
-  | "unknown";
 /**
  * A channel accepted by managedSettings.compose.
  *
@@ -2900,89 +2706,6 @@ export type ManagedSettingsDiagnosticSeverity =
   | "error"
   /** The runtime accepts the document but ignores the flagged content. */
   | "warning";
-/**
- * The operation that requires a policy-helper response.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsPolicyHelperReason".
- */
-/** @experimental */
-/** @internal */
-export type ManagedSettingsPolicyHelperReason =
-  /** Resolve policy for session startup. */
-  | "sessionStart"
-  /** Resolve policy before plugin activation. */
-  | "pluginActivation";
-/**
- * How an ingestion may use the on-disk server-policy cache.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsServerPolicyCacheMode".
- */
-/** @experimental */
-/** @internal */
-export type ManagedSettingsServerPolicyCacheMode =
-  /** Serve a recent cache entry before a live fetch. */
-  | "preferFresh"
-  /** Read cached policy without a network request. */
-  | "cacheOnly"
-  /** Serve a cached entry only as a fallback after a failed live fetch. */
-  | "fallbackOnly"
-  /** Ignore the cache entirely and rely on the live fetch alone. */
-  | "disabled";
-/**
- * How the server layer of an ingestion was resolved.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsServerPolicyResolution".
- */
-/** @experimental */
-/** @internal */
-export type ManagedSettingsServerPolicyResolution =
-  /** A live fetch succeeded. */
-  | "live"
-  /** A recent cached entry was served without a live fetch. */
-  | "freshCache"
-  /** No cached policy or confirmed no-policy result exists. */
-  | "cacheMiss"
-  /** A live fetch failed and a cached entry was served in its place. */
-  | "fallbackCache"
-  /** No policy could be resolved and the host proceeds unmanaged. */
-  | "failOpen"
-  /** No policy could be resolved and the host applies the fail-closed gates. */
-  | "failClosed"
-  /** No fetch was attempted because no usable token was available. */
-  | "skippedNoToken";
-/**
- * Which channel registered the policy helper that produced a helper layer.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsPolicyHelperAuthority".
- */
-/** @experimental */
-/** @internal */
-export type ManagedSettingsPolicyHelperAuthority =
-  /** The helper was registered by the device (MDM or managed file) layer. */
-  | "device"
-  /** The helper was registered by the account's server-delivered policy. */
-  | "server";
-/**
- * Severity of a diagnostic emitted while ingesting managed settings.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsLogLevel".
- */
-/** @experimental */
-/** @internal */
-export type ManagedSettingsLogLevel =
-  /** Detail useful only when diagnosing an ingestion. */
-  | "debug"
-  /** Ordinary progress worth surfacing under a verbose flag. */
-  | "info"
-  /** A condition the operator should see but which did not stop the ingestion. */
-  | "warning"
-  /** A failure that changed the outcome of the ingestion. */
-  | "error";
 /**
  * UI theme preference per SEP-1865
  *
@@ -3826,18 +3549,6 @@ export type McpSetEnvValueModeDetails =
   /** Treat MCP server environment values as host-side references to resolve before launch. */
   | "indirect";
 /**
- * Controls how availableTools (allowlist) and excludedTools (denylist) combine when both are set.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "OptionsUpdateToolFilterPrecedence".
- */
-/** @experimental */
-export type OptionsUpdateToolFilterPrecedence =
-  /** If availableTools is set, it is the only constraint that applies (excludedTools is ignored). Preserves CLI / pre-existing client behavior. Default. */
-  | "available"
-  /** A tool is enabled if and only if it matches the allowlist (or the allowlist is unset) AND it does not match the denylist. Makes 'all except X' expressible by combining the two lists. */
-  | "excluded";
-/**
  * Per-source context-window attribution, or null if the session has not yet been initialized (no system prompt or tool metadata cached).
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -3959,11 +3670,6 @@ export type SessionContextInfo = {
    * The model used for token counting
    */
   modelName: string;
-  provider?: ModelProviderRef;
-  /**
-   * Provider-owned model display label, or the Auto routing label. Presentation only; modelName remains the tokenization identity.
-   */
-  displayModelName?: string;
   /**
    * Tokens consumed by the system prompt
    */
@@ -4083,6 +3789,18 @@ export type ModelPickerPriceCategory =
   | "high"
   /** Highest relative token cost tier. */
   | "very_high";
+/**
+ * The neutral kind of a model provider — the model analog of `AccountKind`. A model provider is the live, entitled source a model came from; central code never branches on this beyond a single dispatch.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "ModelProviderKind".
+ */
+/** @experimental */
+export type ModelProviderKind =
+  /** GitHub Copilot / CAPI models, spawned by a github-resolving account that holds a Copilot seat. */
+  | "copilot"
+  /** Microsoft 365 Copilot (Loki) inference models, spawned by a resolvable Entra-derived Loki account. */
+  | "loki";
 /**
  * Optional listing options.
  *
@@ -4348,6 +4066,18 @@ export type OptionsUpdateReasoningSummary =
   | "concise"
   /** Request a detailed summary of model reasoning. */
   | "detailed";
+/**
+ * Controls how availableTools (allowlist) and excludedTools (denylist) combine when both are set.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "OptionsUpdateToolFilterPrecedence".
+ */
+/** @experimental */
+export type OptionsUpdateToolFilterPrecedence =
+  /** If availableTools is set, it is the only constraint that applies (excludedTools is ignored). Preserves CLI / pre-existing client behavior. Default. */
+  | "available"
+  /** A tool is enabled if and only if it matches the allowlist (or the allowlist is unset) AND it does not match the denylist. Makes 'all except X' expressible by combining the two lists. */
+  | "excluded";
 /**
  * The client's response to the pending permission prompt
  *
@@ -4701,14 +4431,6 @@ export type QueuePendingItemsKind =
   /** A queued slash command or model-change command. */
   | "command";
 /**
- * Pending warnings returned and cleared by session.quota.takeWarnings.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "QuotaTakeWarningsResult".
- */
-/** @experimental */
-export type QuotaTakeWarningsResult = QuotaWarningProjection[];
-/**
  * State of the runtime-managed remote-control singleton.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -4762,36 +4484,6 @@ export type RemoteSessionMetadataTaskType =
   | "cca"
   /** CLI remote task. */
   | "cli";
-/**
- * Which repository settings file to edit.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "RepoSettingsEditScope".
- */
-/** @experimental */
-/** @internal */
-export type RepoSettingsEditScope =
-  /** The shared repository settings file. */
-  | "repo"
-  /** The local repository settings file. */
-  | "local";
-/**
- * One atomic settings mutation.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SettingsEditOperation".
- */
-/** @experimental */
-/** @internal */
-export type SettingsEditOperation =
-  /** Set one scalar value. */
-  | "set"
-  /** Add one string to a list, unless present. */
-  | "add-item"
-  /** Remove one string from a list, unless absent. */
-  | "remove-item"
-  /** Remove the setting without supplying a value. */
-  | "remove";
 /**
  * Provider-native structured output format. JSON Schema is forwarded without rewriting or validating the schema or the generated output.
  *
@@ -4898,8 +4590,6 @@ export type SessionCapability =
   | "elicitation"
   /** Cross-session history tools and session-store SQL prompt/tool metadata. */
   | "session-store"
-  /** Read-only GitHub cache SQL tool (github_sql). */
-  | "github-cache-store"
   /** MCP Apps UI passthrough. */
   | "mcp-apps"
   /** Host-provided canvas rendering support. */
@@ -5280,30 +4970,6 @@ export type SessionsOpenProgressStatus =
   /** The step has completed successfully. */
   | "complete";
 /**
- * Copilot plan tier used by the session quota projection.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SessionQuotaPlanTier".
- */
-/** @experimental */
-export type SessionQuotaPlanTier =
-  /** Copilot Free. */
-  | "free"
-  /** Copilot education entitlement. */
-  | "edu"
-  /** Copilot Pro. */
-  | "pro"
-  /** Copilot Pro+. */
-  | "pro_plus"
-  /** Copilot Business. */
-  | "business"
-  /** Copilot Enterprise. */
-  | "enterprise"
-  /** Copilot Max. */
-  | "max"
-  /** The account's plan tier is not known. */
-  | "unknown";
-/**
  * Client metadata outcome for one requested local session.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -5466,21 +5132,6 @@ export type SessionVisibilityStatus =
   | "repo"
   /** The session is restricted to its creator and collaborators. */
   | "unshared";
-/**
- * Whether one atomic settings edit changed a file.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SettingsEditStatus".
- */
-/** @experimental */
-/** @internal */
-export type SettingsEditStatus =
-  /** The edit changed the setting and was stored. */
-  | "changed"
-  /** The setting already had the requested state. */
-  | "unchanged"
-  /** The existing settings file could not be edited safely; nothing was written. */
-  | "invalid";
 /**
  * Signal to send (default: SIGTERM)
  *
@@ -5872,38 +5523,6 @@ export type SlashCommandInvocationResult =
   | SlashCommandSetModelResult
   | SlashCommandSetPlanModelResult;
 /**
- * What the one-time staff log-level migration did.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "StaffLogLevelMigrationStatus".
- */
-/** @experimental */
-export type StaffLogLevelMigrationStatus =
-  /** The account is not a staff account, so the migration does not apply and nothing was recorded. */
-  | "ineligible"
-  /** The migration already ran; the stored completion timestamp is returned unchanged. */
-  | "current"
-  /** The migration ran now. The persisted settings may have changed, so the host should adopt the returned settings when they are present. */
-  | "refreshed";
-/**
- * What the one-time staff update-channel migration did.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "StaffUpdateChannelMigrationStatus".
- */
-/** @experimental */
-export type StaffUpdateChannelMigrationStatus =
-  /** The account is not a staff account, so the migration does not apply and nothing was recorded. */
-  | "ineligible"
-  /** The migration already ran within the cutoff window; the stored completion timestamp is returned unchanged. */
-  | "current"
-  /** The persisted update channel was changed to stable. Only this outcome requires the host to reload its configuration. */
-  | "migrated"
-  /** The persisted channel was already stable, so nothing changed, but the migration is now recorded as done. */
-  | "completed"
-  /** The account is on the experimental channel, which the migration deliberately leaves alone, and the migration is recorded as done. */
-  | "excluded-experimental";
-/**
  * Subagent settings to apply, or null to clear the live session override
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -6288,23 +5907,6 @@ export type UISessionLimitsExhaustedResponseAction =
   /** Leave the limit unchanged and cancel the blocked model request. */
   | "cancel";
 /**
- * What the one-time obsolete-settings cleanup did to the document.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsMigrateObsoleteOnDiskStatus".
- */
-/** @experimental */
-/** @internal */
-export type UserSettingsMigrateObsoleteOnDiskStatus =
-  /** No settings document exists, so there was nothing to clean. */
-  | "missing"
-  /** The document could not be parsed, so it was left untouched rather than rewritten from a partial read. */
-  | "invalid"
-  /** The document parsed and held nothing obsolete, so nothing was written. */
-  | "unchanged"
-  /** Obsolete keys were removed and the document was rewritten. */
-  | "changed";
-/**
  * Execution-critical workflow storage operation.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -6557,62 +6159,6 @@ export type WorkspacesWorkspaceDetailsHostType =
   /** Workspace repository is hosted on Azure DevOps. */
   | "ado";
 /**
- * True when this process can offer installing the sandbox credential-proxy certificate authority into OS trust.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxProxyCaCheckInstallationSupportResult".
- */
-/** @experimental */
-export type SandboxProxyCaCheckInstallationSupportResult = boolean;
-/**
- * True when the sandbox configuration uses the credential proxy and can need certificate-authority setup.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxProxyCaCheckRelevanceResult".
- */
-/** @experimental */
-export type SandboxProxyCaCheckRelevanceResult = boolean;
-/**
- * True when an OS-level sandbox can run on this host.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxCheckPlatformSupportResult".
- */
-/** @experimental */
-export type SandboxCheckPlatformSupportResult = boolean;
-/**
- * True when the sandbox on this host can reach host loopback directly.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxCheckWindowsHostLoopbackSupportResult".
- */
-/** @experimental */
-export type SandboxCheckWindowsHostLoopbackSupportResult = boolean;
-/**
- * The user-facing refusal, including the platform remedy and the documentation link.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxGetUnsupportedMessageResult".
- */
-/** @experimental */
-export type SandboxGetUnsupportedMessageResult = string;
-/**
- * The user-facing notice that a saved sandbox setting is inert for this session.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxGetUnsupportedSettingDisabledNoticeResult".
- */
-/** @experimental */
-export type SandboxGetUnsupportedSettingDisabledNoticeResult = string;
-/**
- * True when the command stays available while enforcement is blocked.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxCheckEnforcementCommandResult".
- */
-/** @experimental */
-export type SandboxCheckEnforcementCommandResult = boolean;
-/**
  * List of all authenticated users
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -6652,14 +6198,6 @@ export type SessionGitHubAuthLogoutResult = boolean;
  */
 /** @experimental */
 export type SessionGitHubAuthLogoutUserResult = boolean;
-/**
- * Pending warnings returned and cleared by session.quota.takeWarnings.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SessionQuotaTakeWarningsResult".
- */
-/** @experimental */
-export type SessionQuotaTakeWarningsResult = QuotaWarningProjection[];
 
 /**
  * Parameters for aborting the current turn
@@ -7326,62 +6864,6 @@ export interface ApiKeyAuthInfo {
   copilotUser?: CopilotUserResponse;
 }
 /**
- * The authentication identity whose shared wording should be rendered.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "AccountDescribeAuthInfoRequest".
- */
-/** @experimental */
-/** @internal */
-export interface AccountDescribeAuthInfoRequest {
-  identity: AuthIdentity;
-}
-/**
- * Credential-free authentication identity safe to expose to hosts and user interfaces.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "AuthIdentity".
- */
-/** @experimental */
-export interface AuthIdentity {
-  type: AuthInfoType;
-  /**
-   * Authentication host
-   */
-  host: string;
-  /**
-   * Authenticated login, when available
-   */
-  login?: string;
-  /**
-   * Name of the environment variable that supplied the credential, when applicable
-   */
-  envVar?: string;
-  /**
-   * Opaque SDK GitHub credential registration backing this identity. Routing metadata only; never a credential.
-   */
-  registrationId?: string;
-  copilotUser?: CopilotUserResponse;
-}
-/**
- * The wording the runtime uses for an authentication identity.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "AccountDescribeAuthInfoResult".
- */
-/** @experimental */
-/** @internal */
-export interface AccountDescribeAuthInfoResult {
-  /**
-   * Sign-in banner announcing the authenticated user.
-   */
-  message: string;
-  /**
-   * One-line description of the identity, suitable after a verb such as "Switched to".
-   */
-  description: string;
-}
-/**
  * Current authentication state
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -7394,39 +6876,6 @@ export interface AccountGetCurrentAuthResult {
    * Authentication errors from the last auth attempt, if any
    */
   authErrors?: string[];
-}
-/**
- * The authentication identity whose gist support should be reported.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "AccountGetGistSupportRequest".
- */
-/** @experimental */
-/** @internal */
-export interface AccountGetGistSupportRequest {
-  identity: AuthIdentity;
-}
-/**
- * Whether the identity can create gists, and why not when it cannot.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "AccountGetGistSupportResult".
- */
-/** @experimental */
-/** @internal */
-export interface AccountGetGistSupportResult {
-  /**
-   * True when the identity can create gists.
-   */
-  supported: boolean;
-  /**
-   * Machine-readable reason category when unsupported.
-   */
-  kind?: string;
-  /**
-   * Human-readable explanation to show where the gist action would have been.
-   */
-  reason?: string;
 }
 
 /** @experimental */
@@ -7495,49 +6944,6 @@ export interface AccountQuotaSnapshot {
    * Date when the quota resets (ISO 8601 string)
    */
   resetDate?: string;
-}
-/**
- * The environment variable supplying a classic personal access token, when one is set.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "AccountGetTokenEnvVarResult".
- */
-/** @experimental */
-/** @internal */
-export interface AccountGetTokenEnvVarResult {
-  /**
-   * Variable name, for example `GH_TOKEN`. Absent when no classic token is present in the environment.
-   */
-  name?: string;
-}
-/**
- * A path to resolve against the GitHub host an identity is signed in to.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "AccountGetWebUrlRequest".
- */
-/** @experimental */
-/** @internal */
-export interface AccountGetWebUrlRequest {
-  /**
-   * Host-relative path, without a leading slash, for example `settings/copilot/features`.
-   */
-  path: string;
-  identity?: AuthIdentity;
-}
-/**
- * An absolute URL on the identity's GitHub host.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "AccountGetWebUrlResult".
- */
-/** @experimental */
-/** @internal */
-export interface AccountGetWebUrlResult {
-  /**
-   * Absolute URL for the requested path.
-   */
-  url: string;
 }
 /**
  * Credentials to validate and store. Omit login to resolve the authenticated user from the token.
@@ -7633,10 +7039,6 @@ export interface AccountStatus {
    */
   login: string;
   kind: AccountKind;
-  /**
-   * Human-readable credential source used to authenticate this account, such as `gh` or `GITHUB_TOKEN`.
-   */
-  authSource?: string;
   /**
    * Opaque id of the account this one was derived from (e.g. an EMU account's base Entra identity); absent for a root account. Matches the base identity account's selectionId, forming the derivation edge.
    */
@@ -7768,12 +7170,6 @@ export interface AgentInfo {
    * Authored base prompt for the agent. Runtime prompt assembly may add dynamic context at invocation time. Omitted from `session.agent.list` unless `includePrompt` is true.
    */
   prompt?: string;
-  /**
-   * Declarative hook actions keyed by event name, executed only while this agent is active.
-   */
-  hooks?: {
-    [k: string]: JsonValue[] | undefined;
-  };
 }
 /**
  * Agents available to the session.
@@ -8054,10 +7450,6 @@ export interface AgentsCustomAgentInitialModelDecisionResult {
 /** @experimental */
 export interface AgentsDiscoverRequest {
   /**
-   * Explicit discovery-only agent roots, separate from customAgents and filesystem grants. Available without ambient discovery, subject to managed/source disables. Relative paths resolve against the request's effective working directory when supplied. Null and omission are equivalent; an empty array contributes no explicit roots.
-   */
-  agentDirectories?: string[];
-  /**
    * Optional list of project directory paths to scan for project-scoped agents. When omitted or empty, only user/plugin/remote-independent agents are returned (no project scan).
    */
   projectPaths?: string[];
@@ -8251,10 +7643,6 @@ export interface AgentsGetBuiltinsResult {
 /** @experimental */
 export interface AgentsGetDiscoveryPathsRequest {
   /**
-   * Explicit discovery-only agent roots to enumerate, including configured missing directories. Relative paths resolve against the request's effective working directory when supplied. These are not filesystem grants or preferred creation targets. Null and omission are equivalent.
-   */
-  agentDirectories?: string[];
-  /**
    * Optional list of project directory paths. When omitted or empty, only the user-level directory is returned.
    */
   projectPaths?: string[];
@@ -8280,6 +7668,33 @@ export interface ProviderDescriptor {
    * Whether this provider is currently available to sign in with.
    */
   available: boolean;
+}
+/**
+ * Credential-free authentication identity safe to expose to hosts and user interfaces.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AuthIdentity".
+ */
+/** @experimental */
+export interface AuthIdentity {
+  type: AuthInfoType;
+  /**
+   * Authentication host
+   */
+  host: string;
+  /**
+   * Authenticated login, when available
+   */
+  login?: string;
+  /**
+   * Name of the environment variable that supplied the credential, when applicable
+   */
+  envVar?: string;
+  /**
+   * Opaque SDK GitHub credential registration backing this identity. Routing metadata only; never a credential.
+   */
+  registrationId?: string;
+  copilotUser?: CopilotUserResponse;
 }
 /**
  * Credential-free identity metadata.
@@ -9160,8 +8575,6 @@ export interface CatalogAgentPluginCandidate {
     | [CatalogAgentPluginCompatibilityTag]
     | [CatalogAgentPluginCompatibilityTag, CatalogAgentPluginCompatibilityTag]
     | [CatalogAgentPluginCompatibilityTag, CatalogAgentPluginCompatibilityTag, CatalogAgentPluginCompatibilityTag];
-  installability?: CatalogAgentPluginInstallability;
-  installPlan?: CatalogAgentPluginInstallPlan;
   provenance: CatalogAgentPluginCandidateProvenance;
   trust?: CatalogTrustSnapshot;
 }
@@ -9181,102 +8594,6 @@ export interface CatalogPluginRepositorySource {
    * Case-preserving safe relative POSIX path derived from metadata.repoPath.
    */
   path: string;
-}
-/**
- * What installing an Agent Plugin would do, for the user to review and confirm. Provisional: the catalogue install data it is built from is not final.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginInstallPlan".
- */
-/** @experimental */
-export interface CatalogAgentPluginInstallPlan {
-  /**
-   * Every valid install source, in preference order: materialization, then marketplace, then repository. Each kind appears at most once.
-   *
-   * @minItems 1
-   * @maxItems 3
-   */
-  sources:
-    | [CatalogAgentPluginInstallSource]
-    | [CatalogAgentPluginInstallSource, CatalogAgentPluginInstallSource]
-    | [CatalogAgentPluginInstallSource, CatalogAgentPluginInstallSource, CatalogAgentPluginInstallSource];
-  /**
-   * The plugin's name, as named in its marketplace or manifest.
-   */
-  pluginName: string;
-  version?: CatalogResourceVersion;
-  /**
-   * Exact full commit ID to install, in lowercase hex. Always present when the plan has a repository source; a plan with a marketplace source carries at least one of version and commit.
-   */
-  commit?: string;
-  /**
-   * Components the plugin contributes, in canonical order.
-   *
-   * @minItems 1
-   */
-  components: [CatalogAgentPluginComponent, ...CatalogAgentPluginComponent[]];
-  /**
-   * Canvas IDs the plugin contributes. Non-empty exactly when components include `canvas`.
-   */
-  canvasIds: string[];
-  /**
-   * Extension IDs the plugin contributes. Non-empty exactly when components include `extension`.
-   */
-  extensionIds: string[];
-  /**
-   * MCP servers the plugin depends on but does not bundle.
-   */
-  mcpDependencies: string[];
-  /**
-   * Connectors the plugin depends on.
-   */
-  connectorDependencies: string[];
-}
-/**
- * Agent Finder's verified materialisation of the plugin. Present only when the candidate carries a complete materialisation reference; the reference itself stays runtime-private.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginMaterializationSource".
- */
-/** @experimental */
-export interface CatalogAgentPluginMaterializationSource {
-  kind: CatalogAgentPluginMaterializationSourceKind;
-}
-/**
- * A plugin marketplace named by verified catalogue install data, installed as `pluginName@name`.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginMarketplaceSource".
- */
-/** @experimental */
-export interface CatalogAgentPluginMarketplaceSource {
-  kind: CatalogAgentPluginMarketplaceSourceKind;
-  /**
-   * Marketplace name.
-   */
-  name: string;
-  /**
-   * Canonical lowercase GitHub owner/repository hosting the marketplace.
-   */
-  repository: string;
-}
-/**
- * A GitHub repository holding the plugin, installed directly as `owner/repo[:path]` at the plan's commit, without a marketplace.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogAgentPluginRepositorySource".
- */
-/** @experimental */
-export interface CatalogAgentPluginRepositorySource {
-  kind: CatalogAgentPluginRepositorySourceKind;
-  /**
-   * Canonical lowercase GitHub owner/repository holding the plugin.
-   */
-  repository: string;
-  /**
-   * Relative POSIX path of the plugin directory in the repository. Omitted when the plugin is at the repository root.
-   */
-  path?: string;
 }
 /**
  * Where and when an Agent Plugin catalog reference was observed. Discovery provenance deliberately carries no descriptor URL, raw data, candidate handle, or content digest.
@@ -11118,32 +10435,6 @@ export interface ContentExclusionPathCheck {
   excluded: boolean;
 }
 /**
- * Candidate content-exclusion policies to validate, as the raw JSON text a host received. The text is supplied unparsed so that a syntax error and a schema violation are both reported by the runtime's own validator rather than by the caller's JSON parser.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ContentExclusionValidatePoliciesRequest".
- */
-/** @experimental */
-export interface ContentExclusionValidatePoliciesRequest {
-  /**
-   * Unparsed JSON text expected to hold an array of content-exclusion policies.
-   */
-  policiesJson: string;
-}
-/**
- * The accepted policies, parsed and normalized. A rejected input is reported as an error rather than in this result.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ContentExclusionValidatePoliciesResult".
- */
-/** @experimental */
-export interface ContentExclusionValidatePoliciesResult {
-  /**
-   * Validated policy objects in input order. Raw JSON preserves every field returned by the runtime's policy parser.
-   */
-  policies: JsonValue[];
-}
-/**
  * A single large message currently in context.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -11181,17 +10472,9 @@ export interface CurrentModel {
    */
   modelId?: string;
   /**
-   * Provider selected for this model. Together with modelId, identifies a catalog entry even when providers serve the same model. Omitted for unattributed legacy selections.
-   */
-  providerId?: string;
-  /**
    * Captured base model to restore when leaving plan mode. Omitted outside plan mode or when no plan override has captured a base model. Persistent agent model requirements apply to this model rather than the temporary plan model.
    */
   planBaseModelId?: string;
-  /**
-   * Provider of planBaseModelId, when that saved selection is provider-qualified.
-   */
-  planBaseProviderId?: string;
   /**
    * Reasoning effort level currently applied to the active model, when one is set. Reads `Session.getReasoningEffort()` synchronously after `getSelectedModel()` resolves so the two values are reported as a snapshot.
    */
@@ -12646,161 +11929,6 @@ export interface ExternalToolTextResultForLlmContentResource {
   resource: ExternalToolTextResultForLlmContentResourceDetails;
 }
 /**
- * The declared shape of one feature flag, independent of any caller population.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "FeatureFlagMetadata".
- */
-/** @experimental */
-/** @internal */
-export interface FeatureFlagMetadata {
-  /**
-   * The flag's name, matching the key it is listed under.
-   */
-  name: string;
-  availability: FeatureFlagAvailability;
-  /**
-   * Whether the flag participates in the CAPI sanity suite.
-   */
-  capiSanity: boolean;
-  /**
-   * Text shown to a user choosing whether to turn the flag on in experimental mode. Absent when the flag is not user-facing.
-   */
-  experimentalDescription?: string;
-  /**
-   * The online-experiment (ExP) flag this maps to, when the flag is assigned by an experiment rather than declared statically.
-   */
-  expFlag?: string;
-  /**
-   * Environment variable that overrides this flag's experiment assignment locally in the experiment service, not in `featureFlags.resolve`. Present exactly when `expFlag` is, and derived from it, so a caller reads a local override without reproducing the naming rule.
-   */
-  expFlagEnvVar?: string;
-}
-/**
- * Every feature flag this runtime declares, with the shape each one was declared with.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "FeatureFlagsMetadataResult".
- */
-/** @experimental */
-/** @internal */
-export interface FeatureFlagsMetadataResult {
-  /**
-   * Declared feature flags keyed by flag name.
-   */
-  flags: {
-    [k: string]: FeatureFlagMetadata;
-  };
-}
-/**
- * Caller population and overrides for static feature-flag resolution, independent of experiment assignments and active runtime state.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "FeatureFlagsResolveRequest".
- */
-/** @experimental */
-/** @internal */
-export interface FeatureFlagsResolveRequest {
-  /**
-   * Whether the caller is GitHub or Microsoft staff.
-   */
-  isStaff: boolean;
-  /**
-   * Whether the caller is in an experimental population.
-   */
-  isExperimental: boolean;
-  /**
-   * Whether the caller belongs to the team population used by feature availability.
-   */
-  isTeam: boolean;
-  /**
-   * GitHub-staff membership. Omit when it was never recorded: a legacy staff account then counts as both staff populations and keeps every staff feature.
-   */
-  isStaffGithub?: boolean;
-  /**
-   * Microsoft-staff membership. Omitted the same way as `isStaffGitHub`.
-   */
-  isStaffMicrosoft?: boolean;
-  /**
-   * Resolve against this already-computed flag set rather than each flag's declared availability. Keyed by flag name.
-   */
-  baseFlags?: {
-    [k: string]: boolean | undefined;
-  };
-  /**
-   * Environment for direct feature-flag overrides and `COPILOT_CLI_ENABLED_FEATURE_FLAGS`. Does not apply `COPILOT_EXP_*` experiment assignments. Defaults to this runtime process's own environment.
-   */
-  environment?: {
-    [k: string]: string | undefined;
-  };
-  /**
-   * User settings to apply, including `enabledFeatureFlags`, legacy `feature_flags.enabled`, and supported convenience settings.
-   */
-  config?: JsonValue;
-  /**
-   * Flags forced to a value after every other layer, keyed by flag name.
-   */
-  flagOverrides?: {
-    [k: string]: boolean | undefined;
-  };
-}
-/**
- * Caller population and startup inputs to resolve named online-experiment gates for. Carries no account: the runtime resolves the assignment for the authentication it already holds.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "FeatureFlagsResolveStartupGatesRequest".
- */
-/** @experimental */
-/** @internal */
-export interface FeatureFlagsResolveStartupGatesRequest {
-  /**
-   * The feature flags to resolve. A name this runtime does not declare is reported as an error rather than as a disabled flag.
-   */
-  flags: string[];
-  /**
-   * Whether the caller is GitHub or Microsoft staff.
-   */
-  isStaff: boolean;
-  /**
-   * Whether the caller is in an experimental population.
-   */
-  isExperimental: boolean;
-  /**
-   * Whether the caller belongs to a team plan.
-   */
-  isTeam: boolean;
-  /**
-   * GitHub-staff membership. Omit when it was never recorded: a legacy staff account then counts as both staff populations and keeps every staff feature.
-   */
-  isStaffGithub?: boolean;
-  /**
-   * Microsoft-staff membership. Omitted the same way as `isStaffGitHub`.
-   */
-  isStaffMicrosoft?: boolean;
-  /**
-   * Environment to read flag overrides from. Defaults to this runtime process's own environment.
-   */
-  environment?: {
-    [k: string]: string | undefined;
-  };
-  /**
-   * User settings document whose `featureFlags` block is layered on top of the resolved set.
-   */
-  config?: JsonValue;
-  /**
-   * Whether streamer mode is on, which withholds the populations an experiment would otherwise segment on.
-   */
-  streamerMode: boolean;
-  /**
-   * When this installation first launched, in milliseconds since the Unix epoch. Experiments that segment on installation age read it. Omit when the first launch was never recorded.
-   */
-  firstLaunchAtMillis?: number;
-  /**
-   * Whether the runtime may refresh the cached assignment over the network without an active session. The refresh never blocks this call: the answer comes from the cache either way, so a refresh only affects a later launch.
-   */
-  refreshWithoutSession: boolean;
-}
-/**
  * Parameters for starting fleet orchestration: an optional user prompt combined with the fleet instructions, plus the send options forwarded to the resulting turn.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -12878,62 +12006,6 @@ export interface FolderTrustCheckResult {
    * Whether the folder is trusted
    */
   trusted: boolean;
-}
-/**
- * A folder to check against a persisted trusted-folders list, and the configuration directory holding that list.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "FolderTrustIsTrustedParams".
- */
-/** @experimental */
-/** @internal */
-export interface FolderTrustIsTrustedParams {
-  /**
-   * Folder to check. A folder counts as trusted when it is itself listed, when an ancestor is listed, or when its git root is listed.
-   */
-  path: string;
-  /**
-   * Configuration directory to read the trusted-folders list from. Omit it to read the default location; supply it when the host has redirected its configuration, or the check answers from a list the host is not using.
-   */
-  configDir?: string;
-}
-/**
- * The verdict of the `forceLoginOrgs` enterprise sign-in pin for one credential. A managed device may pin Copilot to an approved set of GitHub organizations so a developer cannot sign in with a personal — or another enterprise's — account and escape every control that keys off the signed-in identity. A host must refuse to proceed when `allowed` is false; the remaining fields explain the refusal rather than qualifying it.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ForceLoginOrgsDecision".
- */
-/** @experimental */
-/** @internal */
-export interface ForceLoginOrgsDecision {
-  /**
-   * Whether the client may proceed. True whenever no pin is in force, so an unmanaged host is never blocked.
-   */
-  allowed: boolean;
-  /**
-   * Whether a pin applies at all. Distinguishes "allowed because unmanaged" from "allowed because the account is approved", which a diagnostics surface needs and which also decides whether a bring-your-own-key provider may serve inference.
-   */
-  enforced: boolean;
-  /**
-   * The approved organization logins, as configured. Enterprise configuration rather than user data, so it is safe to name in a message or a log line.
-   */
-  requiredOrgs: string[];
-  /**
-   * The approved organization the account matched, when allowed under a pin.
-   */
-  matchedOrg?: string;
-  /**
-   * A stable kebab-case reason code when refused: `org-not-approved`, `unverifiable-credential`, `policy-undetermined`, `policy-invalid`, `not-signed-in`, or `membership-unknown`. Omitted when allowed. Treat an unrecognized code as a refusal rather than mapping it to an allow: a code this host has not been taught about still denied the credential.
-   */
-  denial?: string;
-  /**
-   * A developer-facing explanation of the refusal. Omitted when allowed.
-   */
-  message?: string;
-  /**
-   * Error-level detail from managed-policy discovery — which file failed to load, which field failed validation. Carried on the decision rather than left to the log because a refusal can exit the process before a log sink exists, which would discard the only actionable diagnostic a misconfigured managed device produces.
-   */
-  policyDiagnostics: string[];
 }
 /**
  * The remote the checked-out branch tracks.
@@ -13411,6 +12483,10 @@ export interface GlobalStateLoadResult {
    * Folders the user has marked as trusted.
    */
   trustedFolders?: string[];
+  /**
+   * Whether the user has answered the prompt suggesting they install the desktop app.
+   */
+  appInstallNudgeResponded?: boolean;
   /**
    * When the Auto-feedback hint was last shown, as an ISO 8601 timestamp. It enforces the once-per-day cap for non-staff users across restarts.
    */
@@ -13977,10 +13053,6 @@ export interface HookInvokeResponse {
 /** @experimental */
 export interface HooksDiscoverRequest {
   /**
-   * Explicit discovery-only file-hook roots, separate from callback hooks and filesystem grants. Available without ambient discovery or repository file-hook enablement, subject to managed/hook disables. Relative paths resolve against the request's effective working directory when supplied. Null and omission are equivalent; an empty array contributes no explicit roots.
-   */
-  hookDirectories?: string[];
-  /**
    * Optional project directory paths whose trusted repository and project-expanded plugin hooks should be discovered. When omitted or empty, user, managed-policy, and globally enabled installed or explicit plugin hooks are returned without project expansion.
    */
   projectPaths?: string[];
@@ -14070,10 +13142,6 @@ export interface HostGitHubEnvironmentOptions {
    * Stable application installation identity, reused across host restarts.
    */
   computeId: string;
-  /**
-   * Require sealed, connection-bound authentication (default true), independent of listener address. False permits unsealed direct credentials and unbound sealed relay credentials; use only when the caller fully controls and trusts the direct transport. Relay token encryption remains mandatory.
-   */
-  requireConnectionBinding?: boolean;
 }
 /**
  * Stops a connection-owned listener and joins its teardown.
@@ -14142,66 +13210,6 @@ export interface HostExitedNotification {
    * Explicit startup or teardown failure, when present.
    */
   error?: string | null;
-}
-/**
- * Reads a running host's catalog or the runtime's saved default catalog.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "HostListSessionsRequest".
- */
-/** @experimental */
-export interface HostListSessionsRequest {
-  /**
-   * Listener UUID returned by host.start; the caller must own it. Omit to read
-   * the saved default compute-identity catalog without starting a listener.
-   */
-  hostId?: string;
-}
-/**
- * The complete live and dormant advertised catalog, without subscribing to sessions.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "HostListSessionsResult".
- */
-/** @experimental */
-export interface HostListSessionsResult {
-  /**
-   * Complete advertised session summaries, in the host's catalog order.
-   */
-  sessions: HostSessionSummary[];
-}
-/**
- * Metadata advertised by the AHP host, not a guarantee that history can be resumed.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "HostSessionSummary".
- */
-/** @experimental */
-export interface HostSessionSummary {
-  /**
-   * Stable AHP resource URI identifying the session on this host.
-   */
-  resource: string;
-  /**
-   * Authoritative title advertised by the host.
-   */
-  title: string;
-  /**
-   * Session creation time as an ISO 8601 timestamp.
-   */
-  createdAt: string;
-  /**
-   * Last modification time as an ISO 8601 timestamp.
-   */
-  modifiedAt: string;
-  /**
-   * Unsigned 32-bit AHP session status bitset (0..=4294967295); unknown bits must be preserved.
-   */
-  status: number;
-  /**
-   * Optional activity description advertised by the host.
-   */
-  activity?: string;
 }
 /**
  * Local WebSocket transport options.
@@ -14360,11 +13368,6 @@ export interface HostSessionCreateRequest {
    */
   resume?: boolean;
   /**
-   * For an explicit publication, borrow an existing owning-connection resident
-   * instead of invoking the resume factory. Cold sessions still use the factory.
-   */
-  preferResident?: boolean;
-  /**
    * Host-selected SDK creation or resume settings, without executable callbacks or tools.
    */
   config: {
@@ -14426,10 +13429,6 @@ export interface HostStartRequest {
    * Caller-generated UUID identifying this connection-owned listener.
    */
   hostId: string;
-  /**
-   * Stable application identity selecting its durable host catalog. Defaults to the persisted runtime compute GUID; must agree with githubEnvironment.computeId when both are supplied.
-   */
-  computeId?: string;
   localServer?: HostLocalServerOptions;
   githubEnvironment?: HostGitHubEnvironmentOptions;
   /**
@@ -15065,40 +14064,6 @@ export interface InstructionDiscoveryPathList {
   paths: InstructionDiscoveryPath[];
 }
 /**
- * Explicit discovery arguments for one location, supplied by the caller rather than derived from a session.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "InstructionsDiscoverRepoSourcesRequest".
- */
-/** @experimental */
-/** @internal */
-export interface InstructionsDiscoverRepoSourcesRequest {
-  /**
-   * Repository location to discover. An empty string selects no repository scope; cwdPath can still supply working-directory sources.
-   */
-  location: string;
-  /**
-   * When true, include the sources a command-line host reads. Hosts that are not the CLI omit it.
-   */
-  isCli?: boolean;
-  /**
-   * Working directory whose instruction sources should also be included. Omission adds no separate working-directory scope.
-   */
-  cwdPath?: string;
-  /**
-   * Copilot configuration directory for user-level sources. An omitted or empty value uses the server's configuration home.
-   */
-  configDir?: string;
-  /**
-   * Extra directories to scan alongside instruction directories configured in the runtime environment.
-   */
-  additionalDirs?: string[];
-  /**
-   * When true, also discover instruction files nested below the location.
-   */
-  enableChildInstructions?: boolean;
-}
-/**
  * Optional project paths to include in instruction discovery.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -15106,10 +14071,6 @@ export interface InstructionsDiscoverRepoSourcesRequest {
  */
 /** @experimental */
 export interface InstructionsDiscoverRequest {
-  /**
-   * Explicit discovery-only instruction roots using existing SDK instruction formats, not filesystem grants. Available without ambient discovery, subject to instruction/managed disables. Relative paths resolve against the request's effective working directory when supplied. Null and omission are equivalent; an empty array contributes no explicit roots.
-   */
-  instructionDirectories?: string[];
   /**
    * Optional list of project directory paths to scan for repository/working-directory instruction sources. When omitted or empty, only user-level and plugin instruction sources are returned (no project scan).
    */
@@ -15127,10 +14088,6 @@ export interface InstructionsDiscoverRequest {
  */
 /** @experimental */
 export interface InstructionsGetDiscoveryPathsRequest {
-  /**
-   * Explicit discovery-only instruction roots to enumerate, including configured missing directories. Relative paths resolve against the request's effective working directory when supplied. These are not filesystem grants or preferred creation targets. Null and omission are equivalent.
-   */
-  instructionDirectories?: string[];
   /**
    * Optional list of project directory paths. When omitted or empty, only the user-level targets are returned.
    */
@@ -15195,20 +14152,6 @@ export interface InstructionSource {
    * The project path this source was discovered from. Only set by sessionless discovery for repository, working-directory, and project-scoped plugin sources, where it disambiguates sources across multiple workspace roots. The session-scoped getSources leaves it unset.
    */
   projectPath?: string;
-}
-/**
- * The prompt the init command runs.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "InstructionsInitPromptResult".
- */
-/** @experimental */
-/** @internal */
-export interface InstructionsInitPromptResult {
-  /**
-   * Prompt text authoring repository instructions.
-   */
-  prompt: string;
 }
 /**
  * Parameters for interrupting the main agent turn.
@@ -15544,20 +14487,6 @@ export interface SessionContext {
   branch?: string;
 }
 /**
- * Which stored location permissions were dropped because their directory is gone.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "LocationPermissionsCleanupResult".
- */
-/** @experimental */
-/** @internal */
-export interface LocationPermissionsCleanupResult {
-  /**
-   * Location keys whose grants were removed. Empty when every stored location still exists.
-   */
-  removedLocationKeys: string[];
-}
-/**
  * Message text, optional severity level, persistence flag, optional follow-up URL, and optional tip.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -15650,61 +14579,6 @@ export interface ManagedMcpServerConfig {
    */
   headersRefreshTtlMs?: number;
 }
-
-/** @experimental */
-export interface ManagedPermissionEvaluation {
-  operation: ManagedPermissionOperation;
-  verdict: ManagedPermissionVerdict;
-}
-/**
- * Managed policy context and ordered operations for pure, sessionless evaluation.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedPermissionsEvaluateRequest".
- */
-/** @experimental */
-export interface ManagedPermissionsEvaluateRequest {
-  context: ManagedPermissionsContext;
-  /**
-   * Operations to evaluate, preserving input order and duplicates. An empty batch is valid.
-   */
-  operations: ManagedPermissionOperation[];
-}
-/**
- * Ordered managed permission verdicts and the supplied policy's fail-closed posture.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedPermissionsEvaluateResult".
- */
-/** @experimental */
-export interface ManagedPermissionsEvaluateResult {
-  /**
-   * One verdict per input operation, in the same order, including duplicates.
-   */
-  results: ManagedPermissionEvaluation[];
-  /**
-   * Managed permission policy could not be determined; every operation is denied.
-   */
-  failClosed: boolean;
-}
-/**
- * Retry outcome for one plugin required by managed settings.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedPluginRetryEntry".
- */
-/** @experimental */
-export interface ManagedPluginRetryEntry {
-  /**
-   * Plugin spec in "plugin@marketplace" form.
-   */
-  spec: string;
-  status: ManagedPluginRetryStatus;
-  /**
-   * Why the plugin was not prepared. Present when `status` is `failed` or `deferred`.
-   */
-  error?: string;
-}
 /**
  * Lock state and provenance of one managed setting.
  *
@@ -15721,42 +14595,6 @@ export interface ManagedSettingMeta {
    * Channel that supplied this scalar value, matching a `layers[].source`: `device`, `server`, or `policyHelper`. These scalar defaults select one winning channel, not a mixed source. Treat unknown values as additional channels; more may be added.
    */
   source: string;
-  /**
-   * Original managed value when the runtime adjusted it to a supported effective value. Omitted when no adjustment was needed.
-   */
-  requested?: string;
-}
-/**
- * A user settings document and the effective managed policy whose controlled entries should be stamped onto it.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsApplyControlsParams".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsApplyControlsParams {
-  /**
-   * The user settings document to stamp. Entries the managed layer does not name are returned exactly as supplied.
-   */
-  settings: JsonValue;
-  /**
-   * The effective managed policy, as composed by `managedSettings.resolveEffectiveValue`. Omit it on an unmanaged host: the settings then come back unchanged.
-   */
-  managed?: JsonValue;
-}
-/**
- * The user settings with the managed layer's controlled entries stamped on.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsApplyControlsResult".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsApplyControlsResult {
-  /**
-   * The resulting settings document.
-   */
-  settingsJson: JsonValue;
 }
 /**
  * One candidate channel; absent settings represents a channel that delivered no document.
@@ -15814,15 +14652,10 @@ export interface ManagedSettingsComposeResult {
 /** @experimental */
 export interface ManagedSettingsValues {
   /**
-   * Managed default model identifier. When model availability was resolved, aliases and family names are projected to a concrete available model ID; otherwise the configured value is returned.
+   * Managed default model identifier, as configured. New sessions start with it; it can name a model the account cannot use, so hosts match it against the listed models.
    */
   model?: string;
   autoTier?: AutoTier;
-  /**
-   * Managed reasoning-effort default for the managed concrete model. The runtime clamps it to an entitled effort when model availability is known.
-   */
-  effortLevel?: string;
-  contextTier?: ContextTier;
 }
 /**
  * Per-key lock state and provenance for `ManagedSettingsValues`, with the same field names. Producers emit each typed key in values and meta together; both outer objects are omitted when no typed key is set.
@@ -15834,8 +14667,6 @@ export interface ManagedSettingsValues {
 export interface ManagedSettingsMeta {
   model?: ManagedSettingMeta;
   autoTier?: ManagedSettingMeta;
-  effortLevel?: ManagedSettingMeta;
-  contextTier?: ManagedSettingMeta;
 }
 /**
  * One managed-settings channel and the document it delivered.
@@ -15873,308 +14704,6 @@ export interface ManagedSettingsDiagnostic {
   message: string;
 }
 /**
- * Inputs describing the host and account an ingestion should resolve managed policy for.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsIngestParams".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsIngestParams {
-  policyHelperReason?: ManagedSettingsPolicyHelperReason;
-  /**
-   * Whether to run ingestion. Omit or set false to return an empty result without discovering or fetching policy.
-   */
-  selfFetch?: boolean;
-  /**
-   * The authenticated identity to resolve policy for. Omitted before sign-in, in which case no server layer is fetched.
-   */
-  authInfo?: JsonValue;
-  /**
-   * The session whose credential store and working directory the policy helper should use. Omit it when no session exists yet and the process-wide store applies.
-   */
-  sessionId?: string;
-  /**
-   * A device layer supplied by the host instead of discovered from the machine. Pair it with `hasDeviceResponse` so an explicit absence is distinguishable from an omitted override.
-   */
-  deviceResponse?: JsonValue;
-  /**
-   * Whether `deviceResponse` is an override at all. True with a null `deviceResponse` asserts the device layer is empty; false discovers it from the machine.
-   */
-  hasDeviceResponse?: boolean;
-  /**
-   * Whether to ignore a cached server policy when reading, forcing the resolution to come from a live fetch.
-   */
-  bypassCacheRead?: boolean;
-  serverPolicyCacheMode?: ManagedSettingsServerPolicyCacheMode;
-  /**
-   * Whether a configured platform policy helper may be run to produce an enforced helper layer.
-   */
-  policyHelperEnabled?: boolean;
-  /**
-   * Directory the policy helper runs in when this ingestion is not owned by a registered session. A host resolving policy before its session exists must pass this, or a directory-sensitive helper judges the wrong repository.
-   */
-  policyHelperWorkingDirectory?: string;
-  /**
-   * User agent to send with the policy fetch.
-   */
-  userAgent: string;
-  /**
-   * Name of the embedding client, reported to the managed-settings service as `client_id` so it can refuse to deliver a policy this client is too old to enforce. Omit it and the runtime reports a generic identity; the runtime version sent alongside is the gate that actually matters.
-   */
-  clientName?: string;
-  /**
-   * The host's environment variables, read for cache location and policy overrides. Supplied by the host rather than read from the runtime process so a command that selected its own configuration home is honored.
-   */
-  environment: JsonValue;
-  /**
-   * The host's platform, in Node's `process.platform` spelling, used to locate platform-specific cache and policy paths.
-   */
-  platform: string;
-  /**
-   * The host's home directory, used to resolve cache and managed-file locations.
-   */
-  homeDirectory: string;
-}
-/**
- * The managed policy layers an ingestion resolved, together with the per-layer outcome flags a host needs to decide how much to trust the result. The flags are reported rather than folded into the settings because a host must be able to distinguish an unmanaged device from a managed device whose policy could not be confirmed, and apply its fail-closed gates in the second case.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsIngestResult".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsIngestResult {
-  /**
-   * The effective managed settings composed from every resolved layer. Omitted when no layer set anything, so an unmanaged host locks nothing.
-   */
-  settings?: JsonValue;
-  /**
-   * The effective managed permissions layer, when the resolved policy carries one.
-   */
-  permissions?: JsonValue;
-  /**
-   * The server fetch failed and no cached entry stood in for it, so the server layer is unconfirmed and fail-closed gates apply.
-   */
-  serverFetchFailed: boolean;
-  /**
-   * No usable token was available, so no server fetch was attempted.
-   */
-  serverTokenUnavailable: boolean;
-  /**
-   * The error that made the server fetch fail, when one did.
-   */
-  serverFetchError?: string;
-  serverResolution: ManagedSettingsServerPolicyResolution;
-  /**
-   * The server fetch failed in a way a later retry could succeed at, as opposed to a refusal that no retry will change.
-   */
-  serverRetryableFailure: boolean;
-  /**
-   * A live fetch failed but a recent cached entry was served in its place, so `serverFetchFailed` stays false. Lets a consumer distinguish a clean fetch from a cache-backed fallback.
-   */
-  serverCacheFallback: boolean;
-  /**
-   * A server-managed policy is known to exist even though `serverResponse` is intentionally unset. Consumers should OR this with the presence of `serverResponse` when deciding whether the device is managed, so a fresh start during an outage still applies the fail-closed gates instead of treating the device as unmanaged.
-   */
-  serverSourceFound: boolean;
-  /**
-   * The account's server-delivered policy, when one was resolved.
-   */
-  serverResponse?: JsonValue;
-  /**
-   * The sandbox object from a cached server policy that a forced refresh declined to serve in full. Folded back into the effective sandbox layer so an outage during a forced refresh still synthesizes the fail-closed sandbox floor from the administrator's known intent.
-   */
-  serverSandboxFloor?: JsonValue;
-  /**
-   * The server fetch failed while a policy demanded a fresh confirmation, which is the strict posture an enterprise opted into rather than an ordinary transient failure.
-   */
-  serverForcedRefreshFailure: boolean;
-  /**
-   * The server refused to deliver a policy because this client is too old to enforce it, carrying the user-facing sentence describing the refusal. No retry will help; the remedy is a client update. Gates that exist only because of managed policy should deny on this rather than falling back to their unmanaged default.
-   */
-  serverClientUpdateRequired?: string;
-  /**
-   * Minimum client version requested by a successful response. Advisory only; the delivered policy remains active.
-   */
-  serverClientUpdateRequested?: string;
-  /**
-   * The synthesized fail-closed permissions layer applied in place of a policy a refused client may not enforce.
-   */
-  serverPermissionsFloor?: JsonValue;
-  /**
-   * The device layer discovered from the machine, when one exists.
-   */
-  deviceResponse?: JsonValue;
-  /**
-   * The device layer could not be read, so it is unconfirmed rather than known-absent.
-   */
-  deviceLoadFailed: boolean;
-  /**
-   * The sandbox floor contributed by the device layer.
-   */
-  deviceSandboxFloor?: JsonValue;
-  /**
-   * A device-managed policy is known to exist.
-   */
-  deviceSourceFound: boolean;
-  /**
-   * Whether the device layer's sandbox intent could not be determined, so a consumer must not read its absence as permission to run unsandboxed.
-   */
-  deviceSandboxUndetermined: boolean;
-  /**
-   * The layer produced by the platform policy helper, when one ran.
-   */
-  policyHelperResponse?: JsonValue;
-  policyHelperAuthority?: ManagedSettingsPolicyHelperAuthority;
-  /**
-   * The policy helper was configured but could not be run or its output could not be read.
-   */
-  policyHelperLoadFailed: boolean;
-  /**
-   * A policy helper is configured for this host.
-   */
-  policyHelperConfigured: boolean;
-  /**
-   * The policy helper's failure must be treated as fail-closed rather than ignored.
-   */
-  policyHelperFailClosed: boolean;
-  /**
-   * Diagnostics emitted while resolving the layers, in the order they occurred.
-   */
-  logMessages: ManagedSettingsLogMessage[];
-}
-/**
- * One diagnostic emitted while ingesting managed settings. Returned rather than logged by the runtime so the host decides where ingestion diagnostics go, which matters because an ingestion runs before a session exists to carry a log sink.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsLogMessage".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsLogMessage {
-  level: ManagedSettingsLogLevel;
-  /**
-   * Human-readable diagnostic text.
-   */
-  message: string;
-}
-/**
- * Inputs describing the host and account whose managed remote-control policy should be resolved. Mirrors `managedSettings.ingest`, and deliberately carries no retention decision: reading this gate never becomes this runtime process's startup policy.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsLoadRemoteControlParams".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsLoadRemoteControlParams {
-  policyHelperReason?: ManagedSettingsPolicyHelperReason;
-  /**
-   * Whether to run ingestion. Omit or set false to return an empty result without discovering or fetching policy.
-   */
-  selfFetch?: boolean;
-  /**
-   * The authenticated identity to resolve policy for. Omitted before sign-in, in which case no server layer is fetched.
-   */
-  authInfo?: JsonValue;
-  /**
-   * A device layer supplied by the host instead of discovered from the machine. Pair it with `hasDeviceResponse` so an explicit absence is distinguishable from an omitted override.
-   */
-  deviceResponse?: JsonValue;
-  /**
-   * Whether `deviceResponse` is an override at all. True with a null `deviceResponse` asserts the device layer is empty; false discovers it from the machine.
-   */
-  hasDeviceResponse?: boolean;
-  /**
-   * Whether a configured platform policy helper may be run to produce an enforced helper layer.
-   */
-  policyHelperEnabled?: boolean;
-  /**
-   * User agent to send with the policy fetch.
-   */
-  userAgent: string;
-  /**
-   * Name of the embedding client, reported to the managed-settings service as `client_id` so it can refuse to deliver a policy this client is too old to enforce. That refusal is exactly what turns into an explicit `disabled` below, so a host that omits this field forfeits the protection.
-   */
-  clientName?: string;
-  /**
-   * The host's environment variables, read for cache location and policy overrides.
-   */
-  environment: JsonValue;
-  /**
-   * The host's platform, in Node's `process.platform` spelling, used to locate platform-specific cache and policy paths.
-   */
-  platform: string;
-  /**
-   * The host's home directory, used to resolve cache and managed-file locations.
-   */
-  homeDirectory: string;
-}
-/**
- * The managed remote-control policy in force for an account, if any. An absent policy means the account is unmanaged for this capability, which a host reads as allowed — so absence here is a positive statement that no policy applies, never a stand-in for a resolution that failed. A resolution that cannot be completed is rejected instead.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsLoadRemoteControlResult".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsLoadRemoteControlResult {
-  /**
-   * The account's `remoteControl` policy document. Absent when no managed policy governs remote control for this account. Reported as an explicit disabled policy, rather than as absence, when the service refused to deliver a policy this client is too old to enforce.
-   */
-  remoteControl?: JsonValue;
-}
-/**
- * The client-supplied managed settings to validate and normalize. Omitting them is valid and yields no policy.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsParseClientValueParams".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsParseClientValueParams {
-  /**
-   * The managed settings a client is supplying for a session it is about to open. Omit them when the client is imposing no policy of its own.
-   */
-  settings?: JsonValue;
-}
-/**
- * The accepted managed settings, reduced to the keys a client is allowed to set.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsParseClientValueResult".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsParseClientValueResult {
-  /**
-   * The normalized settings. Omitted when the client supplied none. An accepted document that sets nothing comes back as an empty object, which is distinct from omission.
-   */
-  settingsJson?: JsonValue;
-}
-/**
- * The device-managed settings layer, with the sandbox floor and the load outcome a host needs to compose it into an effective policy.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsReadDeviceResult".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsReadDeviceResult {
-  /**
-   * Validated, canonical device-managed settings. Omitted when no device policy was discovered, when the discovered document failed validation, or when it validated to an empty object — an empty document carries no policy, and reporting it as present would outrank layers that do.
-   */
-  settings?: JsonValue;
-  /**
-   * Sandbox floor read from the discovered document before validation, so a document that is otherwise rejected can still raise the floor it declared.
-   */
-  sandboxFloor?: JsonValue;
-  /**
-   * Whether discovery or validation failed. A host must treat this as "policy unknown" rather than "no policy": absent settings with this set false mean the device genuinely has none.
-   */
-  loadFailed: boolean;
-}
-/**
  * Validated device-managed settings discovered before a session exists.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -16191,107 +14720,6 @@ export interface ManagedSettingsReadResult {
    */
   errorMessage?: string;
 }
-/**
- * The bypass-permissions state a host holds today, the account now signed in, and what the managed-policy resolution said.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsResolveBypassDisableTransitionParams".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsResolveBypassDisableTransitionParams {
-  currentSource?: ManagedSettingsBypassDisableSource;
-  /**
-   * The account a `managed` disable is pinned to. Omit it when the current source is not `managed`; it is ignored for the other sources.
-   */
-  currentManagedIdentity?: string;
-  /**
-   * The account signed in now. A `managed` disable pinned to a different account is lifted.
-   */
-  activeIdentity: string;
-  policy: ManagedSettingsBypassPolicyResolution;
-}
-/**
- * The bypass-permissions state a host should hold after the resolution, and what it must do to get there.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsResolveBypassDisableTransitionResult".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsResolveBypassDisableTransitionResult {
-  source?: ManagedSettingsBypassDisableSource;
-  /**
-   * The account the returned `managed` source is pinned to. Store it alongside `source`; the next call needs it to decide whether an account switch lifts the disable.
-   */
-  managedIdentity?: string;
-  /**
-   * The value to store in the host's own bypass-disabled flag. Omitted means leave it exactly as it is, which is not the same as being told to store `false`.
-   */
-  setDisabledState?: boolean;
-  /**
-   * Whether a bypass-permissions session already running must be turned off. True only when this resolution newly disables bypass mode, so a host that is already compliant is not interrupted.
-   */
-  suppressRuntimeAllowAll: boolean;
-}
-/**
- * The credential and environment to evaluate the device-channel sign-in pin against.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsResolveDeviceForceLoginOrgsGateParams".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsResolveDeviceForceLoginOrgsGateParams {
-  /**
-   * The authenticated identity to judge. Omitted when signed out, which is the case the device channel exists to serve: it can refuse a first sign-in before any credential exists.
-   */
-  authInfo?: JsonValue;
-  /**
-   * The host's environment variables. Read for the variables that would make an identity's membership snapshot forgeable, so a credential whose provenance cannot be trusted is refused rather than accepted.
-   */
-  environment: JsonValue;
-}
-/**
- * The managed-settings layers to compose into an effective policy. Every layer is optional; omitting all of them yields no effective policy.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsResolveEffectiveValueParams".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsResolveEffectiveValueParams {
-  /**
-   * The account's server-delivered org policy, as returned by a managed-settings fetch. Omitted before sign-in or when the fetch has not landed.
-   */
-  server?: JsonValue;
-  /**
-   * The device layer: native MDM and managed-file settings describing the machine rather than the account.
-   */
-  mdm?: JsonValue;
-  /**
-   * The device sandbox floor, folded into the device layer under `sandbox` before composition.
-   */
-  deviceSandboxFloor?: JsonValue;
-  /**
-   * The policy-helper layer, an enforced channel sourced from a platform policy helper process.
-   */
-  policyHelper?: JsonValue;
-}
-/**
- * The effective managed policy composed from the supplied layers.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsResolveEffectiveValueResult".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsResolveEffectiveValueResult {
-  /**
-   * The composed effective managed settings. Omitted when no layer sets anything, so an unmanaged host locks nothing. Carries `sandboxAdvisoryFloorDeclined: true` when an advisory server force-on was dropped because this host cannot run the sandbox.
-   */
-  settingsJson?: JsonValue;
-}
 
 /** @experimental */
 export interface ManagedSettingsResolveRequest {
@@ -16307,10 +14735,6 @@ export interface ManagedSettingsResolveRequest {
    * Embedding client identity for server policy requests, as in session creation. Omit for the CLI identity.
    */
   clientName?: string;
-  /**
-   * Working directory used to run an organization policy helper. When omitted, sessionless resolution does not run the helper.
-   */
-  workingDirectory?: string;
 }
 /**
  * Effective enterprise managed settings for an account, resolved without a session.
@@ -16320,7 +14744,6 @@ export interface ManagedSettingsResolveRequest {
  */
 /** @experimental */
 export interface ManagedSettingsResolveResult {
-  permissionsContext?: ManagedPermissionsContext;
   /**
    * Printable opaque identity of the account the settings were resolved for, suitable for comparison and storage, not an account selectionId. Absent when no account was available, in which case only device policy is reported.
    */
@@ -16336,224 +14759,6 @@ export interface ManagedSettingsResolveResult {
    * Warnings about unavailable policy sources or a failed refresh served from cache. A cached response is not proof of a successful live fetch; `resolved.failClosed` separately describes enforcement.
    */
   diagnostics: ManagedSettingsDiagnostic[];
-}
-/**
- * Inputs describing the host and account a startup policy resolution should run for. Mirrors `managedSettings.ingest`, and adds the decision of whether the resolved policy is retained for this runtime process.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsResolveStartupPolicyParams".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsResolveStartupPolicyParams {
-  policyHelperReason?: ManagedSettingsPolicyHelperReason;
-  /**
-   * Whether to run ingestion. Omit or set false to return an empty result without discovering or fetching policy.
-   */
-  selfFetch?: boolean;
-  /**
-   * The authenticated identity to resolve policy for. Omitted before sign-in, in which case no server layer is fetched and the sign-in pin is evaluated against no credential.
-   */
-  authInfo?: JsonValue;
-  /**
-   * The session whose credential store, working directory and client kind the resolution should use. Omit it when no session exists yet and the process-wide store applies. A resolution whose session names a credential other than `authInfo` is returned but not retained, so a stale sign-in cannot apply policy for an account that has already been switched away from.
-   */
-  sessionId?: string;
-  /**
-   * A device layer supplied by the host instead of discovered from the machine. Pair it with `hasDeviceResponse` so an explicit absence is distinguishable from an omitted override.
-   */
-  deviceResponse?: JsonValue;
-  /**
-   * Whether `deviceResponse` is an override at all. True with a null `deviceResponse` asserts the device layer is empty; false discovers it from the machine.
-   */
-  hasDeviceResponse?: boolean;
-  /**
-   * Whether to ignore a cached server policy when reading, forcing the resolution to come from a live fetch.
-   */
-  bypassCacheRead?: boolean;
-  serverPolicyCacheMode?: ManagedSettingsServerPolicyCacheMode;
-  /**
-   * Whether a configured platform policy helper may be run to produce an enforced helper layer.
-   */
-  policyHelperEnabled?: boolean;
-  /**
-   * Directory the policy helper runs in when this resolution is not owned by a registered session. A host resolving policy before its session exists must pass this, or a directory-sensitive helper judges the wrong repository.
-   */
-  policyHelperWorkingDirectory?: string;
-  /**
-   * User agent to send with the policy fetch.
-   */
-  userAgent: string;
-  /**
-   * Name of the embedding client, reported to the managed-settings service as `client_id` so it can refuse to deliver a policy this client is too old to enforce.
-   */
-  clientName?: string;
-  /**
-   * The host's environment variables, read for cache location, policy overrides, and the variables that would make a membership snapshot forgeable.
-   */
-  environment: JsonValue;
-  /**
-   * The host's platform, in Node's `process.platform` spelling, used to locate platform-specific cache and policy paths.
-   */
-  platform: string;
-  /**
-   * The host's home directory, used to resolve cache and managed-file locations.
-   */
-  homeDirectory: string;
-  /**
-   * Whether to retain the resolved policy as this runtime process's startup policy, so later work in the process enforces it. Set false to resolve without side effects, which is what a protocol host wants before session creation: its sessions apply the complete policy through the normal lifecycle, and retaining here would let a readiness credential affect unrelated sessions. The returned verdict is identical either way — this decides only whether the process keeps it.
-   */
-  retainAndApply: boolean;
-}
-/**
- * The startup policy a resolution composed, the per-layer outcome flags a host needs to decide how much to trust it, and the enterprise sign-in verdict for the credential it ran against. The flags are reported rather than folded into the settings because a host must distinguish an unmanaged device from a managed device whose policy could not be confirmed, and apply its fail-closed gates in the second case.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsResolveStartupPolicyResult".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsResolveStartupPolicyResult {
-  serverResolution: ManagedSettingsServerPolicyResolution;
-  /**
-   * Advisory minimum client version from a successful server response.
-   */
-  clientUpdateRequested?: string;
-  /**
-   * The account's server-delivered policy, when one was resolved.
-   */
-  serverResponse?: JsonValue;
-  /**
-   * The device layer discovered from the machine, when one exists.
-   */
-  deviceResponse?: JsonValue;
-  /**
-   * The sandbox floor contributed by the device layer.
-   */
-  deviceSandboxFloor?: JsonValue;
-  /**
-   * The layer produced by the platform policy helper, when one ran.
-   */
-  policyHelperResponse?: JsonValue;
-  /**
-   * The server fetch failed and no cached entry stood in for it, so the server layer is unconfirmed and fail-closed gates apply.
-   */
-  serverFetchFailed: boolean;
-  /**
-   * The device layer could not be read, so it is unconfirmed rather than known-absent.
-   */
-  deviceLoadFailed: boolean;
-  /**
-   * The policy helper was configured but could not be run, or its output could not be read.
-   */
-  policyHelperLoadFailed: boolean;
-  /**
-   * Telemetry describing which layers answered and how, for the host to report alongside its own startup events.
-   */
-  telemetry: JsonValue;
-  /**
-   * The effective sandbox floor composed across every layer, which a host must apply rather than its own default.
-   */
-  sandboxFloor?: JsonValue;
-  /**
-   * Some layer of the policy could not be confirmed, so its absence must not be read as permission. Folds in a failed server fetch as well as an unreadable device layer.
-   */
-  policyUndetermined: boolean;
-  /**
-   * The permissions layer specifically could not be confirmed, so permission gates apply their fail-closed posture.
-   */
-  permissionPolicyUndetermined: boolean;
-  /**
-   * A managed policy is known to apply to this host, from a discovered source or a resolved document.
-   */
-  managedPolicyPresent: boolean;
-  /**
-   * The sandbox was enabled because policy could not be confirmed rather than because an administrator asked for it. Lets a host explain a sandbox the user did not configure.
-   */
-  sandboxEnabledByUndeterminedPolicy: boolean;
-  forceLoginOrgs: ForceLoginOrgsDecision;
-  /**
-   * The server refused to deliver a policy because this client is too old to enforce it, carrying the user-facing sentence describing the refusal. No retry will help; the remedy is a client update.
-   */
-  clientUpdateRequired?: string;
-  /**
-   * Warnings raised while resolving, in the order they occurred.
-   */
-  warnings: string[];
-}
-/**
- * The managed layers to retain as this process's startup policy, with the outcome of fetching each one.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsRetainPolicyParams".
- */
-/** @experimental */
-/** @internal */
-export interface ManagedSettingsRetainPolicyParams {
-  /**
-   * The resolved server policy. A known source can lack a response after a forced-refresh failure.
-   */
-  serverResponse?: JsonValue;
-  /**
-   * The device/MDM policy layer.
-   */
-  deviceResponse?: JsonValue;
-  /**
-   * Sandbox floor declared by the device layer, carried separately so a document that failed validation can still raise the floor.
-   */
-  deviceSandboxFloor?: JsonValue;
-  /**
-   * Whether a device policy source demonstrably exists. This, not a read error, is the evidence a device is managed, so a fail-closed policy gates on it.
-   */
-  deviceSourceFound: boolean;
-  /**
-   * Whether any managed policy source exists, independently of fetch failures.
-   */
-  managedPolicyPresent: boolean;
-  /**
-   * Whether the server policy source exists, even when its response is unavailable.
-   */
-  serverSourceFound: boolean;
-  /**
-   * Whether a required fresh server-policy confirmation failed.
-   */
-  serverForcedRefreshFailure: boolean;
-  /**
-   * Preserve the retained server layer during a device-only resolution.
-   */
-  preserveServerState: boolean;
-  /**
-   * Whether the device sandbox intent is unreadable independently of its other settings.
-   */
-  deviceSandboxUndetermined: boolean;
-  /**
-   * Whether the shared sandbox policy is undetermined. Diagnostic errors alone do not imply this flag.
-   */
-  sandboxFloorUndetermined: boolean;
-  /**
-   * Whether permission policy is undetermined. Sandbox-only uncertainty does not imply this flag.
-   */
-  permissionPolicyUndetermined: boolean;
-  /**
-   * Whether uncertainty alone enabled the shared sandbox floor.
-   */
-  sandboxEnabledByUndeterminedPolicy: boolean;
-  /**
-   * Shared server/device sandbox floor, excluding session-local helper policy.
-   */
-  sharedSandboxFloor?: JsonValue;
-  /**
-   * Whether the server fetch failed. Report it honestly: true keeps the already-retained server layer rather than replacing it with an absent one.
-   */
-  serverFetchFailed: boolean;
-  /**
-   * Whether the device load failed. Report it honestly, for the same reason as `serverFetchFailed`.
-   */
-  deviceLoadFailed: boolean;
-  /**
-   * The policy helper's response: the third managed layer that a process owning its startup policy resolves. It is retained with the other two so that every ambient read in this process, including the mutation guards and the governed marketplace allowlist that the `plugins.*` handlers derive, sees the whole policy the process fetched. A session-owning process omits it, because it resolves a helper per session against that session's working directory.
-   */
-  policyHelperResponse?: JsonValue;
 }
 /**
  * The authoring JSON schema for managed settings recognized by this runtime.
@@ -17435,7 +15640,7 @@ export interface McpConfiguredServer {
    * Human-readable display name supplied by configuration.
    */
   displayName?: string;
-  live: McpConfiguredServerState;
+  live?: McpConfiguredServerState;
 }
 /**
  * Observational state for a matching already materialized MCP server.
@@ -17930,20 +16135,6 @@ export interface McpIsServerRunningResult {
    * True if the server has an active client and transport.
    */
   running: boolean;
-}
-/**
- * Names of the MCP servers the runtime supplies itself.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "McpListBuiltinServerNamesResult".
- */
-/** @experimental */
-/** @internal */
-export interface McpListBuiltinServerNamesResult {
-  /**
-   * Every built-in server name. A host disabling the built-ins wholesale suppresses exactly this set.
-   */
-  names: string[];
 }
 /**
  * Server name whose tool list should be returned.
@@ -18663,92 +16854,6 @@ export interface McpRegisterExternalClientRequest {
   config: OpaqueInProcessValue;
 }
 /**
- * Registry search to abandon.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "McpRegistryCancelRequest".
- */
-/** @experimental */
-/** @internal */
-export interface McpRegistryCancelRequest {
-  /**
-   * Request ID from `mcp.registry.allocateRequestId` that the search uses.
-   */
-  requestId: number;
-}
-/**
- * Whether the cancel reached a live search.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "McpRegistryCancelResult".
- */
-/** @experimental */
-/** @internal */
-export interface McpRegistryCancelResult {
-  /**
-   * True when the cancel stopped a running search. False for unknown or reclaimed IDs, completed or canceled searches, and unused reservations. The cancel releases an unused reservation.
-   */
-  canceled: boolean;
-}
-/**
- * Request id naming a cancellable registry search.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "McpRegistryRequestIdResult".
- */
-/** @experimental */
-/** @internal */
-export interface McpRegistryRequestIdResult {
-  /**
-   * Request ID for `mcp.registry.search` and `mcp.registry.cancel`. It serves one search. Allocation can reclaim unused IDs at the 1,024-ID reservation limit.
-   */
-  requestId: number;
-}
-/**
- * Registry search terms, the credential to search under, and the request id that makes the search cancellable.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "McpRegistrySearchRequest".
- */
-/** @experimental */
-/** @internal */
-export interface McpRegistrySearchRequest {
-  /**
-   * Request ID from `mcp.registry.allocateRequestId`. The search refuses unknown, reclaimed, or canceled IDs and IDs that another search or request already uses.
-   */
-  requestId: number;
-  /**
-   * The credential the search runs under, carried opaquely. Hosts usually send credential-free `AuthIdentity`; a `token` identity can be resolved only when it embeds a token, while `env` and `gh-cli` identities can use a token embedded in the request first.
-   */
-  authInfo: JsonValue;
-  /**
-   * Free-text query. Omitted or empty asks the registry for its top servers rather than searching. A value that is not a string is refused.
-   */
-  query?: string;
-  /**
-   * Repository used for the policy lookup, as `owner/name`. The policy selects the registry URL and whether the user token goes to the registry. The registry receives this repository only when the policy entry lists it as required context. A value that is not a string is refused.
-   */
-  repository?: string;
-  /**
-   * Maximum number of servers to return.
-   */
-  limit: number;
-}
-/**
- * Servers selected from the registry response.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "McpRegistrySearchResult".
- */
-/** @experimental */
-/** @internal */
-export interface McpRegistrySearchResult {
-  /**
-   * The server objects, carried opaquely. The runtime follows pages, keeps the newest entry per server name, cuts the list to `limit`, and sorts an empty-query result by GitHub stars. Each server object remains unchanged because the registry owns that shape.
-   */
-  servers: JsonValue;
-}
-/**
  * In-process MCP reload configuration.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -19283,42 +17388,6 @@ export interface McpSetEnvValueModeResult {
   mode: McpSetEnvValueModeDetails;
 }
 /**
- * The session tool filters that decide whether the session still has a shell to run `gh` with.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "McpShouldExcludeGitHubToolsRequest".
- */
-/** @experimental */
-/** @internal */
-export interface McpShouldExcludeGitHubToolsRequest {
-  /**
-   * The session's tool allowlist, when it set one. Omitted means the session constrains nothing this way.
-   */
-  availableTools?: string[];
-  /**
-   * The session's tool denylist, when it set one. Omitted means the session constrains nothing this way.
-   */
-  excludedTools?: string[];
-  /**
-   * How the allowlist and denylist combine when both are set. Omitted means the default every session gets, so a caller that never chose a precedence is answered as its sessions behave.
-   */
-  toolFilterPrecedence?: OptionsUpdateToolFilterPrecedence | null;
-}
-/**
- * Whether the gh-replaceable GitHub MCP tools may be clipped for the session described by the request.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "McpShouldExcludeGitHubToolsResult".
- */
-/** @experimental */
-/** @internal */
-export interface McpShouldExcludeGitHubToolsResult {
-  /**
-   * True only when both halves hold: the session's filters still reach the platform shell tool, and the host actually has the `gh` those tools would be replaced by. Feed it straight back as the `excludeGhReplaceableTools` build option.
-   */
-  excludeGhReplaceableTools: boolean;
-}
-/**
  * Server name and optional configuration for an individual MCP server start. Omit `config` for a config-free start-by-name of an already-configured server.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -19477,10 +17546,6 @@ export interface MetadataContextInfoRequest {
    * Model identifier used for tokenization. Omit to use the session default. Used both for token counting and to compute display values.
    */
   selectedModel?: string;
-  /**
-   * Provider owning selectedModel. Omit to use the current provider for the current model, or deterministic legacy lookup for a different model.
-   */
-  providerId?: string;
 }
 /**
  * Token breakdown for the session's current context window, or null if uninitialized.
@@ -19927,6 +17992,24 @@ export interface ModelMessage {
   message: string;
 }
 /**
+ * A neutral reference to the model provider that produced a model: an opaque id, a human-readable label, and the provider kind. Carried on each enumerated Model so consumers can group by provider without reaching into a provider-shaped internal type.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "ModelProviderRef".
+ */
+/** @experimental */
+export interface ModelProviderRef {
+  /**
+   * Opaque, stable id of the provider that produced this model. Matches the enumerated `ModelProviderDescriptor.id`.
+   */
+  id: string;
+  /**
+   * Human-readable provider label, owned by the runtime so every consumer renders identical text.
+   */
+  label: string;
+  kind: ModelProviderKind;
+}
+/**
  * Managed, repository, and CLI model overrides to overlay onto the session at startup.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -19951,10 +18034,6 @@ export interface ModelApplyStartupOverlayRequest {
    * Model selected by repository settings, when configured.
    */
   repoModel?: string;
-  /**
-   * Provider owning the repository-selected model. Omitted repository provider identity retains legacy bare-model behavior.
-   */
-  repoModelProviderId?: string;
   /**
    * Reasoning effort selected by repository settings, when configured.
    */
@@ -20059,80 +18138,6 @@ export interface ModelCapabilitiesOverrideLimitsVision {
    * Maximum image size in bytes
    */
   max_prompt_image_size?: number;
-}
-
-/** @experimental */
-/** @internal */
-export interface ModelClearStartupSeedRequest {
-  expectedModel: string;
-  /**
-   * Provider captured with the startup seed; omission matches only an unqualified seed.
-   */
-  expectedProviderId?: string;
-}
-
-/** @experimental */
-/** @internal */
-export interface ModelClearStartupSeedResult {
-  cleared: boolean;
-}
-/**
- * Host presentation state the reasoning-summaries policy depends on.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ModelGetReasoningSummariesRequest".
- */
-/** @experimental */
-export interface ModelGetReasoningSummariesRequest {
-  /**
-   * The host's persisted `showReasoning` user setting, omitted when unset.
-   */
-  persistedShowReasoning?: boolean;
-  /**
-   * Whether the host is currently showing reasoning summaries. Defaults to false.
-   */
-  summariesVisible?: boolean;
-}
-/**
- * Reasoning-summaries presentation policy for the session's current model.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ModelGetReasoningSummariesResult".
- */
-/** @experimental */
-export interface ModelGetReasoningSummariesResult {
-  /**
-   * False until the session has a model catalog and a selected model. This read never resolves the catalog itself, and the runtime emits no readiness notification, so repeating this call alone leaves `ready` false indefinitely on a session that has neither listed models nor run a turn. `session.model.list` is the prerequisite and the signal: it resolves and caches the catalog for the session, so a successful return means the next read is ready. The exception is a session that resolves models without a Copilot catalog, that is a BYOK registry or an alternate provider: `session.model.list` returns an empty list without caching a catalog, so `ready` stays false and this policy is unavailable there. While false, every model-policy field is false and `visibility` is omitted; `experimentSettled` is independent of readiness and still reports the assignment state.
-   */
-  ready: boolean;
-  /**
-   * Whether the session's reasoning-summaries experiment assignment has settled. False means this read does not wait for a pending assignment and reports the experiment-derived fields conservatively: `showHiddenHint` is false and `visibility` falls back to `persistedShowReasoning`, or is omitted when none was supplied. A host that wants the assigned answer re-reads until this is true.
-   */
-  experimentSettled: boolean;
-  /**
-   * Whether turns on this session produce reasoning summaries, honouring an explicit session reasoning-summary override.
-   */
-  sessionShowsSummaries: boolean;
-  /**
-   * Whether the selected model shows reasoning summaries by default.
-   */
-  modelDefaultShowsSummaries: boolean;
-  /**
-   * Whether the selected model emits reasoning headers.
-   */
-  showReasoningHeaders: boolean;
-  /**
-   * Default reasoning visibility, and only meaningful once `ready` is true: false when the session produces no summaries, else the persisted setting, else the experiment's default. While `ready` is true it is omitted only when all three are unavailable, that is when the session produces summaries, no `persistedShowReasoning` was supplied, and `experimentSettled` is false. While `ready` is false there is no model policy to report and this field is always omitted, so an absent value alone does not imply a pending experiment.
-   */
-  visibility?: boolean;
-  /**
-   * Whether to show the hint that reasoning summaries are hidden. Always false while `experimentSettled` is false.
-   */
-  showHiddenHint: boolean;
-  /**
-   * Whether the supplied `persistedShowReasoning` setting only restates the model default. This reports a redundancy, not a standing instruction to delete the setting: it stays true for as long as the setting and the model default agree, including for a user who later chose that value deliberately. It exists for a one-time migration of a legacy setting written before the model default made it redundant, so a host that acts on it owns the cleanup and must gate it behind its own persisted `done` marker, delete only a setting whose value still matches the one it read, and never repeat the deletion on a later launch. Under an off-by-default reasoning-summaries experiment an explicit `showReasoning: true` opt-in also reads as redundant on a summary-producing model, so an ungated host would keep deleting that opt-in and hide summaries again on every launch.
-   */
-  clearRedundantSetting: boolean;
 }
 /**
  * List of Copilot models available to the resolved user, including capabilities and billing metadata.
@@ -20748,13 +18753,9 @@ export interface ModelSwitchConfirmation {
 /** @experimental */
 export interface ModelSwitchToRequest {
   /**
-   * Model id to switch to, as returned by `list`. Include providerId to select an exact catalog entry when providers share the id. Without providerId, a bare id retains incumbent selection behavior; a registry-qualified id (`provider/id`, e.g. `acme/claude-sonnet`) targets a BYOK model.
+   * Model selection id to switch to, as returned by `list`. A bare id (e.g. `claude-sonnet-4.6`) names a Copilot (CAPI) model; a provider-qualified id (`provider/id`, e.g. `acme/claude-sonnet`) targets a registry BYOK model.
    */
   modelId: string;
-  /**
-   * Provider id from the selected list entry's provider reference. Selects this exact provider/model pair; an unavailable pair fails rather than using another provider. Omit for deterministic legacy bare-model selection.
-   */
-  providerId?: string;
   /**
    * Optional Auto routing preference to stage atomically with selecting `auto`. Pass null to return to provider-default Auto routing. This field is rejected when `modelId` is not `auto`.
    */
@@ -20859,10 +18860,6 @@ export interface ModeSetRequest {
    * Dedicated model to use in plan mode, when configured.
    */
   planModel?: string;
-  /**
-   * Provider owning planModel. Omit for legacy bare-model selection.
-   */
-  planModelProviderId?: string;
   /**
    * Reasoning effort to use with the dedicated plan model.
    */
@@ -21052,52 +19049,6 @@ export interface OptionsUpdateAdditionalContentExclusionPolicyRuleSource {
    * Type of the policy source.
    */
   type: string;
-}
-/**
- * External tool call of the session or one of its sub-agents that is still waiting for session.tools.handlePendingToolCall.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "PendingExternalToolRequest".
- */
-/** @experimental */
-export interface PendingExternalToolRequest {
-  /**
-   * Request ID to pass to session.tools.handlePendingToolCall
-   */
-  requestId: string;
-  /**
-   * Tool call ID assigned to this external tool invocation
-   */
-  toolCallId: string;
-  /**
-   * Name of the external tool to invoke
-   */
-  toolName: string;
-  /**
-   * Arguments to pass to the external tool
-   */
-  arguments?: JsonValue;
-  /**
-   * Stable identity of the provider that offered the tool, for hosts that route extension-owned tools by provider
-   */
-  providerId?: string;
-  /**
-   * Sub-agent instance identifier (the envelope agentId of its events) of the agent that issued the call; absent for calls issued by the root agent
-   */
-  agentId?: string;
-}
-/**
- * External tool calls still waiting for a result.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "PendingExternalToolRequestList".
- */
-/** @experimental */
-export interface PendingExternalToolRequestList {
-  /**
-   * External tool calls of the session and its sub-agents that session.tools.handlePendingToolCall would still accept, in the order they were requested. Includes calls that were pending when the session was last suspended and resumed with pending work continued, so a host that did not observe the original external_tool.requested event can answer them.
-   */
-  items: PendingExternalToolRequest[];
 }
 /**
  * Pending permission prompt reconstructed from event history, with request ID and user-facing prompt details.
@@ -22350,41 +20301,6 @@ export interface PermissionsConfigureResult {
   success: boolean;
 }
 /**
- * The verbatim managed `permissions` slice to interpret.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "PermissionsEvaluateManagedPolicyParams".
- */
-/** @experimental */
-/** @internal */
-export interface PermissionsEvaluateManagedPolicyParams {
-  /**
-   * The `permissions` object from a managed settings layer, for example `{"disableBypassPermissionsMode":"disable"}`. Omitted or null means no managed policy applies.
-   */
-  permissions?: JsonValue;
-}
-/**
- * The policy questions a host asks before granting elevated permissions.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "PermissionsEvaluateManagedPolicyResult".
- */
-/** @experimental */
-export interface PermissionsEvaluateManagedPolicyResult {
-  /**
-   * True when managed policy forbids bypass-permissions mode, so allow-all style flags must not take effect.
-   */
-  bypassPermissionsDisabled: boolean;
-  /**
-   * True when a managed policy exists but this build could not determine its meaning. Hosts fail closed on it rather than assuming permission was granted.
-   */
-  policyUndetermined: boolean;
-  /**
-   * True when the managed layer supplies permission rules that the session must enforce.
-   */
-  permissionRulesActive: boolean;
-}
-/**
  * Indicates whether the operation succeeded.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -22651,44 +20567,6 @@ export interface PermissionUrlsSetUnrestrictedModeParams {
    * Whether to allow access to all URLs without prompting. Toggles the runtime's URL-permission policy in place.
    */
   enabled: boolean;
-}
-/**
- * A complete JSON snapshot to write under the runtime's per-path file lock.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "PersistenceWriteRawJsonLockedRequest".
- */
-/** @experimental */
-export interface PersistenceWriteRawJsonLockedRequest {
-  /**
-   * Absolute path of the file to replace. Parent directories are created when missing.
-   */
-  path: string;
-  /**
-   * The serialized JSON document to write. It replaces the file's contents entirely; nothing is merged.
-   */
-  dataJson: string;
-  /**
-   * Comment lines to emit above the document, for a format that tolerates them. Omit for strict JSON.
-   */
-  fileHeader?: string | null;
-}
-/**
- * The outcome of a locked snapshot write.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "PersistenceWriteRawJsonLockedResult".
- */
-/** @experimental */
-export interface PersistenceWriteRawJsonLockedResult {
-  /**
-   * Whether the file now holds the requested contents.
-   */
-  success: boolean;
-  /**
-   * Why the write failed. Absent when `success` is true. A lock the runtime could not acquire in time reports here rather than raising.
-   */
-  error?: string | null;
 }
 /**
  * Optional message to echo back to the caller.
@@ -24410,27 +22288,6 @@ export interface QueueWithdrawMessageResult {
   interrupted: boolean;
 }
 /**
- * A pending session quota warning, consumed once by takeWarnings.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "QuotaWarningProjection".
- */
-/** @experimental */
-export interface QuotaWarningProjection {
-  /**
-   * Existing warning category.
-   */
-  warningType: string;
-  /**
-   * User-facing warning text.
-   */
-  message: string;
-  /**
-   * Related account or upgrade link.
-   */
-  url?: string;
-}
-/**
  * Event type to register consumer interest for, used by runtime gating logic.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -24808,131 +22665,6 @@ export interface RemoteSessionRepository {
   branch?: string;
 }
 /**
- * One atomic edit of an allowed top-level repository setting.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "RepoSettingsEditRequest".
- */
-/** @experimental */
-/** @internal */
-export interface RepoSettingsEditRequest {
-  /**
-   * Absolute path of the repository root.
-   */
-  repoRoot: string;
-  scope: RepoSettingsEditScope;
-  /**
-   * One canonical top-level repository setting that the allowlist permits.
-   */
-  key: string;
-  operation: SettingsEditOperation;
-  /**
-   * Required boolean, string or number for set, required string for add-item and remove-item, and forbidden for remove. The runtime rejects all other JSON values.
-   */
-  value?: JsonValue;
-}
-/**
- * Which repository settings file to read.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "RepoSettingsReadRawRequest".
- */
-/** @experimental */
-/** @internal */
-export interface RepoSettingsReadRawRequest {
-  /**
-   * Absolute path of the repository root.
-   */
-  repoRoot: string;
-  /**
-   * Use repo for shared settings or local for settings.local.json. Other scopes are rejected.
-   */
-  scope: string;
-}
-/**
- * Parsed repository settings without normalization or layering.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "RepoSettingsReadRawResult".
- */
-/** @experimental */
-/** @internal */
-export interface RepoSettingsReadRawResult {
-  /**
-   * Stored JSON values after the existing JSONC parser and prototype-safety checks. Empty when the file is missing, blank, or invalid.
-   */
-  config: JsonValue;
-  /**
-   * True when the file exists but did not parse, so `config` is empty for that reason rather than because nothing is set.
-   */
-  invalid: boolean;
-}
-/**
- * The complete set of repository-overridable settings to store.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "RepoSettingsWriteAllRequest".
- */
-/** @experimental */
-/** @internal */
-export interface RepoSettingsWriteAllRequest {
-  /**
-   * Absolute path of the repository root.
-   */
-  repoRoot: string;
-  /**
-   * Use repo for shared settings or local for settings.local.json. Other scopes are rejected.
-   */
-  scope: string;
-  /**
-   * Object of allowed settings to store. Missing allowlisted keys are removed. Other input keys are ignored, while unknown stored keys are preserved.
-   */
-  settings: JsonValue;
-}
-/**
- * One key to write or remove in a repository settings file.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "RepoSettingsWriteKeyRequest".
- */
-/** @experimental */
-/** @internal */
-export interface RepoSettingsWriteKeyRequest {
-  /**
-   * Absolute path of the repository root.
-   */
-  repoRoot: string;
-  /**
-   * Use repo for shared settings or local for settings.local.json. Other scopes are rejected.
-   */
-  scope: string;
-  /**
-   * Canonical top-level key permitted by the repository settings allowlist.
-   */
-  key: string;
-  /**
-   * Value to validate and write. Required unless delete is true; a null value is validated, not treated as deletion.
-   */
-  value?: JsonValue;
-  /**
-   * True to remove the key instead of writing it.
-   */
-  delete?: boolean;
-}
-/**
- * The stored sandbox settings to resolve against the defaults.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxApplyDefaultsRequest".
- */
-/** @experimental */
-export interface SandboxApplyDefaultsRequest {
-  /**
-   * The sandbox settings as stored in the settings file. An empty object resolves to the defaults alone.
-   */
-  stored: JsonValue;
-}
-/**
  * Resolved sandbox configuration.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -25147,36 +22879,6 @@ export interface SandboxMaskedEnvVar {
   injectHosts: string[];
 }
 /**
- * A possible secret-bearing environment variable and optional locally suggested HTTPS injection hosts. This is a draft for user review, not an active grant.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxCredentialSuggestion".
- */
-/** @experimental */
-export interface SandboxCredentialSuggestion {
-  /**
-   * Environment variable name. The secret value is never returned.
-   */
-  name: string;
-  /**
-   * HTTPS hostnames suggested by a local known-provider mapping. An empty list requires the user to supply injection hosts before adding a masking entry. These suggestions do not allow network access.
-   */
-  suggestedInjectHosts: string[];
-}
-/**
- * Possible unconfigured secrets in the sandbox shell environment, sorted by variable name, with no secret values.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxCredentialSuggestionsResult".
- */
-/** @experimental */
-export interface SandboxCredentialSuggestionsResult {
-  /**
-   * Candidates for user review. Empty when sandboxing is disabled or no unconfigured candidates are present.
-   */
-  suggestions: SandboxCredentialSuggestion[];
-}
-/**
  * Request to disable sandboxing for the current session while resolving an active sandbox-bypass permission prompt.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -25208,69 +22910,6 @@ export interface SandboxDisableForSessionResult {
   enabled: boolean;
 }
 /**
- * The documentation URL a host cites when it declines or downgrades a sandbox setting.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxDocsUrlResult".
- */
-/** @experimental */
-export interface SandboxDocsUrlResult {
-  /**
-   * Documentation URL describing the sandbox and the settings that control it.
-   */
-  url: string;
-}
-/**
- * A sandbox config and the per-feature routing flag to resolve it for.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxEffectiveForOptionalParams".
- */
-/** @experimental */
-/** @internal */
-export interface SandboxEffectiveForOptionalParams {
-  /**
-   * The session's resolved `sandbox` slice. Omitted when the host has none, which yields a disabled sandbox rather than an error.
-   */
-  sandbox?: JsonValue;
-  /**
-   * The routing flag naming the feature being launched, such as `sandboxMcpServers` or `sandboxLspServers`.
-   */
-  routingFlag: string;
-}
-/**
- * The sandbox a named feature actually launches under.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxEffectiveForOptionalResult".
- */
-/** @experimental */
-/** @internal */
-export interface SandboxEffectiveForOptionalResult {
-  /**
-   * The effective sandbox config for the requested feature, or a disabled sandbox when the feature is routed out of it.
-   */
-  sandboxJson: JsonValue;
-}
-/**
- * One slash command, as typed, to test against the enforcement-block allowlist.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxEnforcementCommandAllowedParams".
- */
-/** @experimental */
-/** @internal */
-export interface SandboxEnforcementCommandAllowedParams {
-  /**
-   * The command name as the user typed it, with or without its leading slash.
-   */
-  commandName: string;
-  /**
-   * The command's arguments, in order. Pass an empty array for a bare command: several entries in the allowlist admit the bare form and refuse every argument.
-   */
-  args: string[];
-}
-/**
  * Managed sandbox enforcement state for a session.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -25290,60 +22929,6 @@ export interface SandboxEnforcementStatus {
    * The first sandbox enforcement failure that blocked the session.
    */
   reason?: string;
-}
-/**
- * A batch of file-picker candidates to check against a prepared policy.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxFilterPickerCandidatesParams".
- */
-/** @experimental */
-/** @internal */
-export interface SandboxFilterPickerCandidatesParams {
-  /**
-   * The candidates to check, in the order the answers are returned.
-   */
-  candidates: SandboxPickerCandidate[];
-  /**
-   * The session's working directory, matching the one the policy was prepared from.
-   */
-  cwd: string;
-  /**
-   * The policy returned by `sandbox.preparePickerPolicy`. Omitted keeps every candidate.
-   */
-  sandbox?: JsonValue;
-}
-/**
- * One file-picker suggestion offered up for the sandbox filesystem check.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxPickerCandidate".
- */
-/** @experimental */
-/** @internal */
-export interface SandboxPickerCandidate {
-  /**
-   * Absolute path the suggestion would attach.
-   */
-  path: string;
-  /**
-   * Whether the suggestion is a directory. A directory the policy does not itself allow may still be needed as a waypoint to an allowed subtree.
-   */
-  isDirectory: boolean;
-}
-/**
- * Per-candidate allow decisions, positionally aligned with the request.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxFilterPickerCandidatesResult".
- */
-/** @experimental */
-/** @internal */
-export interface SandboxFilterPickerCandidatesResult {
-  /**
-   * One decision per candidate, in the same order. Always the same length as the request's `candidates`.
-   */
-  allowed: boolean[];
 }
 /**
  * Request to accept the sandbox path grant offered on an active sandbox escalation permission prompt.
@@ -25412,38 +22997,6 @@ export interface SandboxHostSupport {
   capabilities: SandboxHostCapability[];
 }
 /**
- * The working directory and sandbox settings to build a file-picker policy from.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxPreparePickerPolicyParams".
- */
-/** @experimental */
-/** @internal */
-export interface SandboxPreparePickerPolicyParams {
-  /**
-   * The session's working directory. Git discovery and grant canonicalization are resolved against it.
-   */
-  cwd: string;
-  /**
-   * The session's resolved `sandbox` slice. Omitted, or disabled, yields no policy and every candidate is kept.
-   */
-  sandbox?: JsonValue;
-}
-/**
- * The prepared file-picker policy, or none when the sandbox is disabled.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxPreparePickerPolicyResult".
- */
-/** @experimental */
-/** @internal */
-export interface SandboxPreparePickerPolicyResult {
-  /**
-   * The prepared policy to pass back to `sandbox.filterPickerCandidates`. Absent when the sandbox is disabled or absent, in which case filtering keeps every candidate.
-   */
-  sandboxJson?: JsonValue;
-}
-/**
  * Result of creating the persistent certificate authority of the sandbox credential proxy.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -25483,125 +23036,6 @@ export interface SandboxProxyCaStatus {
    * Whether this process can add the certificate authority to OS trust without credentials from a different user. False where OS trust is unsupported, and on Windows when the process cannot elevate itself to write the machine trust store. When false, do not offer to set up the certificate authority.
    */
   canInstall: boolean;
-}
-/**
- * The stored sandbox proxy password, if one is present.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxProxySecretGetResult".
- */
-/** @experimental */
-export interface SandboxProxySecretGetResult {
-  /**
-   * The stored password. Absent when no entry exists in either the keychain or the on-disk fallback store.
-   */
-  value?: string;
-}
-/**
- * Where this runtime keeps the sandbox proxy password.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxProxySecretLocation".
- */
-/** @experimental */
-export interface SandboxProxySecretLocation {
-  /**
-   * Absolute path of the credential store holding the sandbox proxy password. The proxy password belongs to no MCP server, so it is kept in its own directory rather than in the MCP secret store.
-   */
-  configDir: string;
-  /**
-   * Identifier of the proxy password entry within that store. Derived from the configuration directory, so two Copilot homes on one machine never share an entry. Use it to recognize a `${secret:…}` reference in stored settings as this runtime's own proxy password.
-   */
-  secretId: string;
-}
-/**
- * The sandbox proxy password to store.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxProxySecretSaveRequest".
- */
-/** @experimental */
-export interface SandboxProxySecretSaveRequest {
-  /**
-   * The password to store for the sandbox proxy.
-   */
-  value: string;
-}
-/**
- * Where the sandbox proxy password was stored.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxProxySecretSaveResult".
- */
-/** @experimental */
-export interface SandboxProxySecretSaveResult {
-  /**
-   * Whether the OS keychain accepted the value. False means it was written to the on-disk fallback store instead, which is still readable by `sandbox.proxySecret.get`.
-   */
-  storedInKeychain: boolean;
-}
-/**
- * The user's sandbox settings and the managed sandbox floor to raise them to.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxResolveFlooredConfigParams".
- */
-/** @experimental */
-/** @internal */
-export interface SandboxResolveFlooredConfigParams {
-  /**
-   * The user's own `sandbox` settings slice. Omitted when the user has configured none, which still yields the managed floor rather than a disabled sandbox.
-   */
-  userSandbox?: JsonValue;
-  /**
-   * The effective managed `sandbox` slice acting as a floor. Omitted when no administrator policy applies, in which case the user's own settings stand unchanged.
-   */
-  managedSandbox?: JsonValue;
-}
-/**
- * The user's sandbox settings raised to the managed floor.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxResolveFlooredConfigResult".
- */
-/** @experimental */
-export interface SandboxResolveFlooredConfigResult {
-  /**
-   * The floored sandbox config, normalized through the declared sandbox shape so only declared fields in a fixed order are present.
-   */
-  sandboxJson: JsonValue;
-}
-/**
- * The managed sandbox policy in force, which selects which remedy the notice offers.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxUnsupportedStartupNoticeParams".
- */
-/** @experimental */
-/** @internal */
-export interface SandboxUnsupportedStartupNoticeParams {
-  /**
-   * The managed `sandbox` slice, when a policy supplies one. The notice treats the sandbox as enforced only when this both enables it and sets `failIfUnavailable`, because a managed sandbox that tolerates being unavailable still leaves the user able to turn it off.
-   */
-  managedSandbox?: JsonValue;
-  /**
-   * True when the sandbox stayed on only because the managed policy could not be determined. Distinguishes a policy that positively enforces the sandbox from one that merely failed to resolve, which is the difference between telling the user to contact an administrator and telling them to wait. Defaults to false.
-   */
-  enabledByUndeterminedPolicy?: boolean;
-}
-/**
- * The startup warning, absent when the machine can run a sandbox.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxUnsupportedStartupNoticeResult".
- */
-/** @experimental */
-/** @internal */
-export interface SandboxUnsupportedStartupNoticeResult {
-  /**
-   * The user-facing warning, carrying the platform remedy and the recovery the policy in force actually allows. Absent when this machine supports a sandbox, so a host can call unconditionally and print only what it gets.
-   */
-  notice?: string;
 }
 /**
  * Register an absolute-time scheduled prompt.
@@ -27086,10 +24520,6 @@ export interface SessionManagedPermissions {
    */
   disableBypassPermissionsMode?: string;
   /**
-   * When true, prevents Assisted Permissions from being activated. An actively Assisted session falls back to Manual Approval while the policy is in force. Omit the key or set it to false to impose no restriction.
-   */
-  disableAssistedPermissionsMode?: boolean;
-  /**
    * Permission rules that block matching operations. Deny has highest precedence.
    */
   deny?: string[];
@@ -27291,10 +24721,6 @@ export interface SessionOpenOptions {
    * Opt-in: self-fetch and enforce enterprise managed settings, including managed hook policies, at session bootstrap.
    */
   enableManagedSettings?: boolean;
-  /**
-   * Opt in to enforcing non-overridable managed model controls on session model, Auto-tier, reasoning-effort, and context-tier changes. Managed defaults still apply when omitted; this option only turns conflicting changes into errors.
-   */
-  enforceManagedModelDefaults?: boolean;
   managedSettings?: SessionManagedSettings;
   /**
    * Opt in to capturing file changes for session rewind and session diff. Capture cannot reconstruct changes made before it was enabled. On create it starts capture from the first turn. It is also honored on resume: for a session that already has tracked prior turns, tracking continues automatically even if this is omitted; passing it on resume additionally enables tracking for an eligible session that has no prior root turn yet. Resuming a session whose prior root turns were never tracked has no restorable baseline, so tracking stays disabled for it and rewind reports file change tracking as unavailable; the resume itself still succeeds, so sessions that predate tracking remain loadable. The opt-in is only rejected when the session can never track (a subagent session, or one without local session storage). It is intentionally absent from the mutable options update because enabling it after edits have occurred would create an incomplete, misleading baseline. Subagents share the parent session's capture store and are not tracked as separate rewind points: a file a subagent writes is attributed to whichever root user turn was open when the capture was staged, just before the tool body ran. A turn cannot open while a staged capture is still in flight, so a subagent tool that staged under the spawning turn stays attributed to it however late the write lands, while a capture it stages after the user's next message belongs to that later turn. Attribution decides which turn's rewind point counts and file preview include that write; it does not narrow which rewinds revert it, because a rewind restores every capture from the selected turn onward, so the earlier spawning turn reverts it as well.
@@ -27419,27 +24845,15 @@ export interface SessionOpenOptions {
    */
   allowAllMcpServerInstructions?: boolean;
   /**
-   * Explicit discovery-only skill roots, not filesystem grants. Available without enableConfigDiscovery, subject to skill/managed disables. Relative SDK paths resolve once when supplied against the request's effective workingDirectory; retained roots do not move on cwd changes. Null and omission are equivalent; [] clears only the explicit SDK contribution.
+   * Additional directories to search for skills.
    */
   skillDirectories?: string[];
-  /**
-   * Explicit discovery-only agent roots, separate from customAgents and filesystem grants. Available without enableConfigDiscovery, subject to managed/source disables. Relative SDK paths resolve once when supplied against the request's effective workingDirectory; retained roots do not move on cwd changes. Null and omission are equivalent; [] clears only the explicit SDK contribution.
-   */
-  agentDirectories?: string[];
-  /**
-   * Explicit discovery-only instruction roots using existing SDK instruction formats, not filesystem grants. Available without enableConfigDiscovery, subject to instruction/managed disables. Relative SDK paths resolve once when supplied against the request's effective workingDirectory; retained roots do not move on cwd changes. Null and omission are equivalent; [] clears only the explicit SDK contribution.
-   */
-  instructionDirectories?: string[];
-  /**
-   * Explicit discovery-only file-hook roots, separate from callback hooks and filesystem grants. Available without enableConfigDiscovery or enableFileHooks, which controls repository-origin hooks only; hook/managed disables still apply. Relative SDK paths resolve once when supplied against the request's effective workingDirectory; retained roots do not move on cwd changes. Null and omission are equivalent; [] clears only the explicit SDK contribution.
-   */
-  hookDirectories?: string[];
   /**
    * Skill scan directories and descendants excluded from discovery. Supports `~`-relative paths.
    */
   ignoredSkillsLocations?: string[];
   /**
-   * Whether skill loading is enabled. When omitted, explicit SDK skill roots or an SDK skill provider enable skills independently of enableConfigDiscovery.
+   * Whether skill loading is enabled. When omitted, an SDK skill provider enables skills by default.
    */
   enableSkills?: boolean;
   /**
@@ -27935,27 +25349,6 @@ export interface SessionPluginsInstallRequest {
    */
   source: string;
 }
-
-/** @experimental */
-export interface SessionPluginsRetryManagedRequest {
-  /**
-   * "plugin@marketplace" specs to retry. Omit to retry every plugin the session's managed settings require.
-   */
-  plugins?: string[];
-}
-/**
- * Per-plugin outcomes of retrying the plugins required by the session's managed settings.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SessionPluginsRetryManagedResult".
- */
-/** @experimental */
-export interface SessionPluginsRetryManagedResult {
-  /**
-   * One entry per requested plugin, in request order. When no plugins were requested, one entry per plugin the managed settings require.
-   */
-  plugins: ManagedPluginRetryEntry[];
-}
 /**
  * Outcome of the prune operation: deleted IDs, dry-run candidates, skipped IDs, total bytes freed, and the dry-run flag.
  *
@@ -27984,137 +25377,6 @@ export interface SessionPruneResult {
    * True when no deletions were actually performed
    */
   dryRun: boolean;
-}
-/**
- * Existing delegation guidance for an account without delegation access.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SessionQuotaDelegateWarning".
- */
-/** @experimental */
-export interface SessionQuotaDelegateWarning {
-  /**
-   * User-facing guidance.
-   */
-  text: string;
-  /**
-   * Link to upgrade the account.
-   */
-  url: string;
-}
-/**
- * The incumbent session-owned quota and account projection.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SessionQuotaProjection".
- */
-/** @experimental */
-export interface SessionQuotaProjection {
-  /**
-   * Known quota snapshots, keyed by the provider's quota type.
-   */
-  snapshots: {
-    [k: string]: SessionQuotaSnapshot | undefined;
-  };
-  /**
-   * Provider-owned account quota state, including snapshots without numeric balances.
-   */
-  providerQuotas?: ProviderQuotaState[];
-  /**
-   * Whether the account uses the free limited Copilot plan.
-   */
-  isFreeUser: boolean;
-  /**
-   * Whether the account uses token-based billing.
-   */
-  isTbbUser: boolean;
-  planTier: SessionQuotaPlanTier;
-  /**
-   * Whether premium-request costs are billable.
-   */
-  premiumRequestsBillable: boolean;
-  /**
-   * Whether model cost columns should be shown.
-   */
-  modelCostColumnVisible: boolean;
-  /**
-   * Whether the account can delegate tasks to GitHub.
-   */
-  delegateAvailable: boolean;
-  /**
-   * Whether the account can sign up for Copilot Free.
-   */
-  canSignupForCopilotFree: boolean;
-  /**
-   * Whether dynamic workflows are enabled for the active account.
-   */
-  dynamicWorkflowsEnabled: boolean;
-  /**
-   * Whether dynamic workflows are visible under the session's feature flags.
-   */
-  dynamicWorkflowsUiVisible: boolean;
-  /**
-   * Upgrade link for a free account.
-   */
-  upgradeUrl?: string;
-  delegateWarning?: SessionQuotaDelegateWarning;
-}
-/**
- * Session quota snapshot, preserving the incumbent numeric units and reset metadata.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SessionQuotaSnapshot".
- */
-/** @experimental */
-export interface SessionQuotaSnapshot {
-  /**
-   * Whether the entitlement is unlimited.
-   */
-  isUnlimitedEntitlement: boolean;
-  /**
-   * Entitled quantity in this quota's units.
-   */
-  entitlementRequests: number;
-  /**
-   * Consumed quantity in this quota's units.
-   */
-  usedRequests: number;
-  /**
-   * Whether usage is allowed after quota exhaustion.
-   */
-  usageAllowedWithExhaustedQuota: boolean;
-  /**
-   * Additional usage in this quota's units.
-   */
-  overage: number;
-  /**
-   * Whether additional usage is allowed after quota exhaustion.
-   */
-  overageAllowedWithExhaustedQuota: boolean;
-  /**
-   * Percentage of the entitlement remaining.
-   */
-  remainingPercentage: number;
-  /**
-   * Quota reset time in milliseconds since the Unix epoch, when known.
-   */
-  resetDateEpochMs?: number;
-  /**
-   * Whether the reset time is estimated.
-   */
-  resetDateEstimated?: boolean;
-  /**
-   * Whether the provider reports available quota.
-   */
-  hasQuota?: boolean;
-  /**
-   * Whether this quota uses token-based billing.
-   */
-  tokenBasedBilling?: boolean;
-  /**
-   * Additional-usage budget cap, when provided.
-   */
-  overageEntitlement?: number;
 }
 /**
  * Session IDs to close, deactivate, and delete from disk.
@@ -29245,21 +26507,9 @@ export interface SessionUpdateOptionsParams {
    */
   allowAllMcpServerInstructions?: boolean;
   /**
-   * Explicit discovery-only skill roots, not filesystem grants. Available without enableConfigDiscovery, subject to skill/managed disables. Relative SDK paths resolve once when supplied against the request's effective workingDirectory; retained roots do not move on cwd changes. Null and omission are equivalent; [] clears only the explicit SDK contribution.
+   * Additional directories to search for skills.
    */
   skillDirectories?: string[];
-  /**
-   * Explicit discovery-only agent roots, separate from customAgents and filesystem grants. Available without enableConfigDiscovery, subject to managed/source disables. Relative SDK paths resolve once when supplied against the request's effective workingDirectory; retained roots do not move on cwd changes. Null and omission are equivalent; [] clears only the explicit SDK contribution.
-   */
-  agentDirectories?: string[];
-  /**
-   * Explicit discovery-only instruction roots using existing SDK instruction formats, not filesystem grants. Available without enableConfigDiscovery, subject to instruction/managed disables. Relative SDK paths resolve once when supplied against the request's effective workingDirectory; retained roots do not move on cwd changes. Null and omission are equivalent; [] clears only the explicit SDK contribution.
-   */
-  instructionDirectories?: string[];
-  /**
-   * Explicit discovery-only file-hook roots, separate from callback hooks and filesystem grants. Available without enableConfigDiscovery or enableFileHooks, which controls repository-origin hooks only; hook/managed disables still apply. Relative SDK paths resolve once when supplied against the request's effective workingDirectory; retained roots do not move on cwd changes. Null and omission are equivalent; [] clears only the explicit SDK contribution.
-   */
-  hookDirectories?: string[];
   /**
    * Skill scan directories and descendants excluded from discovery. Supports `~`-relative paths.
    */
@@ -29367,7 +26617,7 @@ export interface SessionUpdateOptionsParams {
    */
   organizationCustomInstructions?: string;
   /**
-   * Whether to enable repository-origin file hooks from `.github/hooks/` and trusted repository-configured roots. Does not control explicit hookDirectories or SDK callback hooks.
+   * Whether to enable loading of `.github/hooks/` filesystem hooks. Separate from the SDK callback hook mechanism.
    */
   enableFileHooks?: boolean;
   /**
@@ -29379,7 +26629,7 @@ export interface SessionUpdateOptionsParams {
    */
   enableSessionStore?: boolean;
   /**
-   * Whether skill loading is enabled. Explicit false disables every source, including explicit SDK roots and a bound SDK provider; changing the value invalidates the loaded skill snapshot. When omitted, creation falls back to enableConfigDiscovery unless explicit SDK skill roots or an SDK skill provider are supplied.
+   * Whether skill loading is enabled. Explicit false disables every source, including a bound SDK provider; changing the value invalidates the loaded skill snapshot. When omitted, creation falls back to enableConfigDiscovery unless an SDK skill provider is registered.
    */
   enableSkills?: boolean;
   contextTier?: OptionsUpdateContextTier;
@@ -29404,17 +26654,6 @@ export interface SessionUpdateOptionsResult {
    * Number of hooks loaded from installed plugins, returned when installedPlugins is updated
    */
   pluginHookCount?: number;
-}
-/**
- * Outcome of an atomic user or repository settings edit.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SettingsEditResult".
- */
-/** @experimental */
-/** @internal */
-export interface SettingsEditResult {
-  status: SettingsEditStatus;
 }
 /**
  * User-requested shell execution cancellation handle.
@@ -29893,7 +27132,7 @@ export interface SkillsDiscoverRequest {
    */
   projectPaths?: string[];
   /**
-   * Explicit discovery-only skill roots, not filesystem grants. Available without ambient discovery, subject to skill/managed disables. Relative paths resolve against the request's effective working directory when supplied. Null and omission are equivalent; an empty array contributes no explicit roots.
+   * Optional list of additional skill directory paths to include
    */
   skillDirectories?: string[];
   /**
@@ -29948,10 +27187,6 @@ export interface SkillSetEnabledRequest {
  */
 /** @experimental */
 export interface SkillsGetDiscoveryPathsRequest {
-  /**
-   * Explicit discovery-only skill roots to enumerate, including configured missing directories. Relative paths resolve against the request's effective working directory when supplied. These are not filesystem grants or preferred creation targets. Null and omission are equivalent.
-   */
-  skillDirectories?: string[];
   /**
    * Optional list of project directory paths. When omitted or empty, only personal and custom directories are returned.
    */
@@ -31276,14 +28511,6 @@ export interface ToolsGetCurrentMetadataResult {
 /** @experimental */
 export interface ToolsInitializeAndValidateResult {}
 /**
- * No parameters; returns the external tool calls of the session and its sub-agents that are still waiting for a result.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ToolsListPendingRequestsRequest".
- */
-/** @experimental */
-export interface ToolsListPendingRequestsRequest {}
-/**
  * Optional model identifier whose tool overrides should be applied to the listing.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -31968,26 +29195,217 @@ export interface UpdateSubagentSettingsRequest {
   subagents?: SubagentSettings | null;
 }
 /**
- * Internal absolute code-change totals reported by the owning host.
+ * Accumulated session usage metrics, including premium request cost, token counts, model breakdown, and code-change totals.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UsageSetCodeChangesRequest".
+ * via the `definition` "UsageGetMetricsResult".
  */
 /** @experimental */
-/** @internal */
-export interface UsageSetCodeChangesRequest {
+export interface UsageGetMetricsResult {
   /**
-   * Absolute added-line total, replacing the previous reading.
+   * Total user-initiated premium request cost across all models (may be fractional due to multipliers)
+   */
+  totalPremiumRequestCost: number;
+  /**
+   * Raw count of user-initiated API requests
+   */
+  totalUserRequests: number;
+  /**
+   * Session-wide accumulated nano-AI units cost
+   */
+  totalNanoAiu?: number;
+  /**
+   * Session-wide per-token-type accumulated token counts
+   */
+  tokenDetails?: {
+    [k: string]: UsageMetricsTokenDetail | undefined;
+  };
+  /**
+   * Total time spent in model API calls (milliseconds)
+   */
+  totalApiDurationMs: number;
+  /**
+   * ISO 8601 timestamp when the session started
+   */
+  sessionStartTime: string;
+  codeChanges: UsageMetricsCodeChanges;
+  /**
+   * Per-model token and request metrics, keyed by model identifier
+   */
+  modelMetrics: {
+    [k: string]: UsageMetricsModelMetric | undefined;
+  };
+  /**
+   * Per-agent usage metrics, keyed by agent instance identifier. The main conversation uses the stable key `main`.
+   */
+  agentMetrics?: {
+    [k: string]: UsageMetricsAgentMetric | undefined;
+  };
+  /**
+   * Currently active model identifier
+   */
+  currentModel?: string;
+  /**
+   * Input tokens from the most recent main-agent API call
+   */
+  lastCallInputTokens: number;
+  /**
+   * Output tokens from the most recent main-agent API call
+   */
+  lastCallOutputTokens: number;
+}
+/**
+ * Session-wide token-detail entry containing the accumulated token count for one token type.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "UsageMetricsTokenDetail".
+ */
+/** @experimental */
+export interface UsageMetricsTokenDetail {
+  /**
+   * Accumulated token count for this token type
+   */
+  tokenCount: number;
+}
+/**
+ * Aggregated code change metrics
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "UsageMetricsCodeChanges".
+ */
+/** @experimental */
+export interface UsageMetricsCodeChanges {
+  /**
+   * Total lines of code added
    */
   linesAdded: number;
   /**
-   * Absolute removed-line total, replacing the previous reading.
+   * Total lines of code removed
    */
   linesRemoved: number;
   /**
-   * Absolute changed-file count; omission preserves the previous count.
+   * Number of distinct files modified
    */
-  filesCount?: number;
+  filesModifiedCount: number;
+  /**
+   * Distinct file paths modified during the session
+   */
+  filesModified: string[];
+}
+/**
+ * Per-model usage metrics, including request counts/costs, token usage, nano-AI units, and per-token-type details.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "UsageMetricsModelMetric".
+ */
+/** @experimental */
+export interface UsageMetricsModelMetric {
+  requests: UsageMetricsModelMetricRequests;
+  usage: UsageMetricsModelMetricUsage;
+  /**
+   * Latest known prompt-cache expiration for this model. A timestamp in the past indicates that the observed cache has expired.
+   */
+  cacheExpiresAt?: string;
+  /**
+   * Accumulated nano-AI units cost for this model
+   */
+  totalNanoAiu?: number;
+  /**
+   * Token count details per type
+   */
+  tokenDetails?: {
+    [k: string]: UsageMetricsModelMetricTokenDetail | undefined;
+  };
+}
+/**
+ * Request count and cost metrics for this model
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "UsageMetricsModelMetricRequests".
+ */
+/** @experimental */
+export interface UsageMetricsModelMetricRequests {
+  /**
+   * Number of API requests made with this model
+   */
+  count: number;
+  /**
+   * User-initiated premium request cost (with multiplier applied)
+   */
+  cost: number;
+}
+/**
+ * Token usage metrics for this model
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "UsageMetricsModelMetricUsage".
+ */
+/** @experimental */
+export interface UsageMetricsModelMetricUsage {
+  /**
+   * Total input tokens consumed
+   */
+  inputTokens: number;
+  /**
+   * Total output tokens produced
+   */
+  outputTokens: number;
+  /**
+   * Total tokens read from prompt cache
+   */
+  cacheReadTokens: number;
+  /**
+   * Total tokens written to prompt cache
+   */
+  cacheWriteTokens: number;
+  /**
+   * Total output tokens used for reasoning
+   */
+  reasoningTokens?: number;
+}
+/**
+ * Per-model token-detail entry containing the accumulated token count for one token type.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "UsageMetricsModelMetricTokenDetail".
+ */
+/** @experimental */
+export interface UsageMetricsModelMetricTokenDetail {
+  /**
+   * Accumulated token count for this token type
+   */
+  tokenCount: number;
+}
+/**
+ * Usage attributed to one agent instance, including its identity, API duration, AI units, and per-model breakdown.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "UsageMetricsAgentMetric".
+ */
+/** @experimental */
+export interface UsageMetricsAgentMetric {
+  /**
+   * Configured agent name, when this is a subagent
+   */
+  agentName?: string;
+  /**
+   * Human-readable label for this subagent invocation, copied from the originating `subagent.started` event. For task-tool subagents this is the invocation's task description rather than the agent's configured display name, so group by `agentName` for stable per-agent labels.
+   */
+  agentDisplayName?: string;
+  /**
+   * Time spent in model API calls by this agent, in milliseconds
+   */
+  totalApiDurationMs: number;
+  /**
+   * Accumulated nano-AI units cost for this agent
+   */
+  totalNanoAiu: number;
+  /**
+   * Per-model usage for this agent, keyed by model identifier
+   */
+  modelMetrics: {
+    [k: string]: UsageMetricsModelMetric | undefined;
+  };
 }
 /**
  * Result of a user-requested shell command.
@@ -32040,162 +29458,6 @@ export interface UserSettingMetadata {
   isDefault: boolean;
 }
 /**
- * A single top-level setting subtree to validate and write.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsApplyTopKeyRequest".
- */
-/** @experimental */
-export interface UserSettingsApplyTopKeyRequest {
-  /**
-   * Canonical path of the setting the caller is editing. Currently informational only.
-   */
-  canonicalPath: string[];
-  /**
-   * Top-level setting name to write.
-   */
-  topKey: string;
-  /**
-   * Value to write for the whole top-level key. Omitted when `delete` is true. Explicit null is preserved and validated as null.
-   */
-  value?: JsonValue | null;
-  /**
-   * True to remove the top-level key instead of writing it.
-   */
-  delete?: boolean;
-  /**
-   * Records that the user chose an update channel explicitly, so the one-time staff channel migration stops reapplying. Honored only for the `autoUpdatesChannel` key.
-   */
-  completeStaffUpdateChannelMigration?: boolean;
-}
-/**
- * Outcome of validating and writing one top-level setting subtree.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsApplyTopKeyResult".
- */
-/** @experimental */
-export interface UserSettingsApplyTopKeyResult {
-  /**
-   * `ok` when the value was written, `validation-error` when it was rejected before any write, `write-error` when validation passed but the write failed.
-   */
-  status: string;
-  /**
-   * Problems found, present only when `status` is `validation-error`.
-   */
-  issues?: UserSettingsValidationIssue[];
-  /**
-   * Why the write failed, present only when `status` is `write-error`.
-   */
-  error?: string | null;
-}
-/**
- * One problem found while validating a setting value.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsValidationIssue".
- */
-/** @experimental */
-export interface UserSettingsValidationIssue {
-  /**
-   * Where in the settings tree the problem sits, as object keys and array indices. The first element is the top-level key; a whole-value problem is reported as that single key.
-   */
-  path: JsonValue[];
-  /**
-   * Human-readable description of the problem.
-   */
-  message: string;
-}
-/**
- * The overrides and host context to resolve effective runtime settings from.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsBuildRuntimeRequest".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsBuildRuntimeRequest {
-  /**
-   * Settings that take precedence over every document and environment layer, such as the values a host derived from its own command line. Keyed by setting name, with each value carried verbatim, so a host may pass keys this runtime does not recognize. Absent when the host contributes no overrides of its own.
-   */
-  overrides?: {
-    [k: string]: JsonValue | undefined;
-  };
-  /**
-   * The directory the settings are being resolved for. This selects the repository-scoped document, so a host resolving settings for a directory other than its own process working directory must pass that directory here.
-   */
-  workingDirectory: string;
-  /**
-   * The environment to read settings-bearing variables from. Passed explicitly rather than read from the server process so a host can resolve settings for an environment it is about to create rather than the one it runs in.
-   */
-  environment: {
-    [k: string]: string | undefined;
-  };
-  /**
-   * The platform to apply platform-specific defaults for, in the same spelling the host's own runtime reports.
-   */
-  platform: string;
-}
-/**
- * One atomic edit of a canonical setting in settings.json.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsEditRequest".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsEditRequest {
-  /**
-   * Configuration directory to edit. Omitted or empty resolves the server's own home, as in `user.settings.loadForConfigDir`.
-   */
-  configDir?: string;
-  /**
-   * Nonempty canonical path segments of the setting to edit, starting with its top-level key.
-   *
-   * @minItems 1
-   */
-  canonicalPath: [string, ...string[]];
-  operation: SettingsEditOperation;
-  /**
-   * Required boolean, string or number for set, required string for add-item and remove-item, and forbidden for remove. The runtime rejects all other JSON values.
-   */
-  value?: JsonValue;
-}
-/**
- * Selects which settings file paths to resolve.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsGetPathsRequest".
- */
-/** @experimental */
-export interface UserSettingsGetPathsRequest {
-  /**
-   * Absolute path of a repository root. Supply it to also resolve that repository's two settings file paths; omit it to resolve only the user path.
-   */
-  repoRoot?: string;
-}
-/**
- * On-disk locations of the settings files this runtime reads. A path is reported whether or not the file exists.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsGetPathsResult".
- */
-/** @experimental */
-export interface UserSettingsGetPathsResult {
-  /**
-   * The user settings file: `settings.json` under the resolved Copilot home. This is the file `user.settings.get`, `user.settings.load`, and `user.settings.set` read and write.
-   */
-  userSettings: string;
-  /**
-   * The repository's checked-in settings file, or null when no repository root was supplied.
-   */
-  repoSettings?: string | null;
-  /**
-   * The repository's local, untracked settings file, or null when no repository root was supplied.
-   */
-  repoLocalSettings?: string | null;
-}
-/**
  * Per-key metadata for every known user setting in settings.json, including settings left at their default. Excludes repository- and enterprise-managed overrides.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -32211,538 +29473,6 @@ export interface UserSettingsGetResult {
   };
 }
 /**
- * Top-level user-setting keys grouped by who may govern them.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsGovernanceKeysResult".
- */
-/** @experimental */
-export interface UserSettingsGovernanceKeysResult {
-  /**
-   * Top-level keys a repository may override through `.github/copilot/settings.json` or `.github/copilot/settings.local.json`.
-   */
-  repo: string[];
-  /**
-   * Top-level keys a repository may override through a Claude-compatible repository config.
-   */
-  claudeRepo: string[];
-  /**
-   * Top-level keys an enterprise policy may fix through managed settings.
-   */
-  managed: string[];
-}
-/**
- * The filesystem and environment facts a user-settings file is resolved from. Passed explicitly rather than read from the runtime's own process, so a host whose configuration directory differs from its process environment resolves the file it means.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsHostContext".
- */
-/** @experimental */
-export interface UserSettingsHostContext {
-  /**
-   * The Copilot configuration directory, when the host set one. Takes precedence over `COPILOT_HOME` and the home directory.
-   */
-  configDir?: string;
-  /**
-   * The user's home directory, used when neither a configuration directory nor `COPILOT_HOME` is set.
-   */
-  homeDirectory: string;
-  /**
-   * The host's environment variables. `COPILOT_HOME` is read from here, as are the variables a settings hook may expand.
-   */
-  environment: {};
-}
-/**
- * A repository to read settings from, and the user layer they are merged over.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsLoadAndMergeRepoRequest".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsLoadAndMergeRepoRequest {
-  /**
-   * Absolute path of the repository root whose settings to read. When this is the user's home directory, the Claude-compatible configuration is skipped, so a home-directory session does not inherit a personal config as if it were repository policy.
-   */
-  repoRoot: string;
-  /**
-   * The user's own settings, keyed by setting name. The repository layer is merged over this; a repository may only add to the collection settings it is allowed to influence, so a user setting it does not name survives unchanged.
-   */
-  userSettings: {
-    [k: string]: JsonValue | undefined;
-  };
-}
-/**
- * The settings a consumer should act on inside a repository, together with any diagnostic raised while reading the repository layer.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsLoadAndMergeRepoResult".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsLoadAndMergeRepoResult {
-  /**
-   * The merged settings document, keyed by setting name. Equals the supplied user layer when the repository declares no settings.
-   */
-  settings: {
-    [k: string]: JsonValue | undefined;
-  };
-  /**
-   * Why part of the repository document was ignored, as a single human-readable string joining every diagnostic with `; `. Null when it loaded cleanly. The settings that did load are still merged, so a consumer should surface this and continue rather than treat it as a failure.
-   */
-  warning?: string | null;
-}
-/**
- * Selects the configuration directory whose user settings to read.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsLoadForConfigDirRequest".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsLoadForConfigDirRequest {
-  /**
-   * Copilot configuration directory to read the settings document from, taking precedence over the server's own `COPILOT_HOME` and default home. Omit it, or pass an empty string, to read the directory the server resolved for itself.
-   */
-  configDir?: string;
-}
-/**
- * Contents of settings.json as stored, for a caller about to rewrite it.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsLoadForEditResult".
- */
-/** @experimental */
-export interface UserSettingsLoadForEditResult {
-  /**
-   * `ok` when the file parsed, `missing` when there is no file yet, `invalid` when the file exists but will not parse.
-   */
-  status: string;
-  /**
-   * Parsed contents, present only when `status` is `ok`.
-   */
-  settings?: JsonValue;
-}
-/**
- * Selects the repository whose checked-in settings to read.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsLoadRepoRequest".
- */
-/** @experimental */
-export interface UserSettingsLoadRepoRequest {
-  /**
-   * Absolute path of the repository root whose settings to read. When this is the user's home directory, the Claude-compatible configuration is skipped, so a home-directory session does not inherit a personal config as if it were repository policy.
-   */
-  repoRoot: string;
-}
-/**
- * A repository's settings as stored, together with any diagnostic raised while reading them.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsLoadRepoResult".
- */
-/** @experimental */
-export interface UserSettingsLoadRepoResult {
-  /**
-   * The repository's settings document, keyed by setting name, with each value carried verbatim. Null when the repository declares no settings.
-   */
-  settings?: {
-    [k: string]: JsonValue | undefined;
-  } | null;
-  /**
-   * Why part of the document was ignored, as a single human-readable string joining every diagnostic with `; `. Null when the document loaded cleanly. The settings that did load are still reported, so a consumer should surface this and continue rather than treat it as a failure.
-   */
-  warning?: string | null;
-}
-/**
- * The user's stored settings, together with any diagnostic raised while reading them.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsLoadWithWarningResult".
- */
-/** @experimental */
-export interface UserSettingsLoadWithWarningResult {
-  /**
-   * The stored user settings document, keyed by setting name, with each value carried verbatim. Empty when the file could not be read at all.
-   */
-  settings: {
-    [k: string]: JsonValue | undefined;
-  };
-  /**
-   * Why part of the document was ignored, phrased for display to the user. Null when the document loaded cleanly. The settings that did load are still reported, so a consumer may surface this and continue rather than treat it as a failure.
-   */
-  warning?: string | null;
-}
-/**
- * The managed (enterprise policy) layer and the user layer to fold together. The field names carry the layer identity: nothing about a settings object identifies which layer produced it, so a generic base/override pair would let a caller transpose them and silently resolve the governance keys in the user's favour.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsMergeManagedAndUserParams".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsMergeManagedAndUserParams {
-  /**
-   * The managed layer. Its governance keys win, and the per-entry `enabledPlugins` and `extraKnownMarketplaces` control maps are stamped back from it after the union. Omitted when the host is unmanaged.
-   */
-  managed?: JsonValue;
-  /**
-   * The user's own settings layer. Wins on every key the managed layer does not govern. Omitted when the user has no settings yet.
-   */
-  user?: JsonValue;
-}
-/**
- * The user layer folded over the managed layer.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsMergeManagedAndUserResult".
- */
-/** @experimental */
-export interface UserSettingsMergeManagedAndUserResult {
-  /**
-   * The merged settings. An empty object when neither layer was supplied, so an unmanaged host with no user settings governs nothing.
-   */
-  settingsJson: JsonValue;
-}
-/**
- * The user layer and the repository layer to fold together.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsMergeRepoValueParams".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsMergeRepoValueParams {
-  /**
-   * The user's settings, already resolved against any managed layer.
-   */
-  userSettings: JsonValue;
-  /**
-   * The repository's checked-in settings layer.
-   */
-  repoSettings: JsonValue;
-}
-/**
- * The repository layer folded into the user layer.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsMergeRepoValueResult".
- */
-/** @experimental */
-export interface UserSettingsMergeRepoValueResult {
-  /**
-   * The merged settings, with the per-entry managed control maps re-stamped from the runtime's ambient managed policy.
-   */
-  settingsJson: JsonValue;
-}
-/**
- * Selects the configuration directory whose settings document to clean.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsMigrateObsoleteOnDiskRequest".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsMigrateObsoleteOnDiskRequest {
-  /**
-   * The configuration directory holding the settings document to clean. A host that scopes a session to its own Copilot home passes that directory here; omit it to clean the document under the home the server resolved for itself. The home directory and environment are deliberately not caller-supplied: they decide only the settings path root and the two hook-parsing flags, and those describe the process doing the reading rather than the caller.
-   */
-  configDir?: string;
-}
-/**
- * The outcome of the one-time obsolete-settings cleanup.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsMigrateObsoleteOnDiskResult".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsMigrateObsoleteOnDiskResult {
-  status: UserSettingsMigrateObsoleteOnDiskStatus;
-}
-/**
- * Selects the configuration directory to run the one-time staff log-level migration against, and supplies the caller's record of whether it has already run.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsMigrateStaffLogLevelOnceRequest".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsMigrateStaffLogLevelOnceRequest {
-  context: UserSettingsHostContext;
-  /**
-   * When the caller last recorded this migration, as an ISO-8601 timestamp. Supplying it lets the runtime answer `current` without re-running the evaluation.
-   */
-  cachedCompletedAt?: string;
-}
-/**
- * The outcome of the one-time staff log-level migration.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsMigrateStaffLogLevelOnceResult".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsMigrateStaffLogLevelOnceResult {
-  status: StaffLogLevelMigrationStatus;
-  /**
-   * When the migration was recorded as done, as an ISO-8601 timestamp. Absent only for `ineligible`, which records nothing.
-   */
-  completedAt?: string;
-  /**
-   * The settings document as it stands after the migration, keyed by setting name. Present only for `refreshed`, and only when the document could be re-read cleanly.
-   */
-  settings?: {};
-}
-/**
- * The outcome of the one-time staff update-channel migration.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsMigrateStaffUpdateChannelOnceResult".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsMigrateStaffUpdateChannelOnceResult {
-  status: StaffUpdateChannelMigrationStatus;
-  /**
-   * When the migration was recorded as done, as an ISO-8601 timestamp. Absent only for `ineligible`, which records nothing.
-   */
-  completedAt?: string;
-}
-/**
- * Settings object whose key names should be canonicalized.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsNormalizeRequest".
- */
-/** @experimental */
-export interface UserSettingsNormalizeRequest {
-  /**
-   * Free-form settings object, possibly using legacy or snake_case key names.
-   */
-  settings: JsonValue;
-}
-/**
- * Settings object with canonical key names.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsNormalizeResult".
- */
-/** @experimental */
-export interface UserSettingsNormalizeResult {
-  /**
-   * The same settings with every legacy or snake_case key renamed to its canonical spelling.
-   */
-  settings: JsonValue;
-}
-/**
- * The on-disk location of the user's settings document.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsPathResult".
- */
-/** @experimental */
-export interface UserSettingsPathResult {
-  /**
-   * Absolute path to the settings file this runtime reads and writes. Normally `settings.json` under the Copilot configuration directory; an extensionless legacy `settings` file is reported instead when it exists and `settings.json` does not.
-   */
-  path: string;
-}
-/**
- * One setting that will not take effect, and why.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsProblem".
- */
-/** @experimental */
-export interface UserSettingsProblem {
-  /**
-   * Stable identifier for this problem within the reported set, so a caller can track a selection across refreshes.
-   */
-  id: string;
-  /**
-   * What is wrong in machine-readable form, for a caller that wants to branch rather than display.
-   */
-  kind: string;
-  /**
-   * Coarse grouping for the problem, for a caller that presents problems in sections.
-   */
-  category: string;
-  source: UserSettingsProblemLocation;
-  /**
-   * The offending key as written in the file, when the problem is attributable to a single key. Absent when the whole file is at fault.
-   */
-  rawKey?: string;
-  /**
-   * Why the setting will not take effect. Never contains the setting's value, which may be a token or another secret.
-   */
-  explanation: string;
-}
-/**
- * The settings layer a problem was found in.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsProblemLocation".
- */
-/** @experimental */
-export interface UserSettingsProblemLocation {
-  /**
-   * Which layer this is: `user`, `repo`, or `local`.
-   */
-  kind: string;
-  /**
-   * The caller-supplied display label for the layer.
-   */
-  label: string;
-  /**
-   * Absolute path of the file backing this layer.
-   */
-  filePath: string;
-}
-/**
- * One already-loaded settings layer to diagnose.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsProblemSource".
- */
-/** @experimental */
-export interface UserSettingsProblemSource {
-  /**
-   * Which layer this is: `user`, `repo`, or `local`.
-   */
-  kind: string;
-  /**
-   * Caller-chosen display label for the layer, echoed back on each problem so a caller can group by layer without re-deriving its own naming.
-   */
-  label: string;
-  /**
-   * Absolute path of the file backing this layer.
-   */
-  filePath: string;
-  /**
-   * The layer's settings exactly as loaded, unnormalized. Empty when the file is missing or failed to parse.
-   */
-  config?: {
-    [k: string]: unknown | undefined;
-  };
-  /**
-   * True when the file itself failed to parse, so its keys could not be read at all.
-   */
-  invalid?: boolean;
-}
-/**
- * The settings layers to diagnose.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsProblemsRequest".
- */
-/** @experimental */
-export interface UserSettingsProblemsRequest {
-  /**
-   * Layers to diagnose, in the precedence order the caller applies them.
-   */
-  sources?: UserSettingsProblemSource[];
-}
-/**
- * The settings that will not take effect across the given layers.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsProblemsResult".
- */
-/** @experimental */
-export interface UserSettingsProblemsResult {
-  /**
-   * Each setting that will not take effect, and why. Empty when every layer is healthy.
-   */
-  problems?: UserSettingsProblem[];
-}
-/**
- * Selects the configuration directory to run the one-time staff model-selection reset against, and supplies the caller's record of whether it has already run.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsResetStaffModelSelectionOnceRequest".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsResetStaffModelSelectionOnceRequest {
-  context: UserSettingsHostContext;
-  /**
-   * Whether the signed-in account is a staff account. The reset applies only to staff, so anything other than `true` returns `didReset: false` without touching the settings document.
-   */
-  staff?: boolean;
-  /**
-   * When the caller last recorded this reset, as an ISO-8601 timestamp. A timestamp at or after the cutoff means the reset already ran and is returned unchanged.
-   */
-  staffModelResetAt?: string;
-}
-/**
- * The outcome of the one-time staff model-selection reset.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsResetStaffModelSelectionOnceResult".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsResetStaffModelSelectionOnceResult {
-  /**
-   * Whether the persisted model selection was cleared. Only `true` means the settings document changed and the host should adopt the returned settings.
-   */
-  didReset: boolean;
-  /**
-   * The timestamp the host should now record, as an ISO-8601 timestamp. Carries the caller's own value back unchanged when nothing was reset.
-   */
-  resetAt?: string;
-  /**
-   * The cutoff this reset is gated on, as an ISO-8601 timestamp. A recorded timestamp at or after it means the reset is already done.
-   */
-  cutoff: string;
-  /**
-   * The settings document as it stands after the reset, keyed by setting name. Present only when `didReset` is true.
-   */
-  settings?: {};
-}
-/**
- * One hook to disable or re-enable.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsSetHookDisabledRequest".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsSetHookDisabledRequest {
-  /**
-   * Path of the settings.json to rewrite.
-   */
-  settingsPath: string;
-  /**
-   * Durable content-hash key of the hook, as `hooks.loadResources` reports it.
-   */
-  disableKey: string;
-  /**
-   * True adds the key to `disabledHooks`, false removes it.
-   */
-  disabled: boolean;
-}
-/**
- * Outcome of rewriting the `disabledHooks` setting.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsSetHookDisabledResult".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsSetHookDisabledResult {
-  /**
-   * `ok` when the setting was written, `invalid` when settings.json could not be parsed and was left alone, `error` when the write itself failed.
-   */
-  status: string;
-  /**
-   * Why the write failed. Absent when the status is `ok`.
-   */
-  errorMessage?: string;
-}
-/**
  * Partial user settings to write to settings.json. Each top-level key is written individually, replacing the existing value; a key whose value is null is removed.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -32752,122 +29482,6 @@ export interface UserSettingsSetHookDisabledResult {
 export interface UserSettingsSetRequest {
   /**
    * Partial user settings to write, as a free-form object keyed by setting name
-   */
-  settings: JsonValue;
-}
-/**
- * Selects the configuration directory whose user settings document should be inspected for unrecognized top-level keys.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsUnknownKeysWarningRequest".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsUnknownKeysWarningRequest {
-  context: UserSettingsHostContext;
-}
-/**
- * The unrecognized top-level keys found in the user settings document, already phrased for display.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsUnknownKeysWarningResult".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsUnknownKeysWarningResult {
-  /**
-   * The warning to show the user, naming the unrecognized keys and the file they were found in. Absent when every top-level key is recognized, and also when the document is missing or could not be read, because an unknown-key list taken from a document the runtime could not load would name keys that may not be there.
-   */
-  warning?: string;
-}
-/**
- * Names the user setting to merge into, and the partial object to merge.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsUpdateRequest".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsUpdateRequest {
-  /**
-   * Top-level user-setting key to merge into, such as `extensions`.
-   */
-  key: string;
-  /**
-   * Value to store for `key`. When both the stored value and this value are objects, their fields are shallow-merged and fields this object does not name are preserved. Otherwise this value replaces the stored value.
-   */
-  value: JsonValue;
-  /**
-   * Copilot configuration directory to write the settings document in, taking precedence over the server's own `COPILOT_HOME` and default home. Omit it, or pass an empty string, to use the directory the server resolved for itself.
-   */
-  configDir?: string;
-  /**
-   * Single-component name for the settings document at `<configDir>/settings/<subDir>.json`; path separators, `.` and `..` are rejected. Omit it, or pass an empty string, to use the main settings document.
-   */
-  subDir?: string;
-}
-/**
- * The stored value of the user setting after the merge.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsUpdateResult".
- */
-/** @experimental */
-/** @internal */
-export interface UserSettingsUpdateResult {
-  /**
-   * The key's stored value after the write: the merged object when both the stored value and the supplied value are objects, otherwise the supplied value.
-   */
-  value: JsonValue;
-}
-/**
- * A single top-level setting subtree to validate.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsValidateRequest".
- */
-/** @experimental */
-export interface UserSettingsValidateRequest {
-  /**
-   * Top-level setting name to validate.
-   */
-  topKey: string;
-  /**
-   * Value to validate. Omitted when `delete` is true.
-   */
-  value?: JsonValue;
-  /**
-   * True to validate a removal of this key. The current settings file is not read.
-   */
-  delete?: boolean;
-}
-/**
- * Outcome of validating one top-level setting subtree.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsValidateResult".
- */
-/** @experimental */
-export interface UserSettingsValidateResult {
-  /**
-   * True when the subtree is valid.
-   */
-  ok: boolean;
-  /**
-   * Problems found, empty when `ok` is true.
-   */
-  issues?: UserSettingsValidationIssue[];
-}
-/**
- * The whole content to store in the user settings file.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsWriteAllRequest".
- */
-/** @experimental */
-export interface UserSettingsWriteAllRequest {
-  /**
-   * The settings object to store. It replaces the file's entire content, so a key absent here is removed.
    */
   settings: JsonValue;
 }
@@ -33938,23 +30552,6 @@ export interface WorkflowToolRunRequest {
   toolCallId?: string;
 }
 /**
- * Complete text used to generate one session diff. These are display contents, with the same text decoding as the patch, not a file-restore contract.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "WorkspaceDiffContents".
- */
-/** @experimental */
-export interface WorkspaceDiffContents {
-  /**
-   * Complete text before the session first changed the file. Omitted when the file did not exist; an empty string represents an existing empty file.
-   */
-  before?: string;
-  /**
-   * Complete current text read when computing the diff. Omitted for a deleted file; an empty string represents an existing empty file.
-   */
-  after?: string;
-}
-/**
  * A single changed file and its unified diff.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -33979,7 +30576,6 @@ export interface WorkspaceDiffFileChange {
    * Whether the diff content was omitted because it exceeded the per-file size limit.
    */
   isTruncated?: boolean;
-  contents?: WorkspaceDiffContents;
 }
 /**
  * Workspace diff result for the requested mode.
@@ -34134,10 +30730,6 @@ export interface WorkspacesDiffRequest {
    * When true, ignore whitespace-only changes (git `--ignore-all-space`). Defaults to false.
    */
   ignoreWhitespace?: boolean;
-  /**
-   * Include the full before/after text used to compute each session diff. Defaults to false; true is accepted only for session mode. Existing capture/read limits still apply, and binary or unavailable contents are not returned. This can substantially increase response size.
-   */
-  includeContents?: boolean;
 }
 /**
  * Optional session context used when creating a local workspace.
@@ -34502,102 +31094,6 @@ export interface WorkspacesWriteAutopilotObjectiveResult {
   operation: string;
 }
 /**
- * The effective sandbox settings, with every unset value resolved to its default.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SandboxSettingsApplyDefaultsResult".
- */
-/** @experimental */
-export interface SandboxSettingsApplyDefaultsResult {
-  /**
-   * One resolved sandbox setting's value, carried verbatim.
-   */
-  [k: string]: JsonValue | undefined;
-}
-/**
- * The stored user settings document, keyed by setting name.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsLoadForConfigDirResult".
- */
-/** @experimental */
-export interface UserSettingsLoadForConfigDirResult {
-  /**
-   * One setting's stored value, carried verbatim.
-   */
-  [k: string]: JsonValue | undefined;
-}
-/**
- * The effective runtime settings, keyed by setting name. Keys this runtime does not recognize are preserved rather than dropped, so a caller reading a document written by a newer runtime keeps every value.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "UserSettingsBuildRuntimeResult".
- */
-/** @experimental */
-export interface UserSettingsBuildRuntimeResult {
-  /**
-   * One resolved setting's effective value, carried verbatim.
-   */
-  [k: string]: JsonValue | undefined;
-}
-/**
- * The resolved gates, keyed by flag name.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "FeatureFlagsResolveStartupGatesResult".
- */
-/** @experimental */
-export interface FeatureFlagsResolveStartupGatesResult {
-  /**
-   * Whether the gate is on for this installation.
-   */
-  [k: string]: boolean | undefined;
-}
-/**
- * The resolved feature flags, keyed by flag name.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "FeatureFlagsResolveResult".
- */
-/** @experimental */
-export interface FeatureFlagsResolveResult {
-  /**
-   * Whether the flag is enabled for this population.
-   */
-  [k: string]: boolean | undefined;
-}
-/**
- * Ordered managed permission verdicts and the supplied policy's fail-closed posture.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsPermissionsEvaluateResult".
- */
-/** @experimental */
-export interface ManagedSettingsPermissionsEvaluateResult {
-  /**
-   * One verdict per input operation, in the same order, including duplicates.
-   */
-  results: ManagedPermissionEvaluation[];
-  /**
-   * Managed permission policy could not be determined; every operation is denied.
-   */
-  failClosed: boolean;
-}
-/**
- * Managed policy context and ordered operations for pure, sessionless evaluation.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedSettingsPermissionsEvaluateRequest".
- */
-/** @experimental */
-export interface ManagedSettingsPermissionsEvaluateRequest {
-  context: ManagedPermissionsContext;
-  /**
-   * Operations to evaluate, preserving input order and duplicates. An empty batch is valid.
-   */
-  operations: ManagedPermissionOperation[];
-}
-/**
  * The resident session the application has materialized on its own connection.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -34626,11 +31122,6 @@ export interface HostCreateSessionRequest {
    * Resume an app-owned durable session instead of creating a new session.
    */
   resume?: boolean;
-  /**
-   * For an explicit publication, borrow an existing owning-connection resident
-   * instead of invoking the resume factory. Cold sessions still use the factory.
-   */
-  preferResident?: boolean;
   /**
    * Host-selected SDK creation or resume settings, without executable callbacks or tools.
    */
@@ -34723,20 +31214,6 @@ export interface HostReadyResult {}
 /** @experimental */
 export interface SessionWorkflowPauseAtCheckpointResult {
   action: WorkflowPauseCheckpointAction;
-}
-
-/** @experimental */
-export interface SessionModelClearStartupSeedResult {
-  cleared: boolean;
-}
-
-/** @experimental */
-export interface SessionModelClearStartupSeedRequest {
-  expectedModel: string;
-  /**
-   * Provider captured with the startup seed; omission matches only an unqualified seed.
-   */
-  expectedProviderId?: string;
 }
 
 /** @experimental */
@@ -34918,141 +31395,6 @@ export interface SessionHistoryCompactRequest {
    * Context window token limit this compaction is targeting, recorded as the `tokenLimit` on the persisted `session.compaction_start` / `session.compaction_complete` events. Set it when the compaction targets a window other than the compacting model's own, e.g. switching to a model with a smaller context window: the compaction still runs on the current model, so the limit that motivated it would otherwise be lost. When absent, the events record the compacting model's own resolved limit. Attribution metadata only - it does not change how much the compaction removes.
    */
   tokenLimit?: number;
-}
-/**
- * Internal absolute code-change totals reported by the owning host.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SessionUsageSetCodeChangesRequest".
- */
-/** @experimental */
-export interface SessionUsageSetCodeChangesRequest {
-  /**
-   * Absolute added-line total, replacing the previous reading.
-   */
-  linesAdded: number;
-  /**
-   * Absolute removed-line total, replacing the previous reading.
-   */
-  linesRemoved: number;
-  /**
-   * Absolute changed-file count; omission preserves the previous count.
-   */
-  filesCount?: number;
-}
-/**
- * The incumbent session-owned quota and account projection.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SessionQuotaGetResult".
- */
-/** @experimental */
-export interface SessionQuotaGetResult {
-  /**
-   * Known quota snapshots, keyed by the provider's quota type.
-   */
-  snapshots: {
-    [k: string]: SessionQuotaSnapshot | undefined;
-  };
-  /**
-   * Provider-owned account quota state, including snapshots without numeric balances.
-   */
-  providerQuotas?: ProviderQuotaState[];
-  /**
-   * Whether the account uses the free limited Copilot plan.
-   */
-  isFreeUser: boolean;
-  /**
-   * Whether the account uses token-based billing.
-   */
-  isTbbUser: boolean;
-  planTier: SessionQuotaPlanTier;
-  /**
-   * Whether premium-request costs are billable.
-   */
-  premiumRequestsBillable: boolean;
-  /**
-   * Whether model cost columns should be shown.
-   */
-  modelCostColumnVisible: boolean;
-  /**
-   * Whether the account can delegate tasks to GitHub.
-   */
-  delegateAvailable: boolean;
-  /**
-   * Whether the account can sign up for Copilot Free.
-   */
-  canSignupForCopilotFree: boolean;
-  /**
-   * Whether dynamic workflows are enabled for the active account.
-   */
-  dynamicWorkflowsEnabled: boolean;
-  /**
-   * Whether dynamic workflows are visible under the session's feature flags.
-   */
-  dynamicWorkflowsUiVisible: boolean;
-  /**
-   * Upgrade link for a free account.
-   */
-  upgradeUrl?: string;
-  delegateWarning?: SessionQuotaDelegateWarning;
-}
-/**
- * The incumbent session-owned quota and account projection.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SessionQuotaRefreshResult".
- */
-/** @experimental */
-export interface SessionQuotaRefreshResult {
-  /**
-   * Known quota snapshots, keyed by the provider's quota type.
-   */
-  snapshots: {
-    [k: string]: SessionQuotaSnapshot | undefined;
-  };
-  /**
-   * Provider-owned account quota state, including snapshots without numeric balances.
-   */
-  providerQuotas?: ProviderQuotaState[];
-  /**
-   * Whether the account uses the free limited Copilot plan.
-   */
-  isFreeUser: boolean;
-  /**
-   * Whether the account uses token-based billing.
-   */
-  isTbbUser: boolean;
-  planTier: SessionQuotaPlanTier;
-  /**
-   * Whether premium-request costs are billable.
-   */
-  premiumRequestsBillable: boolean;
-  /**
-   * Whether model cost columns should be shown.
-   */
-  modelCostColumnVisible: boolean;
-  /**
-   * Whether the account can delegate tasks to GitHub.
-   */
-  delegateAvailable: boolean;
-  /**
-   * Whether the account can sign up for Copilot Free.
-   */
-  canSignupForCopilotFree: boolean;
-  /**
-   * Whether dynamic workflows are enabled for the active account.
-   */
-  dynamicWorkflowsEnabled: boolean;
-  /**
-   * Whether dynamic workflows are visible under the session's feature flags.
-   */
-  dynamicWorkflowsUiVisible: boolean;
-  /**
-   * Upgrade link for a free account.
-   */
-  upgradeUrl?: string;
-  delegateWarning?: SessionQuotaDelegateWarning;
 }
 
 /** @experimental */
@@ -35247,159 +31589,6 @@ export interface InstallationsConfirmRequest {
 export function createServerRpc(connection: MessageConnection) {
     return {
         /** @experimental */
-        sandbox: {
-            /** @experimental */
-            proxyCa: {
-                /**
-                 * Reports whether this runtime process can offer installing the sandbox credential-proxy certificate authority into OS trust.
-                 *
-                 * @returns True when this process can offer installing the sandbox credential-proxy certificate authority into OS trust.
-                 */
-                checkInstallationSupport: async (): Promise<SandboxProxyCaCheckInstallationSupportResult> =>
-                    connection.sendRequest("sandbox.proxyCa.checkInstallationSupport", {}),
-                /**
-                 * Reports whether this sandbox configuration uses the credential proxy and can need certificate-authority setup.
-                 *
-                 * @param params Identifies the credential hosts that the persistent certificate authority of the sandbox credential proxy must cover. The runtime always adds the hosts from the saved user settings.
-                 *
-                 * @returns True when the sandbox configuration uses the credential proxy and can need certificate-authority setup.
-                 */
-                checkRelevance: async (params: SandboxProxyCaRequest): Promise<SandboxProxyCaCheckRelevanceResult> =>
-                    connection.sendRequest("sandbox.proxyCa.checkRelevance", params),
-                /**
-                 * Reports whether the persistent certificate authority of the sandbox credential proxy exists, whether OS trust includes it, and whether it must be rotated. Changes nothing.
-                 *
-                 * @param params Identifies the credential hosts that the persistent certificate authority of the sandbox credential proxy must cover. The runtime always adds the hosts from the saved user settings.
-                 *
-                 * @returns Status of the persistent certificate authority of the sandbox credential proxy.
-                 */
-                getStatus: async (params: SandboxProxyCaRequest): Promise<SandboxProxyCaStatus> =>
-                    connection.sendRequest("sandbox.proxyCa.getStatus", params),
-                /**
-                 * Creates the persistent certificate authority of the sandbox credential proxy if none is stored, without changing OS trust, and returns the path of its public certificate. Keeps an existing certificate authority, even one that must be rotated. Fails where OS trust is unsupported. Trust it with sandbox.proxyCa.trust: the CLI trusts only the hosts in the saved user settings, so it refuses a certificate authority that also covers hosts from sandboxConfig.
-                 *
-                 * @param params Identifies the credential hosts that the persistent certificate authority of the sandbox credential proxy must cover. The runtime always adds the hosts from the saved user settings.
-                 *
-                 * @returns Result of creating the persistent certificate authority of the sandbox credential proxy.
-                 */
-                create: async (params: SandboxProxyCaRequest): Promise<SandboxProxyCaCreateResult> =>
-                    connection.sendRequest("sandbox.proxyCa.create", params),
-                /**
-                 * Replaces the persistent certificate authority of the sandbox credential proxy with a new one for the current credential hosts. If OS trust included the old one, removes it and trusts the new one, which can show an OS authentication prompt. Running sandboxed tools keep the old certificate authority until they restart.
-                 *
-                 * @param params Identifies the credential hosts that the persistent certificate authority of the sandbox credential proxy must cover. The runtime always adds the hosts from the saved user settings.
-                 *
-                 * @returns Status of the persistent certificate authority of the sandbox credential proxy.
-                 */
-                rotate: async (params: SandboxProxyCaRequest): Promise<SandboxProxyCaStatus> =>
-                    connection.sendRequest("sandbox.proxyCa.rotate", params),
-                /**
-                 * Adds the persistent certificate authority of the sandbox credential proxy to OS trust, so sandboxed clients that read only OS trust accept the proxy. Call create first. Refuses a certificate authority that is not constrained to the current credential hosts. Can show an OS authentication prompt.
-                 *
-                 * @param params Identifies the credential hosts that the persistent certificate authority of the sandbox credential proxy must cover. The runtime always adds the hosts from the saved user settings.
-                 *
-                 * @returns Status of the persistent certificate authority of the sandbox credential proxy.
-                 */
-                trust: async (params: SandboxProxyCaRequest): Promise<SandboxProxyCaStatus> =>
-                    connection.sendRequest("sandbox.proxyCa.trust", params),
-                /**
-                 * Removes the persistent certificate authority of the sandbox credential proxy from OS trust. Keeps the stored certificate authority. Can show an OS authentication prompt. Sandboxed clients that read only OS trust then reject the proxy; clients that read the per-process certificate bundle continue to work.
-                 *
-                 * @returns Status of the persistent certificate authority of the sandbox credential proxy.
-                 */
-                remove: async (): Promise<SandboxProxyCaStatus> =>
-                    connection.sendRequest("sandbox.proxyCa.remove", {}),
-            },
-            /**
-             * Reports whether the host running this runtime can run the command sandbox, without starting a session or spawning a sandboxed command.
-             *
-             * @returns Whether the host running this runtime can run the command sandbox. The runtime checks `supported` once per process. A capability answer can change while the process runs, for example after the user installs a missing package.
-             */
-            getHostSupport: async (): Promise<SandboxHostSupport> =>
-                connection.sendRequest("sandbox.getHostSupport", {}),
-        },
-        /** @experimental */
-        user: {
-            /** @experimental */
-            settings: {
-                /**
-                 * Lists every known user setting from settings.json, each with its effective value, its default, and whether it is at the default — so settings the user has never set still appear with their default value. Does not include repository- or enterprise-managed overrides that the runtime layers on top at session time.
-                 *
-                 * @returns Per-key metadata for every known user setting in settings.json, including settings left at their default. Excludes repository- and enterprise-managed overrides.
-                 */
-                get: async (): Promise<UserSettingsGetResult> =>
-                    connection.sendRequest("user.settings.get", {}),
-                /**
-                 * Writes one or more user settings to settings.json, replacing each provided top-level key. A key whose value is null is removed.
-                 *
-                 * @param params Partial user settings to write to settings.json. Each top-level key is written individually, replacing the existing value; a key whose value is null is removed.
-                 */
-                set: async (params: UserSettingsSetRequest): Promise<void> =>
-                    connection.sendRequest("user.settings.set", params),
-            },
-        },
-        /** @experimental */
-        managedSettings: {
-            /**
-             * Discovers device-managed settings from production MDM and managed-file sources, validates them against the runtime-owned managed-settings schema, and returns the canonical JSON without requiring a session. `managedSettings.resolve` returns the same device settings together with the account's server policy.
-             *
-             * @returns Validated device-managed settings discovered before a session exists.
-             */
-            read: async (): Promise<ManagedSettingsReadResult> =>
-                connection.sendRequest("managedSettings.read", {}),
-            /**
-             * Force-refreshes enterprise managed settings for every account: wipes the persistent server-policy cache (the whole `<cacheHome>/managed-settings` directory) and drops this runtime process's in-memory retained server policy. It does not itself fetch policy — the effect is that the next time a session resolves managed settings for an account, that resolution re-fetches the account's org policy from the network instead of serving a cached response. Note that `managedSettings.read` returns only device/MDM settings and never triggers the account server-policy fetch, so a host implementing "sync account policy" should call `managedSettings.resolve` or start a fresh session resolution rather than treat a subsequent `managedSettings.read` as the refreshed org policy. Mirrors the invalidation a sign-out performs, broadened from the one signing-out account to all of them; device/MDM layers describe the machine, not the account, and are left untouched. Rejects if the on-disk cache cannot be removed.
-             */
-            clearCache: async (): Promise<void> =>
-                connection.sendRequest("managedSettings.clearCache", {}),
-            /**
-             * Resolves the effective enterprise managed settings without a session, from the device channel and, when an account is available, the account's server policy through the same per-account cache sessions use. A cached server policy less than an hour old is used without a fetch; otherwise the policy is fetched, and when the fetch fails a cached policy up to 24 hours old is used instead, unless `forceRemoteSettingsRefresh` requires a live fetch. With no account requested or signed in, it reports device policy only; signing out removes the account's cached policy. It can fetch server policy over the network when the cache is stale, so call it off latency-critical paths such as startup rather than before listing models. The policy helper is not run. `layers` lists each channel's document before merging, and `values` and `meta` carry typed effective values and their lock state for the keys typed so far.
-             *
-             * @param params Optional opaque account selection or GitHub token whose managed settings are resolved.
-             *
-             * @returns Effective enterprise managed settings for an account, resolved without a session.
-             */
-            resolve: async (params: ManagedSettingsResolveRequest): Promise<ManagedSettingsResolveResult> =>
-                connection.sendRequest("managedSettings.resolve", params),
-            /** @experimental */
-            permissions: {
-                /**
-                 * Pure, sessionless evaluation of operations against a supplied permissionsContext. Performs no policy discovery, I/O, prompting, navigation, permission grants, or sandbox changes. Obtain the context from managedSettings.resolve or session.managedSettings.get, or reuse an in-memory context. Results preserve input order and duplicates. Consumers must block deny, obtain approval for ask, and use their normal permission flow for unmanaged. Unknown policy returns failClosed with every operation denied. This is not a substitute for user permissions or other security controls.
-                 *
-                 * @param params Managed policy context and ordered operations for pure, sessionless evaluation.
-                 *
-                 * @returns Ordered managed permission verdicts and the supplied policy's fail-closed posture.
-                 */
-                evaluate: async (params: ManagedSettingsPermissionsEvaluateRequest): Promise<ManagedSettingsPermissionsEvaluateResult> =>
-                    connection.sendRequest("managedSettings.permissions.evaluate", params),
-            },
-            /**
-             * Returns the managed-settings authoring JSON schema with descriptive `x-composition` annotations aligned with the shared settings-engine vocabulary. These annotations are not a complete runtime composition contract: model, effortLevel, and contextTier remain coupled. Use `managedSettings.compose` for the runtime's effective result. Performs no I/O.
-             *
-             * @returns The authoring JSON schema for managed settings recognized by this runtime.
-             */
-            schema: async (): Promise<ManagedSettingsSchemaResult> =>
-                connection.sendRequest("managedSettings.schema", {}),
-            /**
-             * Validates a candidate managed-settings document the way the runtime validates delivered policy, without applying it. Reports errors that would reject the document, warnings for content the runtime ignores, and the canonical document it would apply. Document text nested more than 64 levels deep is rejected. Performs no I/O.
-             *
-             * @param params A candidate managed-settings document to validate without applying it.
-             *
-             * @returns Result of validating a managed-settings document.
-             */
-            validate: async (params: ManagedSettingsValidateRequest): Promise<ManagedSettingsValidateResult> =>
-                connection.sendRequest("managedSettings.validate", params),
-            /**
-             * Merges candidate managed-settings documents for the device, server, and policy-helper channels into the effective settings the runtime would enforce on this host, using the same precedence and composition rules as live resolution, without applying them. Like live resolution, a server's advisory sandbox force-enable is declined on a host that cannot run the sandbox. Does not fetch policy or read policy files, but may perform blocking OS or subprocess probes for sandbox support. Preview documents are limited to 1 MiB and 64 levels of nesting.
-             *
-             * @param params Candidate managed-settings documents to merge without applying them.
-             *
-             * @returns The effective managed settings the runtime would enforce for the given documents, in the same shape `managedSettings.resolve` returns.
-             */
-            compose: async (params: ManagedSettingsComposeRequest): Promise<ManagedSettingsComposeResult> =>
-                connection.sendRequest("managedSettings.compose", params),
-        },
-        /** @experimental */
         environments: {
             /**
              * Lists GitHub Mission Control environments visible to the authenticated identity. Does not require a running host and excludes host relay credentials.
@@ -35440,15 +31629,6 @@ export function createServerRpc(connection: MessageConnection) {
              */
             publishSession: async (params: HostPublishSessionRequest): Promise<HostPublishSessionResult> =>
                 connection.sendRequest("host.publishSession", params),
-            /**
-             * Reads the complete advertised live and dormant session catalog of an existing host owned by this connection. Does not start hosting, subscribe to sessions, or guarantee resumability.
-             *
-             * @param params Reads a running host's catalog or the runtime's saved default catalog.
-             *
-             * @returns The complete live and dormant advertised catalog, without subscribing to sessions.
-             */
-            listSessions: async (params: HostListSessionsRequest): Promise<HostListSessionsResult> =>
-                connection.sendRequest("host.listSessions", params),
             /**
              * Starts a connection-owned AHP host with explicit localServer and/or githubEnvironment transports as a supervised SDK participant.
              *
@@ -35511,16 +31691,60 @@ export function createServerRpc(connection: MessageConnection) {
                 connection.sendRequest("models.getBuiltInCatalog", {}),
         },
         /** @experimental */
-        contentExclusion: {
+        sandbox: {
             /**
-             * Validates candidate content-exclusion policies and returns them normalized, without starting a session. This runs the same parser the runtime's own policy enforcement uses, so a host cannot accept a policy set the runtime would later reject, nor reject one it would have honored. Call it when policies arrive from outside the runtime — a command-line flag, a configuration file, a host's own settings — and must be checked before a session exists to apply them to. A malformed document fails with a message prefixed `Invalid JSON: `; a well-formed document that violates the policy schema fails with the offending field paths.
+             * Reports whether the host running this runtime can run the command sandbox, without starting a session or spawning a sandboxed command.
              *
-             * @param params Candidate content-exclusion policies to validate, as the raw JSON text a host received. The text is supplied unparsed so that a syntax error and a schema violation are both reported by the runtime's own validator rather than by the caller's JSON parser.
-             *
-             * @returns The accepted policies, parsed and normalized. A rejected input is reported as an error rather than in this result.
+             * @returns Whether the host running this runtime can run the command sandbox. The runtime checks `supported` once per process. A capability answer can change while the process runs, for example after the user installs a missing package.
              */
-            validatePolicies: async (params: ContentExclusionValidatePoliciesRequest): Promise<ContentExclusionValidatePoliciesResult> =>
-                connection.sendRequest("contentExclusion.validatePolicies", params),
+            getHostSupport: async (): Promise<SandboxHostSupport> =>
+                connection.sendRequest("sandbox.getHostSupport", {}),
+            /** @experimental */
+            proxyCa: {
+                /**
+                 * Reports whether the persistent certificate authority of the sandbox credential proxy exists, whether OS trust includes it, and whether it must be rotated. Changes nothing.
+                 *
+                 * @param params Identifies the credential hosts that the persistent certificate authority of the sandbox credential proxy must cover. The runtime always adds the hosts from the saved user settings.
+                 *
+                 * @returns Status of the persistent certificate authority of the sandbox credential proxy.
+                 */
+                getStatus: async (params: SandboxProxyCaRequest): Promise<SandboxProxyCaStatus> =>
+                    connection.sendRequest("sandbox.proxyCa.getStatus", params),
+                /**
+                 * Creates the persistent certificate authority of the sandbox credential proxy if none is stored, without changing OS trust, and returns the path of its public certificate. Keeps an existing certificate authority, even one that must be rotated. Fails where OS trust is unsupported. Trust it with sandbox.proxyCa.trust: the CLI trusts only the hosts in the saved user settings, so it refuses a certificate authority that also covers hosts from sandboxConfig.
+                 *
+                 * @param params Identifies the credential hosts that the persistent certificate authority of the sandbox credential proxy must cover. The runtime always adds the hosts from the saved user settings.
+                 *
+                 * @returns Result of creating the persistent certificate authority of the sandbox credential proxy.
+                 */
+                create: async (params: SandboxProxyCaRequest): Promise<SandboxProxyCaCreateResult> =>
+                    connection.sendRequest("sandbox.proxyCa.create", params),
+                /**
+                 * Replaces the persistent certificate authority of the sandbox credential proxy with a new one for the current credential hosts. If OS trust included the old one, removes it and trusts the new one, which can show an OS authentication prompt. Running sandboxed tools keep the old certificate authority until they restart.
+                 *
+                 * @param params Identifies the credential hosts that the persistent certificate authority of the sandbox credential proxy must cover. The runtime always adds the hosts from the saved user settings.
+                 *
+                 * @returns Status of the persistent certificate authority of the sandbox credential proxy.
+                 */
+                rotate: async (params: SandboxProxyCaRequest): Promise<SandboxProxyCaStatus> =>
+                    connection.sendRequest("sandbox.proxyCa.rotate", params),
+                /**
+                 * Adds the persistent certificate authority of the sandbox credential proxy to OS trust, so sandboxed clients that read only OS trust accept the proxy. Call create first. Refuses a certificate authority that is not constrained to the current credential hosts. Can show an OS authentication prompt.
+                 *
+                 * @param params Identifies the credential hosts that the persistent certificate authority of the sandbox credential proxy must cover. The runtime always adds the hosts from the saved user settings.
+                 *
+                 * @returns Status of the persistent certificate authority of the sandbox credential proxy.
+                 */
+                trust: async (params: SandboxProxyCaRequest): Promise<SandboxProxyCaStatus> =>
+                    connection.sendRequest("sandbox.proxyCa.trust", params),
+                /**
+                 * Removes the persistent certificate authority of the sandbox credential proxy from OS trust. Keeps the stored certificate authority. Can show an OS authentication prompt. Sandboxed clients that read only OS trust then reject the proxy; clients that read the per-process certificate bundle continue to work.
+                 *
+                 * @returns Status of the persistent certificate authority of the sandbox credential proxy.
+                 */
+                remove: async (): Promise<SandboxProxyCaStatus> =>
+                    connection.sendRequest("sandbox.proxyCa.remove", {}),
+            },
         },
         /** @experimental */
         tools: {
@@ -35759,27 +31983,6 @@ export function createServerRpc(connection: MessageConnection) {
              */
             disable: async (params: DiscoveredExtensionsDisableRequest): Promise<void> =>
                 connection.sendRequest("extensions.disable", params),
-        },
-        /** @experimental */
-        instructions: {
-            /**
-             * Discovers instruction sources across user, repository, and plugin sources.
-             *
-             * @param params Optional project paths to include in instruction discovery.
-             *
-             * @returns Instruction sources discovered across user, repository, and plugin sources.
-             */
-            discover: async (params: InstructionsDiscoverRequest): Promise<ServerInstructionSourceList> =>
-                connection.sendRequest("instructions.discover", params),
-            /**
-             * Returns the canonical files and directories where a client may create custom instructions that the runtime will recognize, including ones that do not exist yet. Repository targets become active once created.
-             *
-             * @param params Optional project paths to include when enumerating instruction discovery targets.
-             *
-             * @returns Canonical files and directories where custom instructions can be created so the runtime will recognize them.
-             */
-            getDiscoveryPaths: async (params: InstructionsGetDiscoveryPathsRequest): Promise<InstructionDiscoveryPathList> =>
-                connection.sendRequest("instructions.getDiscoveryPaths", params),
         },
         /** @experimental */
         skills: {
@@ -36065,6 +32268,27 @@ export function createServerRpc(connection: MessageConnection) {
                 connection.sendRequest("agents.getDiscoveryPaths", params),
         },
         /** @experimental */
+        instructions: {
+            /**
+             * Discovers instruction sources across user, repository, and plugin sources.
+             *
+             * @param params Optional project paths to include in instruction discovery.
+             *
+             * @returns Instruction sources discovered across user, repository, and plugin sources.
+             */
+            discover: async (params: InstructionsDiscoverRequest): Promise<ServerInstructionSourceList> =>
+                connection.sendRequest("instructions.discover", params),
+            /**
+             * Returns the canonical files and directories where a client may create custom instructions that the runtime will recognize, including ones that do not exist yet. Repository targets become active once created.
+             *
+             * @param params Optional project paths to include when enumerating instruction discovery targets.
+             *
+             * @returns Canonical files and directories where custom instructions can be created so the runtime will recognize them.
+             */
+            getDiscoveryPaths: async (params: InstructionsGetDiscoveryPathsRequest): Promise<InstructionDiscoveryPathList> =>
+                connection.sendRequest("instructions.getDiscoveryPaths", params),
+        },
+        /** @experimental */
         commands: {
             /**
              * Lists the well-known built-in slash commands that work as the first message in a new session (e.g. /plan, /env), without requiring an active session. Commands that depend on session state, authentication, or a synced session are omitted.
@@ -36073,6 +32297,75 @@ export function createServerRpc(connection: MessageConnection) {
              */
             list: async (): Promise<CommandList> =>
                 connection.sendRequest("commands.list", {}),
+        },
+        /** @experimental */
+        user: {
+            /** @experimental */
+            settings: {
+                /**
+                 * Lists every known user setting from settings.json, each with its effective value, its default, and whether it is at the default — so settings the user has never set still appear with their default value. Does not include repository- or enterprise-managed overrides that the runtime layers on top at session time.
+                 *
+                 * @returns Per-key metadata for every known user setting in settings.json, including settings left at their default. Excludes repository- and enterprise-managed overrides.
+                 */
+                get: async (): Promise<UserSettingsGetResult> =>
+                    connection.sendRequest("user.settings.get", {}),
+                /**
+                 * Writes one or more user settings to settings.json, replacing each provided top-level key. A key whose value is null is removed.
+                 *
+                 * @param params Partial user settings to write to settings.json. Each top-level key is written individually, replacing the existing value; a key whose value is null is removed.
+                 */
+                set: async (params: UserSettingsSetRequest): Promise<void> =>
+                    connection.sendRequest("user.settings.set", params),
+            },
+        },
+        /** @experimental */
+        managedSettings: {
+            /**
+             * Discovers device-managed settings from production MDM and managed-file sources, validates them against the runtime-owned managed-settings schema, and returns the canonical JSON without requiring a session. `managedSettings.resolve` returns the same device settings together with the account's server policy.
+             *
+             * @returns Validated device-managed settings discovered before a session exists.
+             */
+            read: async (): Promise<ManagedSettingsReadResult> =>
+                connection.sendRequest("managedSettings.read", {}),
+            /**
+             * Force-refreshes enterprise managed settings for every account: wipes the persistent server-policy cache (the whole `<cacheHome>/managed-settings` directory) and drops this runtime process's in-memory retained server policy. It does not itself fetch policy — the effect is that the next time a session resolves managed settings for an account, that resolution re-fetches the account's org policy from the network instead of serving a cached response. Note that `managedSettings.read` returns only device/MDM settings and never triggers the account server-policy fetch, so a host implementing "sync account policy" should call `managedSettings.resolve` or start a fresh session resolution rather than treat a subsequent `managedSettings.read` as the refreshed org policy. Mirrors the invalidation a sign-out performs, broadened from the one signing-out account to all of them; device/MDM layers describe the machine, not the account, and are left untouched. Rejects if the on-disk cache cannot be removed.
+             */
+            clearCache: async (): Promise<void> =>
+                connection.sendRequest("managedSettings.clearCache", {}),
+            /**
+             * Resolves the effective enterprise managed settings without a session, from the device channel and, when an account is available, the account's server policy through the same per-account cache sessions use. A cached server policy less than an hour old is used without a fetch; otherwise the policy is fetched, and when the fetch fails a cached policy up to 24 hours old is used instead, unless `forceRemoteSettingsRefresh` requires a live fetch. With no account requested or signed in, it reports device policy only; signing out removes the account's cached policy. It can fetch server policy over the network when the cache is stale, so call it off latency-critical paths such as startup rather than before listing models. The policy helper is not run. `layers` lists each channel's document before merging, and `values` and `meta` carry typed effective values and their lock state for the keys typed so far.
+             *
+             * @param params Optional opaque account selection or GitHub token whose managed settings are resolved.
+             *
+             * @returns Effective enterprise managed settings for an account, resolved without a session.
+             */
+            resolve: async (params: ManagedSettingsResolveRequest): Promise<ManagedSettingsResolveResult> =>
+                connection.sendRequest("managedSettings.resolve", params),
+            /**
+             * Returns the managed-settings authoring JSON schema with descriptive `x-composition` annotations aligned with the shared settings-engine vocabulary. These annotations are not a complete runtime composition contract: model, effortLevel, and contextTier remain coupled. Use `managedSettings.compose` for the runtime's effective result. Performs no I/O.
+             *
+             * @returns The authoring JSON schema for managed settings recognized by this runtime.
+             */
+            schema: async (): Promise<ManagedSettingsSchemaResult> =>
+                connection.sendRequest("managedSettings.schema", {}),
+            /**
+             * Validates a candidate managed-settings document the way the runtime validates delivered policy, without applying it. Reports errors that would reject the document, warnings for content the runtime ignores, and the canonical document it would apply. Document text nested more than 64 levels deep is rejected. Performs no I/O.
+             *
+             * @param params A candidate managed-settings document to validate without applying it.
+             *
+             * @returns Result of validating a managed-settings document.
+             */
+            validate: async (params: ManagedSettingsValidateRequest): Promise<ManagedSettingsValidateResult> =>
+                connection.sendRequest("managedSettings.validate", params),
+            /**
+             * Merges candidate managed-settings documents for the device, server, and policy-helper channels into the effective settings the runtime would enforce on this host, using the same precedence and composition rules as live resolution, without applying them. Like live resolution, a server's advisory sandbox force-enable is declined on a host that cannot run the sandbox. Does not fetch policy or read policy files, but may perform blocking OS or subprocess probes for sandbox support. Preview documents are limited to 1 MiB and 64 levels of nesting.
+             *
+             * @param params Candidate managed-settings documents to merge without applying them.
+             *
+             * @returns The effective managed settings the runtime would enforce for the given documents, in the same shape `managedSettings.resolve` returns.
+             */
+            compose: async (params: ManagedSettingsComposeRequest): Promise<ManagedSettingsComposeResult> =>
+                connection.sendRequest("managedSettings.compose", params),
         },
         /** @experimental */
         runtime: {
@@ -36404,554 +32697,6 @@ export function createServerRpc(connection: MessageConnection) {
 export function createInternalServerRpc(connection: MessageConnection) {
     return {
         /** @experimental */
-        sandbox: {
-            /** @experimental */
-            proxySecret: {
-                /**
-                 * Reports where this runtime keeps the sandbox proxy password: the credential store directory and the entry identifier within it. Both are derived from the configuration directory this runtime was started with, so a host does not resolve them itself. Read this to recognize a `${secret:…}` value in stored sandbox settings as this runtime's own proxy password rather than a reference the user wrote by hand. Marked internal because it exists to carry a CLI call site off the napi boundary onto the SDK contract.
-                 *
-                 * @returns Where this runtime keeps the sandbox proxy password.
-                 */
-                getLocation: async (): Promise<SandboxProxySecretLocation> =>
-                    connection.sendRequest("sandbox.proxySecret.getLocation", {}),
-                /**
-                 * Reads the stored sandbox proxy password from the credential store `sandbox.proxySecret.getLocation` names, preferring the OS keychain and falling back to the on-disk store. Reports an absent value rather than failing when no entry exists. Marked internal because it exists to carry a CLI call site off the napi boundary onto the SDK contract.
-                 *
-                 * @returns The stored sandbox proxy password, if one is present.
-                 */
-                get: async (): Promise<SandboxProxySecretGetResult> =>
-                    connection.sendRequest("sandbox.proxySecret.get", {}),
-                /**
-                 * Stores the sandbox proxy password in the credential store `sandbox.proxySecret.getLocation` names, replacing any existing entry. Reports whether the OS keychain accepted it or it fell back to the on-disk store. Marked internal because it exists to carry a CLI call site off the napi boundary onto the SDK contract.
-                 *
-                 * @param params The sandbox proxy password to store.
-                 *
-                 * @returns Where the sandbox proxy password was stored.
-                 */
-                save: async (params: SandboxProxySecretSaveRequest): Promise<SandboxProxySecretSaveResult> =>
-                    connection.sendRequest("sandbox.proxySecret.save", params),
-                /**
-                 * Removes the stored sandbox proxy password from the credential store `sandbox.proxySecret.getLocation` names. Succeeds when no entry exists, so it is safe to call while clearing a proxy password whose origin is unknown. Marked internal because it exists to carry a CLI call site off the napi boundary onto the SDK contract.
-                 */
-                delete: async (): Promise<void> =>
-                    connection.sendRequest("sandbox.proxySecret.delete", {}),
-            },
-            /** @experimental */
-            settings: {
-                /**
-                 * Resolves a stored sandbox settings object into the effective one, filling every value the user left unset with its default. Read this to render or reason about the sandbox configuration a session would actually run under, rather than the sparse document the user wrote.
-                 *
-                 * @param params The stored sandbox settings to resolve against the defaults.
-                 *
-                 * @returns The effective sandbox settings, with every unset value resolved to its default.
-                 */
-                applyDefaults: async (params: SandboxApplyDefaultsRequest): Promise<SandboxSettingsApplyDefaultsResult> =>
-                    connection.sendRequest("sandbox.settings.applyDefaults", params),
-            },
-            /**
-             * Raises a user's sandbox settings to an administrator's managed sandbox floor and returns the result a session should actually run under. The floor can only tighten: an enterprise force-on is reflected even when the user's own `enabled` is false, and a user cannot lower a setting the floor raised. The result is normalized through the declared sandbox shape, so a key reorder or an undeclared passthrough key is not mistaken for a policy change by callers that diff two results. A host must call this rather than merge the two layers itself, because reimplementing the direction of the fold is what turns an administrator's floor into a suggestion.
-             *
-             * @param params The user's sandbox settings and the managed sandbox floor to raise them to.
-             *
-             * @returns The user's sandbox settings raised to the managed floor.
-             */
-            resolveFlooredConfig: async (params: SandboxResolveFlooredConfigParams): Promise<SandboxResolveFlooredConfigResult> =>
-                connection.sendRequest("sandbox.resolveFlooredConfig", params),
-            /**
-             * Builds the effective filesystem policy one `@`-file picker checks its suggestions against, so Git discovery and grant canonicalization run once for the picker's lifetime instead of on every debounced keystroke. Returns no policy when the sandbox is absent or disabled, which the paired filter reads as "keep every candidate". A host must pair this with `sandbox.filterPickerCandidates` rather than resolve a grant list itself, because the picker's grants are narrower than a file tool's — the same path a built-in tool may read can be one the picker must not offer.
-             *
-             * @param params The working directory and sandbox settings to build a file-picker policy from.
-             *
-             * @returns The prepared file-picker policy, or none when the sandbox is disabled.
-             */
-            preparePickerPolicy: async (params: SandboxPreparePickerPolicyParams): Promise<SandboxPreparePickerPolicyResult> =>
-                connection.sendRequest("sandbox.preparePickerPolicy", params),
-            /**
-             * Checks a batch of `@`-file picker suggestions against a policy prepared by `sandbox.preparePickerPolicy` and returns one allow decision per candidate, positionally aligned with the request. Batched deliberately: each check canonicalizes a path component-by-component through the real filesystem, so one call amortizes that over a single hop rather than dozens while the user types. A directory the policy does not itself allow can still be kept as a waypoint to an allowed subtree. An absent policy keeps every candidate.
-             *
-             * @param params A batch of file-picker candidates to check against a prepared policy.
-             *
-             * @returns Per-candidate allow decisions, positionally aligned with the request.
-             */
-            filterPickerCandidates: async (params: SandboxFilterPickerCandidatesParams): Promise<SandboxFilterPickerCandidatesResult> =>
-                connection.sendRequest("sandbox.filterPickerCandidates", params),
-            /**
-             * The sandbox a single named feature actually launches under, which is not the same as the session's sandbox. A feature is routed out of the sandbox by its own flag — `sandboxMcpServers`, `sandboxLspServers` — so an enabled session can still start one server confined and another free. Returns a disabled sandbox rather than an error when the host has no sandbox slice at all, so an absent config and an opted-out feature read alike at the launch site. A host must ask per feature rather than reuse the session config, because reading only `enabled` confines a server the user opted out of, or reports as sandboxed one that is not.
-             *
-             * @param params A sandbox config and the per-feature routing flag to resolve it for.
-             *
-             * @returns The sandbox a named feature actually launches under.
-             */
-            resolveForOptional: async (params: SandboxEffectiveForOptionalParams): Promise<SandboxEffectiveForOptionalResult> =>
-                connection.sendRequest("sandbox.resolveForOptional", params),
-            /**
-             * Reports whether this machine can run an OS-level command sandbox at all. A host must ask before it offers sandboxing, because the answer is a property of the machine rather than of any setting: on Linux it depends on bubblewrap being installed, and on Windows on the OS build supporting BaseContainer. Probing it requires spawning a process the first time, so the answer is cached for the life of the runtime. A host that assumes support and enables the sandbox anyway produces a session in which every shell command fails.
-             *
-             * @returns True when an OS-level sandbox can run on this host.
-             */
-            checkPlatformSupport: async (): Promise<SandboxCheckPlatformSupportResult> =>
-                connection.sendRequest("sandbox.checkPlatformSupport", {}),
-            /**
-             * Reports whether this Windows host's BaseContainer implementation can reach the host's loopback interface directly, which is what a local-network policy needs to avoid routing through the egress proxy. Like `sandbox.checkPlatformSupport`, the answer is a property of the machine's OS build rather than of any setting, and resolving it the first time spawns a platform probe. A host that offers the direct local-network option on a machine that lacks the capability produces a session whose sandboxed commands cannot reach local services. Always false off Windows.
-             *
-             * @returns True when the sandbox on this host can reach host loopback directly.
-             */
-            checkWindowsHostLoopbackSupport: async (): Promise<SandboxCheckWindowsHostLoopbackSupportResult> =>
-                connection.sendRequest("sandbox.checkWindowsHostLoopbackSupport", {}),
-            /**
-             * The explanation a host shows when it refuses an explicit request to turn the sandbox on for a machine that cannot run one. Carries the platform-specific remedy — install bubblewrap, update Windows — and the documentation link, so a host that got `false` from `sandbox.checkPlatformSupport` does not have to compose its own reason and cannot describe the same machine differently from the runtime's own spawn path.
-             *
-             * @returns The user-facing refusal, including the platform remedy and the documentation link.
-             */
-            getUnsupportedMessage: async (): Promise<SandboxGetUnsupportedMessageResult> =>
-                connection.sendRequest("sandbox.getUnsupportedMessage", {}),
-            /**
-             * The notice a host shows when a stored `sandbox` setting is being ignored for this session because the machine cannot enforce it. Distinct from `sandbox.getUnsupportedMessage`, which refuses an explicit request: this one reports that a setting the user already saved is inert, states that commands will run unsandboxed, and confirms the stored setting itself is left alone. A host that stays silent here leaves the user believing a sandbox is active.
-             *
-             * @returns The user-facing notice that a saved sandbox setting is inert for this session.
-             */
-            getUnsupportedSettingDisabledNotice: async (): Promise<SandboxGetUnsupportedSettingDisabledNoticeResult> =>
-                connection.sendRequest("sandbox.getUnsupportedSettingDisabledNotice", {}),
-            /**
-             * The warning a host prints at startup when a session asked for a sandbox on a machine that cannot run one. The third of the unsupported notices, and the only one that depends on the policy in force: it names the remedy the reader can actually act on, which is the stored setting for an unmanaged host, an administrator for a managed one, and waiting for the policy to resolve when the sandbox stayed on only because the policy could not be determined. Returns no notice when the machine does support a sandbox, so a host can call it unconditionally on the startup path. A host that composes its own warning tells a managed user to change a setting their policy will overwrite.
-             *
-             * @param params The managed sandbox policy in force, which selects which remedy the notice offers.
-             *
-             * @returns The startup warning, absent when the machine can run a sandbox.
-             */
-            getUnsupportedStartupNotice: async (params: SandboxUnsupportedStartupNoticeParams): Promise<SandboxUnsupportedStartupNoticeResult> =>
-                connection.sendRequest("sandbox.getUnsupportedStartupNotice", params),
-            /**
-             * Whether one slash command stays reachable while sandbox enforcement is unavailable and the session is otherwise blocked. The permitted set is deliberately narrow — commands that only report state, and the few that let the user repair or leave the situation — and it is keyed on the arguments as well as the name, so `/sandbox status` is admitted where `/sandbox enable` is not. A host must ask rather than keep its own list: a command this returns false for is one the runtime would refuse anyway, and a divergent list either strands the user with no way out or admits a command that acts on an unenforced session.
-             *
-             * @param params One slash command, as typed, to test against the enforcement-block allowlist.
-             *
-             * @returns True when the command stays available while enforcement is blocked.
-             */
-            checkEnforcementCommand: async (params: SandboxEnforcementCommandAllowedParams): Promise<SandboxCheckEnforcementCommandResult> =>
-                connection.sendRequest("sandbox.checkEnforcementCommand", params),
-            /**
-             * Returns the documentation URL a host should point a user at when it declines or downgrades a sandbox setting. The runtime owns the address so every surface cites the same page and a host does not hard-code a link that later moves.
-             *
-             * @returns The documentation URL a host cites when it declines or downgrades a sandbox setting.
-             */
-            getDocsUrl: async (): Promise<SandboxDocsUrlResult> =>
-                connection.sendRequest("sandbox.getDocsUrl", {}),
-        },
-        /** @experimental */
-        persistence: {
-            /**
-             * Atomically replaces a JSON file's entire contents while holding the runtime's per-path lock. The lock lives in the runtime process, so a host that writes these files itself takes no part in it and can tear a concurrent runtime write; route the write here instead. Unlike a merging write this never reads or parses the existing file, so a previously corrupted snapshot is replaced wholesale rather than failing every later write. Use it only for callers that always persist a complete snapshot.
-             *
-             * @param params A complete JSON snapshot to write under the runtime's per-path file lock.
-             *
-             * @returns The outcome of a locked snapshot write.
-             */
-            writeRawJsonLocked: async (params: PersistenceWriteRawJsonLockedRequest): Promise<PersistenceWriteRawJsonLockedResult> =>
-                connection.sendRequest("persistence.writeRawJsonLocked", params),
-        },
-        /** @experimental */
-        user: {
-            /** @experimental */
-            settings: {
-                /**
-                 * Adds or removes one hook key in the user `disabledHooks` setting, rewriting settings.json in place and leaving every other setting untouched. Reports a typed outcome rather than failing the call, so a host can tell an unparseable settings file apart from a write that could not complete.
-                 *
-                 * @param params One hook to disable or re-enable.
-                 *
-                 * @returns Outcome of rewriting the `disabledHooks` setting.
-                 */
-                setHookDisabled: async (params: UserSettingsSetHookDisabledRequest): Promise<UserSettingsSetHookDisabledResult> =>
-                    connection.sendRequest("user.settings.setHookDisabled", params),
-                /**
-                 * Reads the user's settings document exactly as `user.settings.load` does, but from a caller-supplied configuration directory instead of the one the server resolved for itself. Use this when a consumer scopes a session to its own Copilot home — the SDK's per-session `configDir` override — so the settings read match the directory that session actually uses. An absent or empty `configDir` resolves the server's own home, making this identical to `user.settings.load`. Hook-validation relaxations are deliberately not caller-supplied: they continue to come from the server's environment, so a consumer cannot widen the host's hook policy through this method.
-                 *
-                 * @param params Selects the configuration directory whose user settings to read.
-                 *
-                 * @returns The stored user settings document, keyed by setting name.
-                 */
-                loadForConfigDir: async (params: UserSettingsLoadForConfigDirRequest): Promise<UserSettingsLoadForConfigDirResult> =>
-                    connection.sendRequest("user.settings.loadForConfigDir", params),
-                /**
-                 * Reads a repository's checked-in settings document as stored, normalized, together with any diagnostic raised while reading it. This is the repository half of the layering `user.settings.get` reports: `user.settings.load` reads the user's own document, and this reads the one a repository checks in to govern the keys `user.settings.governanceKeys` lists as repo-governable. A document that fails to parse, or that sets a key a repository may not govern, is reported through `warning` while the settings that did load are still returned, so a consumer surfaces the diagnostic and continues rather than failing the session. When `repoRoot` is the user's home directory the Claude-compatible configuration is skipped, so a home-directory session does not inherit a personal config as repository policy.
-                 *
-                 * @param params Selects the repository whose checked-in settings to read.
-                 *
-                 * @returns A repository's settings as stored, together with any diagnostic raised while reading them.
-                 */
-                loadRepo: async (params: UserSettingsLoadRepoRequest): Promise<UserSettingsLoadRepoResult> =>
-                    connection.sendRequest("user.settings.loadRepo", params),
-                /**
-                 * Reads a repository's settings and merges them over a supplied user layer in one step, returning the settings a consumer should act on inside that repository. Use this rather than reading the two layers separately: the merge is per setting and collection-aware, so a repository adds to the collections it is allowed to influence without replacing the user's own entries, and a whole-document overlay would get that wrong. Any diagnostic raised while reading the repository layer is returned rather than printed, so the consumer decides how to surface it; the settings that did load are merged regardless.
-                 *
-                 * @param params A repository to read settings from, and the user layer they are merged over.
-                 *
-                 * @returns The settings a consumer should act on inside a repository, together with any diagnostic raised while reading the repository layer.
-                 */
-                loadAndMergeRepo: async (params: UserSettingsLoadAndMergeRepoRequest): Promise<UserSettingsLoadAndMergeRepoResult> =>
-                    connection.sendRequest("user.settings.loadAndMergeRepo", params),
-                /**
-                 * Reports the on-disk path of the settings document `user.settings.load` and `user.settings.set` read and write. Resolved the same way those methods resolve it, so a host that shows or opens the settings file names the file the runtime actually uses, including the extensionless legacy `settings` file when that is what is present.
-                 *
-                 * @returns The on-disk location of the user's settings document.
-                 */
-                getPath: async (): Promise<UserSettingsPathResult> =>
-                    connection.sendRequest("user.settings.getPath", {}),
-                /**
-                 * Reads the user's stored settings together with the diagnostic raised while reading them. This is `user.settings.load` plus the reason part of the document was ignored: that one answers the document alone, so a caller cannot tell a clean read from a salvaged one. Read this when the caller is about to write the file back, where accepting a partial parse would discard every value the loader could not read. The settings that did load are still reported alongside the warning, so a consumer may surface it and continue instead of failing.
-                 *
-                 * @returns The user's stored settings, together with any diagnostic raised while reading them.
-                 */
-                loadWithWarning: async (): Promise<UserSettingsLoadWithWarningResult> =>
-                    connection.sendRequest("user.settings.loadWithWarning", {}),
-                /**
-                 * Folds a user settings layer over a managed (enterprise policy) layer and returns the merged settings. The managed layer's governance keys win, `autoTier` resolves through its overridable form, and the two per-entry control maps (`enabledPlugins`, `extraKnownMarketplaces`) union across the layers and are then stamped back from the managed layer, so each entry an administrator declares wins while the user keeps control of the rest. The parameters are named for their layers rather than being a generic base/override pair: nothing about a settings object identifies which layer produced it, so the runtime cannot detect a transposed call, and transposing one resolves the governance keys in the user's favour instead of the administrator's. Supplying only one layer returns it unchanged, and supplying neither returns an empty object. Rejects a managed `autoTier` that is neither a user-configurable tier nor a single-key overridable form, rather than silently dropping it.
-                 *
-                 * @param params The managed (enterprise policy) layer and the user layer to fold together. The field names carry the layer identity: nothing about a settings object identifies which layer produced it, so a generic base/override pair would let a caller transpose them and silently resolve the governance keys in the user's favour.
-                 *
-                 * @returns The user layer folded over the managed layer.
-                 */
-                mergeManagedAndUser: async (params: UserSettingsMergeManagedAndUserParams): Promise<UserSettingsMergeManagedAndUserResult> =>
-                    connection.sendRequest("user.settings.mergeManagedAndUser", params),
-                /**
-                 * Folds a repository's settings layer into the user layer. Each repo-overridable key carries a directional policy chosen so a repository can only add restrictions and never relax the user's own. The two per-entry managed control maps are the exception those directional rules cannot express — a repository may legitimately enable plugins and declare marketplaces — so they are re-stamped afterwards from the runtime's ambient managed policy. That makes the result depend on the runtime process's managed state and not on the arguments alone: a host must call this rather than reimplement the fold, or a repository could relax a restriction the administrator imposed. Rejects when either layer is not a JSON object.
-                 *
-                 * @param params The user layer and the repository layer to fold together.
-                 *
-                 * @returns The repository layer folded into the user layer.
-                 */
-                mergeRepoValue: async (params: UserSettingsMergeRepoValueParams): Promise<UserSettingsMergeRepoValueResult> =>
-                    connection.sendRequest("user.settings.mergeRepoValue", params),
-                /**
-                 * Runs the one-time migration that moves a staff account's update channel to stable, and records that it ran. Idempotent and self-gating: it takes a lock over the global-state file, re-reads the completion stamp inside it, and returns `current` rather than migrating twice, so two hosts racing at startup cannot both migrate. Only a `migrated` status means the persisted settings changed and the caller should reload them. An account on the experimental channel is deliberately left alone and reported as `excluded-experimental`.
-                 *
-                 * @param params The filesystem and environment facts a user-settings file is resolved from. Passed explicitly rather than read from the runtime's own process, so a host whose configuration directory differs from its process environment resolves the file it means.
-                 *
-                 * @returns The outcome of the one-time staff update-channel migration.
-                 */
-                migrateStaffUpdateChannelOnce: async (params: UserSettingsHostContext): Promise<UserSettingsMigrateStaffUpdateChannelOnceResult> =>
-                    connection.sendRequest("user.settings.migrateStaffUpdateChannelOnce", params),
-                /**
-                 * Runs the one-time reset that clears a staff account's pinned model selection, and reports the timestamp the host should record. Idempotent and self-gating: the reset is gated on a fixed cutoff, so a caller that passes back the timestamp it recorded gets `didReset: false` rather than a second reset. It applies to staff accounts only; any other account is reported as not reset without the settings document being opened. Only `didReset: true` means the persisted settings changed, and only then are the updated settings returned for the host to adopt.
-                 *
-                 * @param params Selects the configuration directory to run the one-time staff model-selection reset against, and supplies the caller's record of whether it has already run.
-                 *
-                 * @returns The outcome of the one-time staff model-selection reset.
-                 */
-                resetStaffModelSelectionOnce: async (params: UserSettingsResetStaffModelSelectionOnceRequest): Promise<UserSettingsResetStaffModelSelectionOnceResult> =>
-                    connection.sendRequest("user.settings.resetStaffModelSelectionOnce", params),
-                /**
-                 * Reports the top-level keys in the user settings document that the runtime does not recognize, phrased for display to the user. This is a separate question from the warning `user.settings.loadWithWarning` returns: that one describes parts of the document the loader had to ignore to load the rest, whereas an unknown key parses cleanly and is simply not a setting, so a host that surfaces only the load warning silently accepts a misspelled key that will never take effect. Nothing is reported when the document is absent, unreadable, or failed to load, because an unknown-key list derived from a document the runtime could not read would be misleading rather than helpful. Inspection never modifies the document.
-                 *
-                 * @param params Selects the configuration directory whose user settings document should be inspected for unrecognized top-level keys.
-                 *
-                 * @returns The unrecognized top-level keys found in the user settings document, already phrased for display.
-                 */
-                getUnknownKeysWarning: async (params: UserSettingsUnknownKeysWarningRequest): Promise<UserSettingsUnknownKeysWarningResult> =>
-                    connection.sendRequest("user.settings.getUnknownKeysWarning", params),
-                /**
-                 * Resolves the effective runtime settings for a host that is about to start a session, layering the given overrides over the settings documents, the environment and the platform defaults. A host cannot assemble this itself: the precedence between a user document, a repository document, the managed layers and the environment is the runtime's own rule, and a host that re-implements it drifts from the server it is configuring. The working directory, environment and platform are taken as arguments rather than read from the server process, so a host resolving settings for a directory other than its own gets that directory's answer. Nothing is written; this only computes.
-                 *
-                 * @param params The overrides and host context to resolve effective runtime settings from.
-                 *
-                 * @returns The effective runtime settings, keyed by setting name. Keys this runtime does not recognize are preserved rather than dropped, so a caller reading a document written by a newer runtime keeps every value.
-                 */
-                buildRuntime: async (params: UserSettingsBuildRuntimeRequest): Promise<UserSettingsBuildRuntimeResult> =>
-                    connection.sendRequest("user.settings.buildRuntime", params),
-                /**
-                 * Runs the one-time migration that moves a staff account's log level to the current default, and records that it ran. Idempotent and self-gating: it takes a lock over the global-state file and re-reads the completion stamp inside it, so two hosts racing at startup cannot both migrate. Only `refreshed` can have changed the persisted settings, and the settings it returns are the document re-read after the write, so a host should adopt them rather than reloading separately and racing the next writer.
-                 *
-                 * @param params Selects the configuration directory to run the one-time staff log-level migration against, and supplies the caller's record of whether it has already run.
-                 *
-                 * @returns The outcome of the one-time staff log-level migration.
-                 */
-                migrateStaffLogLevelOnce: async (params: UserSettingsMigrateStaffLogLevelOnceRequest): Promise<UserSettingsMigrateStaffLogLevelOnceResult> =>
-                    connection.sendRequest("user.settings.migrateStaffLogLevelOnce", params),
-                /**
-                 * Runs the one-time cleanup that removes obsolete CLI-owned settings and legacy rubber-duck keys from the user's settings document, and reports what it did. Idempotent and safe to call on every startup: with nothing obsolete left it reports `unchanged` and writes nothing. The cleanup preserves every key it does not recognize, so a setting written by a newer host is never dropped by an older one, and a document that fails to parse is reported `invalid` and left untouched rather than rewritten from a partial read. The cleaned document is not returned: it is written before this replies, so `user.settings.load` reads it authoritatively. A host that surfaces unrecognized keys through `user.settings.unknownKeys` wants this first, because the keys this retires would otherwise be shown to the user as if they were misspelled settings.
-                 *
-                 * @param params Selects the configuration directory whose settings document to clean.
-                 *
-                 * @returns The outcome of the one-time obsolete-settings cleanup.
-                 */
-                migrateObsoleteOnDisk: async (params: UserSettingsMigrateObsoleteOnDiskRequest): Promise<UserSettingsMigrateObsoleteOnDiskResult> =>
-                    connection.sendRequest("user.settings.migrateObsoleteOnDisk", params),
-                /**
-                 * Resolves the on-disk locations of the settings files this runtime reads, so a consumer can show or open them. The user path is the same file `user.settings.get`, `user.settings.load`, and `user.settings.set` operate on. Supply `repoRoot` to also resolve that repository's checked-in and local settings paths. A path is reported whether or not the file exists.
-                 *
-                 * @param params Selects which settings file paths to resolve.
-                 *
-                 * @returns On-disk locations of the settings files this runtime reads. A path is reported whether or not the file exists.
-                 */
-                getPaths: async (params: UserSettingsGetPathsRequest): Promise<UserSettingsGetPathsResult> =>
-                    connection.sendRequest("user.settings.getPaths", params),
-                /**
-                 * Lists the top-level user-setting keys by who is allowed to govern them: `repo` keys a repository may override through `.github/copilot/settings.json`, `claudeRepo` keys a repository may override through a Claude-compatible config, and `managed` keys an enterprise policy may fix. The lists are static for a given runtime build and fail closed: a key absent from a list cannot be governed that way.
-                 *
-                 * @returns Top-level user-setting keys grouped by who may govern them.
-                 */
-                listGovernanceKeys: async (): Promise<UserSettingsGovernanceKeysResult> =>
-                    connection.sendRequest("user.settings.listGovernanceKeys", {}),
-                /**
-                 * Atomically edits one canonical user setting inside its settings-file lock. Reads, canonicalizes touched aliases, applies the edit, validates the resulting top-level setting and writes before releasing the lock. An explicit autoUpdatesChannel set completes the staff migration in the same transaction. Only a malformed existing file returns `invalid`; refused keys, invalid values and I/O errors reject the call.
-                 *
-                 * @param params One atomic edit of a canonical setting in settings.json.
-                 *
-                 * @returns Outcome of an atomic user or repository settings edit.
-                 */
-                edit: async (params: UserSettingsEditRequest): Promise<SettingsEditResult> =>
-                    connection.sendRequest("user.settings.edit", params),
-                /**
-                 * Rewrites legacy and snake_case setting names in a settings object to their canonical spelling. A caller editing settings.json must normalize before writing: a legacy key left in place survives the write, is re-normalized on the next load, and silently shadows the canonical value the write just stored.
-                 *
-                 * @param params Settings object whose key names should be canonicalized.
-                 *
-                 * @returns Settings object with canonical key names.
-                 */
-                normalize: async (params: UserSettingsNormalizeRequest): Promise<UserSettingsNormalizeResult> =>
-                    connection.sendRequest("user.settings.normalize", params),
-                /**
-                 * Diagnoses a set of already-loaded settings layers, reporting each key that will not take effect and why. Settings load tolerantly so that one bad key does not stop a session from starting; this method surfaces what was dropped so a caller can report it instead of silently ignoring the user's intent. Takes the layers as given rather than reading them, so a caller can diagnose exactly the content it is showing, including unsaved edits. Never echoes a setting's value, because a value may be a token or another secret. Marked internal because it exists to carry a CLI call site off the native addon, not to serve a consumer-facing need; it becomes public once an SDK consumer needs to inspect settings health itself.
-                 *
-                 * @param params The settings layers to diagnose.
-                 *
-                 * @returns The settings that will not take effect across the given layers.
-                 */
-                diagnoseProblems: async (params: UserSettingsProblemsRequest): Promise<UserSettingsProblemsResult> =>
-                    connection.sendRequest("user.settings.diagnoseProblems", params),
-                /**
-                 * Validates one top-level setting subtree and writes just that key to settings.json as a single step. Doing both here closes the race a caller cannot close itself: between a separate preflight read and the write, the file may change. Rewriting only the touched key keeps legacy siblings out of settings.json. Answers a status rather than failing, so a validation problem and a write problem stay distinguishable.
-                 *
-                 * @param params A single top-level setting subtree to validate and write.
-                 *
-                 * @returns Outcome of validating and writing one top-level setting subtree.
-                 */
-                applyTopKey: async (params: UserSettingsApplyTopKeyRequest): Promise<UserSettingsApplyTopKeyResult> =>
-                    connection.sendRequest("user.settings.applyTopKey", params),
-                /**
-                 * Replaces the user settings file's entire content in one write. A key absent from `settings` is removed, which is what distinguishes this from `user.settings.set`: that one merges, so it can never clear a key the caller has dropped. For a caller saving the result of a raw edit, a merge would silently resurrect every key the user deleted. Records the same one-time mutation marks a per-key write records, so a setting the user has now chosen explicitly stops being migrated for them.
-                 *
-                 * @param params The whole content to store in the user settings file.
-                 */
-                writeAll: async (params: UserSettingsWriteAllRequest): Promise<void> =>
-                    connection.sendRequest("user.settings.writeAll", params),
-                /**
-                 * Merges a partial object into one top-level user setting, re-reading the stored value inside this runtime process's settings.json write lock so that concurrent writers in this process to different sub-fields of the same key do not clobber each other. Unlike `user.settings.set`, which replaces a key's whole value with what the caller last read, this keeps sub-fields the caller did not name when both the stored value and supplied value are objects; otherwise the supplied value replaces the stored value. Use it whenever two independent surfaces own different sub-fields of one setting. Returns the key's stored value after the write, in `value`.
-                 *
-                 * @param params Names the user setting to merge into, and the partial object to merge.
-                 *
-                 * @returns The stored value of the user setting after the merge.
-                 */
-                update: async (params: UserSettingsUpdateRequest): Promise<UserSettingsUpdateResult> =>
-                    connection.sendRequest("user.settings.update", params),
-                /**
-                 * Reads settings.json as stored for a caller that is about to edit it. Unlike `user.settings.get`, this returns file values rather than per-key metadata and defaults. Reports `missing` for an absent file and `invalid` when the existing file will not parse. Retired config.json and extensionless files are not read.
-                 *
-                 * @returns Contents of settings.json as stored, for a caller about to rewrite it.
-                 */
-                loadForEdit: async (): Promise<UserSettingsLoadForEditResult> =>
-                    connection.sendRequest("user.settings.loadForEdit", {}),
-                /**
-                 * Validates one top-level setting subtree without writing it, reporting each problem with the path it applies to. Scoped to a single top-level key on purpose: validating the whole file would reject an edit whenever an unrelated pre-existing field is malformed, locking the user out of the very tool that could fix it.
-                 *
-                 * @param params A single top-level setting subtree to validate.
-                 *
-                 * @returns Outcome of validating one top-level setting subtree.
-                 */
-                validate: async (params: UserSettingsValidateRequest): Promise<UserSettingsValidateResult> =>
-                    connection.sendRequest("user.settings.validate", params),
-            },
-        },
-        /** @experimental */
-        repo: {
-            /** @experimental */
-            settings: {
-                /**
-                 * Atomically edits one allowed top-level repository setting. Reads the raw file, preserves unrelated keys, applies one scalar or list edit, validates the result and writes under one file lock, so concurrent sibling or list edits are not lost. A malformed or unsafe existing file returns `invalid` without a write; rejected keys, invalid values and I/O errors reject the call.
-                 *
-                 * @param params One atomic edit of an allowed top-level repository setting.
-                 *
-                 * @returns Outcome of an atomic user or repository settings edit.
-                 */
-                edit: async (params: RepoSettingsEditRequest): Promise<SettingsEditResult> =>
-                    connection.sendRequest("repo.settings.edit", params),
-                /**
-                 * Reads one repository settings file without settings normalization or layering. The existing JSONC parser accepts comments and trailing commas and applies its prototype-safety rules. Missing or blank files return an empty valid config. Invalid files return an empty config with invalid=true; other read failures reject.
-                 *
-                 * @param params Which repository settings file to read.
-                 *
-                 * @returns Parsed repository settings without normalization or layering.
-                 */
-                readRaw: async (params: RepoSettingsReadRawRequest): Promise<RepoSettingsReadRawResult> =>
-                    connection.sendRequest("repo.settings.readRaw", params),
-                /**
-                 * Writes or removes one allowed top-level repository setting through the existing validator and file lock. Preserves unrelated stored keys. Invalid keys, values, existing documents, and I/O errors reject without replacing the file. Deletion requires delete=true; otherwise value must be present.
-                 *
-                 * @param params One key to write or remove in a repository settings file.
-                 */
-                writeKey: async (params: RepoSettingsWriteKeyRequest): Promise<void> =>
-                    connection.sendRequest("repo.settings.writeKey", params),
-                /**
-                 * Replaces the repository-overridable settings in one locked write. Allowed keys present in settings are validated and written; allowed keys absent from settings are removed. Other input keys are ignored, and unknown keys already stored in the file remain unchanged. Invalid values or an invalid existing file reject without a partial write.
-                 *
-                 * @param params The complete set of repository-overridable settings to store.
-                 */
-                writeAll: async (params: RepoSettingsWriteAllRequest): Promise<void> =>
-                    connection.sendRequest("repo.settings.writeAll", params),
-            },
-        },
-        /** @experimental */
-        featureFlags: {
-            /**
-             * Resolves named gates against this installation's cached online-experiment assignment, for the account the runtime is already authenticated as. Unlike `featureFlags.resolve`, which layers static availability with the populations supplied, this reads the experiment assignment the runtime cached for its own current authentication, so a launch can honor a rollout before any session exists. The account is never taken from the request: naming one would read another account's cached assignments. The cached assignment answers immediately and any network refresh happens behind it, so this call does not wait on the network. Not available to an extension, which cannot carry the user's consent to read their assignment.
-             *
-             * @param params Caller population and startup inputs to resolve named online-experiment gates for. Carries no account: the runtime resolves the assignment for the authentication it already holds.
-             *
-             * @returns The resolved gates, keyed by flag name.
-             */
-            resolveStartupGates: async (params: FeatureFlagsResolveStartupGatesRequest): Promise<FeatureFlagsResolveStartupGatesResult> =>
-                connection.sendRequest("featureFlags.resolveStartupGates", params),
-            /**
-             * Lists every feature flag this runtime declares, with the population each one is declared for, its experimental description, and the online-experiment flag it maps to. This is the static catalog: it describes how each flag is defined, not whether it is on for anyone. Use `featureFlags.resolve` for static values with caller overrides, not active runtime values or experiment assignments.
-             *
-             * @returns Every feature flag this runtime declares, with the shape each one was declared with.
-             */
-            listMetadata: async (): Promise<FeatureFlagsMetadataResult> =>
-                connection.sendRequest("featureFlags.listMetadata", {}),
-            /**
-             * Computes static feature flags from the supplied population and overrides without changing runtime state or verifying audience membership. Starts from declared availability, then applies direct feature-flag environment values, user settings, and explicit `flagOverrides`. It does not apply `COPILOT_EXP_*` experiment assignments, authenticated startup gates, or active runtime state. Settings include `enabledFeatureFlags`, the legacy `feature_flags.enabled` list, and supported convenience settings. Supply `baseFlags` to use an existing flag set instead of declared availability. Omit `isStaffGitHub` or `isStaffMicrosoft` when membership was never recorded: a legacy staff account then counts as both populations.
-             *
-             * @param params Caller population and overrides for static feature-flag resolution, independent of experiment assignments and active runtime state.
-             *
-             * @returns The resolved feature flags, keyed by flag name.
-             */
-            resolve: async (params: FeatureFlagsResolveRequest): Promise<FeatureFlagsResolveResult> =>
-                connection.sendRequest("featureFlags.resolve", params),
-        },
-        /** @experimental */
-        permissions: {
-            /** @experimental */
-            locations: {
-                /**
-                 * Drops stored per-location permission grants whose directory no longer exists, and reports which location keys were removed. Runs against the permission store under the runtime's own Copilot home, the same store `session.permissions.locations.resolve` reads. Marked internal because it exists to carry a CLI call site off the napi boundary onto the SDK contract; it is migration plumbing, not a surface consumers are meant to depend on. It can become public once an SDK consumer needs to prune its own permission store.
-                 *
-                 * @returns Which stored location permissions were dropped because their directory is gone.
-                 */
-                cleanupOrphaned: async (): Promise<LocationPermissionsCleanupResult> =>
-                    connection.sendRequest("permissions.locations.cleanupOrphaned", {}),
-            },
-            /** @experimental */
-            folderTrust: {
-                /**
-                 * Reports whether a folder is trusted, reading the persisted trusted-folders list directly rather than through a session. Use this from a host that has no session yet, such as a one-shot command deciding whether to honor a checkout's own settings. It differs from the session-scoped check in two ways that matter: it takes the configuration directory to read the list from, instead of inheriting the session's, and it answers only from the persisted list, so trust a user granted for the lifetime of one session is not visible here. A host that has a session should prefer the session-scoped check, which also covers session-only trust.
-                 *
-                 * @param params A folder to check against a persisted trusted-folders list, and the configuration directory holding that list.
-                 *
-                 * @returns Folder trust check result.
-                 */
-                checkTrust: async (params: FolderTrustIsTrustedParams): Promise<FolderTrustCheckResult> =>
-                    connection.sendRequest("permissions.folderTrust.checkTrust", params),
-            },
-            /**
-             * Interprets a verbatim managed `permissions` slice into the three policy questions a host asks before granting elevated permissions: whether bypass-permissions mode is forbidden, whether a policy exists that this build could not determine, and whether the layer supplies permission rules the session must enforce. An absent or empty slice means no managed policy applies. The runtime and its permission service share one policy type, so a new managed permission setting is interpreted in exactly one place; a host that reimplements the reading would silently diverge the first time that set grows. Hosts must fail closed on an undetermined policy rather than treating it as permission granted.
-             *
-             * @param params The verbatim managed `permissions` slice to interpret.
-             *
-             * @returns The policy questions a host asks before granting elevated permissions.
-             */
-            evaluateManagedPolicy: async (params: PermissionsEvaluateManagedPolicyParams): Promise<PermissionsEvaluateManagedPolicyResult> =>
-                connection.sendRequest("permissions.evaluateManagedPolicy", params),
-        },
-        /** @experimental */
-        managedSettings: {
-            /**
-             * Discovers device-managed settings the way the runtime's own device layer does, and reports the sandbox floor and the load outcome alongside the validated document. This differs from `managedSettings.read` in three ways a policy-enforcing host depends on: a document that validates to an empty object is reported as absent rather than as an empty policy, a discovery error does not suppress a document that still validates, and a failure is reported as a flag rather than only as error text. Hosts that compose the device layer into an effective policy use this, because `managedSettings.read` cannot distinguish "no device policy" from "device policy could not be read" and would silently hand the user's own layer the win.
-             *
-             * @returns The device-managed settings layer, with the sandbox floor and the load outcome a host needs to compose it into an effective policy.
-             */
-            readDevice: async (): Promise<ManagedSettingsReadDeviceResult> =>
-                connection.sendRequest("managedSettings.readDevice", {}),
-            /**
-             * Retains the supplied managed layers as this runtime process's startup policy and re-applies the result to every live session. Hosts that own their own short-lived process policy use this, so a guarded mutation is checked against the policy the host actually fetched. Retaining is a whole-process replacement rather than a merge, so a host that already resolved a good policy must not retain a partial one over it. The failure flags are honest inputs rather than assumptions: reporting a fetch or load that failed keeps the layers already retained, and the interim fail-closed state, instead of clearing them.
-             *
-             * @param params The managed layers to retain as this process's startup policy, with the outcome of fetching each one.
-             */
-            retainPolicy: async (params: ManagedSettingsRetainPolicyParams): Promise<void> =>
-                connection.sendRequest("managedSettings.retainPolicy", params),
-            /**
-             * Stamps an effective managed policy's individually-controlled entries onto a user settings document, returning the settings a host should actually act on. The managed layer wins on every plugin spec and marketplace name it names, and leaves everything it does not name as the user wrote it. Hosts use this rather than merging the two documents themselves, because the merge is per entry rather than per document and a whole-document overlay would either discard the user's unmanaged entries or let a user entry outrank a managed one. Omitting the managed layer returns the settings unchanged, which is what an unmanaged host wants. Rejects when either document is present but is not a JSON object rather than treating it as absent, since silently dropping a malformed policy hands the user's layer the win on exactly the entries the policy exists to control.
-             *
-             * @param params A user settings document and the effective managed policy whose controlled entries should be stamped onto it.
-             *
-             * @returns The user settings with the managed layer's controlled entries stamped on.
-             */
-            applyControls: async (params: ManagedSettingsApplyControlsParams): Promise<ManagedSettingsApplyControlsResult> =>
-                connection.sendRequest("managedSettings.applyControls", params),
-            /**
-             * Validates the managed settings a client is supplying for a session it is about to open, and returns them reduced to the keys a client is allowed to set. A client-supplied policy is not the same thing as an administrator's: it may only narrow permissions, so this accepts `permissions` and rejects every other key outright rather than ignoring it. Rejecting is the point — a host that silently dropped an unsupported key would report a policy as applied while running without it. Hosts call this before opening the session rather than letting the open fail, so a malformed policy is reported against the request that carried it. The runtime applies the same rule again when the session starts, so this cannot be used to smuggle a wider document past it. An accepted document that sets nothing comes back as an empty object, which is distinct from supplying nothing at all.
-             *
-             * @param params The client-supplied managed settings to validate and normalize. Omitting them is valid and yields no policy.
-             *
-             * @returns The accepted managed settings, reduced to the keys a client is allowed to set.
-             */
-            parseClientValue: async (params: ManagedSettingsParseClientValueParams): Promise<ManagedSettingsParseClientValueResult> =>
-                connection.sendRequest("managedSettings.parseClientValue", params),
-            /**
-             * Composes the supplied server, device/MDM, device sandbox floor and policy-helper layers into the single effective managed policy a host should enforce, resolving each key across the layers by the runtime's own precedence rules. Hosts that assemble managed layers themselves use this so their precedence matches the runtime's exactly instead of reimplementing it. The composition is not a pure function of its inputs: an advisory sandbox force-on that arrived over the server channel is declined when this host cannot run a sandbox, so the result reflects the runtime host's capabilities, and the returned settings carry `sandboxAdvisoryFloorDeclined: true` when that happened. Enforced channels (device/MDM and policy helper) are never declined, and a server force-on carrying `failIfUnavailable` is preserved so the session fails loudly instead of quietly running unsandboxed. Rejects when a supplied layer is present but is not a JSON object, rather than treating it as unmanaged, because silently dropping a malformed policy would hand the user's own layer the win on exactly the keys the policy exists to control.
-             *
-             * @param params The managed-settings layers to compose into an effective policy. Every layer is optional; omitting all of them yields no effective policy.
-             *
-             * @returns The effective managed policy composed from the supplied layers.
-             */
-            resolveEffectiveValue: async (params: ManagedSettingsResolveEffectiveValueParams): Promise<ManagedSettingsResolveEffectiveValueResult> =>
-                connection.sendRequest("managedSettings.resolveEffectiveValue", params),
-            /**
-             * Decides what a host must do to its bypass-permissions state after a managed-policy resolution lands, given the state already in force and the account now signed in. A host holds two pieces of state — which layer disabled bypass mode, and for a server-delivered disable, the account it was pinned to — and cannot decide the next step from the new policy alone. Three rules make that so, and each one is a control rather than a preference. A device/MDM disable outranks the account, so a later server answer never lifts it. An unknown policy, which is what a failed fetch or a refusal this build cannot enforce yields, preserves whatever is in force instead of reverting to permissive. And a server disable is lifted only when the account it was pinned to is no longer the signed-in one, which is what makes signing in to an unrestricted account recover without a restart while a reconnect on the same restricted account does not. Hosts call this rather than reimplementing it because getting the pinning backwards either strands a disable on an account that never carried one or drops one that still applies. `setDisabledState` is omitted when the host must leave its stored flag untouched, which is distinct from being told to set it to false.
-             *
-             * @param params The bypass-permissions state a host holds today, the account now signed in, and what the managed-policy resolution said.
-             *
-             * @returns The bypass-permissions state a host should hold after the resolution, and what it must do to get there.
-             */
-            resolveBypassDisableTransition: async (params: ManagedSettingsResolveBypassDisableTransitionParams): Promise<ManagedSettingsResolveBypassDisableTransitionResult> =>
-                connection.sendRequest("managedSettings.resolveBypassDisableTransition", params),
-            /**
-             * Resolves managed (enterprise policy) settings for a host from every layer at once: the account's server-delivered policy, the device/MDM layer, and a platform policy helper. Hosts use this instead of fetching and composing the layers themselves, because the per-layer precedence and the fail-closed rules that apply when a layer cannot be confirmed are the runtime's own and must match the policy a session will later enforce. It does not retain or apply anything to process-global policy state, so a host may call it before any session exists — which is the point, since plugin activation and one-shot commands resolve policy before a session is available to carry it. The returned per-layer outcome flags are load-bearing rather than diagnostic: a host must distinguish an unmanaged device from a managed device whose policy could not be confirmed, and apply its fail-closed gates in the second case. Reports its diagnostics in `logMessages` rather than logging them, so a host that runs before a log sink exists still sees them.
-             *
-             * @param params Inputs describing the host and account an ingestion should resolve managed policy for.
-             *
-             * @returns The managed policy layers an ingestion resolved, together with the per-layer outcome flags a host needs to decide how much to trust the result. The flags are reported rather than folded into the settings because a host must be able to distinguish an unmanaged device from a managed device whose policy could not be confirmed, and apply its fail-closed gates in the second case.
-             */
-            ingest: async (params: ManagedSettingsIngestParams): Promise<ManagedSettingsIngestResult> =>
-                connection.sendRequest("managedSettings.ingest", params),
-            /**
-             * Resolves the managed (enterprise policy) settings a host must enforce from startup, and judges the account against the enterprise sign-in pin in the same pass. This composes the layers the way `managedSettings.ingest` does and then answers the two questions a host cannot answer for itself: which fail-closed floors apply when a layer could not be confirmed, and whether this credential is allowed to sign in at all. The sign-in verdict is the reason a host must not assemble this itself from `managedSettings.ingest` — a pinned organization is an access control, and a host that composed the layers but skipped the pin would let a developer sign in with a personal or another enterprise's account and escape every control that keys off the signed-in identity. The verdict is computed on every resolution, including one that is not retained, so declining to apply policy never widens access. Set `retainAndApply` to keep the resolved policy as this runtime process's startup policy; leave it false to resolve without side effects.
-             *
-             * @param params Inputs describing the host and account a startup policy resolution should run for. Mirrors `managedSettings.ingest`, and adds the decision of whether the resolved policy is retained for this runtime process.
-             *
-             * @returns The startup policy a resolution composed, the per-layer outcome flags a host needs to decide how much to trust it, and the enterprise sign-in verdict for the credential it ran against. The flags are reported rather than folded into the settings because a host must distinguish an unmanaged device from a managed device whose policy could not be confirmed, and apply its fail-closed gates in the second case.
-             */
-            resolveStartupPolicy: async (params: ManagedSettingsResolveStartupPolicyParams): Promise<ManagedSettingsResolveStartupPolicyResult> =>
-                connection.sendRequest("managedSettings.resolveStartupPolicy", params),
-            /**
-             * Resolves the managed `remoteControl` policy for an account on its own, for a host deciding whether a remote-control session may start. Composes the same layers as `managedSettings.ingest` and returns only that one key, so a host does not have to know which layer won. An absent policy means the account is unmanaged for this capability and the host may proceed; that default is safe only while absence really does mean "no policy", so a service refusal that says an account policy exists which this client is too old to enforce resolves to an explicit disabled policy instead of to absence. A resolution that cannot be completed is rejected rather than answered as absence, for the same reason.
-             *
-             * @param params Inputs describing the host and account whose managed remote-control policy should be resolved. Mirrors `managedSettings.ingest`, and deliberately carries no retention decision: reading this gate never becomes this runtime process's startup policy.
-             *
-             * @returns The managed remote-control policy in force for an account, if any. An absent policy means the account is unmanaged for this capability, which a host reads as allowed — so absence here is a positive statement that no policy applies, never a stand-in for a resolution that failed. A resolution that cannot be completed is rejected instead.
-             */
-            loadRemoteControl: async (params: ManagedSettingsLoadRemoteControlParams): Promise<ManagedSettingsLoadRemoteControlResult> =>
-                connection.sendRequest("managedSettings.loadRemoteControl", params),
-            /**
-             * Evaluates the device-channel enterprise sign-in pin (MDM plist, registry, or managed-settings file) against a credential, without resolving any server-delivered policy. This is the gate an entry point runs before it branches, and the only one that can refuse a developer's first sign-in: it is local, needs no credential, and a server-delivered pin only ever reaches accounts already inside the organization. It fails closed by construction — a discovery that cannot determine whether a pin exists refuses rather than allows, because a control that fails open under a triggerable condition is not a control. Hosts that also want the server channel should call `managedSettings.resolveStartupPolicy`, which folds both channels into one verdict.
-             *
-             * @param params The credential and environment to evaluate the device-channel sign-in pin against.
-             *
-             * @returns The verdict of the `forceLoginOrgs` enterprise sign-in pin for one credential. A managed device may pin Copilot to an approved set of GitHub organizations so a developer cannot sign in with a personal — or another enterprise's — account and escape every control that keys off the signed-in identity. A host must refuse to proceed when `allowed` is false; the remaining fields explain the refusal rather than qualifying it.
-             */
-            resolveDeviceForceLoginOrgsGate: async (params: ManagedSettingsResolveDeviceForceLoginOrgsGateParams): Promise<ForceLoginOrgsDecision> =>
-                connection.sendRequest("managedSettings.resolveDeviceForceLoginOrgsGate", params),
-        },
-        /** @experimental */
         host: {
             /**
              * Requests app-owned materialization over the owning SDK participant.
@@ -37006,114 +32751,6 @@ export function createInternalServerRpc(connection: MessageConnection) {
          */
         connect: async (params: ConnectRequest): Promise<ConnectResult> =>
             connection.sendRequest("connect", params),
-        /** @experimental */
-        account: {
-            /**
-             * Renders the sign-in banner and the one-line account description the runtime uses for an authentication identity. The runtime words these in several places for its own callers, so a host that announces a sign-in or an account switch should render them from here rather than composing its own, which would let the two spellings drift apart.
-             *
-             * @param params The authentication identity whose shared wording should be rendered.
-             *
-             * @returns The wording the runtime uses for an authentication identity.
-             */
-            describeAuthInfo: async (params: AccountDescribeAuthInfoRequest): Promise<AccountDescribeAuthInfoResult> =>
-                connection.sendRequest("account.describeAuthInfo", params),
-            /**
-             * Reports whether the supplied identity can create gists. Gists are unavailable on GitHub Enterprise Cloud with data residency, and to Enterprise Managed Users on github.com, so a host that offers gist actions should hide or disable them when this reports no support.
-             *
-             * @param params The authentication identity whose gist support should be reported.
-             *
-             * @returns Whether the identity can create gists, and why not when it cannot.
-             */
-            getGistSupport: async (params: AccountGetGistSupportRequest): Promise<AccountGetGistSupportResult> =>
-                connection.sendRequest("account.getGistSupport", params),
-            /**
-             * Resolves a path on the identity's GitHub host into an absolute URL, so a host can link to settings or documentation on the enterprise instance the user is signed in to rather than to github.com. Falls back to the public host when no identity is supplied.
-             *
-             * @param params A path to resolve against the GitHub host an identity is signed in to.
-             *
-             * @returns An absolute URL on the identity's GitHub host.
-             */
-            getWebUrl: async (params: AccountGetWebUrlRequest): Promise<AccountGetWebUrlResult> =>
-                connection.sendRequest("account.getWebUrl", params),
-            /**
-             * Names the environment variable supplying a classic personal access token, if one is set. A classic token cannot be upgraded in place, so a host that finds one should tell the user which variable to unset rather than starting an interactive sign-in that the variable would override.
-             *
-             * @returns The environment variable supplying a classic personal access token, when one is set.
-             */
-            getTokenEnvVar: async (): Promise<AccountGetTokenEnvVarResult> =>
-                connection.sendRequest("account.getTokenEnvVar", {}),
-        },
-        /** @experimental */
-        mcp: {
-            /** @experimental */
-            registry: {
-                /**
-                 * Allocates an ID for one cancellable MCP registry search. The ID exists before the search starts, so callers can cancel before it starts. The networking stack supplies the cancellation namespace. The runtime retains at most 1,024 unused IDs. At capacity, another allocation can reclaim an unused ID. Active searches retain their IDs until they finish.
-                 *
-                 * @returns Request id naming a cancellable registry search.
-                 */
-                allocateRequestId: async (): Promise<McpRegistryRequestIdResult> =>
-                    connection.sendRequest("mcp.registry.allocateRequestId", {}),
-                /**
-                 * Searches the MCP registry the supplied credential may read, resolving the registry endpoint from policy first. Hosts usually send credential-free `AuthIdentity`; a `token` identity can be resolved only when it embeds a token, while `env` and `gh-cli` identities can use a token embedded in the request first. The runtime follows registry pages, keeps the newest entry per server name, cuts the list to `limit`, and sorts an empty-query result by GitHub stars. Each server object is carried opaquely.
-                 *
-                 * @param params Registry search terms, the credential to search under, and the request id that makes the search cancellable.
-                 *
-                 * @returns Servers selected from the registry response.
-                 */
-                search: async (params: McpRegistrySearchRequest): Promise<McpRegistrySearchResult> =>
-                    connection.sendRequest("mcp.registry.search", params),
-                /**
-                 * Abandons the registry search that uses the given request ID. It acts only on IDs from `mcp.registry.allocateRequestId`, so it never cancels another component's request. Answers `canceled: true` when it stops a running search. Answers `canceled: false` for unknown or reclaimed IDs, completed or canceled searches, and unused reservations. It releases an unused reservation, so a later search with that ID is refused.
-                 *
-                 * @param params Registry search to abandon.
-                 *
-                 * @returns Whether the cancel reached a live search.
-                 */
-                cancel: async (params: McpRegistryCancelRequest): Promise<McpRegistryCancelResult> =>
-                    connection.sendRequest("mcp.registry.cancel", params),
-            },
-            /**
-             * Lists the MCP servers the runtime supplies itself, so a host that disables the built-ins wholesale suppresses exactly the set the runtime would otherwise add. The names are fixed for a build and depend on no configuration, session or account.
-             *
-             * @returns Names of the MCP servers the runtime supplies itself.
-             */
-            listBuiltinServerNames: async (): Promise<McpListBuiltinServerNamesResult> =>
-                connection.sendRequest("mcp.listBuiltinServerNames", {}),
-            /**
-             * Reports whether the gh-replaceable GitHub MCP tools may be clipped for a session, which a host feeds back as the `excludeGhReplaceableTools` build option. The tools are redundant only when the session can reach a shell *and* the host has the `gh` that would replace them, so both halves are decided here. The shell half runs the platform shell tool through the runtime's own tool-filter matcher, so entry forms like `builtin:bash` and `builtin:*` behave exactly as they do when a session builds its tool catalog. The host half probes for `gh`, and is skipped entirely when the filters already rule the shell out. Host presence alone is not enough: a session restricted to, say, `view` would otherwise lose the built-in issue-read fallback while having no shell to replace it with. The answer describes the host the runtime runs on, so it is never forwarded to a remote engine.
-             *
-             * @param params The session tool filters that decide whether the session still has a shell to run `gh` with.
-             *
-             * @returns Whether the gh-replaceable GitHub MCP tools may be clipped for the session described by the request.
-             */
-            shouldExcludeGitHubTools: async (params: McpShouldExcludeGitHubToolsRequest): Promise<McpShouldExcludeGitHubToolsResult> =>
-                connection.sendRequest("mcp.shouldExcludeGitHubTools", params),
-        },
-        /** @experimental */
-        instructions: {
-            /**
-             * Returns the prompt the `init` command runs to author repository instructions. A host offering its own initialize action sends this text so the instructions it produces match the ones the CLI produces. The text is fixed for a build and depends on no configuration, session or repository.
-             *
-             * @returns The prompt the init command runs.
-             */
-            getInitPrompt: async (): Promise<InstructionsInitPromptResult> =>
-                connection.sendRequest("instructions.getInitPrompt", {}),
-            /**
-             * Discovers the instruction sources for one caller-named location and returns them in the order the runtime applies them. `discover` answers for a set of project paths and derives the rest of its scope itself; this one instead takes every argument from the caller — the extra directories to scan and whether to descend into nested instruction files — and honors them as given. It also includes instruction directories from trusted repository settings, matching native repository discovery. Use it when the caller knows its own scope and no session exists to derive that scope from, such as a host reporting how many instruction files a directory contributes before any session starts. Marked internal because it exists to carry a CLI call site off the napi boundary onto the SDK contract; it is migration plumbing, not a surface consumers are meant to depend on.
-             *
-             * @param params Explicit discovery arguments for one location, supplied by the caller rather than derived from a session.
-             *
-             * @returns Instruction sources discovered across user, repository, and plugin sources.
-             */
-            discoverRepoSources: async (params: InstructionsDiscoverRepoSourcesRequest): Promise<ServerInstructionSourceList> =>
-                connection.sendRequest("instructions.discoverRepoSources", params),
-            /**
-             * Drops the runtime's in-memory cache of discovered custom instructions so the next discovery reads them from disk again. A host calls this after it changes instruction files, or after it trusts a folder whose instructions an earlier discovery skipped, so that a session started afterwards sees the current files instead of a cached earlier answer. The call performs no I/O of its own and removes nothing from disk; it only invalidates, so the cost lands on the next discovery.         Returns once the cache is clear, which is what lets a caller order a session start after it. Marked internal because it exists to carry a CLI call site off the napi boundary onto the SDK contract; it is migration plumbing, not a surface consumers are meant to depend on.
-             */
-            clearCache: async (): Promise<void> =>
-                connection.sendRequest("instructions.clearCache", {}),
-        },
         /** @experimental */
         agents: {
             /**
@@ -37179,7 +32816,7 @@ export function createInternalServerRpc(connection: MessageConnection) {
             loadForConfigDir: async (params: GlobalStateLoadForConfigDirRequest): Promise<GlobalStateLoadResult> =>
                 connection.sendRequest("globalState.loadForConfigDir", params),
             /**
-             * Records one top-level key in the host's machine-wide state, the counterpart to `globalState.load`. A host calls this to remember that it has shown an onboarding step, asked a one-off question, or completed a migration, so the next run can skip it. Only the named key is replaced and the rest of the document is preserved, which lets two writers record different flags without overwriting each other; passing no value removes the key instead. Only the keys a host records itself are writable: `appTipShown`, `askedSetupTerminals`, `autoFeedbackLastPromptedAt`, `firstLaunchAt`, `recentModelIds`, `sandboxCredentialProxyCaDeclined` and `sandboxOnboardingShown`. Every other key is refused, including `installedPlugins`, the stored credentials, `trustedFolders`, the staff flags and the signed-in accounts. Plugin enablement must use the plugin APIs, which apply repository and managed-policy checks.
+             * Records one top-level key in the host's machine-wide state, the counterpart to `globalState.load`. A host calls this to remember that it has shown an onboarding step, asked a one-off question, or completed a migration, so the next run can skip it. Only the named key is replaced and the rest of the document is preserved, which lets two writers record different flags without overwriting each other; passing no value removes the key instead. Only the keys a host records itself are writable: `appInstallNudgeResponded`, `appTipShown`, `askedSetupTerminals`, `autoFeedbackLastPromptedAt`, `firstLaunchAt`, `recentModelIds`, `sandboxCredentialProxyCaDeclined` and `sandboxOnboardingShown`. Every other key is refused, including `installedPlugins`, the stored credentials, `trustedFolders`, the staff flags and the signed-in accounts. Plugin enablement must use the plugin APIs, which apply repository and managed-policy checks.
              *
              * @param params A single top-level key to record in the host's machine-wide state. The write replaces only that key and leaves the rest of the document untouched, so two writers recording different one-off flags do not overwrite each other. The stored credential keys cannot be written through this method.
              */
@@ -37438,13 +33075,6 @@ export function createSessionRpc(connection: MessageConnection, sessionId: strin
              */
             getEnforcementStatus: async (): Promise<SandboxEnforcementStatus> =>
                 connection.sendRequest("session.sandbox.getEnforcementStatus", { sessionId }),
-            /**
-             * Lists possible secret-bearing environment variables available to new sandboxed shells that are not already covered by credential masking. Uses local name rules and known-provider host suggestions, never returns secret values, and changes no settings or network permissions. Returns no suggestions while the session is not sandboxed.
-             *
-             * @returns Possible unconfigured secrets in the sandbox shell environment, sorted by variable name, with no secret values.
-             */
-            getCredentialSuggestions: async (): Promise<SandboxCredentialSuggestionsResult> =>
-                connection.sendRequest("session.sandbox.getCredentialSuggestions", { sessionId }),
             /**
              * Disables sandboxing for the remainder of the current session and approves the referenced pending sandbox-bypass permission request. The request is rejected unless the exact request is still pending and the effective sandbox policy permits bypass.
              *
@@ -37797,15 +33427,6 @@ export function createSessionRpc(connection: MessageConnection, sessionId: strin
              */
             setReasoningEffort: async (params: ModelSetReasoningEffortRequest): Promise<ModelSetReasoningEffortResult> =>
                 connection.sendRequest("session.model.setReasoningEffort", { ...params, sessionId }),
-            /**
-             * Computes whether the session's current model shows reasoning summaries and how a host should present them: the default Ctrl+T visibility, reasoning headers, the hidden-summaries hint, and whether a persisted `showReasoning` setting is redundant. The runtime folds in the session's model catalog, selection and reasoning-summaries experiment assignment; the host supplies only its own persisted setting and current visibility. This method reads the session's resolved model catalog rather than resolving it, so call `session.model.list` first on a session that has not listed models or run a turn; until then the result is `ready: false`. A session that resolves models without a Copilot catalog, that is a BYOK registry or an alternate provider, never caches one and stays `ready: false`.
-             *
-             * @param params Host presentation state the reasoning-summaries policy depends on.
-             *
-             * @returns Reasoning-summaries presentation policy for the session's current model.
-             */
-            getReasoningSummaries: async (params: ModelGetReasoningSummariesRequest): Promise<ModelGetReasoningSummariesResult> =>
-                connection.sendRequest("session.model.getReasoningSummaries", { ...params, sessionId }),
             /**
              * Lists models available to this session using its own auth and integration context. Connected hosts (CLI TUI, GitHub App) should call this through the session client so remote sessions return the remote CLI's available models rather than the caller's.
              *
@@ -38850,15 +34471,6 @@ export function createSessionRpc(connection: MessageConnection, sessionId: strin
              */
             reload: async (params?: SessionPluginsReloadRequest): Promise<void> =>
                 connection.sendRequest("session.plugins.reload", { ...params, sessionId }),
-            /**
-             * Installs or updates the plugins the session's managed settings require now, without waiting for the next automatic attempt after a failure, then reloads plugins. Reports progress and failures with the same `session.info` and `session.warning` events as automatic preparation. Fails when the runtime does not prepare managed plugins for the session.
-             *
-             * @param params Plugins required by the session's managed settings to install or update again.
-             *
-             * @returns Per-plugin outcomes of retrying the plugins required by the session's managed settings.
-             */
-            retryManaged: async (params?: SessionPluginsRetryManagedRequest): Promise<SessionPluginsRetryManagedResult> =>
-                connection.sendRequest("session.plugins.retryManaged", { ...params, sessionId }),
         },
         /** @experimental */
         provider: {
@@ -38931,14 +34543,14 @@ export function createSessionRpc(connection: MessageConnection, sessionId: strin
             list: async (): Promise<ExtensionList> =>
                 connection.sendRequest("session.extensions.list", { sessionId }),
             /**
-             * Enables an extension for the session and persists the preference when the session has a settings store. Hosts synchronizing effective membership should use extensions.reconcile instead.
+             * Enables an extension for the session.
              *
              * @param params Source-qualified extension identifier to enable for the session.
              */
             enable: async (params: ExtensionsEnableRequest): Promise<void> =>
                 connection.sendRequest("session.extensions.enable", { ...params, sessionId }),
             /**
-             * Disables an extension for the session and persists the preference when the session has a settings store. Hosts synchronizing effective membership should use extensions.reconcile instead.
+             * Disables an extension for the session.
              *
              * @param params Source-qualified extension identifier to disable for the session.
              */
@@ -38949,13 +34561,6 @@ export function createSessionRpc(connection: MessageConnection, sessionId: strin
              */
             reload: async (): Promise<void> =>
                 connection.sendRequest("session.extensions.reload", { sessionId }),
-            /**
-             * Host-only reconciliation of authoritative session-effective extension membership and enablement. Refreshes runtime-owned discovery and preferences without persisting settings, installing plugins, or restarting unchanged activations. Returns ExtensionList only after required starts and process/contribution cleanup settle. Takes no caller inventory or overrides. Missing controllers, unready/incomplete discovery, unavailable workspaces, superseded inputs, and lifecycle failures are errors, not empty membership. Independently proven revocations may be applied before an error; retry converges without restarting healthy activations. Error data contains lifecycleChangesApplied and code: extension_reconciliation_host_required, extension_reconciliation_unavailable, extension_reconciliation_not_ready, extension_reconciliation_discovery_failed, extension_reconciliation_workspace_unavailable, extension_reconciliation_superseded, or extension_reconciliation_lifecycle_failed. Mark host reconciliation state applied only on success. On older runtimes, method-not-found must not fall back to global discovery and persistent extension disables.
-             *
-             * @returns Extensions discovered for the session, with their current status.
-             */
-            reconcile: async (): Promise<ExtensionList> =>
-                connection.sendRequest("session.extensions.reconcile", { sessionId }),
             /**
              * Push attachments into the next user-message turn from an extension. The host should surface them as composer pills and forward them via the next session.send call. Callable only by extension-owned connections.
              *
@@ -39002,13 +34607,6 @@ export function createSessionRpc(connection: MessageConnection, sessionId: strin
              */
             handlePendingToolCall: async (params: HandlePendingToolCallRequest): Promise<HandlePendingToolCallResult> =>
                 connection.sendRequest("session.tools.handlePendingToolCall", { ...params, sessionId }),
-            /**
-             * Lists the external tool calls of the session and its sub-agents that are still waiting for session.tools.handlePendingToolCall.
-             *
-             * @returns External tool calls still waiting for a result.
-             */
-            listPendingRequests: async (): Promise<PendingExternalToolRequestList> =>
-                connection.sendRequest("session.tools.listPendingRequests", { sessionId }),
             /**
              * Resolves, builds, and validates the runtime tool list for the session.
              *
@@ -39784,30 +35382,6 @@ export function createSessionRpc(connection: MessageConnection, sessionId: strin
                 connection.sendRequest("session.usage.getMetrics", { sessionId }),
         },
         /** @experimental */
-        quota: {
-            /**
-             * Gets the session's current quota and account projection without making a network request.
-             *
-             * @returns The incumbent session-owned quota and account projection.
-             */
-            get: async (): Promise<SessionQuotaGetResult> =>
-                connection.sendRequest("session.quota.get", { sessionId }),
-            /**
-             * Refreshes the session's provider model catalog bypassing its cache, folds quota snapshots into session state, and returns the updated projection. Failures leave the last known quota intact.
-             *
-             * @returns The incumbent session-owned quota and account projection.
-             */
-            refresh: async (): Promise<SessionQuotaRefreshResult> =>
-                connection.sendRequest("session.quota.refresh", { sessionId }),
-            /**
-             * Returns and clears the session's pending quota warnings. Reading or refreshing quota does not drain warnings.
-             *
-             * @returns Pending warnings returned and cleared by session.quota.takeWarnings.
-             */
-            takeWarnings: async (): Promise<SessionQuotaTakeWarningsResult> =>
-                connection.sendRequest("session.quota.takeWarnings", { sessionId }),
-        },
-        /** @experimental */
         limitPrediction: {
             /**
              * Predicts an AI-credit session limit for the session's resolved model. Returns an unavailable result instead of falling back when the current model is unresolved auto.
@@ -40024,11 +35598,6 @@ export function createInternalSessionRpc(connection: MessageConnection, sessionI
              */
             applyStartupOverlay: async (params: ModelApplyStartupOverlayRequest): Promise<ModelSwitchToResult> =>
                 connection.sendRequest("session.model.applyStartupOverlay", { ...params, sessionId }),
-            /**
-             * Clears an unchanged startup model/provider seed before default-model resolution. Never clears a resumed or user-selected model.
-             */
-            clearStartupSeed: async (params: SessionModelClearStartupSeedRequest): Promise<SessionModelClearStartupSeedResult> =>
-                connection.sendRequest("session.model.clearStartupSeed", { ...params, sessionId }),
         },
         /** @experimental */
         mcp: {
@@ -40214,16 +35783,6 @@ export function createInternalSessionRpc(connection: MessageConnection, sessionI
              */
             process: async (): Promise<void> =>
                 connection.sendRequest("session.queue.process", { sessionId }),
-        },
-        /** @experimental */
-        usage: {
-            /**
-             * Internal host-only replacement of absolute code-change totals reported by a relay host.
-             *
-             * @param params Internal absolute code-change totals reported by the owning host.
-             */
-            setCodeChanges: async (params: SessionUsageSetCodeChangesRequest): Promise<void> =>
-                connection.sendRequest("session.usage.setCodeChanges", { ...params, sessionId }),
         },
         /** @experimental */
         schedule: {

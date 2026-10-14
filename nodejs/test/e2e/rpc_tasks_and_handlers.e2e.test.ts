@@ -4,52 +4,13 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { approveAll, CopilotRequestHandler } from "../../src/index.js";
-import type { SessionEvent, CopilotRequestContext, CopilotSession } from "../../src/index.js";
+import { approveAll } from "../../src/index.js";
+import type { SessionEvent, CopilotSession } from "../../src/index.js";
 import { createSdkTestContext } from "./harness/sdkTestContext.js";
-import { getNextEventOfType, waitForCondition } from "./harness/sdkTestHelper.js";
+import { waitForCondition } from "./harness/sdkTestHelper.js";
 import { isByokBackend } from "./harness/testBackend";
 
 const capiIt = it.skipIf(isByokBackend);
-
-class ModelRequestRecorder extends CopilotRequestHandler {
-    readonly requests: Array<{
-        sessionId?: string;
-        agentId?: string;
-        body: { model?: string; reasoning_effort?: string };
-    }> = [];
-
-    protected override async sendRequest(
-        request: Request,
-        context: CopilotRequestContext
-    ): Promise<Response> {
-        const pathname = new URL(request.url).pathname;
-        if (["/chat/completions", "/responses", "/v1/messages"].includes(pathname)) {
-            const body = z
-                .object({
-                    model: z.string(),
-                    reasoning_effort: z.string().optional(),
-                    reasoning: z.object({ effort: z.string().optional() }).optional(),
-                    output_config: z.object({ effort: z.string().optional() }).optional(),
-                })
-                .parse(await request.clone().json());
-            this.requests.push({
-                sessionId: context.sessionId,
-                agentId: context.agentId,
-                body: {
-                    model: body.model,
-                    reasoning_effort:
-                        pathname === "/responses"
-                            ? body.reasoning?.effort
-                            : pathname === "/v1/messages"
-                              ? body.output_config?.effort
-                              : body.reasoning_effort,
-                },
-            });
-        }
-        return super.sendRequest(request, context);
-    }
-}
 
 describe("Session tasks RPC and pending handlers", async () => {
     const {
@@ -59,6 +20,28 @@ describe("Session tasks RPC and pending handlers", async () => {
     } = await createSdkTestContext({
         modelNames: { "claude-sonnet-5": "Claude Sonnet 5" },
     });
+
+    async function modelRequestsForPrompt(promptEnding: string) {
+        return (await openAiEndpoint.getRequests())
+            .filter(({ method, url }) => method === "POST" && url.includes("/chat/completions"))
+            .map(({ body }) =>
+                z
+                    .object({
+                        messages: z.array(z.object({ role: z.string(), content: z.unknown() })),
+                        model: z.string(),
+                        reasoning_effort: z.string().optional(),
+                    })
+                    .parse(JSON.parse(body))
+            )
+            .filter((request) =>
+                request.messages.some(
+                    (message) =>
+                        message.role === "user" &&
+                        typeof message.content === "string" &&
+                        message.content.trim().endsWith(promptEnding)
+                )
+            );
+    }
 
     async function getAgentTask(session: CopilotSession, agentId: string) {
         const task = (await session.rpc.tasks.list()).tasks.find((entry) => entry.id === agentId);
@@ -326,101 +309,11 @@ describe("Session tasks RPC and pending handlers", async () => {
         }
     });
 
-    // Each attached-shell test owns its client; replay normalizes process-global shell IDs.
-    async function withRunningAttachedShell(
-        run: (
-            session: CopilotSession,
-            shellId: string,
-            eventTypes: SessionEvent["type"][],
-            replies: string[]
-        ) => Promise<void>
-    ): Promise<void> {
-        const shellClient = createClient();
-        try {
-            const session = await shellClient.createSession({ onPermissionRequest: approveAll });
-            const eventTypes: SessionEvent["type"][] = [];
-            const replies: string[] = [];
-            const unsubscribe = session.on((event) => {
-                eventTypes.push(event.type);
-                if (event.type === "assistant.message") {
-                    replies.push(event.data.content ?? "");
-                }
-            });
-            try {
-                const assistantIdle = getNextEventOfType(session, "assistant.idle");
-                await session.send({
-                    prompt: "Use your shell tool to run `sleep 600` in async mode without detaching. Do not read its output or wait for it. Then reply with exactly SHELL_STARTED.",
-                });
-                await assistantIdle;
-                expect(replies.at(-1)).toContain("SHELL_STARTED");
-
-                const shell = (await session.rpc.tasks.list()).tasks.find(
-                    (task) => task.type === "shell" && task.status === "running"
-                );
-                expect(shell).toMatchObject({ attachmentMode: "attached" });
-                await run(session, shell!.id, eventTypes, replies);
-            } finally {
-                unsubscribe();
-                await session.disconnect();
-            }
-        } finally {
-            await shellClient.stop();
-        }
-    }
-
-    it(
-        "should emit session idle after cancelling a running attached shell",
-        { timeout: 120_000 },
-        async () => {
-            await withRunningAttachedShell(async (session, shellId, eventTypes) => {
-                // The running attached shell holds the turn's session.idle.
-                expect(eventTypes).not.toContain("session.idle");
-
-                expect((await session.rpc.tasks.cancel({ id: shellId })).cancelled).toBe(true);
-                await waitForCondition(() => eventTypes.includes("session.idle"), {
-                    timeoutMessage: `session.idle never followed cancelling shell ${shellId}`,
-                });
-            });
-        }
-    );
-
-    it(
-        "should run a queued message after cancelling a running attached shell",
-        { timeout: 120_000 },
-        async () => {
-            await withRunningAttachedShell(async (session, shellId, eventTypes, replies) => {
-                // The running attached shell holds idle, so an enqueued message waits behind it.
-                await session.send({ prompt: "Reply with exactly QUEUED_DONE.", mode: "enqueue" });
-                await waitForCondition(
-                    async () =>
-                        (await session.rpc.queue.pendingItems()).items.some((item) =>
-                            item.displayText.includes("QUEUED_DONE")
-                        ),
-                    { timeoutMessage: "The enqueued message was not parked behind the shell" }
-                );
-                expect(replies.some((reply) => reply.includes("QUEUED_DONE"))).toBe(false);
-                expect(eventTypes).not.toContain("session.idle");
-
-                expect((await session.rpc.tasks.cancel({ id: shellId })).cancelled).toBe(true);
-                await waitForCondition(
-                    () => replies.some((reply) => reply.includes("QUEUED_DONE")),
-                    {
-                        timeoutMessage: `The queued message never ran after cancelling shell ${shellId}`,
-                    }
-                );
-                await waitForCondition(() => eventTypes.includes("session.idle"), {
-                    timeoutMessage: "session.idle never followed the queued message",
-                });
-            });
-        }
-    );
-
-    it(
+    capiIt(
         "should apply a custom agent's composed model and effort when started over RPC",
         { timeout: 240_000 },
         async () => {
-            const requestRecorder = new ModelRequestRecorder();
-            const recordingClient = createClient({ requestHandler: requestRecorder });
+            const recordingClient = createClient();
             try {
                 const session = await recordingClient.createSession({
                     onPermissionRequest: approveAll,
@@ -438,13 +331,9 @@ describe("Session tasks RPC and pending handlers", async () => {
                     model: string;
                     reasoningEffort?: string;
                 }> = [];
-                const lifecycleEvents: SessionEvent[] = [];
                 const unsubscribe = session.on((event) => {
                     if (event.type === "subagent.configured") {
                         configurations.push({ agentId: event.agentId, ...event.data });
-                    }
-                    if (event.type.startsWith("subagent.") || event.type === "session.shutdown") {
-                        lifecycleEvents.push(event);
                     }
                 });
                 try {
@@ -483,9 +372,9 @@ describe("Session tasks RPC and pending handlers", async () => {
                             timeoutMessage: `Agent ${started.agentId} never completed`,
                         }
                     );
-                    const requests = requestRecorder.requests
-                        .filter((request) => request.agentId === started.agentId)
-                        .map((request) => request.body);
+                    const requests = await modelRequestsForPrompt(
+                        "Reply with SDK_COMPOSED_AGENT_DONE exactly."
+                    );
                     expect(requests.length).toBeGreaterThan(0);
                     for (const request of requests) {
                         expect(request).toMatchObject({
@@ -493,26 +382,6 @@ describe("Session tasks RPC and pending handlers", async () => {
                             reasoning_effort: "high",
                         });
                     }
-                    await waitForCondition(
-                        () =>
-                            lifecycleEvents.some(
-                                (event) =>
-                                    event.type === "subagent.completed" &&
-                                    event.agentId === started.agentId
-                            ),
-                        { timeoutMessage: `Agent ${started.agentId} never emitted its completion` }
-                    );
-                    const completions = lifecycleEvents.filter(
-                        (event) => event.type === "subagent.completed"
-                    );
-                    expect(completions).toHaveLength(1);
-                    expect(completions[0].data.cancelled).not.toBe(true);
-                    const beforeStop = [...lifecycleEvents];
-                    expect(await recordingClient.stop()).toEqual([]);
-                    expect(
-                        lifecycleEvents.filter((event) => event.type.startsWith("subagent."))
-                    ).toEqual(beforeStop);
-                    expect(lifecycleEvents.at(-1)?.type).toBe("session.shutdown");
                 } finally {
                     unsubscribe();
                 }
@@ -522,118 +391,100 @@ describe("Session tasks RPC and pending handlers", async () => {
         }
     );
 
-    it("should preserve a composed display-name effort in a model-issued task", async () => {
-        const taskArguments: unknown[] = [];
-        const requestRecorder = new ModelRequestRecorder();
-        const recordingClient = createClient({ requestHandler: requestRecorder });
-        try {
-            const session = await recordingClient.createSession({
-                model: "claude-sonnet-5",
-                reasoningEffort: "medium",
-                onPermissionRequest: approveAll,
-                hooks: {
-                    onPreToolUse: async (input) => {
-                        if (input.toolName === "task") {
-                            taskArguments.push(input.toolArgs);
-                        }
-                        return { permissionDecision: "allow" };
+    capiIt(
+        "should preserve a composed display-name effort in a model-issued task",
+        async () => {
+            const taskArguments: unknown[] = [];
+            const recordingClient = createClient();
+            try {
+                const session = await recordingClient.createSession({
+                    model: "claude-sonnet-5",
+                    reasoningEffort: "medium",
+                    onPermissionRequest: approveAll,
+                    hooks: {
+                        onPreToolUse: async (input) => {
+                            if (input.toolName === "task") {
+                                taskArguments.push(input.toolArgs);
+                            }
+                            return { permissionDecision: "allow" };
+                        },
                     },
-                },
-                customAgents: [
-                    {
-                        name: "sdk-display-model-agent",
-                        description: "SDK display-name model coverage",
-                        prompt: "Reply with SDK_DISPLAY_AGENT_DONE exactly.",
-                        // BYOK requires explicit IDs; CAPI also resolves its catalog's display names.
-                        model: `${isByokBackend ? "claude-sonnet-5" : "Claude Sonnet 5"}:defaultReasoningEffort=high`,
-                    },
-                ],
-            });
-            if (!isByokBackend) {
+                    customAgents: [
+                        {
+                            name: "sdk-display-model-agent",
+                            description: "SDK display-name model coverage",
+                            prompt: "Reply with SDK_DISPLAY_AGENT_DONE exactly.",
+                            model: "Claude Sonnet 5:defaultReasoningEffort=high",
+                        },
+                    ],
+                });
                 const modelList = await session.rpc.model.list();
                 expect(modelList.list).toEqual(
                     expect.arrayContaining([
                         expect.objectContaining({ id: "claude-sonnet-5", name: "Claude Sonnet 5" }),
                     ])
                 );
-            }
-            const configurations: Array<{
-                agentId?: string;
-                model: string;
-                reasoningEffort?: string;
-            }> = [];
-            const lifecycleEvents: SessionEvent[] = [];
-            const unsubscribe = session.on((event) => {
-                if (event.type === "subagent.configured") {
-                    configurations.push({ agentId: event.agentId, ...event.data });
-                }
-                if (event.type.startsWith("subagent.") || event.type === "session.shutdown") {
-                    lifecycleEvents.push(event);
-                }
-            });
-            try {
-                const reply = await session.sendAndWait(
-                    {
-                        prompt:
-                            'Use the task tool with agent_type "sdk-display-model-agent", mode "sync", and prompt "Reply with SDK_DISPLAY_AGENT_DONE exactly.". ' +
-                            "Do not specify model or reasoning_effort in the task arguments. " +
-                            "After it completes, reply with SDK_DISPLAY_PARENT_DONE exactly.",
-                    },
-                    120_000
-                );
-                expect(reply?.data.content).toContain("SDK_DISPLAY_PARENT_DONE");
-                expect(taskArguments).toHaveLength(1);
-                expect(taskArguments[0]).toMatchObject({
-                    agent_type: "sdk-display-model-agent",
-                    mode: "sync",
+                const configurations: Array<{
+                    agentId?: string;
+                    model: string;
+                    reasoningEffort?: string;
+                }> = [];
+                const unsubscribe = session.on((event) => {
+                    if (event.type === "subagent.configured") {
+                        configurations.push({ agentId: event.agentId, ...event.data });
+                    }
                 });
-                expect(taskArguments[0]).not.toHaveProperty("model");
-                expect(taskArguments[0]).not.toHaveProperty("reasoning_effort");
-                expect(configurations).toHaveLength(1);
-                const configuration = configurations[0];
-                expect(configuration).toMatchObject({
-                    model: "claude-sonnet-5",
-                    reasoningEffort: "high",
-                });
-                expect(configuration.agentId).toBeTruthy();
-                const requests = requestRecorder.requests
-                    .filter((request) => request.agentId === configuration.agentId)
-                    .map((request) => request.body);
-                expect(requests.length).toBeGreaterThan(0);
-                for (const request of requests) {
-                    expect(request).toMatchObject({
-                        model: "claude-sonnet-5",
-                        reasoning_effort: "high",
+                try {
+                    const reply = await session.sendAndWait(
+                        {
+                            prompt:
+                                'Use the task tool with agent_type "sdk-display-model-agent", mode "sync", and prompt "Reply with SDK_DISPLAY_AGENT_DONE exactly.". ' +
+                                "Do not specify model or reasoning_effort in the task arguments. " +
+                                "After it completes, reply with SDK_DISPLAY_PARENT_DONE exactly.",
+                        },
+                        120_000
+                    );
+                    expect(reply?.data.content).toContain("SDK_DISPLAY_PARENT_DONE");
+                    expect(taskArguments).toHaveLength(1);
+                    expect(taskArguments[0]).toMatchObject({
+                        agent_type: "sdk-display-model-agent",
+                        mode: "sync",
                     });
+                    expect(taskArguments[0]).not.toHaveProperty("model");
+                    expect(taskArguments[0]).not.toHaveProperty("reasoning_effort");
+                    expect(configurations).toHaveLength(1);
+                    const configuration = configurations[0];
+                    expect(configuration).toMatchObject({
+                        model: "claude-sonnet-5",
+                        reasoningEffort: "high",
+                    });
+                    expect(configuration.agentId).toBeTruthy();
+                    const requests = await modelRequestsForPrompt(
+                        "Reply with SDK_DISPLAY_AGENT_DONE exactly."
+                    );
+                    expect(requests.length).toBeGreaterThan(0);
+                    for (const request of requests) {
+                        expect(request).toMatchObject({
+                            model: "claude-sonnet-5",
+                            reasoning_effort: "high",
+                        });
+                    }
+                    const parentRequests = await modelRequestsForPrompt(
+                        "After it completes, reply with SDK_DISPLAY_PARENT_DONE exactly."
+                    );
+                    expect(parentRequests.length).toBeGreaterThan(0);
+                    for (const request of parentRequests) {
+                        expect(request.reasoning_effort).toBe("medium");
+                    }
+                } finally {
+                    unsubscribe();
                 }
-                const parentRequests = requestRecorder.requests.filter(
-                    (request) =>
-                        request.sessionId === session.sessionId &&
-                        request.agentId !== configuration.agentId
-                );
-                expect(parentRequests.length).toBeGreaterThan(0);
-                for (const request of parentRequests) {
-                    expect(request.body.reasoning_effort).toBe("medium");
-                }
-                const completions = lifecycleEvents.filter(
-                    (event) => event.type === "subagent.completed"
-                );
-                expect(completions).toHaveLength(1);
-                expect(completions[0].agentId).toBe(configuration.agentId);
-                expect(completions[0].data.cancelled).not.toBe(true);
-                const beforeDisconnect = [...lifecycleEvents];
-                await session.disconnect();
-                expect(
-                    lifecycleEvents.filter((event) => event.type.startsWith("subagent."))
-                ).toEqual(beforeDisconnect);
-                expect(lifecycleEvents.at(-1)?.type).toBe("session.shutdown");
             } finally {
-                unsubscribe();
+                await recordingClient.stop();
             }
-        } finally {
-            await recordingClient.stop();
-        }
-    }, 240_000);
+        },
+        240_000
+    );
 
     it("should return expected results for missing pending handler requestIds", async () => {
         const session = await client.createSession({ onPermissionRequest: approveAll });

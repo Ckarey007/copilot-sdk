@@ -1343,34 +1343,7 @@ export function schemaTypeToJava(
         const name = schema.$ref.replace(/^#\/definitions\//, "");
         const resolved = resolution.definitions[name];
         if (resolved) {
-            if (
-                name === "ManagedPermissionsContext"
-                && generatedSessionEventTypeNames.has(name)
-                && crossSchemaDefinitions.get("session-events.schema.json")?.[name]
-            ) {
-                imports.add(`com.github.copilot.generated.${name}`);
-                return { javaType: name, imports };
-            }
             const directUnion = unionVariants(resolved);
-            if (name === "ManagedPermissionOperation" && directUnion) {
-                const variants = resolveAnyOfVariants(directUnion, resolution.definitions);
-                const [variant] = variants;
-                if (variants.length === 1 && variant?.properties) {
-                    const kind = variant.properties.kind;
-                    if (!kind || typeof kind !== "object" || typeof kind.const !== "string") {
-                        throw new Error("Expected a string discriminator for ManagedPermissionOperation.kind");
-                    }
-                    resolution.standaloneTypes.set(name, {
-                        ...resolved,
-                        ...variant,
-                        properties: {
-                            ...variant.properties,
-                            kind: { ...kind, enum: [kind.const] },
-                        },
-                    });
-                    return { javaType: name, imports };
-                }
-            }
             if (directUnion && ["InstallationReview", "McpInstallationReview", "SkillInstallationReview"].includes(name)) {
                 const variants = resolveAnyOfVariants(directUnion, resolution.definitions);
                 if (variants.length > 1 && findDiscriminator(variants)) {
@@ -1572,8 +1545,7 @@ export function extractEventVariants(schema: JSONSchema7): EventVariant[] {
                 className: `${baseName}Event`,
                 dataSchema: dataSchema ?? null,
                 description: resolved.description,
-                stability: ((resolved as unknown as Record<string, unknown>).stability
-                    ?? (variant as unknown as Record<string, unknown>).stability) as string | undefined,
+                stability: (variant as unknown as Record<string, unknown>).stability as string | undefined,
                 deprecated: (resolved as unknown as Record<string, unknown>).deprecated === true,
                 dataDeprecated: dataSchema !== undefined && "deprecated" in dataSchema && dataSchema.deprecated === true,
             };
@@ -1945,7 +1917,7 @@ export function renderEventVariantClass(variant: EventVariant, packageName: stri
     }
     if (variant.stability === "experimental") {
         lines.push(` *`);
-        lines.push(` * @apiNote This event type is experimental and may change in a future version.`);
+        lines.push(` * @apiNote This method is experimental and may change in a future version.`);
     }
     lines.push(` * @since 1.0.0`);
     lines.push(` */`);
@@ -1979,10 +1951,6 @@ export function renderEventVariantClass(variant: EventVariant, packageName: stri
         if (variant.dataDeprecated) {
             lines.push(`    @Deprecated`);
         }
-        if (variant.stability === "experimental" || isSchemaExperimental(variant.dataSchema)) {
-            allImports.add("com.github.copilot.CopilotExperimental");
-            lines.push(`    @CopilotExperimental`);
-        }
         lines.push(`    @JsonIgnoreProperties(ignoreUnknown = true)`);
         lines.push(`    @JsonInclude(JsonInclude.Include.NON_NULL)`);
         if (hasUnionData) {
@@ -2014,28 +1982,6 @@ export function renderEventVariantClass(variant: EventVariant, packageName: stri
                 lines.push(`        @JsonProperty("${field.jsonName}") ${field.javaType} ${field.javaName}${comma}`);
             }
             lines.push(`    ) {`);
-            const legacy = readLegacyParameters(variant.dataSchema, `${variant.className}Data`, {
-                ordered: true,
-            });
-            if (legacy) {
-                const legacyNames = new Set(legacy.legacy);
-                const legacyFields = dataFields.filter((field) => legacyNames.has(field.jsonName));
-                lines.push("");
-                lines.push(`        /**`);
-                lines.push(`         * Creates event data with the components it had before later optional fields were added.`);
-                lines.push(`         */`);
-                lines.push(`        public ${variant.className}Data(`);
-                for (let i = 0; i < legacyFields.length; i++) {
-                    const field = legacyFields[i];
-                    const comma = i < legacyFields.length - 1 ? "," : "";
-                    lines.push(`            ${field.javaType} ${field.javaName}${comma}`);
-                }
-                lines.push(`        ) {`);
-                lines.push(`            this(${dataFields
-                    .map((field) => legacyNames.has(field.jsonName) ? field.javaName : "null")
-                    .join(", ")});`);
-                lines.push(`        }`);
-            }
         }
         // Render nested types inside Data record
         for (const [, nested] of nestedTypes) {
@@ -2398,9 +2344,6 @@ function validateSharedResultOwners(sections: Record<string, unknown>[]): void {
 }
 
 function schemaAllowsNull(schema: JSONSchema7): boolean {
-    if ((schema as Record<string, unknown>)["x-opaque-json"] === true && schema.type === undefined) {
-        return true;
-    }
     if (schema.type === "null" || (Array.isArray(schema.type) && schema.type.includes("null"))) {
         return true;
     }
@@ -2470,18 +2413,6 @@ export function generateRpcClass(
     }
 
     if (localNestedTypes.size > 0 && lines[lines.length - 1] === "") lines.pop();
-    if (className === "SessionModelGetReasoningSummariesParams") {
-        lines.push(``);
-        lines.push(`    /**`);
-        lines.push(`     * Creates host presentation state; the session-scoped wrapper supplies the session ID.`);
-        lines.push(`     *`);
-        lines.push(`     * @param persistedShowReasoning the persisted visibility setting, or null when unset`);
-        lines.push(`     * @param summariesVisible whether summaries are visible, or null for the default`);
-        lines.push(`     */`);
-        lines.push(`    public ${className}(Boolean persistedShowReasoning, Boolean summariesVisible) {`);
-        lines.push(`        this(null, persistedShowReasoning, summariesVisible);`);
-        lines.push(`    }`);
-    }
     const legacyConstructor =
         className === "McpOauthRequiredStaticClientConfig"
             ? {
@@ -2489,25 +2420,13 @@ export function generateRpcClass(
                 omittedField: "scope",
                 description: "Creates a static OAuth client configuration without an explicit scope.",
             }
-            : className === "ManagedSettingsResolveParams"
-              ? {
-                  fieldNames: ["selectionId", "gitHubToken", "clientName"],
-                  omittedField: "workingDirectory",
-                  description: "Creates managed-settings resolution parameters without a working directory.",
-              }
             : className === "SessionFsSetProviderCapabilities"
               ? {
                   fieldNames: ["sqlite"],
                   omittedField: "binary",
                   description: "Creates provider capabilities without binary reads.",
               }
-              : className === "HostGitHubEnvironmentOptions"
-                ? {
-                    fieldNames: ["name", "computeId"],
-                    omittedField: "requireConnectionBinding",
-                    description: "Creates environment options using the default connection-binding policy.",
-                }
-                : undefined;
+              : undefined;
     if (legacyConstructor) {
         const legacyFieldNames = legacyConstructor.fieldNames;
         const legacyFields = legacyFieldNames.map((fieldName) => {
@@ -3080,7 +2999,7 @@ interface NamespaceTree {
 }
 
 /** Build a namespace tree by recursively walking a schema section object */
-export function buildNamespaceTree(node: Record<string, unknown>): NamespaceTree {
+function buildNamespaceTree(node: Record<string, unknown>): NamespaceTree {
     const tree: NamespaceTree = { methods: new Map(), subspaces: new Map() };
     for (const [key, value] of Object.entries(node)) {
         if (typeof value !== "object" || value === null) continue;
@@ -3173,10 +3092,6 @@ function wrapperResultClassName(method: RpcMethodNode): string {
     // Inline result schema with properties
     let result = originalResult;
     if (result.$ref) result = resolveRef(result) as JSONSchema7;
-    if (result.type === "boolean" || result.type === "integer" || result.type === "number"
-        || (result.type === "string" && !result.enum)) {
-        return schemaTypeToJava(result, false, rpcResultClassName(method.rpcMethod), "value", new Map()).javaType;
-    }
     if (
         result &&
         typeof result === "object" &&
@@ -3191,7 +3106,7 @@ function wrapperResultClassName(method: RpcMethodNode): string {
         return javaResult.javaType;
     }
 
-    // Boolean maps have a typed value contract; free-form JSON remains a JsonNode.
+    // Free-form object with additionalProperties (e.g., x-opaque-json) → JsonNode
     if (
         result &&
         typeof result === "object" &&
@@ -3199,9 +3114,6 @@ function wrapperResultClassName(method: RpcMethodNode): string {
         result.additionalProperties &&
         !result.properties
     ) {
-        if (typeof result.additionalProperties === "object" && result.additionalProperties.type === "boolean") {
-            return "Map<String, Boolean>";
-        }
         return "JsonNode";
     }
 
@@ -3209,9 +3121,6 @@ function wrapperResultClassName(method: RpcMethodNode): string {
 }
 
 function wrapperResultTypeExpression(resultType: string): string {
-    if (resultType === "Map<String, Boolean>") {
-        return "RpcMapper.INSTANCE.getTypeFactory().constructMapType(Map.class, String.class, Boolean.class)";
-    }
     const listMatch = resultType.match(/^List<([^<>]+)>$/);
     if (listMatch) {
         return `RpcMapper.INSTANCE.getTypeFactory().constructCollectionType(List.class, ${javaClassLiteral(listMatch[1])})`;
@@ -3234,19 +3143,11 @@ function addWrapperResultImports(resultType: string, allImports: Set<string>, pa
         return;
     }
 
-    if (resultType === "UUID" || resultType === "OffsetDateTime") {
-        allImports.add(resultType === "UUID" ? "java.util.UUID" : "java.time.OffsetDateTime");
-        return;
-    }
-
     if (resultType.startsWith("List<")) {
         allImports.add("java.util.List");
     }
-    if (resultType.startsWith("Map<")) {
-        allImports.add("java.util.Map");
-    }
 
-    const builtInTypes = new Set(["Boolean", "Double", "Long", "List", "Map", "Object", "String", "Void"]);
+    const builtInTypes = new Set(["Boolean", "Double", "Long", "List", "Object", "String", "Void"]);
     for (const typeName of resultType.match(/\b[A-Z][A-Za-z0-9_]*\b/g) ?? []) {
         if (!builtInTypes.has(typeName)) {
             allImports.add(`${packageName}.${typeName}`);
@@ -3311,7 +3212,7 @@ export function generateApiMethod(
         ?? `Invokes {@code ${method.rpcMethod}}.`;
     const pushJavadoc = (extraLines: string[] = [], includeSessionIdNote = true): void => {
         lines.push(`    /**`);
-        lines.push(...description.split(/\r?\n/).map((line) => `     * ${line}`));
+        lines.push(`     * ${description}`);
         if (includeSessionIdNote && isSession && hasExtraParams && hasSessionId) {
             lines.push(`     * <p>`);
             lines.push(`     * Note: the {@code sessionId} field in the params record is overridden`);

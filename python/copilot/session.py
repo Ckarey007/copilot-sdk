@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import functools
 import inspect
-import json
 import logging
 import os
 import pathlib
@@ -255,22 +254,6 @@ def _tool_handlers_for(tools: list[Tool] | None) -> dict[str, ToolHandler]:
     return {
         tool.name: tool.handler for tool in tools or [] if tool.name and tool.handler is not None
     }
-
-
-def _hook_error_text(error: Any) -> Any:
-    """Decode the ``error`` of an errorOccurred or sessionEnd hook input.
-
-    The CLI sends an error object (``{"name", "message", "stack"}`` or
-    ``{"message"}``) where the hook input types declare a string: its message
-    becomes the error, and an object without a string message becomes its
-    compact JSON. Other values pass through.
-    """
-    if isinstance(error, dict):
-        message = error.get("message")
-        if isinstance(message, str):
-            return message
-        return json.dumps(error, separators=(",", ":"), ensure_ascii=False)
-    return error
 
 
 def _consume_task_exception(task: asyncio.Task[Any]) -> None:
@@ -1390,7 +1373,6 @@ class GitHubMcpToolConfig(TypedDict, total=False):
 class CustomAgentConfig(TypedDict, total=False):
     """Configuration for a custom agent."""
 
-    hooks: NotRequired[dict[str, list[dict[str, Any]]]]
     name: str  # Unique name of the custom agent
     display_name: NotRequired[str]  # Display name for UI purposes
     description: NotRequired[str]  # Description of what the agent does
@@ -1464,20 +1446,6 @@ class LargeToolOutputConfig(TypedDict, total=False):
     max_size_bytes: int
     # Directory to write temp files to. Defaults to the OS temp directory.
     output_directory: str
-
-
-class ImageGenerationConfig(TypedDict, total=False):
-    """**Experimental.** Opt in to an authorized Copilot image model.
-
-    This API may change or be removed in a future release.
-
-    Omission disables on create/cold resume and preserves resident state on
-    resume. Not persisted: re-supply after runtime restart. Policy, permissions,
-    offline mode, and tool filters still apply. BYOK is not supported.
-    """
-
-    enabled: bool
-    """True opts in; False disables image generation."""
 
 
 class ToolSearchConfig(TypedDict, total=False):
@@ -1880,7 +1848,6 @@ class CopilotSession:
         self._open_canvases_lock = threading.Lock()
         self._rpc: SessionRpc | None = None
         self._destroyed = False
-        self._response_waits: set[Callable[[], None]] = set()
         self._structured_waits: set[asyncio.Future[SessionEvent]] = set()
         self._disconnect_lock = asyncio.Lock()
         self._on_disconnect = on_disconnect
@@ -1904,44 +1871,10 @@ class CopilotSession:
                 task.cancel()
 
     def _mark_disconnected(self) -> None:
-        with self._event_handlers_lock:
-            if self._destroyed:
-                return
-            self._destroyed = True
-            self._event_handlers.clear()
-        for fail in tuple(self._response_waits):
-            fail()
-        self._response_waits.clear()
+        self._destroyed = True
         self._fail_structured_waits()
         self._cancel_pending_external_tools()
-        with self._tool_handlers_lock:
-            self._tool_handlers.clear()
         self._clear_skill_provider()
-        with self._permission_handler_lock:
-            self._permission_handler = None
-        with self._mcp_auth_handler_lock:
-            self._mcp_auth_handler = None
-        with self._user_input_handler_lock:
-            self._user_input_handler = None
-        with self._exit_plan_mode_handler_lock:
-            self._exit_plan_mode_handler = None
-        with self._auto_mode_switch_handler_lock:
-            self._auto_mode_switch_handler = None
-        with self._hooks_lock:
-            self._hooks = None
-        with self._transform_callbacks_lock:
-            self._transform_callbacks = None
-        with self._command_handlers_lock:
-            self._command_handlers.clear()
-        with self._bearer_token_providers_lock:
-            self._bearer_token_providers.clear()
-        with self._elicitation_handler_lock:
-            self._elicitation_handler = None
-        with self._canvas_handler_lock:
-            self._canvas_handler = None
-        with self._open_canvases_lock:
-            self._open_canvases.clear()
-        self._client_session_apis = ClientSessionApiHandlers()
         self._run_disconnect_callback()
 
     def _fail_structured_waits(self) -> None:
@@ -2102,9 +2035,7 @@ class CopilotSession:
         session are applied in order. Cancelling the call while an earlier
         replacement is still in flight sends nothing. Once the request is sent,
         cancelling only stops the wait: an accepted replacement still installs
-        its handlers while the session remains connected. Disconnecting the
-        session rejects queued replacements and prevents late acknowledgements
-        from reinstalling handlers.
+        its handlers.
 
         The agent sees the new tools from its next model request, which can fall
         within a turn in progress. A model request already in flight was made
@@ -2113,8 +2044,6 @@ class CopilotSession:
         turn is aborted. If a running turn might still call a tool you remove,
         replace tools while the session is idle.
         """
-        if self._destroyed:
-            raise RuntimeError("Session is disconnected")
         definitions = _tools_to_wire_definitions(tools)
         handlers = _tool_handlers_for(tools)
         # Cancelling while an earlier call holds the lock sends nothing. Once
@@ -2131,12 +2060,8 @@ class CopilotSession:
         handlers: dict[str, ToolHandler],
     ) -> None:
         try:
-            if self._destroyed:
-                raise RuntimeError("Session is disconnected")
             await self.rpc.tools.set(ToolsSetRequest(tools=definitions))
             with self._tool_handlers_lock:
-                if self._destroyed:
-                    raise RuntimeError("Session is disconnected")
                 self._tool_handlers = handlers
         finally:
             self._set_tools_lock.release()
@@ -2250,14 +2175,7 @@ class CopilotSession:
                     error_event = Exception(f"Session error: {data.message or str(data)}")
                     idle_event.set()
 
-        def fail_disconnected() -> None:
-            nonlocal error_event
-            if not idle_event.is_set():
-                error_event = RuntimeError("Session closed before response completed")
-                idle_event.set()
-
         unsubscribe = self.on(handler)
-        self._response_waits.add(fail_disconnected)
         try:
             await self.send(
                 prompt,
@@ -2301,7 +2219,6 @@ class CopilotSession:
             raise TimeoutError(f"Timeout after {timeout}s waiting for session.idle")
         finally:
             unsubscribe()
-            self._response_waits.discard(fail_disconnected)
 
     async def send_and_wait_typed(
         self,
@@ -2450,8 +2367,6 @@ class CopilotSession:
             >>> unsubscribe()
         """
         with self._event_handlers_lock:
-            if self._destroyed:
-                raise RuntimeError("Session is disconnected")
             self._event_handlers.add(handler)
 
         def unsubscribe():
@@ -2473,9 +2388,6 @@ class CopilotSession:
         Args:
             event: The session event to dispatch to all handlers.
         """
-        with self._event_handlers_lock:
-            if self._destroyed:
-                return
         dispatch_start = time.perf_counter()
         # Handle broadcast request events (protocol v3) before dispatching to user handlers.
         # Fire-and-forget: the response is sent asynchronously via RPC.
@@ -2485,9 +2397,6 @@ class CopilotSession:
             handlers = list(self._event_handlers)
 
         for handler in handlers:
-            with self._event_handlers_lock:
-                if self._destroyed:
-                    break
             try:
                 handler(event)
             except Exception:
@@ -2524,14 +2433,7 @@ class CopilotSession:
                 ts = getattr(data, "tracestate", None)
                 task = asyncio.create_task(
                     self._execute_tool_and_respond(
-                        request_id,
-                        tool_name,
-                        tool_call_id,
-                        arguments,
-                        handler,
-                        tp,
-                        ts,
-                        event.agent_id or None,
+                        request_id, tool_name, tool_call_id, arguments, handler, tp, ts
                     )
                 )
                 if request_id in self._pending_external_tools:
@@ -2702,7 +2604,6 @@ class CopilotSession:
         handler: ToolHandler,
         traceparent: str | None = None,
         tracestate: str | None = None,
-        agent_id: str | None = None,
     ) -> None:
         """Execute a tool handler and send the result back via HandlePendingToolCall RPC."""
         try:
@@ -2725,8 +2626,6 @@ class CopilotSession:
                 tool_name=tool_name,
                 arguments=arguments,
                 available_tools=available_tools,
-                agent_id=agent_id,
-                request_id=request_id,
             )
 
             with trace_context(traceparent, tracestate):
@@ -3592,10 +3491,6 @@ class CopilotSession:
             timestamp = transformed.get("timestamp")
             if isinstance(timestamp, (int, float)):
                 transformed["timestamp"] = datetime.fromtimestamp(timestamp / 1000, tz=UTC)
-            # The CLI sends errorOccurred's and sessionEnd's ``error`` as an
-            # error object; the hook input types declare a string.
-            if hook_type in ("errorOccurred", "sessionEnd") and "error" in transformed:
-                transformed["error"] = _hook_error_text(transformed["error"])
             # Each per-hook-type TypedDict is structurally compatible with the
             # normalized dict; cast to ``Any`` so ty doesn't try to narrow the
             # specific TypedDict variant from the runtime ``dict``.
@@ -3680,7 +3575,25 @@ class CopilotSession:
                 detail = response.get("error") or "unknown error"
                 raise RuntimeError(f"Failed to detach session {self.session_id}: {detail}")
 
-            self._mark_disconnected()
+            self._cancel_pending_external_tools()
+            self._run_disconnect_callback()
+            with self._event_handlers_lock:
+                self._destroyed = True
+                self._fail_structured_waits()
+                self._event_handlers.clear()
+            with self._tool_handlers_lock:
+                self._tool_handlers.clear()
+            self._clear_skill_provider()
+            with self._permission_handler_lock:
+                self._permission_handler = None
+            with self._command_handlers_lock:
+                self._command_handlers.clear()
+            with self._elicitation_handler_lock:
+                self._elicitation_handler = None
+            with self._exit_plan_mode_handler_lock:
+                self._exit_plan_mode_handler = None
+            with self._auto_mode_switch_handler_lock:
+                self._auto_mode_switch_handler = None
 
     async def __aenter__(self) -> CopilotSession:
         """Enable use as an async context manager."""

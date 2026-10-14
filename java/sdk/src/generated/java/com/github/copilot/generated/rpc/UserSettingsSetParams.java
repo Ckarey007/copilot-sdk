@@ -25,7 +25,6 @@ import javax.annotation.processing.Generated;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record UserSettingsSetParams(
     /** Partial user settings to write, as a free-form object keyed by setting name */
-    @JsonInclude(JsonInclude.Include.ALWAYS)
     @JsonProperty("settings") Object settings
 ) {
 }

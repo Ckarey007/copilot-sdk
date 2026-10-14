@@ -370,8 +370,8 @@ describe("disabled MCP servers", async () => {
                         .map(({ name, enabled, live }) => ({ name, enabled, live }))
                         .sort((a, b) => a.name.localeCompare(b.name))
                 ).toEqual([
-                    { name: "control", enabled: true, live: { status: "not_configured" } },
-                    { name: "disabled", enabled: false, live: { status: "not_configured" } },
+                    { name: "control", enabled: true, live: undefined },
+                    { name: "disabled", enabled: false, live: undefined },
                 ]);
                 expect(markerCount(controlMarker)).toBe(0);
                 expect(markerCount(disabledMarker)).toBe(0);
@@ -408,62 +408,6 @@ describe("disabled MCP servers", async () => {
                 expect(markerCount(controlMarker)).toBe(startsAfterTurn);
             }
             expect(markerCount(disabledMarker)).toBe(0);
-        }
-    );
-
-    it.each([false, true])(
-        "restores cold default inheritance for disabled default %s without starting MCP",
-        async (configDisabled) => {
-            const configDirectory = join(workDir, `cold-file-mcp-${randomUUID()}`);
-            mkdirSync(configDirectory, { recursive: true });
-            const marker = join(configDirectory, "server-started.log");
-            const serverName = "cold-file-server";
-            await using session = await client.createSession({
-                onPermissionRequest: approveAll,
-                configDirectory,
-                enableConfigDiscovery: true,
-                requestExtensions: false,
-            });
-            await drainPostCreateRpc(session);
-
-            // These names are entirely unconfigured; every call must remain inert.
-            for (let i = 0; i < 2; i++) {
-                await session.rpc.mcp.enable({ serverName });
-                await session.rpc.mcp.enable({ serverName });
-                await session.rpc.mcp.disable({ serverName });
-                await session.rpc.mcp.disable({ serverName });
-            }
-            await session.rpc.mcp.enable({ serverName });
-
-            writeFileSync(
-                join(configDirectory, "mcp-config.json"),
-                JSON.stringify({
-                    mcpServers: {
-                        [serverName]: {
-                            type: "stdio",
-                            command: process.execPath,
-                            args: [TEST_MCP_SERVER, "--startup-marker", marker],
-                            tools: ["*"],
-                            disabled: configDisabled,
-                        },
-                    },
-                })
-            );
-            const after = await session.rpc.mcp.listConfigured();
-            expect(after.servers.find((server) => server.name === serverName)).toMatchObject({
-                enabled: !configDisabled,
-            });
-            expect(after.servers.find((server) => server.name === serverName)?.live).toEqual({
-                status: "not_configured",
-            });
-            expect(markerCount(marker)).toBe(0);
-
-            // A live-list read is the first operation that may materialize the graph.
-            const loaded = await session.rpc.mcp.list();
-            expect(loaded.servers.find((server) => server.name === serverName)?.status).toBe(
-                configDisabled ? "disabled" : "connected"
-            );
-            expect(markerCount(marker)).toBe(configDisabled ? 0 : 1);
         }
     );
 
@@ -721,26 +665,11 @@ describe("disabled MCP servers", async () => {
                     onPermissionRequest: approveAll,
                     enableSessionStore: true,
                     pluginDirectories: [pluginDirectory],
-                    disabledMcpServers: ["disabled", "github-mcp-server", "computer-use"],
+                    disabledMcpServers: ["disabled"],
                 });
                 await waitForMcpStatus(resumedSession, "control", "connected");
                 await waitForMcpStatus(resumedSession, "disabled", "disabled");
                 await waitForMarkerCount(controlMarker, 1);
-                const inventory = await resumedSession.rpc.mcp.listConfigured();
-                expect(
-                    inventory.servers
-                        .filter((server) => ["control", "disabled"].includes(server.name))
-                        .map(({ name, enabled }) => ({ name, enabled }))
-                        .sort((a, b) => a.name.localeCompare(b.name))
-                ).toEqual([
-                    { name: "control", enabled: true },
-                    { name: "disabled", enabled: false },
-                ]);
-                expect(
-                    inventory.servers.filter(
-                        (server) => server.source === "builtin" && server.enabled
-                    )
-                ).toEqual([]);
                 expect(existsSync(disabledMarker)).toBe(false);
             } finally {
                 await initialClient.stop().catch(() => {});

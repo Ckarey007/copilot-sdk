@@ -23,11 +23,7 @@ public enum CatalogMediaType {
     /** The {@code application/ai-skill} variant. */
     APPLICATION_AI_SKILL("application/ai-skill"),
     /** The {@code application/vnd.github.copilot-plugin} variant. */
-    APPLICATION_VND_GITHUB_COPILOT_PLUGIN("application/vnd.github.copilot-plugin"),
-    /** The {@code application/vnd.anthropic.claude-plugin+json} variant. */
-    APPLICATION_VND_ANTHROPIC_CLAUDE_PLUGIN_JSON("application/vnd.anthropic.claude-plugin+json"),
-    /** The {@code application/agent-plugin+json} variant. */
-    APPLICATION_AGENT_PLUGIN_JSON("application/agent-plugin+json");
+    APPLICATION_VND_GITHUB_COPILOT_PLUGIN("application/vnd.github.copilot-plugin");
 
     private final String value;
     CatalogMediaType(String value) { this.value = value; }

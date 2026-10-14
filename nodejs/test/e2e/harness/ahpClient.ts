@@ -23,7 +23,6 @@ import {
 import { AhpClient, type Subscription } from "@microsoft/agent-host-protocol-v09/client";
 import { WebSocketTransport } from "@microsoft/agent-host-protocol-v09/ws";
 import WebSocket from "ws";
-import { sealAhpAuthToken } from "./ahpSealedAuth.js";
 
 export async function withDeadline<T>(promise: Promise<T>, label: string, ms = 30_000): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -61,7 +60,7 @@ export async function connectAhp(
             capabilities,
         });
         assert.equal(initialized.protocolVersion, PROTOCOL_VERSION);
-        return { client, clientId, transport, initialized };
+        return { client, clientId, transport };
     } catch (error) {
         socket.terminate();
         throw error;
@@ -84,12 +83,7 @@ export async function authenticateAhp(
     await ahp.client.request("authenticate", {
         channel: "ahp-root://",
         resource: resource.resource,
-        token: await sealAhpAuthToken(
-            ahp.initialized._meta,
-            (root.snapshot?.state as RootState)._meta,
-            resource.resource,
-            githubToken
-        ),
+        token: githubToken,
     });
 }
 
@@ -100,7 +94,6 @@ export async function createAhpSession(
     tools: SessionActiveClient["tools"] = []
 ) {
     await authenticateAhp(ahp, githubToken);
-    // This token names the public AHP URI, not the independently allocated SDK session.
     const sessionId = randomUUID();
     const sessionUri = `ahp-session:/${sessionId}`;
     await ahp.client.request("createSession", {

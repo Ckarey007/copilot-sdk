@@ -60,11 +60,7 @@ describe("CopilotClient.startAhpHost", () => {
     it.each([false, true])(
         "forwards GitHub hosting with optional local transport (%s)",
         async (local) => {
-            const githubEnvironment = {
-                name: "Application",
-                computeId: "stable-installation-id",
-                requireConnectionBinding: false,
-            };
+            const githubEnvironment = { name: "Application", computeId: "stable-installation-id" };
             const start = vi.fn(({ hostId }: HostStartRequest) => ({
                 hostId,
                 environmentId: "environment-1",
@@ -72,7 +68,6 @@ describe("CopilotClient.startAhpHost", () => {
             }));
             const client = await fixture((rpc) => rpc.onRequest("host.start", start));
             const options = {
-                computeId: githubEnvironment.computeId,
                 githubEnvironment,
                 ...(local ? { localServer: {} } : {}),
             };
@@ -82,20 +77,6 @@ describe("CopilotClient.startAhpHost", () => {
             expect(host.url).toBe(local ? "ws://127.0.0.1:54321" : undefined);
             expect(host.token).toBe(local ? "local-token" : undefined);
             expect(host.pid).toBeUndefined();
-        }
-    );
-
-    it.each([undefined, "", "stable-local-compute"])(
-        "forwards local compute identity without supplying SDK defaults (%s)",
-        async (computeId) => {
-            const start = vi.fn(({ hostId }: HostStartRequest) => info(hostId));
-            const client = await fixture((rpc) => rpc.onRequest("host.start", start));
-            await client.startAhpHost({ localServer: {}, computeId });
-            expect(start.mock.calls[0]?.[0]).toEqual({
-                hostId: expect.any(String),
-                localServer: {},
-                ...(computeId === undefined ? {} : { computeId }),
-            });
         }
     );
 
@@ -452,11 +433,9 @@ describe("CopilotClient.startAhpHost", () => {
             sessionId,
             sessionUri: `copilot:/${sessionId}`,
         }));
-        const listSessions = vi.fn((_params: { hostId: string }) => ({ sessions: [] }));
         const client = await fixture((rpc) => {
             rpc.onRequest("host.start", ({ hostId }: HostStartRequest) => info(hostId));
             rpc.onRequest("host.publishSession", publish);
-            rpc.onRequest("host.listSessions", listSessions);
         });
         const host = await client.startAhpHost({ localServer: {} });
         await expect(host.publishSession("existing")).resolves.toEqual({
@@ -464,9 +443,6 @@ describe("CopilotClient.startAhpHost", () => {
             sessionUri: "copilot:/existing",
         });
         expect(publish.mock.calls[0][0]).toEqual({ hostId: host.hostId, sessionId: "existing" });
-        await expect(host.listSessions()).resolves.toEqual({ sessions: [] });
-        expect(listSessions).toHaveBeenCalledOnce();
-        expect(listSessions.mock.calls[0]?.[0]).toEqual({ hostId: host.hostId });
     });
     it("allows the owner callback to create a session while host.start is still pending", async () => {
         const client = await fixture((rpc) => {

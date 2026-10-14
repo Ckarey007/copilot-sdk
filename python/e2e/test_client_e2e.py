@@ -214,12 +214,10 @@ class TestClient:
                     on_permission_request=PermissionHandler.approve_all
                 )
                 await session.send("test")
-            # Retirement rejects new session admission; before it wins, process exit
-            # preserves stderr or the broken transport reports EINVAL/EPIPE.
+            # A completed process preserves stderr even if its exit code was not yet
+            # available on the first failure; a broken transport can report EINVAL/EPIPE.
             error_msg = str(exc_info2.value).lower()
-            if error_msg == "client not connected":
-                assert isinstance(exc_info2.value, RuntimeError)
-            elif "cli process exited with code" in error_msg:
+            if "cli process exited with code" in error_msg:
                 assert (
                     error_msg.partition("stderr:")[2]
                     == error_message.lower().partition("stderr:")[2]

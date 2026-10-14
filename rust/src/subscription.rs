@@ -34,7 +34,6 @@
 
 use std::collections::VecDeque;
 use std::fmt;
-use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -44,7 +43,6 @@ use tokio::sync::broadcast::{Receiver, Sender, WeakSender};
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tokio_stream::{Stream, StreamExt as _};
-use tokio_util::sync::{CancellationToken, WaitForCancellationFutureOwned};
 
 use crate::types::{SessionEvent, SessionLifecycleEvent};
 use crate::{Custom, Repr};
@@ -204,7 +202,6 @@ impl ResumeBootstrap {
                 EventSubscription {
                     inner: None,
                     bootstrap: Some(self.clone()),
-                    force_stop: None,
                 }
             }
             ResumeBootstrapState::Claimed(_) | ResumeBootstrapState::Disabled => {
@@ -258,29 +255,14 @@ impl ResumeBootstrap {
 pub struct EventSubscription {
     inner: Option<BroadcastStream<SessionEvent>>,
     bootstrap: Option<Arc<ResumeBootstrap>>,
-    force_stop: Option<Pin<Box<WaitForCancellationFutureOwned>>>,
 }
 
 impl EventSubscription {
-    pub(crate) fn closed() -> Self {
-        Self {
-            inner: None,
-            bootstrap: None,
-            force_stop: None,
-        }
-    }
-
     pub(crate) fn new(rx: Receiver<SessionEvent>) -> Self {
         Self {
             inner: Some(BroadcastStream::new(rx)),
             bootstrap: None,
-            force_stop: None,
         }
-    }
-
-    pub(crate) fn with_force_stop(mut self, force_stop: CancellationToken) -> Self {
-        self.force_stop = Some(Box::pin(force_stop.cancelled_owned()));
-        self
     }
 
     fn next_bootstrap_event(&mut self) -> Option<SessionEvent> {
@@ -302,8 +284,7 @@ impl EventSubscription {
     /// - [`RecvErrorKind::Lagged`] if live delivery fell behind; call again
     ///   to continue from the next available live event.
     /// - [`RecvErrorKind::Closed`] once the producer is gone and any retained
-    ///   events have been drained, or immediately after client force-stop.
-    ///   Force-stop discards unread live and resume-bootstrap events.
+    ///   events have been drained.
     ///
     /// # Cancel safety
     ///
@@ -323,18 +304,6 @@ impl Stream for EventSubscription {
     type Item = Result<SessionEvent, Lagged>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        if self
-            .force_stop
-            .as_mut()
-            .is_some_and(|force_stop| force_stop.as_mut().poll(cx).is_ready())
-        {
-            self.force_stop = None;
-            self.inner = None;
-            if let Some(bootstrap) = self.bootstrap.take() {
-                bootstrap.abandon();
-            }
-            return Poll::Ready(None);
-        }
         if let Some(event) = self.next_bootstrap_event() {
             return Poll::Ready(Some(Ok(event)));
         }

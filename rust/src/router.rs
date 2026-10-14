@@ -302,17 +302,8 @@ impl SessionRouter {
         // Request routing task (if request_rx is available)
         if let Some(mut rx) = client.request_rx.lock().take() {
             let sessions = self.sessions.clone();
-            let connection_closed = client.rpc.connection_closed_token();
             tokio::spawn(async move {
-                loop {
-                    let request = tokio::select! {
-                        biased;
-                        _ = connection_closed.cancelled() => break,
-                        request = rx.recv() => {
-                            let Some(request) = request else { break };
-                            request
-                        }
-                    };
+                while let Some(request) = rx.recv().await {
                     if request.method == crate::installation_confirmation::CONFIRM_METHOD {
                         installation_confirmation.dispatch(request);
                         continue;
@@ -350,14 +341,13 @@ impl SessionRouter {
                         .map(str::to_owned);
                     let Some(session_id) = session_id else {
                         warn!(method = %request.method, "request missing sessionId");
-                        if !send_error(
+                        send_error(
                             &weak_client,
                             request.id,
                             error_codes::INVALID_PARAMS,
                             "missing required field: sessionId".to_string(),
-                        ) {
-                            break;
-                        }
+                        )
+                        .await;
                         continue;
                     };
 
@@ -378,48 +368,43 @@ impl SessionRouter {
                             method = %request.method,
                             "request for unregistered session"
                         );
-                        if !send_error(
+                        send_error(
                             &weak_client,
                             request.id,
                             error_codes::INTERNAL_ERROR,
                             format!("Session not found: {session_id}"),
-                        ) {
-                            break;
-                        }
+                        )
+                        .await;
                     }
                 }
-                sessions.lock().clear();
             });
         }
     }
 }
 
-fn send_error(
+async fn send_error(
     client: &Weak<crate::ClientInner>,
     request_id: u64,
     code: i32,
     message: String,
-) -> bool {
+) {
     let Some(inner) = client.upgrade() else {
-        return false;
+        return;
     };
     // Retire any cancellation registered for a request that never reaches a handler.
     drop(inner.rpc.cancellable_requests.claim(request_id));
-    if let Err(error) = inner.rpc.enqueue_response(&JsonRpcResponse {
-        jsonrpc: "2.0".to_string(),
-        id: request_id,
-        result: None,
-        error: Some(JsonRpcError {
-            code,
-            message,
-            data: None,
-        }),
-    }) {
-        warn!(%error, "failed to enqueue router rejection; closing connection");
-        crate::Client::from_inner(inner).force_stop();
-        return false;
-    }
-    true
+    let _ = crate::Client::from_inner(inner)
+        .send_response(&JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: request_id,
+            result: None,
+            error: Some(JsonRpcError {
+                code,
+                message,
+                data: None,
+            }),
+        })
+        .await;
 }
 
 #[cfg(test)]

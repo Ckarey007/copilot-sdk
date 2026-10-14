@@ -268,58 +268,15 @@ fn repair_lone_surrogates(body: &[u8]) -> Option<Vec<u8>> {
 
 /// One framed JSON-RPC message handed to the writer actor.
 ///
-/// `frame` is the fully serialized frame (header + body, written as
-/// [`EncodedFrame::as_bytes`]); the caller pays the serde cost synchronously
-/// before enqueueing so the actor never sees a `Result` from JSON encoding.
-/// When present, `ack` resolves once the bytes have been
+/// `frame` is the fully serialized bytes (header + body); the caller pays
+/// the serde cost synchronously before enqueueing so the actor never sees a
+/// `Result` from JSON encoding. `ack` resolves once the bytes have been
 /// fully written and flushed (or the underlying I/O reports an error). If
 /// the caller drops the `oneshot::Receiver`, the actor still completes the
 /// frame — caller cancellation cannot desync the wire.
 struct WriteCommand {
-    frame: EncodedFrame,
-    ack: Option<oneshot::Sender<Result<(), std::io::Error>>>,
-}
-
-/// Room reserved in front of a frame's body for its header: the header's name,
-/// the 20 digits of the longest `usize`, and the blank line.
-const FRAME_PREFIX: usize = CONTENT_LENGTH_HEADER.len() + 20 + 4;
-
-/// One JSON-RPC frame, header and body, in a single buffer: the header is
-/// written into room reserved in front of the body and ends right where the
-/// body starts.
-pub(crate) struct EncodedFrame {
-    buf: Vec<u8>,
-    start: usize,
-}
-
-impl EncodedFrame {
-    /// The frame as it goes on the wire: the header, then the body.
-    pub(crate) fn as_bytes(&self) -> &[u8] {
-        &self.buf[self.start..]
-    }
-}
-
-/// Encodes one JSON-RPC frame, header and body, into a single buffer.
-///
-/// The body is serialized once, behind room reserved for the header, and the
-/// header is then written into that room. A large message, such as a
-/// `sessionFs.readFile` reply carrying a long session's `events.jsonl`, is held
-/// once, escaped, instead of as a serialized body plus a framed copy of it. The
-/// buffer grows by doubling, as `serde_json::to_vec`'s does, so it can be up to
-/// about twice the frame's size.
-pub(crate) fn encode_frame<T: serde::Serialize>(message: &T) -> Result<EncodedFrame, Error> {
-    // `serde_json::to_vec` starts at 128 bytes; the body gets the same room here.
-    let mut buf = Vec::with_capacity(FRAME_PREFIX + 128);
-    buf.extend_from_slice(&[0; FRAME_PREFIX]);
-    serde_json::to_writer(&mut buf, message)?;
-    let digits = (buf.len() - FRAME_PREFIX).to_string();
-    let start = FRAME_PREFIX - CONTENT_LENGTH_HEADER.len() - digits.len() - 4;
-    let (name, rest) = buf[start..FRAME_PREFIX].split_at_mut(CONTENT_LENGTH_HEADER.len());
-    let (length, blank_line) = rest.split_at_mut(digits.len());
-    name.copy_from_slice(CONTENT_LENGTH_HEADER.as_bytes());
-    length.copy_from_slice(digits.as_bytes());
-    blank_line.copy_from_slice(b"\r\n\r\n");
-    Ok(EncodedFrame { buf, start })
+    frame: Vec<u8>,
+    ack: oneshot::Sender<Result<(), std::io::Error>>,
 }
 
 /// Inbound requests that honor `$/cancelRequest`.
@@ -455,12 +412,9 @@ impl JsonRpcClient {
         host_notifications: Option<mpsc::UnboundedSender<JsonRpcNotification>>,
     ) -> Self {
         let (write_tx, write_rx) = mpsc::unbounded_channel::<WriteCommand>();
-        let connection_closed = CancellationToken::new();
 
         let writer_span = tracing::error_span!("jsonrpc_write_loop");
-        let write_task = tokio::spawn(
-            Self::write_loop(writer, write_rx, connection_closed.clone()).instrument(writer_span),
-        );
+        let write_task = tokio::spawn(Self::write_loop(writer, write_rx).instrument(writer_span));
 
         let client = Self {
             request_id: AtomicU64::new(1),
@@ -469,7 +423,7 @@ impl JsonRpcClient {
             notification_tx,
             request_tx,
             request_handlers: Arc::new(RwLock::new(HashMap::new())),
-            connection_closed,
+            connection_closed: CancellationToken::new(),
             cancellable_requests: Arc::new(CancellableRequests::default()),
             read_task: Mutex::new(None),
             write_task: Mutex::new(Some(write_task)),
@@ -564,30 +518,19 @@ impl JsonRpcClient {
     async fn write_loop(
         mut writer: impl AsyncWrite + Unpin + Send + 'static,
         mut rx: mpsc::UnboundedReceiver<WriteCommand>,
-        connection_closed: CancellationToken,
     ) {
         while let Some(WriteCommand { frame, ack }) = rx.recv().await {
             let result = async {
-                writer.write_all(frame.as_bytes()).await?;
+                writer.write_all(&frame).await?;
                 writer.flush().await?;
                 Ok::<_, std::io::Error>(())
             }
             .await;
+
             // Caller may have dropped the ack receiver (e.g. their
             // `await` was cancelled); that's fine — we still completed
             // the write, which was the whole point.
-            match ack {
-                Some(ack) => {
-                    let _ = ack.send(result);
-                }
-                None => {
-                    if let Err(error) = result {
-                        error!(%error, "router rejection write failed; closing connection");
-                        connection_closed.cancel();
-                        break;
-                    }
-                }
-            }
+            let _ = ack.send(result);
         }
     }
 
@@ -607,12 +550,7 @@ impl JsonRpcClient {
         let (connection_closed, cancellable_requests) = connection;
 
         loop {
-            let message = tokio::select! {
-                biased;
-                _ = connection_closed.cancelled() => break,
-                message = Self::read_message(&mut reader) => message,
-            };
-            match message {
+            match Self::read_message(&mut reader).await {
                 Ok(Some(message)) => match message {
                     JsonRpcMessage::Response(mut response) => {
                         let id = response.id;
@@ -966,33 +904,27 @@ impl JsonRpcClient {
         Self::write_message(&self.write_tx, message).await
     }
 
-    /// Commit a router rejection to the existing writer actor without retaining
-    /// a delivery waiter. The actor reports write failure and closes the connection.
-    pub(crate) fn enqueue_response(&self, response: &JsonRpcResponse) -> Result<(), Error> {
-        Self::enqueue_message(&self.write_tx, response, None)
-    }
-
     async fn write_message<T: serde::Serialize>(
         write_tx: &mpsc::UnboundedSender<WriteCommand>,
         message: &T,
     ) -> Result<(), Error> {
-        let frame = encode_frame(message)?;
-        Self::send_frame(write_tx, frame).await
-    }
+        let body = serde_json::to_vec(message)?;
+        let mut frame = Vec::with_capacity(CONTENT_LENGTH_HEADER.len() + 16 + body.len() + 4);
+        frame.extend_from_slice(CONTENT_LENGTH_HEADER.as_bytes());
+        frame.extend_from_slice(body.len().to_string().as_bytes());
+        frame.extend_from_slice(b"\r\n\r\n");
+        frame.extend_from_slice(&body);
 
-    /// Send a frame already encoded with [`encode_frame`] and wait for the
-    /// writer actor's acknowledgement, so a caller can drop what it encoded
-    /// from before the frame is written.
-    pub(crate) async fn write_frame(&self, frame: EncodedFrame) -> Result<(), Error> {
-        Self::send_frame(&self.write_tx, frame).await
-    }
-
-    async fn send_frame(
-        write_tx: &mpsc::UnboundedSender<WriteCommand>,
-        frame: EncodedFrame,
-    ) -> Result<(), Error> {
         let (ack_tx, ack_rx) = oneshot::channel();
-        Self::enqueue_frame(write_tx, frame, Some(ack_tx))?;
+        write_tx
+            .send(WriteCommand { frame, ack: ack_tx })
+            .map_err(|_| {
+                Error::from(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "writer actor has shut down",
+                ))
+            })?;
+
         match ack_rx.await {
             Ok(Ok(())) => Ok(()),
             Ok(Err(e)) => Err(Error::from(e)),
@@ -1001,32 +933,6 @@ impl JsonRpcClient {
                 "writer actor dropped ack without responding",
             ))),
         }
-    }
-
-    fn enqueue_message<T: serde::Serialize>(
-        write_tx: &mpsc::UnboundedSender<WriteCommand>,
-        message: &T,
-        ack: Option<oneshot::Sender<Result<(), std::io::Error>>>,
-    ) -> Result<(), Error> {
-        let frame = encode_frame(message)?;
-        Self::enqueue_frame(write_tx, frame, ack)
-    }
-
-    /// Hand an encoded frame to the writer actor. When present, `ack` resolves
-    /// once the frame is flushed.
-    fn enqueue_frame(
-        write_tx: &mpsc::UnboundedSender<WriteCommand>,
-        frame: EncodedFrame,
-        ack: Option<oneshot::Sender<Result<(), std::io::Error>>>,
-    ) -> Result<(), Error> {
-        write_tx.send(WriteCommand { frame, ack }).map_err(|_| {
-            Error::from(std::io::Error::new(
-                std::io::ErrorKind::BrokenPipe,
-                "writer actor has shut down",
-            ))
-        })?;
-
-        Ok(())
     }
 }
 

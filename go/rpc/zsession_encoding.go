@@ -599,12 +599,6 @@ func (e *SessionEvent) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		e.Data = &d
-	case SessionEventTypeSessionManagedPluginProgress:
-		var d SessionManagedPluginProgressData
-		if err := json.Unmarshal(raw.Data, &d); err != nil {
-			return err
-		}
-		e.Data = &d
 	case SessionEventTypeSessionManagedSettingsEnforced:
 		var d SessionManagedSettingsEnforcedData
 		if err := json.Unmarshal(raw.Data, &d); err != nil {
@@ -679,12 +673,6 @@ func (e *SessionEvent) UnmarshalJSON(data []byte) error {
 		e.Data = &d
 	case SessionEventTypeSessionPlanChanged:
 		var d SessionPlanChangedData
-		if err := json.Unmarshal(raw.Data, &d); err != nil {
-			return err
-		}
-		e.Data = &d
-	case SessionEventTypeSessionQuotaObservation:
-		var d SessionQuotaObservationData
 		if err := json.Unmarshal(raw.Data, &d); err != nil {
 			return err
 		}
@@ -2363,8 +2351,6 @@ func (r PermissionPromptRequestWrite) MarshalJSON() ([]byte, error) {
 func (r *PermissionRequestedData) UnmarshalJSON(data []byte) error {
 	type rawPermissionRequestedData struct {
 		AgentMode         *SessionMode    `json:"agentMode,omitempty"`
-		OwnerAgentID      *string         `json:"ownerAgentId,omitempty"`
-		OwnerSessionID    *string         `json:"ownerSessionId,omitempty"`
 		PermissionMode    *PermissionMode `json:"permissionMode,omitempty"`
 		PermissionRequest json.RawMessage `json:"permissionRequest"`
 		PromptRequest     json.RawMessage `json:"promptRequest,omitempty"`
@@ -2378,8 +2364,6 @@ func (r *PermissionRequestedData) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	r.AgentMode = raw.AgentMode
-	r.OwnerAgentID = raw.OwnerAgentID
-	r.OwnerSessionID = raw.OwnerSessionID
 	r.PermissionMode = raw.PermissionMode
 	if raw.PermissionRequest != nil {
 		value, err := unmarshalPermissionRequest(raw.PermissionRequest)

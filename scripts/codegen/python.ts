@@ -1854,58 +1854,6 @@ function pythonParamsTypeName(method: RpcMethod): string {
     return getRpcSchemaTypeName(schema, fallback);
 }
 
-function applyExplicitNullableFieldPresenceSentinel(
-    code: string,
-    resolveType: (name: string) => string
-): string {
-    const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const explicitNullableFields: Array<{ className: string; jsonName: string; pyName: string }> = [
-        {
-            className: resolveType("UserSettingsApplyTopKeyRequest"),
-            jsonName: "value",
-            pyName: "value",
-        },
-        {
-            className: resolveType("RepoSettingsWriteKeyRequest"),
-            jsonName: "value",
-            pyName: "value",
-        },
-        {
-            className: resolveType("UserSettingsEditRequest"),
-            jsonName: "value",
-            pyName: "value",
-        },
-    ];
-
-    let result = code;
-    for (const { className, jsonName, pyName } of explicitNullableFields) {
-        const classPattern = new RegExp(
-            `(@dataclass\\r?\\nclass ${escapeRegex(className)}\\b[\\s\\S]*?\\r?\\n)(?=@dataclass\\r?\\nclass |class\\s+\\w+\\(Enum\\):|def\\s+\\w+\\(|$)`,
-            "g"
-        );
-        result = result.replace(classPattern, (classBlock) => {
-            let next = classBlock;
-            next = next.replace(
-                new RegExp(`^(\\s{4}${escapeRegex(pyName)}:\\s[^=\\r\\n]+\\=\\s*)None(\\r?\\n)`, "m"),
-                "$1UNSET_SENTINEL$2"
-            );
-            next = next.replace(
-                new RegExp(
-                    `^(\\s{8}${escapeRegex(pyName)}\\s*=\\s*)(.+?)obj\\.get\\("${escapeRegex(jsonName)}"\\)(.*)$`,
-                    "m"
-                ),
-                `$1$2obj["${jsonName}"]$3 if "${jsonName}" in obj else UNSET_SENTINEL`
-            );
-            next = next.replace(
-                new RegExp(`^(\\s{8}if\\s+self\\.${escapeRegex(pyName)}\\s+is\\s+not\\s+)None(\\s*:\\s*\\r?\\n)`, "m"),
-                "$1UNSET_SENTINEL$2"
-            );
-            return next;
-        });
-    }
-    return result;
-}
-
 // ── Session Events ──────────────────────────────────────────────────────────
 // ── Session Events (custom codegen — dedicated per-event payload types) ─────
 
@@ -3417,8 +3365,7 @@ async function generateRpc(schemaPath?: string, sessionEventsSchema?: JSONSchema
     const { FetchingJSONSchemaStore, InputData, JSONSchemaInput, quicktype } = await import("quicktype-core");
 
     const resolvedPath = schemaPath ?? (await getApiSchemaPath());
-    const sourceSchema = fixNullableRequiredRefsInApiSchema(cloneSchemaForCodegen((await loadSchemaJson(resolvedPath)) as ApiSchema));
-    let schema = sourceSchema;
+    let schema = fixNullableRequiredRefsInApiSchema(cloneSchemaForCodegen((await loadSchemaJson(resolvedPath)) as ApiSchema));
     if (sessionEventsSchema) {
         const sharedDefinitions = findSharedSchemaDefinitions(
             schema as unknown as Record<string, unknown>,
@@ -3488,25 +3435,6 @@ async function generateRpc(schemaPath?: string, sessionEventsSchema?: JSONSchema
 
     const allDefinitions = combinedSchema.definitions! as Record<string, JSONSchema7>;
     preservePythonRpcStringDateFields(allDefinitions);
-    const managedOperationProperties = resolveObjectSchema(
-        allDefinitions.ManagedPermissionOperation,
-        rpcDefinitions
-    )?.properties;
-    const managedOperationKind = managedOperationProperties?.kind;
-    if (managedOperationProperties && managedOperationKind && typeof managedOperationKind === "object") {
-        const values =
-            managedOperationKind.enum ??
-            (typeof managedOperationKind.const === "string" ? [managedOperationKind.const] : undefined);
-        if (!values?.every((value): value is string => typeof value === "string")) {
-            throw new Error("Expected a string discriminator for ManagedPermissionOperation.kind");
-        }
-        allDefinitions.ManagedPermissionOperationKind = {
-            type: "string",
-            enum: values,
-            description: managedOperationKind.description,
-        };
-        managedOperationProperties.kind = { $ref: "#/definitions/ManagedPermissionOperationKind" };
-    }
     const allDefinitionCollections: DefinitionCollections = {
         definitions: { ...(combinedSchema.$defs ?? {}), ...allDefinitions },
         $defs: { ...allDefinitions, ...(combinedSchema.$defs ?? {}) },
@@ -3526,13 +3454,13 @@ async function generateRpc(schemaPath?: string, sessionEventsSchema?: JSONSchema
     };
     const externalRefs = rewriteExternalRefsForPython(singleSchema as JSONSchema7 & { definitions?: Record<string, JSONSchema7> });
     const externalEnumNames = collectPythonExternalEnumNames(sessionEventsSchema, externalRefs.placeholderNames);
-    // Independently versioned enums must not be structurally merged by quicktype.
-    // Hide them from quicktype's enum merging, then restore them with our enum emitter.
+    // Discovery and session availability are independently versioned despite identical values.
+    // Hide the discovery enum from quicktype's enum merging, then restore it with our enum emitter.
     const distinctEnums: Pick<PyCodegenCtx, "enumsByName" | "enums"> = {
         enumsByName: new Map(),
         enums: [],
     };
-    for (const name of ["ConnectorDiscoveryAvailability", "ManagedPermissionOperationKind"]) {
+    for (const name of ["ConnectorDiscoveryAvailability"]) {
         const definition = allDefinitions[name];
         if (!definition) continue;
         if (!definition.enum?.every((value): value is string => typeof value === "string")) {
@@ -3831,7 +3759,6 @@ import dateutil.parser
 
 T = TypeVar("T")
 EnumT = TypeVar("EnumT", bound=Enum)
-UNSET_SENTINEL = object()
 
 `);
     lines.push(typesCode);
@@ -3873,28 +3800,25 @@ def _patch_model_capabilities(data: dict) -> dict:
 
 `);
 
-    // Imports change where types live, not how their wire values are decoded.
-    const projectionDefinitions = rpcDefinitions;
-    rpcDefinitions = collectDefinitionCollections(sourceSchema as Record<string, unknown>);
-    if (sourceSchema.server) {
-        const publicNode = filterNodeByVisibility(sourceSchema.server, "public");
+    // Emit RPC wrapper classes
+    if (schema.server) {
+        const publicNode = filterNodeByVisibility(schema.server, "public");
         if (publicNode) emitRpcWrapper(lines, publicNode, false, resolveType, "");
-        const internalNode = filterNodeByVisibility(sourceSchema.server, "internal");
+        const internalNode = filterNodeByVisibility(schema.server, "internal");
         if (internalNode) emitRpcWrapper(lines, internalNode, false, resolveType, "_Internal");
     }
-    if (sourceSchema.session) {
-        const publicNode = filterNodeByVisibility(sourceSchema.session, "public");
+    if (schema.session) {
+        const publicNode = filterNodeByVisibility(schema.session, "public");
         if (publicNode) emitRpcWrapper(lines, publicNode, true, resolveType, "");
-        const internalNode = filterNodeByVisibility(sourceSchema.session, "internal");
+        const internalNode = filterNodeByVisibility(schema.session, "internal");
         if (internalNode) emitRpcWrapper(lines, internalNode, true, resolveType, "_Internal");
     }
-    if (sourceSchema.clientSession) {
-        emitClientSessionApiRegistration(lines, sourceSchema.clientSession, resolveType);
+    if (schema.clientSession) {
+        emitClientSessionApiRegistration(lines, schema.clientSession, resolveType);
     }
-    if (sourceSchema.clientGlobal) {
-        emitClientGlobalApiRegistration(lines, sourceSchema.clientGlobal, resolveType);
+    if (schema.clientGlobal) {
+        emitClientGlobalApiRegistration(lines, schema.clientGlobal, resolveType);
     }
-    rpcDefinitions = projectionDefinitions;
 
     // Patch models.list to normalize capabilities before deserialization
     let finalCode = lines.join("\n");
@@ -3926,7 +3850,6 @@ def _patch_model_capabilities(data: dict) -> dict:
         finalCode,
         new Set(Object.keys(allDefinitions).map((name) => name.toLowerCase()))
     );
-    finalCode = applyExplicitNullableFieldPresenceSentinel(finalCode, resolveType);
 
     // Apply `_`-prefix to type names of internal RPC types so the leading-underscore
     // Python convention signals "internal, no stability guarantees" to consumers.
@@ -3943,11 +3866,7 @@ def _patch_model_capabilities(data: dict) -> dict:
             }
         }
         if (internalDefs.size > 0) {
-            // Resolve class-name casing without following aliases to shared public types.
-            const internalSymbols = new Set(
-                [...internalDefs].flatMap((name) => [name, actualTypeNames.get(name.toLowerCase()) ?? name])
-            );
-            finalCode = renameInternalPythonSymbols(finalCode, internalSymbols);
+            finalCode = renameInternalPythonSymbols(finalCode, internalDefs);
         }
     }
 
@@ -4210,14 +4129,6 @@ function emitRpcWrapper(lines: string[], node: Record<string, unknown>, isSessio
     lines.push(``);
 }
 
-/** Preserve published dictionary-array results while typing new object-array APIs. */
-const PYTHON_LEGACY_RAW_ARRAY_RESULTS = new Set([
-    "account.getAllUsers",
-    "sessions.getClientMetadata",
-    "session.gitHubAuth.getAllAuthAvailable",
-    "session.gitHubAuth.lastAuthErrors",
-]);
-
 export function emitMethod(lines: string[], name: string, method: RpcMethod, isSession: boolean, resolveType: (name: string) => string, groupExperimental = false, groupDeprecated = false): void {
     const isInternal = method.visibility === "internal";
     const methodName = (isInternal ? "_" : "") + toSnakeCase(name);
@@ -4228,22 +4139,13 @@ export function emitMethod(lines: string[], name: string, method: RpcMethod, isS
     const hasNullableResult = !!nullableInner;
     const resultIsOpaque = isOpaqueJson(effectiveResultSchema);
     const resultIsObject = !resultIsOpaque && isPythonObjectResultSchema(effectiveResultSchema);
-    const resultItems = effectiveResultSchema?.type === "array" &&
-        typeof effectiveResultSchema.items === "object" && !Array.isArray(effectiveResultSchema.items)
-        ? effectiveResultSchema.items
-        : undefined;
-    const resultItemType = !PYTHON_LEGACY_RAW_ARRAY_RESULTS.has(method.rpcMethod) &&
-        resultItems?.$ref && isPythonObjectResultSchema(resultItems)
-        ? resolveType(toPascalCase(refTypeName(resultItems.$ref, rpcDefinitions)))
-        : undefined;
-    const arrayResultType = resultItemType ? `list[${resultItemType}]` : undefined;
 
     let resultType: string;
     if (hasNullableResult) {
-        const innerTypeName = arrayResultType ?? resolveType(pythonResultTypeName(method, nullableInner));
+        const innerTypeName = resolveType(pythonResultTypeName(method, nullableInner));
         resultType = `${innerTypeName} | None`;
     } else if (hasResult) {
-        resultType = arrayResultType ?? resolveType(pythonResultTypeName(method));
+        resultType = resolveType(pythonResultTypeName(method));
     } else {
         resultType = "None";
     }
@@ -4280,10 +4182,6 @@ export function emitMethod(lines: string[], name: string, method: RpcMethod, isS
         if (resultIsOpaque || isAnyType) {
             return expr;
         }
-        if (resultItemType) {
-            const arrayResult = `from_list(${resultItemType}.from_dict, ${expr})`;
-            return hasNullableResult ? `${arrayResult} if ${expr} is not None else None` : arrayResult;
-        }
         if (hasNullableResult) {
             return resultIsObject
                 ? `${innerTypeName}.from_dict(${expr}) if ${expr} is not None else None`
@@ -4309,16 +4207,10 @@ export function emitMethod(lines: string[], name: string, method: RpcMethod, isS
 
     if (isSession) {
         if (hasParams) {
-            const serializeParams =
-                method.rpcMethod === "user.settings.applyTopKey" ||
-                method.rpcMethod === "repo.settings.writeKey" ||
-                method.rpcMethod === "user.settings.edit"
-                    ? "params.to_dict()"
-                    : "{k: v for k, v in params.to_dict().items() if v is not None}";
             if (paramsOptional) {
-                lines.push(`        params_dict: dict[str, Any] = ${serializeParams} if params is not None else {}`);
+                lines.push(`        params_dict: dict[str, Any] = {k: v for k, v in params.to_dict().items() if v is not None} if params is not None else {}`);
             } else {
-                lines.push(`        params_dict: dict[str, Any] = ${serializeParams}`);
+                lines.push(`        params_dict: dict[str, Any] = {k: v for k, v in params.to_dict().items() if v is not None}`);
             }
             lines.push(`        params_dict["sessionId"] = self._session_id`);
             emitRequestCall("params_dict");
@@ -4327,16 +4219,10 @@ export function emitMethod(lines: string[], name: string, method: RpcMethod, isS
         }
     } else {
         if (hasParams) {
-            const serializeParams =
-                method.rpcMethod === "user.settings.applyTopKey" ||
-                method.rpcMethod === "repo.settings.writeKey" ||
-                method.rpcMethod === "user.settings.edit"
-                    ? "params.to_dict()"
-                    : "{k: v for k, v in params.to_dict().items() if v is not None}";
             if (paramsOptional) {
-                lines.push(`        params_dict = ${serializeParams} if params is not None else {}`);
+                lines.push(`        params_dict = {k: v for k, v in params.to_dict().items() if v is not None} if params is not None else {}`);
             } else {
-                lines.push(`        params_dict = ${serializeParams}`);
+                lines.push(`        params_dict = {k: v for k, v in params.to_dict().items() if v is not None}`);
             }
             emitRequestCall("params_dict");
         } else {

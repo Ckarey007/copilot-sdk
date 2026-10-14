@@ -33,7 +33,6 @@ const startupMarkerPath = getArgument("--startup-marker");
 const diagnosticStderr = getArgument("--diagnostic-stderr");
 const serverName = getArgument("--server-name") ?? "env-echo";
 const toolName = getArgument("--tool-name") ?? "get_env";
-const toolDescriptionFile = getArgument("--tool-description-file");
 const server = new McpServer({ name: serverName, version: "1.0.0" });
 const fixtures = JSON.parse(await readFile(new URL("./mcp-prompt-fixtures.json", import.meta.url), "utf8"));
 // Fixtures contain SDK extension bags; MCP sends those entries as ordinary object fields.
@@ -99,9 +98,7 @@ server.server.setRequestHandler(GetPromptRequestSchema, async ({ params }) => {
 
 server.tool(
     toolName,
-    toolDescriptionFile
-        ? await readFile(toolDescriptionFile, "utf8")
-        : "Returns the value of the specified environment variable.",
+    "Returns the value of the specified environment variable.",
     { name: z.string().describe("Environment variable name") },
     async ({ name }) => ({
         content: [{ type: "text", text: process.env[name] ?? "" }],

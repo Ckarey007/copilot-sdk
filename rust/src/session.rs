@@ -99,20 +99,6 @@ pub(crate) struct SessionHandlers {
     pub tools: Arc<parking_lot::RwLock<ToolHandlerMap>>,
 }
 
-struct ToolHandlerRetirement {
-    handlers: Arc<parking_lot::RwLock<ToolHandlerMap>>,
-    shutdown: CancellationToken,
-}
-
-impl Drop for ToolHandlerRetirement {
-    fn drop(&mut self) {
-        self.shutdown.cancel();
-        // Handler destructors may re-enter the SDK; release the map lock first.
-        let handlers = std::mem::take(&mut *self.handlers.write());
-        drop(handlers);
-    }
-}
-
 type PendingExternalTools = Arc<ParkingLotMutex<HashMap<RequestId, Arc<CancellationToken>>>>;
 
 struct PendingExternalToolGuard {
@@ -572,9 +558,8 @@ pub struct Session {
     capabilities: Arc<parking_lot::RwLock<SessionCapabilities>>,
     /// Canvas instances currently known to be open for this session.
     open_canvases: Arc<parking_lot::RwLock<Vec<OpenCanvasInstance>>>,
-    /// Only the event loop owns the producer, so retaining a retired session
-    /// cannot keep its subscriptions open.
-    event_tx: tokio::sync::broadcast::WeakSender<SessionEvent>,
+    /// Broadcast channel for runtime event subscribers — see [`Session::subscribe`].
+    event_tx: tokio::sync::broadcast::Sender<SessionEvent>,
     /// Resume-only queue retained until the first post-resume subscriber
     /// catches up and switches to bounded live delivery.
     resume_bootstrap: Option<Arc<crate::subscription::ResumeBootstrap>>,
@@ -665,7 +650,7 @@ impl Session {
 
     /// Returns a [`CancellationToken`] that fires when this session shuts
     /// down (via [`Session::stop_event_loop`], [`Session::destroy`], or
-    /// [`Drop`]), loses its router registration, or its owner connection closes.
+    /// [`Drop`]).
     ///
     /// Use this to bind an external task's lifetime to the session — when
     /// the session shuts down, awaiting [`cancelled()`](CancellationToken::cancelled)
@@ -713,13 +698,6 @@ impl Session {
     /// loop or any combinator from `tokio_stream::StreamExt` /
     /// `futures::StreamExt`.
     ///
-    /// After session shutdown or owner connection loss (including
-    /// [`Client::force_stop`]), returns an immediately closed subscription:
-    /// `recv` reports [`RecvErrorKind::Closed`](crate::subscription::RecvErrorKind::Closed)
-    /// and stream iteration ends. Ordinary shutdown lets existing subscribers
-    /// drain published events. Client force-stop instead closes all subscriptions
-    /// immediately and discards unread live and resume-bootstrap events.
-    ///
     /// If resume started with no active [`PreparedSession`] subscriber, the
     /// first subscription receives all retained routed startup events, durable
     /// and ephemeral, in order before live delivery. Ownership is assigned
@@ -731,8 +709,7 @@ impl Session {
     /// that never subscribe or cannot catch up can retain arbitrarily many
     /// events, so subscribe and drain promptly. Dropping the owner discards
     /// its unread backlog; stopping the event loop releases an unclaimed
-    /// backlog. A claimed backlog can still be drained after ordinary shutdown,
-    /// but client force-stop discards it.
+    /// backlog. A claimed backlog can still be drained after shutdown.
     /// This guarantee covers events routed to this session, not events lost
     /// to overflow in the bounded client-global notification router.
     ///
@@ -756,18 +733,10 @@ impl Session {
     /// # }
     /// ```
     pub fn subscribe(&self) -> crate::subscription::EventSubscription {
-        let connection_closed = self.client.inner.rpc.connection_closed_token();
-        if self.shutdown.is_cancelled() || connection_closed.is_cancelled() {
-            return crate::subscription::EventSubscription::closed();
-        }
-        let Some(event_tx) = self.event_tx.upgrade() else {
-            return crate::subscription::EventSubscription::closed();
-        };
         match &self.resume_bootstrap {
-            Some(bootstrap) => bootstrap.subscribe(&event_tx),
-            None => crate::subscription::EventSubscription::new(event_tx.subscribe()),
+            Some(bootstrap) => bootstrap.subscribe(&self.event_tx),
+            None => crate::subscription::EventSubscription::new(self.event_tx.subscribe()),
         }
-        .with_force_stop(self.client.inner.force_stop_requested.clone())
     }
 
     /// The underlying Client (for advanced use cases).
@@ -1026,16 +995,7 @@ impl Session {
     async fn send_and_wait_structured(&self, opts: MessageOptions) -> Result<SessionEvent, Error> {
         let duration = opts.wait_timeout.unwrap_or(Duration::from_secs(60));
         // Internal request observers must not claim the caller's resume backlog.
-        let mut events = self
-            .event_tx
-            .upgrade()
-            .map(|sender| {
-                crate::subscription::EventSubscription::new(sender.subscribe())
-                    .with_force_stop(self.client.inner.force_stop_requested.clone())
-            })
-            .ok_or_else(|| {
-                structured_output_error("session closed before structured output completed")
-            })?;
+        let mut events = crate::subscription::EventSubscription::new(self.event_tx.subscribe());
         let wait = async {
             let mut admission = Box::pin(self.send(opts));
             let mut pending = Vec::new();
@@ -1266,34 +1226,18 @@ impl Session {
     pub async fn set_tools<I: IntoIterator<Item = Tool>>(&self, tools: I) -> Result<(), Error> {
         let mut tools: Vec<Tool> = tools.into_iter().collect();
         let handlers = take_tool_handlers(&mut tools)?;
-        if self.shutdown.is_cancelled() || self.external_tools_shutdown.is_cancelled() {
-            return Err(ErrorKind::Session(SessionErrorKind::EventLoopClosed).into());
-        }
         let mut params = serde_json::json!({ "sessionId": self.id });
         params["tools"] = serde_json::to_value(&tools)?;
 
         let set_tools_lock = self.set_tools_lock.clone().lock_owned().await;
-        if self.shutdown.is_cancelled() || self.external_tools_shutdown.is_cancelled() {
-            return Err(ErrorKind::Session(SessionErrorKind::EventLoopClosed).into());
-        }
         let installed = self.tool_handlers.clone();
-        let shutdown = self.shutdown.clone();
-        let connection_closed = self.external_tools_shutdown.clone();
         let replaced = Arc::new(ParkingLotMutex::new(None));
         // Swapping on the read task means no tool request read after the
         // runtime accepted is dispatched to the previous handlers.
         let accepted: crate::jsonrpc::InlineResponseCallback = Box::new({
             let replaced = replaced.clone();
             move |_| {
-                let previous = {
-                    let mut installed = installed.write();
-                    if shutdown.is_cancelled() || connection_closed.is_cancelled() {
-                        // Retired replacements also drop captures on the replacement task.
-                        *replaced.lock() = Some(handlers);
-                        return Err(ErrorKind::Session(SessionErrorKind::EventLoopClosed).into());
-                    }
-                    std::mem::replace(&mut *installed, handlers)
-                };
+                let previous = std::mem::replace(&mut *installed.write(), handlers);
                 *replaced.lock() = Some(previous);
                 Ok(())
             }
@@ -2066,7 +2010,7 @@ impl Client {
             idle_waiter,
             capabilities,
             open_canvases,
-            event_tx: event_tx.downgrade(),
+            event_tx,
             resume_bootstrap: None,
             github_token_registration: ParkingLotMutex::new(github_token_registration),
             registration_token,
@@ -2383,7 +2327,7 @@ impl Client {
             idle_waiter,
             capabilities,
             open_canvases,
-            event_tx: event_tx.downgrade(),
+            event_tx,
             resume_bootstrap,
             github_token_registration: ParkingLotMutex::new(github_token_registration),
             registration_token,
@@ -2505,10 +2449,9 @@ impl PreparedSession {
     /// observes [`Lagged`](crate::subscription::Lagged) and skips the
     /// events it missed, rather than stalling the session's event loop.
     /// Subscriptions taken here close if the prepared session is dropped
-    /// without starting, if startup fails, or immediately on client force-stop.
+    /// without starting, or if startup fails.
     pub fn subscribe(&self) -> crate::subscription::EventSubscription {
         crate::subscription::EventSubscription::new(self.event_tx.subscribe())
-            .with_force_stop(self.client.inner.force_stop_requested.clone())
     }
 
     /// Create or resume the session on the CLI.
@@ -2691,26 +2634,12 @@ fn spawn_event_loop(
     let bootstrap_cleanup = resume_bootstrap
         .as_ref()
         .map(|bootstrap| bootstrap.cleanup_guard());
-    let tool_handler_retirement = ToolHandlerRetirement {
-        handlers: handlers.tools.clone(),
-        shutdown: shutdown.clone(),
-    };
-    let connection_closed = client.inner.rpc.connection_closed_token();
 
     let span = tracing::error_span!("session_event_loop", session_id = %session_id);
     tokio::spawn(
         async move {
             let _bootstrap_cleanup = bootstrap_cleanup;
-            let _tool_handler_retirement = tool_handler_retirement;
-            let mut notifications_open = true;
-            let mut requests_open = true;
             loop {
-                if shutdown.is_cancelled()
-                    || connection_closed.is_cancelled()
-                    || (!notifications_open && !requests_open)
-                {
-                    break;
-                }
                 // `mpsc::UnboundedReceiver::recv` and
                 // `CancellationToken::cancelled` are both cancel-safe per
                 // RFD 400.
@@ -2736,21 +2665,12 @@ fn spawn_event_loop(
                 // background tasks to perform cancel-unsafe operations" pattern.
                 tokio::select! {
                     _ = shutdown.cancelled() => break,
-                    _ = connection_closed.cancelled() => break,
-                    notification = notifications.recv(), if notifications_open => {
-                        let Some(notification) = notification else {
-                            notifications_open = false;
-                            continue;
-                        };
+                    Some(notification) = notifications.recv() => {
                         handle_notification(
                             &session_id, &client, &handlers, &command_handlers, notification, &idle_waiter, &capabilities, &open_canvases, &event_tx, resume_bootstrap.as_ref(), &shutdown, &external_tools_shutdown, &pending_external_tools, startup_tasks.as_ref(),
                         ).await;
                     }
-                    request = requests.recv(), if requests_open => {
-                        let Some(request) = request else {
-                            requests_open = false;
-                            continue;
-                        };
+                    Some(request) = requests.recv() => {
                         // Clone the Arc-backed dispatch context into the task so
                         // the spawned `handle_request` future is `'static`. All
                         // clones are cheap (Arc refcount bumps / small maps).
@@ -2794,6 +2714,7 @@ fn spawn_event_loop(
                             startup_tasks.as_ref(),
                         );
                     }
+                    else => break,
                 }
             }
             // Channels closed or shutdown signaled — fail any pending
@@ -3194,11 +3115,6 @@ async fn handle_notification(
             let Some(tool_handler) = tool_handler else {
                 return;
             };
-            let agent_id = notification
-                .event
-                .agent_id
-                .clone()
-                .filter(|agent_id| !agent_id.is_empty());
             let cancellation = Arc::new(external_tools_shutdown.child_token());
             {
                 let mut pending = pending_external_tools.lock();
@@ -3293,8 +3209,6 @@ async fn handle_notification(
                         available_tools,
                         traceparent: data.traceparent,
                         tracestate: data.tracestate,
-                        agent_id,
-                        request_id: Some(request_id.clone()),
                     };
                     let handler_start = Instant::now();
                     let tool_result = tokio::select! {

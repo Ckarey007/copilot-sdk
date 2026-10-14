@@ -1,10 +1,6 @@
-/*---------------------------------------------------------------------------------------------
- *  Copyright (c) Microsoft Corporation. All rights reserved.
- *--------------------------------------------------------------------------------------------*/
-
 import { describe, expect, it, onTestFinished } from "vitest";
 import { CopilotClient, approveAll } from "../../src/index.js";
-import { createSdkTestContext, DEFAULT_GITHUB_TOKEN } from "./harness/sdkTestContext.js";
+import { createSdkTestContext } from "./harness/sdkTestContext.js";
 
 function onTestFinishedStop(client: CopilotClient) {
     onTestFinished(async () => {
@@ -16,15 +12,7 @@ function onTestFinishedStop(client: CopilotClient) {
     });
 }
 
-describe("RPC", async () => {
-    const { copilotClient: modelClient } = await createSdkTestContext({
-        copilotClientOptions: {
-            gitHubToken: DEFAULT_GITHUB_TOKEN,
-            useLoggedInUser: false,
-        },
-        modelNames: { "claude-sonnet-5": "RPC replay fixture model" },
-    });
-
+describe("RPC", () => {
     it("should call rpc.ping with typed params and result", async () => {
         const client = new CopilotClient();
         onTestFinishedStop(client);
@@ -39,20 +27,22 @@ describe("RPC", async () => {
     });
 
     it("should call rpc.models.list with typed result", async () => {
-        onTestFinishedStop(modelClient);
-        await modelClient.start();
+        const client = new CopilotClient();
+        onTestFinishedStop(client);
 
-        const result = await modelClient.rpc.models.list();
+        await client.start();
+
+        const authStatus = await client.getAuthStatus();
+        if (!authStatus.isAuthenticated) {
+            await client.stop();
+            return;
+        }
+
+        const result = await client.rpc.models.list();
         expect(result.models).toBeDefined();
         expect(Array.isArray(result.models)).toBe(true);
-        expect(result.models).toContainEqual(
-            expect.objectContaining({
-                id: "claude-sonnet-5",
-                name: "RPC replay fixture model",
-            })
-        );
 
-        await modelClient.stop();
+        await client.stop();
     });
 
     // account.getQuota is defined in schema but not yet implemented in CLI

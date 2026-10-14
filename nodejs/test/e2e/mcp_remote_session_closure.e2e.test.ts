@@ -6,7 +6,7 @@ import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it, onTestFailed, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import type { CopilotSession, MCPServerConfig } from "../../src/index.js";
 import { approveAll } from "../../src/index.js";
 import { createSdkTestContext } from "./harness/sdkTestContext.js";
@@ -24,24 +24,10 @@ interface McpServerStats {
     toolsListRequests: number;
     toolCalls: number;
     activeSessions: number;
-    pings: number;
-    expiredRequests: number;
-    expiredRequestLog: { method: string; elapsedMs: number }[];
-    protocolVersions: string[];
-    expiredSessionProbes: number;
-    recentRequests: Array<{
-        elapsedMs: number;
-        httpMethod: string;
-        sessionAttached: boolean;
-        expiredSession: boolean;
-        rpcMethods: string[];
-        status: number | null;
-    }>;
 }
 
 describe("MCP remote session closure", async () => {
     const { copilotClient: client } = await createSdkTestContext({
-        logLevel: "debug",
         copilotClientOptions: {
             env: {
                 COPILOT_MCP_APPS: "true",
@@ -55,10 +41,6 @@ describe("MCP remote session closure", async () => {
         { timeout: 180_000 },
         async () => {
             const remoteServer = await startSessionExpiryMcpServer();
-            let lastStats = await remoteServer.stats();
-            onTestFailed(() => {
-                console.error("Last MCP session-expiry observation:", JSON.stringify(lastStats));
-            });
             const serverName = "remote-server";
             const session = await client.createSession({
                 onPermissionRequest: approveAll,
@@ -80,41 +62,14 @@ describe("MCP remote session closure", async () => {
             expect((await remoteServer.stats()).initializations).toBe(1);
 
             // The server drops the session the way an idle Streamable HTTP endpoint
-            // expires one: every later request for it answers 404. Await an answered
-            // probe or reinitialization before budgeting recovery, not the idle delay.
+            // expires one: every later request for it answers 404.
             await remoteServer.expireSessions();
 
-            await waitForCondition(
-                async () => {
-                    lastStats = await remoteServer.stats();
-                    return lastStats.expiredSessionProbes >= 1 || lastStats.initializations >= 2;
-                },
-                {
-                    timeoutMs: 120_000,
-                    intervalMs: 250,
-                    timeoutMessage:
-                        "remote MCP session expiry was neither probed nor re-initialized",
-                }
-            );
-            try {
-                await waitForCondition(
-                    async () => {
-                        lastStats = await remoteServer.stats();
-                        return lastStats.initializations >= 2;
-                    },
-                    {
-                        timeoutMs: 120_000,
-                        intervalMs: 250,
-                        timeoutMessage:
-                            "remote MCP server was never re-initialized after session expiry",
-                    }
-                );
-            } catch (error) {
-                const details = JSON.stringify(lastStats);
-                throw new Error(`MCP reconnection failed; last server stats: ${details}`, {
-                    cause: error,
-                });
-            }
+            await waitForCondition(async () => (await remoteServer.stats()).initializations >= 2, {
+                timeoutMs: 120_000,
+                intervalMs: 250,
+                timeoutMessage: "remote MCP server was never re-initialized after session expiry",
+            });
             await waitForMcpServerStatus(session, serverName, "connected");
 
             const result = await session.rpc.mcp.apps.callTool({
@@ -136,20 +91,20 @@ async function waitForMcpServerStatus(
     serverName: string,
     expectedStatus: string
 ): Promise<void> {
-    await expect
-        .poll(
-            async () => {
-                const result = await session.rpc.mcp.list();
-                const server = result.servers.find((entry) => entry.name === serverName);
-                return server?.status ?? "<not listed>";
-            },
-            {
-                timeout: 120_000,
-                interval: 200,
-                message: `${serverName} did not reach ${expectedStatus}`,
-            }
-        )
-        .toBe(expectedStatus);
+    let lastStatus = "<not listed>";
+    await waitForCondition(
+        async () => {
+            const result = await session.rpc.mcp.list();
+            const server = result.servers.find((entry) => entry.name === serverName);
+            lastStatus = server?.status ?? "<not listed>";
+            return server?.status === expectedStatus;
+        },
+        {
+            timeoutMs: 120_000,
+            intervalMs: 200,
+            timeoutMessage: `${serverName} did not reach ${expectedStatus}; last status was ${lastStatus}`,
+        }
+    );
 }
 
 async function disconnectSession(session: CopilotSession): Promise<void> {
@@ -172,9 +127,6 @@ async function startSessionExpiryMcpServer(): Promise<{
 
     const stderr: string[] = [];
     child.stderr.on("data", (chunk) => stderr.push(String(chunk)));
-    onTestFailed(() => {
-        console.error("Session-expiry server stderr:", stderr.join("").slice(-16_384));
-    });
 
     const url = await new Promise<string>((resolvePromise, reject) => {
         const rl = createInterface({ input: child.stdout });

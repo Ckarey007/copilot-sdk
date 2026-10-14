@@ -356,17 +356,18 @@ For TypeScript SDK E2Es, use the existing
 `nodejs/test/e2e/harness/sdkTestContext.ts` fixture. In the runtime repository,
 also follow the `e2e-test-author` skill's SDK section.
 
-All SDKs run full subprocess coverage and in-process smoke on Linux/glibc
-x64, macOS ARM64, Windows x64, and Linux/musl x64. Windows .NET uses complementary
-jobs per framework. Smoke also runs after subprocess failures; either failure
-fails the job. Java uses JDK 25 on these platforms,
-plus a Linux/glibc JDK 17 compatibility job using precompiled classes.
+All six SDKs run full subprocess coverage followed by a short in-process
+smoke step on the same runner on Linux/glibc x64, macOS ARM64, Windows x64,
+and Linux/musl x64. Smoke still runs if the subprocess tests fail, and either
+failure fails the job. Java uses JDK 25 on all four platforms, plus a
+Linux/glibc JDK 17 compatibility job using precompiled classes.
 Merge groups retain the reduced Linux TypeScript CAPI subprocess coverage.
 
-`sdk-typescript` gates only the Linux CAPI subprocess job's build, packaging,
-tests, and static checks. Full TypeScript in-process E2Es run on Linux/glibc x64
-outside merge groups. They, other platforms, BYOK backends, and languages do not
-gate this rollup; the full `SDK` aggregate requires all scheduled coverage to succeed.
+The `sdk-typescript` required rollup checks only the Linux CAPI job, including
+its build, packaging, and applicable static checks. Other platforms, BYOK
+backends, and languages keep their existing scheduling and failure reporting;
+they do not gate this rollup. The full `SDK` aggregate still requires all
+scheduled coverage to succeed.
 
 The three BYOK backend sweeps run in separate Linux TypeScript jobs, alongside
 the normal CAPI job; they do not repeat unit tests, packaging, or static
@@ -406,12 +407,6 @@ graceful stop/disposal, force-stop where exposed, a child that ignores EOF, and
 failed-startup cleanup. Keep those lifecycle expectations aligned when changing
 an SDK transport; test watchdogs must allow all cleanup phases their separate
 budgets, rather than treating the graceful-exit timeout as a total shutdown cap.
-
-Java also exercises the opt-in `shutdown-error` mode. It rejects
-`runtime.shutdown`, writes `<cleanup-marker>.eof` when stdin closes, and holds
-cleanup-marker creation and process exit until the test creates
-`<cleanup-marker>.release`. This handshake verifies that a failed shutdown RPC
-still allows EOF-driven finalization before forced cleanup.
 
 The shared harness records real inference responses under `test/snapshots`.
 Record new captures with `GITHUB_TOKEN` set and `GITHUB_ACTIONS` unset;

@@ -620,12 +620,16 @@ describe("Session MCP and skills RPC", async () => {
         }
     });
 
-    it("should allow cold enablement while rejecting operations that require an MCP host", async () => {
+    it("should report error when mcp host is not initialized", async () => {
         const session = await client.createSession({ onPermissionRequest: approveAll });
 
-        await expect(session.rpc.mcp.enable({ serverName: "missing-server" })).resolves.toEqual({});
-        await expect(session.rpc.mcp.disable({ serverName: "missing-server" })).resolves.toEqual(
-            {}
+        await expectFailure(
+            () => session.rpc.mcp.enable({ serverName: "missing-server" }),
+            "No MCP host initialized"
+        );
+        await expectFailure(
+            () => session.rpc.mcp.disable({ serverName: "missing-server" }),
+            "No MCP host initialized"
         );
         await expectFailure(() => session.rpc.mcp.reload(), "MCP config reload not available");
         await expectFailure(
@@ -685,9 +689,6 @@ describe("Session MCP and skills RPC", async () => {
             "Extensions not available"
         );
         await expectFailure(() => session.rpc.extensions.reload(), "Extensions not available");
-        await expect(session.rpc.extensions.reconcile()).rejects.toMatchObject({
-            data: { code: "extension_reconciliation_unavailable", lifecycleChangesApplied: false },
-        });
 
         await session.disconnect();
     });

@@ -667,9 +667,6 @@ impl Serialize for CommandDefinition {
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct CustomAgentConfig {
-    /// Declarative hook action objects keyed by event name, active only for this agent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hooks: Option<IndexMap<String, Vec<IndexMap<String, Value>>>>,
     /// Unique name of the custom agent.
     pub name: String,
     /// Display name for UI purposes.
@@ -707,12 +704,6 @@ pub struct CustomAgentConfig {
 }
 
 impl CustomAgentConfig {
-    /// Set declarative hook action objects scoped to this agent.
-    pub fn with_hooks(mut self, hooks: IndexMap<String, Vec<IndexMap<String, Value>>>) -> Self {
-        self.hooks = Some(hooks);
-        self
-    }
-
     /// Construct a custom agent configuration with the required `name`
     /// and `prompt` fields populated.
     ///
@@ -843,35 +834,6 @@ impl LargeToolOutputConfig {
     /// Set the directory where large tool output files are written.
     pub fn with_output_directory<P: Into<PathBuf>>(mut self, output_directory: P) -> Self {
         self.output_directory = Some(output_directory.into());
-        self
-    }
-}
-
-/// Opt in to image generation through an authorized Copilot image model.
-///
-/// **Experimental.** This API may change or be removed in a future release.
-///
-/// Omission disables on create/cold resume and preserves resident resume state.
-/// Not persisted: re-supply after runtime restart. Policy, permissions, offline
-/// mode, and tool filters still apply. BYOK image generation is not supported.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[non_exhaustive]
-pub struct ImageGenerationConfig {
-    /// True opts in; false disables image generation.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub enabled: Option<bool>,
-}
-
-impl ImageGenerationConfig {
-    /// Construct an unset image generation configuration.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Enable or disable image generation.
-    pub fn with_enabled(mut self, enabled: bool) -> Self {
-        self.enabled = Some(enabled);
         self
     }
 }
@@ -1910,9 +1872,6 @@ pub struct ManagedSettingsPermissions {
     /// are forwarded so newer runtime policies fail closed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disable_bypass_permissions_mode: Option<String>,
-    /// When true, prevents Assisted Permissions from being activated.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub disable_assisted_permissions_mode: Option<bool>,
     /// Tool-permission patterns that are always denied.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deny: Option<Vec<String>>,
@@ -1934,12 +1893,6 @@ impl ManagedSettingsPermissions {
     /// Sets the bypass-permissions policy for this managed layer.
     pub fn with_disable_bypass_permissions_mode(mut self, value: impl Into<String>) -> Self {
         self.disable_bypass_permissions_mode = Some(value.into());
-        self
-    }
-
-    /// Sets whether this managed layer disables Assisted Permissions.
-    pub fn with_disable_assisted_permissions_mode(mut self, value: bool) -> Self {
-        self.disable_assisted_permissions_mode = Some(value);
         self
     }
 
@@ -2062,13 +2015,6 @@ pub enum AskUserVariant {
 pub struct SessionConfig {
     /// Custom session ID. When unset, the CLI generates one.
     pub session_id: Option<SessionId>,
-    /// Name the session at creation, as `session.name.set` would, and validated
-    /// the same way: non-empty, no leading or trailing whitespace, at most 100
-    /// UTF-16 units, no control characters, and no double quotes. A name also
-    /// makes the session persist from the start, so it can be listed and resumed
-    /// even if it never runs a turn. Local sessions only: cloud creation rejects
-    /// it.
-    pub name: Option<String>,
     /// Model to use (e.g. `"gpt-4"`, `"claude-sonnet-4"`).
     pub model: Option<String>,
     /// Exact model IDs this session may use. When unset, the host imposes no
@@ -2174,18 +2120,12 @@ pub struct SessionConfig {
     pub refresh_custom_instructions: Option<bool>,
     /// When true, enables on-demand instruction discovery for this session.
     pub enable_on_demand_instruction_discovery: Option<bool>,
-    /// Enables repository-origin file hooks from `.github/hooks/` and trusted
-    /// repository-configured roots, not explicit `hook_directories` or callback hooks.
+    /// When true, enables file hooks for this session.
     pub enable_file_hooks: Option<bool>,
     /// When true, allows host Git operations for this session.
     pub enable_host_git_operations: Option<bool>,
     /// When true, enables the session store for this session.
     pub enable_session_store: Option<bool>,
-    /// When true, requests the read-only GitHub cache store for this session.
-    ///
-    /// The runtime registers `github_sql` only when its `GITHUB_CACHE_STORE`
-    /// feature flag is enabled. Defaults to disabled.
-    pub enable_github_cache_store: Option<bool>,
     /// When true, enables skills for this session.
     pub enable_skills: Option<bool>,
     /// **Experimental.** Supplies session-scoped skills from the SDK host.
@@ -2227,30 +2167,10 @@ pub struct SessionConfig {
     /// `disable_form_deferral` only applies to that server and only has an
     /// effect when MCP Apps and form-backed GitHub tools are enabled.
     pub github_mcp_tool_config: Option<GitHubMcpToolConfig>,
-    /// Explicit discovery-only skill roots, not general filesystem grants.
-    /// Available without `enable_config_discovery`, subject to skill/managed disables.
-    /// Relative paths resolve once when supplied against the request's effective
-    /// `working_directory`; retained roots do not move on cwd changes.
-    /// `None` and omission are equivalent; an empty list clears only the explicit SDK contribution.
+    /// Skill directory paths passed through to the GitHub Copilot CLI.
     pub skill_directories: Option<Vec<PathBuf>>,
-    /// Explicit discovery-only agent roots, separate from `custom_agents` objects.
-    /// No general filesystem grant. Available without `enable_config_discovery`,
-    /// subject to source/managed disables. Relative paths resolve once when supplied
-    /// against the request's effective `working_directory`; retained roots do not move.
-    /// `None` and omission are equivalent; an empty list clears only the explicit SDK contribution.
-    pub agent_directories: Option<Vec<PathBuf>>,
-    /// Explicit discovery-only file-hook roots, separate from callback `hooks`.
-    /// No general filesystem grant. Available without `enable_config_discovery` or
-    /// `enable_file_hooks` (repository-origin hooks only), subject to hook/managed disables.
-    /// Relative paths resolve once when supplied against the request's effective
-    /// `working_directory`; retained roots do not move on cwd changes.
-    /// `None` and omission are equivalent; an empty list clears only the explicit SDK contribution.
-    pub hook_directories: Option<Vec<PathBuf>>,
-    /// Explicit discovery-only instruction roots using existing SDK formats.
-    /// No general filesystem grant. Available without `enable_config_discovery`,
-    /// subject to instruction/managed disables. Relative paths resolve once when supplied
-    /// against the request's effective `working_directory`; retained roots do not move.
-    /// `None` and omission are equivalent; an empty list clears only the explicit SDK contribution.
+    /// Additional directories to search for custom instruction files.
+    /// Forwarded to the CLI; not the same as [`skill_directories`](Self::skill_directories).
     pub instruction_directories: Option<Vec<PathBuf>>,
     /// Open Plugin directory paths passed through to the CLI.
     pub plugin_directories: Option<Vec<PathBuf>>,
@@ -2260,8 +2180,6 @@ pub struct SessionConfig {
     /// rarely used tools behind a searchable index. When unset, the runtime
     /// default applies.
     pub tool_search: Option<ToolSearchConfig>,
-    /// **Experimental.** Non-persisted image generation opt-in. Re-supply after runtime restart.
-    pub image_generation: Option<ImageGenerationConfig>,
     /// Skill names to disable. Skills in this set will not be available
     /// even if found in skill directories.
     pub disabled_skills: Option<Vec<String>>,
@@ -2389,11 +2307,6 @@ pub struct SessionConfig {
     /// session creation (fail-closed). When `None`, behaves exactly as before. Set via
     /// [`with_enable_managed_settings`](Self::with_enable_managed_settings).
     pub enable_managed_settings: Option<bool>,
-    /// When `Some(true)`, locked managed model controls are enforced for this
-    /// session. Conflicting model changes are rejected; overridable managed
-    /// defaults remain mutable. Set via
-    /// [`with_enforce_managed_model_defaults`](Self::with_enforce_managed_model_defaults).
-    pub enforce_managed_model_defaults: Option<bool>,
     /// Optional managed-settings layer injected at session bootstrap. Currently
     /// carries a [`permissions`](ManagedSettingsPermissions) object that composes
     /// restrictively with any server- or device-level managed settings. This
@@ -2485,7 +2398,6 @@ impl std::fmt::Debug for SessionConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SessionConfig")
             .field("session_id", &self.session_id)
-            .field("name", &self.name)
             .field("model", &self.model)
             .field("allowed_models", &self.allowed_models)
             .field("client_name", &self.client_name)
@@ -2541,7 +2453,6 @@ impl std::fmt::Debug for SessionConfig {
                 &self.enable_host_git_operations,
             )
             .field("enable_session_store", &self.enable_session_store)
-            .field("enable_github_cache_store", &self.enable_github_cache_store)
             .field("enable_skills", &self.enable_skills)
             .field(
                 "skill_provider",
@@ -2549,13 +2460,10 @@ impl std::fmt::Debug for SessionConfig {
             )
             .field("enable_mcp_apps", &self.enable_mcp_apps)
             .field("skill_directories", &self.skill_directories)
-            .field("agent_directories", &self.agent_directories)
-            .field("hook_directories", &self.hook_directories)
             .field("instruction_directories", &self.instruction_directories)
             .field("plugin_directories", &self.plugin_directories)
             .field("large_output", &self.large_output)
             .field("tool_search", &self.tool_search)
-            .field("image_generation", &self.image_generation)
             .field("disabled_skills", &self.disabled_skills)
             .field("disabled_mcp_servers", &self.disabled_mcp_servers)
             .field("hooks", &self.hooks)
@@ -2595,10 +2503,6 @@ impl std::fmt::Debug for SessionConfig {
             .field("feature_flags", &self.feature_flags)
             .field("exp_assignments", &self.exp_assignments)
             .field("enable_managed_settings", &self.enable_managed_settings)
-            .field(
-                "enforce_managed_model_defaults",
-                &self.enforce_managed_model_defaults,
-            )
             .field("enable_experimental_mode", &self.enable_experimental_mode)
             .field("managed_settings", &self.managed_settings)
             .field(
@@ -2651,7 +2555,6 @@ impl Default for SessionConfig {
     fn default() -> Self {
         Self {
             session_id: None,
-            name: None,
             model: None,
             allowed_models: None,
             client_name: None,
@@ -2685,20 +2588,16 @@ impl Default for SessionConfig {
             enable_file_hooks: None,
             enable_host_git_operations: None,
             enable_session_store: None,
-            enable_github_cache_store: None,
             enable_skills: None,
             skill_provider: None,
             embedding_cache_storage: None,
             enable_mcp_apps: None,
             github_mcp_tool_config: None,
             skill_directories: None,
-            agent_directories: None,
-            hook_directories: None,
             instruction_directories: None,
             plugin_directories: None,
             large_output: None,
             tool_search: None,
-            image_generation: None,
             disabled_skills: None,
             disabled_mcp_servers: None,
             hooks: None,
@@ -2728,7 +2627,6 @@ impl Default for SessionConfig {
             feature_flags: None,
             exp_assignments: None,
             enable_managed_settings: None,
-            enforce_managed_model_defaults: None,
             managed_settings: None,
             session_fs_provider: None,
             permission_handler: None,
@@ -2822,7 +2720,6 @@ impl SessionConfig {
 
         let wire = crate::wire::SessionCreateWire {
             session_id,
-            name: self.name,
             model: self.model,
             allowed_models: self.allowed_models,
             client_name: self.client_name,
@@ -2857,7 +2754,6 @@ impl SessionConfig {
             enable_file_hooks: self.enable_file_hooks,
             enable_host_git_operations: self.enable_host_git_operations,
             enable_session_store: self.enable_session_store,
-            enable_github_cache_store: self.enable_github_cache_store,
             enable_skills: self.enable_skills,
             has_skill_provider: has_skill_provider.then_some(true),
             request_user_input,
@@ -2869,13 +2765,10 @@ impl SessionConfig {
             github_mcp_tool_config: self.github_mcp_tool_config,
             hooks: hooks_flag,
             skill_directories: self.skill_directories,
-            agent_directories: self.agent_directories,
-            hook_directories: self.hook_directories,
             instruction_directories: self.instruction_directories,
             plugin_directories: self.plugin_directories,
             large_output: self.large_output,
             tool_search: self.tool_search,
-            image_generation: self.image_generation,
             disabled_skills: self.disabled_skills,
             disabled_mcp_servers: self.disabled_mcp_servers,
             custom_agents: self.custom_agents,
@@ -2906,7 +2799,6 @@ impl SessionConfig {
             feature_flags: self.feature_flags,
             exp_assignments: self.exp_assignments,
             enable_managed_settings: self.enable_managed_settings,
-            enforce_managed_model_defaults: self.enforce_managed_model_defaults,
             is_experimental_mode: self.enable_experimental_mode,
             managed_settings: self.managed_settings,
         };
@@ -3049,15 +2941,6 @@ impl SessionConfig {
     /// Set a custom session ID (when unset, the CLI generates one).
     pub fn with_session_id(mut self, id: impl Into<SessionId>) -> Self {
         self.session_id = Some(id.into());
-        self
-    }
-
-    /// Set [`Self::name`]. The runtime rejects a name that is empty, padded with
-    /// whitespace, longer than 100 UTF-16 units, or contains control characters
-    /// or double quotes, so `create_session` fails rather than creating an
-    /// unnamed or unrenameable session.
-    pub fn with_name(mut self, name: impl Into<String>) -> Self {
-        self.name = Some(name.into());
         self
     }
 
@@ -3291,12 +3174,6 @@ impl SessionConfig {
         self
     }
 
-    /// Set [`Self::enable_github_cache_store`].
-    pub fn with_enable_github_cache_store(mut self, value: bool) -> Self {
-        self.enable_github_cache_store = Some(value);
-        self
-    }
-
     /// Set [`Self::enable_skills`].
     pub fn with_enable_skills(mut self, value: bool) -> Self {
         self.enable_skills = Some(value);
@@ -3334,26 +3211,6 @@ impl SessionConfig {
         P: Into<PathBuf>,
     {
         self.skill_directories = Some(paths.into_iter().map(Into::into).collect());
-        self
-    }
-
-    /// Set explicit discovery-only agent roots. See [`Self::agent_directories`].
-    pub fn with_agent_directories<I, P>(mut self, paths: I) -> Self
-    where
-        I: IntoIterator<Item = P>,
-        P: Into<PathBuf>,
-    {
-        self.agent_directories = Some(paths.into_iter().map(Into::into).collect());
-        self
-    }
-
-    /// Set explicit discovery-only file-hook roots. See [`Self::hook_directories`].
-    pub fn with_hook_directories<I, P>(mut self, paths: I) -> Self
-    where
-        I: IntoIterator<Item = P>,
-        P: Into<PathBuf>,
-    {
-        self.hook_directories = Some(paths.into_iter().map(Into::into).collect());
         self
     }
 
@@ -3399,12 +3256,6 @@ impl SessionConfig {
     /// tool-search behavior on session create.
     pub fn with_tool_search(mut self, config: ToolSearchConfig) -> Self {
         self.tool_search = Some(config);
-        self
-    }
-
-    /// **Experimental.** Set the non-persisted image generation opt-in on create.
-    pub fn with_image_generation(mut self, config: ImageGenerationConfig) -> Self {
-        self.image_generation = Some(config);
         self
     }
 
@@ -3667,12 +3518,6 @@ impl SessionConfig {
         self
     }
 
-    /// Enforce locked managed model controls for this session.
-    pub fn with_enforce_managed_model_defaults(mut self, enforce: bool) -> Self {
-        self.enforce_managed_model_defaults = Some(enforce);
-        self
-    }
-
     /// Inject a managed-settings layer (currently permission rules) at session
     /// bootstrap. This layer is startup-only and is not persisted, so it must be
     /// re-supplied on resume to remain in effect. Can be combined with
@@ -3783,18 +3628,12 @@ pub struct ResumeSessionConfig {
     pub organization_custom_instructions: Option<String>,
     /// When true, enables on-demand instruction discovery on resume.
     pub enable_on_demand_instruction_discovery: Option<bool>,
-    /// Enables repository-origin file hooks from `.github/hooks/` and trusted
-    /// repository-configured roots, not explicit `hook_directories` or callback hooks.
+    /// When true, enables file hooks on resume.
     pub enable_file_hooks: Option<bool>,
     /// When true, allows host Git operations on resume.
     pub enable_host_git_operations: Option<bool>,
     /// When true, enables the session store on resume.
     pub enable_session_store: Option<bool>,
-    /// When true, requests the read-only GitHub cache store on resume.
-    ///
-    /// The runtime registers `github_sql` only when its `GITHUB_CACHE_STORE`
-    /// feature flag is enabled. Defaults to disabled.
-    pub enable_github_cache_store: Option<bool>,
     /// When true, enables skills on resume.
     pub enable_skills: Option<bool>,
     /// **Experimental.** Supplies session-scoped skills from the SDK host.
@@ -3813,30 +3652,10 @@ pub struct ResumeSessionConfig {
     /// `disable_form_deferral` only applies to that server and only has an
     /// effect when MCP Apps and form-backed GitHub tools are enabled.
     pub github_mcp_tool_config: Option<GitHubMcpToolConfig>,
-    /// Explicit discovery-only skill roots, not general filesystem grants.
-    /// Available without `enable_config_discovery`, subject to skill/managed disables.
-    /// Relative paths resolve once when supplied against the request's effective
-    /// `working_directory`; retained roots do not move on cwd changes.
-    /// `None` and omission are equivalent; an empty list clears only the explicit SDK contribution.
+    /// Skill directory paths passed through to the GitHub Copilot CLI on resume.
     pub skill_directories: Option<Vec<PathBuf>>,
-    /// Explicit discovery-only agent roots, separate from `custom_agents` objects.
-    /// No general filesystem grant. Available without `enable_config_discovery`,
-    /// subject to source/managed disables. Relative paths resolve once when supplied
-    /// against the request's effective `working_directory`; retained roots do not move.
-    /// `None` and omission are equivalent; an empty list clears only the explicit SDK contribution.
-    pub agent_directories: Option<Vec<PathBuf>>,
-    /// Explicit discovery-only file-hook roots, separate from callback `hooks`.
-    /// No general filesystem grant. Available without `enable_config_discovery` or
-    /// `enable_file_hooks` (repository-origin hooks only), subject to hook/managed disables.
-    /// Relative paths resolve once when supplied against the request's effective
-    /// `working_directory`; retained roots do not move on cwd changes.
-    /// `None` and omission are equivalent; an empty list clears only the explicit SDK contribution.
-    pub hook_directories: Option<Vec<PathBuf>>,
-    /// Explicit discovery-only instruction roots using existing SDK formats.
-    /// No general filesystem grant. Available without `enable_config_discovery`,
-    /// subject to instruction/managed disables. Relative paths resolve once when supplied
-    /// against the request's effective `working_directory`; retained roots do not move.
-    /// `None` and omission are equivalent; an empty list clears only the explicit SDK contribution.
+    /// Additional directories to search for custom instruction files on
+    /// resume. Forwarded to the CLI; not the same as [`skill_directories`](Self::skill_directories).
     pub instruction_directories: Option<Vec<PathBuf>>,
     /// Open Plugin directory paths passed through to the CLI on resume.
     pub plugin_directories: Option<Vec<PathBuf>>,
@@ -3845,8 +3664,6 @@ pub struct ResumeSessionConfig {
     /// Overrides the runtime's built-in tool-search behavior on resume. When
     /// unset, the runtime default applies.
     pub tool_search: Option<ToolSearchConfig>,
-    /// **Experimental.** Non-persisted image generation opt-in. Re-supply after runtime restart.
-    pub image_generation: Option<ImageGenerationConfig>,
     /// Skill names to disable on resume.
     pub disabled_skills: Option<Vec<String>>,
     /// Exact MCP server names to disable on resume. This prevents startup and
@@ -3940,9 +3757,6 @@ pub struct ResumeSessionConfig {
     /// process restart. Set via
     /// [`with_enable_managed_settings`](Self::with_enable_managed_settings).
     pub enable_managed_settings: Option<bool>,
-    /// Re-applies managed model lock enforcement on resume. See
-    /// [`SessionConfig::enforce_managed_model_defaults`].
-    pub enforce_managed_model_defaults: Option<bool>,
     /// Optional managed-settings layer injected on resume. See
     /// [`SessionConfig::managed_settings`]. This layer is not persisted, so it
     /// must be re-supplied on resume to remain in effect; omitting it clears the
@@ -4067,7 +3881,6 @@ impl std::fmt::Debug for ResumeSessionConfig {
                 &self.enable_host_git_operations,
             )
             .field("enable_session_store", &self.enable_session_store)
-            .field("enable_github_cache_store", &self.enable_github_cache_store)
             .field("enable_skills", &self.enable_skills)
             .field(
                 "skill_provider",
@@ -4075,13 +3888,10 @@ impl std::fmt::Debug for ResumeSessionConfig {
             )
             .field("enable_mcp_apps", &self.enable_mcp_apps)
             .field("skill_directories", &self.skill_directories)
-            .field("agent_directories", &self.agent_directories)
-            .field("hook_directories", &self.hook_directories)
             .field("instruction_directories", &self.instruction_directories)
             .field("plugin_directories", &self.plugin_directories)
             .field("large_output", &self.large_output)
             .field("tool_search", &self.tool_search)
-            .field("image_generation", &self.image_generation)
             .field("disabled_skills", &self.disabled_skills)
             .field("disabled_mcp_servers", &self.disabled_mcp_servers)
             .field("hooks", &self.hooks)
@@ -4120,10 +3930,6 @@ impl std::fmt::Debug for ResumeSessionConfig {
             .field("feature_flags", &self.feature_flags)
             .field("exp_assignments", &self.exp_assignments)
             .field("enable_managed_settings", &self.enable_managed_settings)
-            .field(
-                "enforce_managed_model_defaults",
-                &self.enforce_managed_model_defaults,
-            )
             .field("enable_experimental_mode", &self.enable_experimental_mode)
             .field("managed_settings", &self.managed_settings)
             .field(
@@ -4242,7 +4048,6 @@ impl ResumeSessionConfig {
             enable_file_hooks: self.enable_file_hooks,
             enable_host_git_operations: self.enable_host_git_operations,
             enable_session_store: self.enable_session_store,
-            enable_github_cache_store: self.enable_github_cache_store,
             enable_skills: self.enable_skills,
             has_skill_provider: has_skill_provider.then_some(true),
             request_user_input,
@@ -4254,13 +4059,10 @@ impl ResumeSessionConfig {
             github_mcp_tool_config: self.github_mcp_tool_config,
             hooks: hooks_flag,
             skill_directories: self.skill_directories,
-            agent_directories: self.agent_directories,
-            hook_directories: self.hook_directories,
             instruction_directories: self.instruction_directories,
             plugin_directories: self.plugin_directories,
             large_output: self.large_output,
             tool_search: self.tool_search,
-            image_generation: self.image_generation,
             disabled_skills: self.disabled_skills,
             disabled_mcp_servers: self.disabled_mcp_servers,
             custom_agents: self.custom_agents,
@@ -4290,7 +4092,6 @@ impl ResumeSessionConfig {
             feature_flags: self.feature_flags,
             exp_assignments: self.exp_assignments,
             enable_managed_settings: self.enable_managed_settings,
-            enforce_managed_model_defaults: self.enforce_managed_model_defaults,
             is_experimental_mode: self.enable_experimental_mode,
             managed_settings: self.managed_settings,
             suppress_resume_event: self.suppress_resume_event,
@@ -4360,20 +4161,16 @@ impl ResumeSessionConfig {
             enable_file_hooks: None,
             enable_host_git_operations: None,
             enable_session_store: None,
-            enable_github_cache_store: None,
             enable_skills: None,
             skill_provider: None,
             embedding_cache_storage: None,
             enable_mcp_apps: None,
             github_mcp_tool_config: None,
             skill_directories: None,
-            agent_directories: None,
-            hook_directories: None,
             instruction_directories: None,
             plugin_directories: None,
             large_output: None,
             tool_search: None,
-            image_generation: None,
             disabled_skills: None,
             disabled_mcp_servers: None,
             hooks: None,
@@ -4402,7 +4199,6 @@ impl ResumeSessionConfig {
             feature_flags: None,
             exp_assignments: None,
             enable_managed_settings: None,
-            enforce_managed_model_defaults: None,
             managed_settings: None,
             session_fs_provider: None,
             suppress_resume_event: None,
@@ -4761,12 +4557,6 @@ impl ResumeSessionConfig {
         self
     }
 
-    /// Set [`Self::enable_github_cache_store`].
-    pub fn with_enable_github_cache_store(mut self, value: bool) -> Self {
-        self.enable_github_cache_store = Some(value);
-        self
-    }
-
     /// Set [`Self::enable_skills`].
     pub fn with_enable_skills(mut self, value: bool) -> Self {
         self.enable_skills = Some(value);
@@ -4796,26 +4586,6 @@ impl ResumeSessionConfig {
         P: Into<PathBuf>,
     {
         self.skill_directories = Some(paths.into_iter().map(Into::into).collect());
-        self
-    }
-
-    /// Set explicit discovery-only agent roots. See [`Self::agent_directories`].
-    pub fn with_agent_directories<I, P>(mut self, paths: I) -> Self
-    where
-        I: IntoIterator<Item = P>,
-        P: Into<PathBuf>,
-    {
-        self.agent_directories = Some(paths.into_iter().map(Into::into).collect());
-        self
-    }
-
-    /// Set explicit discovery-only file-hook roots. See [`Self::hook_directories`].
-    pub fn with_hook_directories<I, P>(mut self, paths: I) -> Self
-    where
-        I: IntoIterator<Item = P>,
-        P: Into<PathBuf>,
-    {
-        self.hook_directories = Some(paths.into_iter().map(Into::into).collect());
         self
     }
 
@@ -4861,12 +4631,6 @@ impl ResumeSessionConfig {
     /// tool-search behavior on resume.
     pub fn with_tool_search(mut self, config: ToolSearchConfig) -> Self {
         self.tool_search = Some(config);
-        self
-    }
-
-    /// **Experimental.** Set the image generation opt-in on resume, including after runtime restart.
-    pub fn with_image_generation(mut self, config: ImageGenerationConfig) -> Self {
-        self.image_generation = Some(config);
         self
     }
 
@@ -5132,12 +4896,6 @@ impl ResumeSessionConfig {
     /// See [`SessionConfig::with_enable_managed_settings`].
     pub fn with_enable_managed_settings(mut self, enabled: bool) -> Self {
         self.enable_managed_settings = Some(enabled);
-        self
-    }
-
-    /// Enforce locked managed model controls after resume.
-    pub fn with_enforce_managed_model_defaults(mut self, enforce: bool) -> Self {
-        self.enforce_managed_model_defaults = Some(enforce);
         self
     }
 
@@ -6207,8 +5965,8 @@ impl SessionEvent {
 
 /// A request from the CLI to invoke a client-defined tool.
 ///
-/// Built from an `external_tool.requested` session event. The SDK sends the
-/// handler's result back with `session.tools.handlePendingToolCall`.
+/// Received as a JSON-RPC request on the `tool.call` method. The client
+/// must respond with a [`ToolResultResponse`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
@@ -6240,18 +5998,6 @@ pub struct ToolInvocation {
     /// [`traceparent`](Self::traceparent).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tracestate: Option<String>,
-    /// **Experimental.** Sub-agent instance that issued this call (the
-    /// `agentId` of its session events). `None` for a root-agent call, and for
-    /// every call when the runtime does not attribute sub-agent tool calls.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_id: Option<String>,
-    /// **Experimental.** Runtime request id of this call: the key
-    /// `session.tools.handlePendingToolCall` and `session.tools.listPendingRequests`
-    /// use. A root-agent call stays answerable after the session is resumed with
-    /// pending work continued; a sub-agent's call can be answered only while that
-    /// sub-agent is still running.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub request_id: Option<RequestId>,
 }
 
 impl ToolInvocation {
@@ -6724,9 +6470,6 @@ impl Default for ExitPlanModeData {
         }
     }
 }
-
-#[cfg(test)]
-mod customization_directory_tests;
 
 #[cfg(test)]
 mod tests;

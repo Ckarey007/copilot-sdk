@@ -4,7 +4,6 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { CopilotClient, RuntimeConnection } from "../../src/index.js";
@@ -111,21 +110,7 @@ describe("Server-scoped RPC", async () => {
 
     it.skipIf(isInProcessTransport)("should round trip sessionless managed settings", async () => {
         const policyPath = path.join(workDir, "managed-settings.json");
-        const policy = {
-            model: "auto",
-            autoTier: "balance",
-            permissions: {
-                limitTo: ["Domain(*.example.com)"],
-                deny: ["Domain(blocked.example.com)"],
-                ask: ["Domain(prompt.example.com)"],
-                allow: ["Domain(allowed.example.com)"],
-            },
-        };
-        const concretePolicy = {
-            model: "gpt-5",
-            effortLevel: { overridable: "high" },
-            contextTier: "long_context",
-        };
+        const policy = { model: "gpt-5.4", autoTier: "balance" };
         fs.writeFileSync(policyPath, JSON.stringify(policy));
         const policyClient = new CopilotClient({
             workingDirectory: workDir,
@@ -155,10 +140,6 @@ describe("Server-scoped RPC", async () => {
         expect(validated.valid).toBe(true);
         expect(validated.settings).toEqual(policy);
         expect(validated.diagnostics).toEqual([]);
-        const validatedConcrete = await api.validate({ content: concretePolicy });
-        expect(validatedConcrete.valid).toBe(true);
-        expect(validatedConcrete.settings).toEqual(concretePolicy);
-        expect(validatedConcrete.diagnostics).toEqual([]);
 
         const resolved = await api.resolve({});
         expect(resolved.account).toBeUndefined();
@@ -181,136 +162,6 @@ describe("Server-scoped RPC", async () => {
         ).rejects.toMatchObject({ code: -32602 });
         const absent = await api.compose({ layers: [{ source: "device" }] });
         expect(absent.resolved.source).toBe("none");
-
-        const permissionsContext = resolved.permissionsContext;
-        if (!permissionsContext) {
-            throw new Error("Runtime omitted the managed permission evaluation context");
-        }
-        expect(
-            await api.permissions.evaluate({
-                context: permissionsContext,
-                operations: [
-                    { kind: "url", url: "https://allowed.example.com/guide" },
-                    { kind: "url", url: "https://prompt.example.com/" },
-                    { kind: "url", url: "https://blocked.example.com/" },
-                    { kind: "url", url: "https://outside.test/" },
-                ],
-            })
-        ).toEqual({
-            failClosed: false,
-            results: [
-                {
-                    operation: { kind: "url", url: "https://allowed.example.com/guide" },
-                    verdict: "allow",
-                },
-                { operation: { kind: "url", url: "https://prompt.example.com/" }, verdict: "ask" },
-                {
-                    operation: { kind: "url", url: "https://blocked.example.com/" },
-                    verdict: "deny",
-                },
-                { operation: { kind: "url", url: "https://outside.test/" }, verdict: "deny" },
-            ],
-        });
-        await expect(
-            api.permissions.evaluate({
-                context: permissionsContext,
-                operations: [{ kind: "url", url: "not-a-url" }],
-            })
-        ).rejects.toMatchObject({ code: -32602 });
-        await expect(api.resolve({ selectionId: "missing-account" })).rejects.toThrow();
-
-        const managedSession = await policyClient.createSession({
-            enableManagedSettings: true,
-            model: "auto",
-        });
-        onTestFinished(() => managedSession.disconnect());
-        await expect
-            .poll(() => managedSession.rpc.model.getCurrent())
-            .toMatchObject({ modelId: "auto", autoTier: "balance" });
-
-        const explicitSession = await policyClient.createSession({
-            enableManagedSettings: true,
-            model: "auto",
-            capi: { autoTier: "fast" },
-        });
-        onTestFinished(() => explicitSession.disconnect());
-        await expect
-            .poll(() => explicitSession.rpc.model.getCurrent())
-            .toMatchObject({ modelId: "auto", autoTier: "fast" });
-
-        const concretePolicyPath = path.join(workDir, "managed-concrete-settings.json");
-        fs.writeFileSync(
-            concretePolicyPath,
-            JSON.stringify({
-                model: "gpt-5",
-                effortLevel: "high",
-                contextTier: "long_context",
-            })
-        );
-        const concretePolicyClient = new CopilotClient({
-            workingDirectory: workDir,
-            connection: RuntimeConnection.forStdio({ path: process.env.COPILOT_CLI_PATH }),
-            useLoggedInUser: false,
-            env: {
-                ...env,
-                GH_TOKEN: "",
-                GITHUB_TOKEN: "",
-                COPILOT_GITHUB_TOKEN: "",
-                GITHUB_COPILOT_API_TOKEN: "",
-                COPILOT_HMAC_KEY: "",
-                CAPI_HMAC_KEY: "",
-                COPILOT_E2E_TEST_HOOKS: "1",
-                COPILOT_TEST_MANAGED_SETTINGS_FILE_PATH: concretePolicyPath,
-            },
-        });
-        onTestFinished(() => concretePolicyClient.stop());
-        await concretePolicyClient.start();
-
-        const enforcedSession = await concretePolicyClient.createSession({
-            enableManagedSettings: true,
-            enforceManagedModelDefaults: true,
-            model: "gpt-5",
-        });
-        onTestFinished(() => enforcedSession.disconnect());
-        await expect(enforcedSession.rpc.managedSettings.get()).resolves.toMatchObject({
-            settings: {
-                model: "gpt-5",
-                effortLevel: "high",
-                contextTier: "long_context",
-            },
-        });
-        await expect
-            .poll(() => enforcedSession.rpc.model.getCurrent())
-            .toMatchObject({
-                modelId: "gpt-5",
-                reasoningEffort: "high",
-                contextTier: "long_context",
-            });
-        await expect(
-            enforcedSession.rpc.model.setReasoningEffort({ reasoningEffort: "low" })
-        ).rejects.toThrow(/reasoningEffort is locked to 'high'/);
-
-        const relaxedSession = await concretePolicyClient.resumeSession(enforcedSession.sessionId, {
-            enableManagedSettings: true,
-            enforceManagedModelDefaults: false,
-        });
-        onTestFinished(() => relaxedSession.disconnect());
-        await expect(
-            relaxedSession.rpc.model.setReasoningEffort({ reasoningEffort: "low" })
-        ).resolves.toMatchObject({ reasoningEffort: "low" });
-        await relaxedSession.rpc.model.setReasoningEffort({ reasoningEffort: "high" });
-
-        const reenforcedSession = await concretePolicyClient.resumeSession(
-            enforcedSession.sessionId,
-            {
-                enableManagedSettings: true,
-                enforceManagedModelDefaults: true,
-            }
-        );
-        onTestFinished(() => reenforcedSession.disconnect());
-        await expect(
-            reenforcedSession.rpc.model.setReasoningEffort({ reasoningEffort: "low" })
-        ).rejects.toThrow(/reasoningEffort is locked to 'high'/);
     });
 
     it("should reject llm inference response frames for missing request", async () => {
@@ -689,37 +540,6 @@ describe("Server-scoped RPC", async () => {
                 return true;
             }
         );
-    });
-
-    it("should discover all 128 custom agents including deeply nested definitions", async () => {
-        const projectPath = createUniqueWorkDirectory("server-rpc-agents");
-        execFileSync("git", ["init", "--quiet"], {
-            cwd: projectPath,
-            env,
-            windowsHide: true,
-        });
-        const agentsDirectory = path.join(projectPath, ".github", "agents");
-        const nestedDirectory = path.join(agentsDirectory, ...Array<string>(12).fill("d"));
-        fs.mkdirSync(nestedDirectory, { recursive: true });
-        const expectedNames = Array.from(
-            { length: 128 },
-            (_, index) => `agent-${index.toString().padStart(3, "0")}`
-        );
-        for (const [index, name] of expectedNames.entries()) {
-            const directory = index === 127 ? nestedDirectory : agentsDirectory;
-            fs.writeFileSync(
-                path.join(directory, `${name}.agent.md`),
-                `---\nname: ${name}\ndescription: Test agent.\n---\nAgent prompt.`
-            );
-        }
-
-        await client.start();
-        const result = await client.rpc.agents.discover({
-            projectPaths: [projectPath],
-            excludeHostAgents: true,
-        });
-
-        expect(result.agents.map((agent) => agent.name).sort()).toEqual(expectedNames);
     });
 
     it("should discover server mcp and skills", async () => {

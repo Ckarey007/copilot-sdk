@@ -30,49 +30,24 @@ use crate::{Client, JsonRpcRequest, JsonRpcResponse, error_codes};
 
 const MAX_BINARY_BYTES: usize = (64 * 1024 * 1024 - 1024) / 4 * 3;
 
-/// The success response [`respond`] encodes: [`JsonRpcResponse`]'s fields and
-/// their names, with the typed result in place of a `serde_json::Value`.
-#[derive(Serialize)]
-struct TypedResponse<'a, T: Serialize> {
-    jsonrpc: &'static str,
-    id: u64,
-    result: &'a T,
-}
-
 /// Helper: serialize a typed result, send the response.
-///
-/// The result is encoded straight into its frame, with no `serde_json::Value`
-/// copy of it, and dropped before the frame is written. A large reply, such as
-/// a `readFile` of a long session's `events.jsonl` on resume, is then held
-/// once, escaped, while the frame is written.
 async fn respond<T: Serialize>(client: &Client, request_id: u64, result: T) {
-    let frame = match crate::jsonrpc::encode_frame(&TypedResponse {
-        jsonrpc: "2.0",
-        id: request_id,
-        result: &result,
-    }) {
-        Ok(frame) => frame,
+    let value = match serde_json::to_value(&result) {
+        Ok(v) => v,
         Err(e) => {
             warn!(error = %e, "failed to serialize sessionFs response");
             send_error(client, request_id, "serialization failure").await;
             return;
         }
     };
-    drop(result);
-    let _ = client.send_frame(frame).await;
-}
-
-/// [`respond`] for a result holding `HashMap` rows (the sqlite replies). It
-/// goes through a `serde_json::Value` first, so each row's keys keep the
-/// sorted order a `Value` writes; typed, they would go out in hash order.
-async fn respond_sorted<T: Serialize>(client: &Client, request_id: u64, result: T) {
-    match serde_json::to_value(&result) {
-        Ok(value) => respond(client, request_id, value).await,
-        Err(e) => {
-            warn!(error = %e, "failed to serialize sessionFs response");
-            send_error(client, request_id, "serialization failure").await;
-        }
-    }
+    let _ = client
+        .send_response(&JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: request_id,
+            result: Some(value),
+            error: None,
+        })
+        .await;
 }
 
 async fn send_error(client: &Client, request_id: u64, message: &str) {
@@ -495,7 +470,7 @@ pub(crate) async fn sqlite_query(
             rows_affected: 0,
         },
     };
-    respond_sorted(client, id, result).await;
+    respond(client, id, result).await;
 }
 
 pub(crate) async fn sqlite_transaction(
@@ -558,7 +533,7 @@ pub(crate) async fn sqlite_transaction(
             }),
         },
     };
-    respond_sorted(client, id, result).await;
+    respond(client, id, result).await;
 }
 
 pub(crate) async fn sqlite_exists(

@@ -153,7 +153,6 @@ final class SessionRequestBuilder {
         }
 
         request.setModel(config.getModel());
-        request.setName(config.getName());
         request.setClientName(config.getClientName());
         request.setReasoningEffort(config.getReasoningEffort());
         request.setReasoningSummary(config.getReasoningSummary());
@@ -197,13 +196,10 @@ final class SessionRequestBuilder {
         request.setAgent(config.getAgent());
         request.setInfiniteSessions(config.getInfiniteSessions());
         request.setSkillDirectories(config.getSkillDirectories());
-        request.setAgentDirectories(config.getAgentDirectories());
-        request.setHookDirectories(config.getHookDirectories());
         request.setInstructionDirectories(config.getInstructionDirectories());
         request.setPluginDirectories(config.getPluginDirectories());
         request.setLargeOutput(config.getLargeOutput());
         request.setToolSearch(config.getToolSearch());
-        request.setImageGeneration(config.getImageGeneration());
         request.setMemory(config.getMemory());
         request.setDisabledSkills(config.getDisabledSkills());
         request.setDisabledMcpServers(config.getDisabledMcpServers());
@@ -218,7 +214,6 @@ final class SessionRequestBuilder {
         config.getEnableFileHooks().ifPresent(request::setEnableFileHooks);
         config.getEnableHostGitOperations().ifPresent(request::setEnableHostGitOperations);
         config.getEnableSessionStore().ifPresent(request::setEnableSessionStore);
-        config.getEnableGitHubCacheStore().ifPresent(request::setEnableGitHubCacheStore);
         config.getEnableSkills().ifPresent(request::setEnableSkills);
         if (config.getSkillProvider() != null) {
             request.setHasSkillProvider(true);
@@ -253,7 +248,6 @@ final class SessionRequestBuilder {
         request.setFeatureFlags(config.getFeatureFlags());
         request.setExpAssignments(config.getExpAssignments());
         config.getEnableManagedSettings().ifPresent(request::setEnableManagedSettings);
-        config.getEnforceManagedModelDefaults().ifPresent(request::setEnforceManagedModelDefaults);
         request.setManagedSettings(config.getManagedSettings());
 
         return request;
@@ -343,7 +337,6 @@ final class SessionRequestBuilder {
         config.getEnableFileHooks().ifPresent(request::setEnableFileHooks);
         config.getEnableHostGitOperations().ifPresent(request::setEnableHostGitOperations);
         config.getEnableSessionStore().ifPresent(request::setEnableSessionStore);
-        config.getEnableGitHubCacheStore().ifPresent(request::setEnableGitHubCacheStore);
         config.getEnableSkills().ifPresent(request::setEnableSkills);
         if (config.getSkillProvider() != null) {
             request.setHasSkillProvider(true);
@@ -368,13 +361,10 @@ final class SessionRequestBuilder {
         request.setDefaultAgent(config.getDefaultAgent());
         request.setAgent(config.getAgent());
         request.setSkillDirectories(config.getSkillDirectories());
-        request.setAgentDirectories(config.getAgentDirectories());
-        request.setHookDirectories(config.getHookDirectories());
         request.setInstructionDirectories(config.getInstructionDirectories());
         request.setPluginDirectories(config.getPluginDirectories());
         request.setLargeOutput(config.getLargeOutput());
         request.setToolSearch(config.getToolSearch());
-        request.setImageGeneration(config.getImageGeneration());
         request.setMemory(config.getMemory());
         request.setDisabledSkills(config.getDisabledSkills());
         request.setDisabledMcpServers(config.getDisabledMcpServers());
@@ -405,7 +395,6 @@ final class SessionRequestBuilder {
         request.setFeatureFlags(config.getFeatureFlags());
         request.setExpAssignments(config.getExpAssignments());
         config.getEnableManagedSettings().ifPresent(request::setEnableManagedSettings);
-        config.getEnforceManagedModelDefaults().ifPresent(request::setEnforceManagedModelDefaults);
         request.setManagedSettings(config.getManagedSettings());
 
         return request;

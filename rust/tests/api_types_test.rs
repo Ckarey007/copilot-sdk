@@ -11,7 +11,6 @@ use github_copilot_sdk::rpc::{
     CustomizationReloadOutcome, CustomizationReloadStatus, CustomizationReloadSubsystem,
     EnqueueCommandResult, Extension, ExtensionList, ExtensionSource, ExtensionStatus,
     ExtensionsDisableRequest, ExtensionsEnableRequest, FleetStartRequest, FleetStartResult,
-    ManagedPermissionEvaluation, ManagedPermissionOperationKind, ManagedPermissionsEvaluateRequest,
     McpConfiguredServer, McpConfiguredServerList, McpConfiguredServerState, McpDisableRequest,
     McpEnableOptions, McpEnableRequest, McpInstallationOperationStatus, McpOauthLoginOptions,
     McpOauthLoginRequest, McpServer, McpStopServerRequest, ModelSetAllowedModelsRequest,
@@ -25,30 +24,6 @@ use github_copilot_sdk::session_events::{
     SessionEventData, TypedSessionEvent,
 };
 use github_copilot_sdk::{AutoTier, AutoTierPreference, SetModelOptions};
-
-#[test]
-fn managed_permission_results_reuse_operations_without_reconstruction() {
-    let evaluation: ManagedPermissionEvaluation = serde_json::from_value(serde_json::json!({
-        "operation": {"kind": "url", "url": "https://example.com/a"},
-        "verdict": "allow",
-    }))
-    .unwrap();
-    let request = ManagedPermissionsEvaluateRequest {
-        context: serde_json::from_value(serde_json::json!({"failClosed": false})).unwrap(),
-        operations: vec![evaluation.operation],
-    };
-    assert_eq!(
-        request.operations[0].kind,
-        ManagedPermissionOperationKind::Url
-    );
-    assert_eq!(
-        serde_json::to_value(request).unwrap(),
-        serde_json::json!({
-            "context": {"failClosed": false},
-            "operations": [{"kind": "url", "url": "https://example.com/a"}],
-        })
-    );
-}
 
 #[test]
 fn extensible_tier_unknown_literal_retains_its_provider_identity() {
@@ -65,23 +40,15 @@ fn extensible_tier_unknown_literal_retains_its_provider_identity() {
 }
 
 #[test]
-fn configured_mcp_servers_preserve_enablement_with_unmaterialized_state() {
+fn configured_mcp_servers_preserve_enablement_without_live_state() {
     for enabled in [false, true] {
         let server = McpConfiguredServer {
             name: "configured".to_string(),
             enabled,
-            live: McpConfiguredServerState {
-                status: McpServerStatus::NotConfigured,
-                error: None,
-            },
             ..Default::default()
         };
         let wire = serde_json::json!({
-            "servers": [{
-                "name": "configured",
-                "enabled": enabled,
-                "live": { "status": "not_configured" },
-            }],
+            "servers": [{ "name": "configured", "enabled": enabled }],
         });
         assert_eq!(
             serde_json::to_value(McpConfiguredServerList {
@@ -91,10 +58,7 @@ fn configured_mcp_servers_preserve_enablement_with_unmaterialized_state() {
             wire
         );
         let result: SessionMcpListConfiguredResult = serde_json::from_value(wire.clone()).unwrap();
-        assert_eq!(
-            result.servers[0].live.status,
-            McpServerStatus::NotConfigured
-        );
+        assert!(result.servers[0].live.is_none());
         assert_eq!(serde_json::to_value(result).unwrap(), wire);
     }
 }
@@ -105,10 +69,10 @@ fn configured_mcp_servers_preserve_live_observations_independently_of_enablement
         let server = McpConfiguredServer {
             name: "configured".to_string(),
             enabled,
-            live: McpConfiguredServerState {
+            live: Some(McpConfiguredServerState {
                 status: McpServerStatus::Stopped,
                 error: None,
-            },
+            }),
             ..Default::default()
         };
         assert_eq!(

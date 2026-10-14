@@ -39,7 +39,6 @@ export type SessionEvent =
   | SnapshotRewindEvent
   | ShutdownEvent
   | UsageCheckpointEvent
-  | ProviderQuotaObservationEvent
   | ContextChangedEvent
   | UsageInfoEvent
   | ContextClearedEvent
@@ -124,7 +123,6 @@ export type SessionEvent =
   | SessionLimitsExhaustedRequestedEvent
   | SessionLimitsExhaustedCompletedEvent
   | AutoModeResolvedEvent
-  | ManagedPluginProgressEvent
   | ManagedSettingsResolvedEvent
   | ManagedSettingsEnforcedEvent
   | CommandsChangedEvent
@@ -217,9 +215,7 @@ export type RemediationAction =
   /** Review or widen the sandbox policy. The blocked path or host is named by the accompanying message or by the tool result the action arrived with. */
   | "review_sandbox_policy"
   /** Permit outbound network access in the sandbox policy. */
-  | "allow_sandbox_outbound"
-  /** Discard conversation history back through the blocked request before continuing. */
-  | "rewind_conversation";
+  | "allow_sandbox_outbound";
 /**
  * The session mode the agent is operating in
  */
@@ -520,25 +516,6 @@ export type HandoffSourceType =
   /** The handoff originated from a local session. */
   | "local";
 /**
- * Whether the accumulated numeric AI-credit subtotal covers the observed calls.
- */
-export type AiCreditsStatus =
-  /** Every observed call supplied an AI-credit amount, including an explicit zero. */
-  | "complete"
-  /** Some calls supplied amounts and some did not; the numeric value is only a reported subtotal. */
-  | "partial"
-  /** No AI-credit amount was reported for the observed calls. Numeric zero is not a zero-cost claim. */
-  | "unavailable";
-/**
- * The neutral kind of a model provider — the model analog of `AccountKind`. A model provider is the live, entitled source a model came from; central code never branches on this beyond a single dispatch.
- */
-/** @experimental */
-export type ModelProviderKind =
-  /** GitHub Copilot / CAPI models, spawned by a github-resolving account that holds a Copilot seat. */
-  | "copilot"
-  /** Microsoft 365 Copilot (Loki) inference models, spawned by a resolvable Entra-derived Loki account. */
-  | "loki";
-/**
  * Whether the session ended normally ("routine") or due to a crash/fatal error ("error")
  */
 export type ShutdownType =
@@ -546,98 +523,6 @@ export type ShutdownType =
   | "routine"
   /** The session ended because of a crash or fatal error. */
   | "error";
-/**
- * Access policy reported by the quota service.
- */
-export type ProviderQuotaAccessState =
-  /** Access is allowed. */
-  | "allowed"
-  /** Access is denied. */
-  | "denied"
-  /** Quota is not required for this access. */
-  | "not_required"
-  /** The service did not supply a recognized access state. */
-  | "unknown"
-  /** Client-only compatibility placeholder when acquisitionStatus is unavailable or failed; not an observed service verdict. */
-  | "unavailable";
-/**
- * Acquisition state, independent of the service's business access/capacity verdict.
- */
-export type ProviderQuotaAcquisitionStatus =
-  /** A service quota observation was received. */
-  | "succeeded"
-  /** No service snapshot is available for this caller or surface. */
-  | "unavailable"
-  /** Acquisition failed; inspect httpStatus/acquisitionError without inferring a business verdict. */
-  | "failed";
-/**
- * Capacity is independent of whether a numeric balance was supplied.
- */
-export type ProviderQuotaCapacityState =
-  /** Capacity is available. */
-  | "available"
-  /** The service explicitly reports exhaustion. */
-  | "exhausted"
-  /** The reported entitlement is unlimited. */
-  | "unlimited"
-  /** No billable quota is required. */
-  | "not_required"
-  /** The service reports that capacity is not applicable. */
-  | "not_applicable"
-  /** No recognized capacity state was supplied. */
-  | "unknown"
-  /** Client-only compatibility placeholder when acquisitionStatus is unavailable or failed; not an observed service verdict. */
-  | "unavailable";
-/**
- * Identity scope of a monthly usage reading.
- */
-export type ProviderMonthlyUsageScope =
-  /** Consumption of the authenticated user within the parent observation's service and returned cycle. */
-  | "user"
-  /** The service did not establish a recognized usage scope. */
-  | "unknown";
-/**
- * Availability of a service's monthly consumption reading.
- */
-export type ProviderMonthlyUsageState =
-  /** The service reported a usable consumption reading, including an explicit zero. */
-  | "available"
-  /** The service found no usage policy; no consumption amount is known. */
-  | "no_policy"
-  /** The read failed or its data could not be used; consumption is unknown. */
-  | "unavailable"
-  /** The service reported an unrecognized usage state. */
-  | "unknown";
-/**
- * Units explicitly reported by a quota provider.
- */
-export type ProviderQuotaUnit =
-  /** AI credits, not tokens or currency. */
-  | "ai_credits"
-  /** Requests charged against an entitlement. */
-  | "requests"
-  /** Model tokens. */
-  | "tokens"
-  /** The observation does not establish a quantity unit. */
-  | "unknown";
-/**
- * Timing and purpose of a provider quota observation.
- */
-export type ProviderQuotaObservationKind =
-  /** An explicit account read; consumption may still be subject to service aggregation delay. */
-  | "account_snapshot"
-  /** A verdict attached before an inference response. May be cached; never a post-charge balance. */
-  | "admission_state";
-/**
- * Interpretation permitted for independently reported quantities.
- */
-export type ProviderQuotaQuantityKind =
-  /** Quantities form an authoritative available-of-entitled budget suitable for percentage presentation. */
-  | "authoritative_budget"
-  /** Raw advisory quantities; do not infer permission, usage percentage, reset cadence, or post-charge balance. */
-  | "advisory_balance"
-  /** No quantity measurement, as with admission-only response headers. */
-  | "none";
 /**
  * What initiated a conversation compaction
  */
@@ -965,16 +850,6 @@ export type AssistantUsageApiEndpoint =
   /** WebSocket Responses API endpoint. */
   | "ws:/responses";
 /**
- * Content-Encoding applied to the request body sent on the wire
- */
-export type ModelCallRequestBodyEncoding =
-  /** The request body was sent uncompressed (including every WebSocket request). */
-  | "identity"
-  /** The request body was sent gzip-compressed. */
-  | "gzip"
-  /** The request body was sent zstd-compressed. */
-  | "zstd";
-/**
  * Transport used for a successful model call
  */
 export type AssistantUsageTransport =
@@ -982,48 +857,6 @@ export type AssistantUsageTransport =
   | "http"
   /** WebSocket transport. */
   | "websocket";
-/**
- * Normalized cause of the WebSocket failure that triggered the HTTP fallback
- */
-export type ModelCallWebSocketFallbackErrorKind =
-  /** DNS resolution of the WebSocket host failed. */
-  | "dns"
-  /** The TLS handshake or a TLS record failed. */
-  | "tls"
-  /** A WebSocket connect or read timed out. */
-  | "timeout"
-  /** The peer refused the TCP connection. */
-  | "connection_refused"
-  /** The connection was reset, aborted, or ended mid-stream without a close. */
-  | "connection_reset"
-  /** The peer closed the WebSocket. */
-  | "closed_by_peer"
-  /** The runtime closed the WebSocket itself. */
-  | "closed_locally"
-  /** The socket was already closed before it was used. */
-  | "not_connected"
-  /** The upgrade or request was rejected with an HTTP status. */
-  | "http_status"
-  /** A WebSocket protocol violation or an undecodable frame. */
-  | "protocol"
-  /** The WebSocket request could not be built. */
-  | "configuration"
-  /** A failure that maps onto none of the other kinds. */
-  | "other";
-/**
- * Why a WebSocket-capable model call was carried by the HTTP fallback
- */
-export type ModelCallWebSocketFallbackReason =
-  /** The WebSocket connection could not be established. */
-  | "connect_failed"
-  /** No usable WebSocket connection was available for the request. */
-  | "connection_unavailable"
-  /** Sending the request over the WebSocket failed. */
-  | "send_failed"
-  /** The WebSocket returned a retryable API error. */
-  | "api_error"
-  /** The WebSocket transport failed before any output reached the consumer. */
-  | "transport_failed";
 /**
  * For HTTP 400 failures only: whether the response carried a structured CAPI error envelope (structured_error, a deterministic validation failure) or no error body (bodyless, the transient gateway/proxy signature). Absent for non-400 failures.
  */
@@ -1595,19 +1428,6 @@ export type AutoModeResolvedReasoningBucket =
   /** The request looks high-reasoning; a stronger model is appropriate. */
   | "high";
 /**
- * Current phase of organization-required plugin preparation.
- */
-/** @experimental */
-export type ManagedPluginProgressPhase =
-  /** Managed settings are still resolving before plugin preparation can be planned. */
-  | "initializing"
-  /** Required plugin content is being installed. */
-  | "installing"
-  /** Installed required plugin content is being updated. */
-  | "updating"
-  /** Managed plugin preparation has completed. */
-  | "complete";
-/**
  * Summary of which managed-settings channels contributed to the effective session policy. Use the per-channel booleans for exact provenance.
  */
 export type ManagedSettingsResolvedSource =
@@ -1627,17 +1447,17 @@ export type ManagedSettingsResolvedSource =
  * The category of runtime action that enterprise managed settings governed (blocked or capped)
  */
 export type ManagedSettingsEnforcedAction =
-  /** An attempt to enter a permission mode governed by managed policy was refused or capped. The `setting` and `escalation` fields identify whether this was bypass permissions or Assisted Permissions. */
+  /** An attempt to turn on a bypass-permissions ("yolo") escalation was refused or capped because policy disables bypass-permissions mode. */
   "bypass_permissions_blocked";
 /**
- * For a `bypass_permissions_blocked` action, which permission-mode or escalation primitive was refused
+ * For a `bypass_permissions_blocked` action, which permission-escalation primitive was refused
  */
 export type ManagedSettingsEnforcedEscalation =
   /** Full allow-all permissions — automatically approving tools, paths, and URLs. */
   | "allow_all"
   /** Automatic approval of all tool permission requests. */
   | "approve_all"
-  /** Assisted Permissions — uses an LLM review to reduce prompts, distinct from allow-all and not a hard security boundary. */
+  /** Assisted mode — keeps normal prompt paths and adds an LLM recommendation, distinct from allow-all. */
   | "assisted_approval"
   /** Unrestricted filesystem access outside the session's allowed directories. */
   | "unrestricted_paths"
@@ -1870,19 +1690,11 @@ export interface StartData {
    */
   alreadyInUse?: boolean;
   autoTier?: AutoTier;
-  /**
-   * True when autoTier is a managed-policy default. Omitted for user-authored and legacy values.
-   */
-  autoTierManaged?: boolean;
   context?: WorkingDirectoryContext;
   /**
    * Context tier selected at session creation time for models with tiered context pricing; null when no tier is selected (e.g., non-tiered model)
    */
   contextTier?: ContextTier | null;
-  /**
-   * True when contextTier is a managed-policy default. Omitted for user-authored and legacy values.
-   */
-  contextTierManaged?: boolean;
   /**
    * Version string of the Copilot application
    */
@@ -1897,17 +1709,9 @@ export interface StartData {
    */
   producer: string;
   /**
-   * Provider of selectedModel at creation time, when explicitly selected.
-   */
-  providerId?: string;
-  /**
    * Reasoning effort level used for model calls, if applicable (e.g. "none", "low", "medium", "high", "xhigh", "max")
    */
   reasoningEffort?: string;
-  /**
-   * True when the reasoning effort is a managed-policy default bound to reasoningEffortModel. Omitted for agent-authored, user-authored, independent, and legacy effort.
-   */
-  reasoningEffortManaged?: boolean;
   /**
    * Model that owns effort embedded in an authored model selection. Omitted for independent reasoning-effort overrides and legacy events.
    */
@@ -2043,19 +1847,11 @@ export interface ResumeData {
    */
   alreadyInUse?: boolean;
   autoTier?: AutoTier;
-  /**
-   * True when autoTier is a managed-policy default. Omitted for user-authored and legacy values.
-   */
-  autoTierManaged?: boolean;
   context?: WorkingDirectoryContext;
   /**
    * Context tier currently selected at resume time; null when no tier is active
    */
   contextTier?: ContextTier | null;
-  /**
-   * True when contextTier is a managed-policy default. Omitted for user-authored and legacy values.
-   */
-  contextTierManaged?: boolean;
   /**
    * When true, tool calls and permission requests left in flight by the previous session lifetime remain pending after resume and the agentic loop awaits their results. User sends are queued behind the pending work until all such requests reach a terminal state. When false or omitted, pending work is normally marked as interrupted unless the resume passively joined live work owned by another client; sessionWasActive distinguishes that case.
    */
@@ -2069,17 +1865,9 @@ export interface ResumeData {
    */
   eventsFileSizeBytes?: number;
   /**
-   * Provider of selectedModel at resume time, when explicitly selected.
-   */
-  providerId?: string;
-  /**
    * Reasoning effort level used for model calls, if applicable (e.g. "none", "low", "medium", "high", "xhigh", "max")
    */
   reasoningEffort?: string;
-  /**
-   * True when the reasoning effort is a managed-policy default bound to reasoningEffortModel. Omitted for agent-authored, user-authored, independent, and legacy effort.
-   */
-  reasoningEffortManaged?: boolean;
   /**
    * Model that owns effort embedded in an authored model selection. Omitted for independent reasoning-effort overrides and legacy events.
    */
@@ -2189,7 +1977,7 @@ export interface ErrorData {
    */
   errorCode?: string;
   /**
-   * Category of error (e.g., "authentication", "authorization", "policy", "quota", "rate_limit", "context_limit", "query")
+   * Category of error (e.g., "authentication", "authorization", "quota", "rate_limit", "context_limit", "query")
    */
   errorType: string;
   /**
@@ -2200,14 +1988,6 @@ export interface ErrorData {
    * GitHub request tracing ID (x-github-request-id header) for correlating with server-side logs
    */
   providerCallId?: string;
-  /**
-   * Sanitized provider-defined error parameter preserved from a structured upstream error envelope, when available.
-   */
-  providerErrorParam?: string;
-  /**
-   * Provider-defined error type preserved from a structured upstream error envelope, when available (for example, `invalid_request_error`).
-   */
-  providerErrorType?: string;
   remediation?: RemediationAction;
   /**
    * Copilot service request ID (x-copilot-service-request-id header) for CAPI log correlation
@@ -2668,10 +2448,6 @@ export interface ModelChangeData {
    */
   autoTier?: AutoTier | null;
   /**
-   * True when autoTier is a managed-policy default. Omitted for user-authored and legacy values.
-   */
-  autoTierManaged?: boolean;
-  /**
    * Reason the change happened, when not user-initiated. `"rate_limit_auto_switch"` for changes triggered by the auto-mode-switch rate-limit recovery path, or `"refusal_fallback"` when the active model declined a request (content refusal) and the runtime switched to the configured refusal-fallback model. UI clients can use this to render contextual copy.
    */
   cause?: string;
@@ -2679,10 +2455,6 @@ export interface ModelChangeData {
    * Context tier after the model change; null explicitly clears a previously selected tier
    */
   contextTier?: ContextTier | null;
-  /**
-   * True when contextTier is a managed-policy default. Omitted for user-authored and legacy values.
-   */
-  contextTierManaged?: boolean;
   /**
    * Newly selected model identifier
    */
@@ -2693,27 +2465,15 @@ export interface ModelChangeData {
    */
   previousModel?: string;
   /**
-   * Provider of previousModel, when known. A provider-only change is a model selection change even when the model identifiers are equal.
-   */
-  previousProviderId?: string;
-  /**
    * Reasoning effort level before the model change, if applicable
    */
   previousReasoningEffort?: string;
   previousReasoningSummary?: ReasoningSummary;
   previousVerbosity?: Verbosity;
   /**
-   * Provider selected for newModel. Omitted for legacy or unattributed selections; never inferred from a later selection.
-   */
-  providerId?: string;
-  /**
    * Reasoning effort level after the model change, if applicable
    */
   reasoningEffort?: string | null;
-  /**
-   * True when the reasoning effort is a managed-policy default bound to reasoningEffortModel. Omitted for agent-authored, user-authored, independent, and legacy effort.
-   */
-  reasoningEffortManaged?: boolean;
   /**
    * Model that owns effort embedded in an authored model selection. Omitted for independent reasoning-effort overrides and legacy events.
    */
@@ -3345,12 +3105,6 @@ export interface ShutdownEvent {
  */
 export interface ShutdownData {
   /**
-   * Complete accounting state captured atomically with receipt watermarks.
-   *
-   * @internal
-   */
-  accountingSnapshot?: UsageGetMetricsResult;
-  /**
    * Per-agent usage breakdown, keyed by agent instance identifier. The main conversation uses the stable key `main`.
    */
   agentMetrics?: {
@@ -3383,10 +3137,6 @@ export interface ShutdownData {
   modelMetrics: {
     [k: string]: ShutdownModelMetric | undefined;
   };
-  /**
-   * Provider/model accounting preserved for replay without consulting current provider selection.
-   */
-  providerModelMetrics?: UsageMetricsProviderModelMetric[];
   /**
    * Unix timestamp (milliseconds) when the session started
    */
@@ -3422,233 +3172,6 @@ export interface ShutdownData {
    * @internal
    */
   totalPremiumRequests?: number;
-  /**
-   * Per-source accounting sequence watermarks subsuming preceding usage receipts.
-   */
-  usageAccountingWatermarks?: {
-    [k: string]: number | undefined;
-  };
-}
-/**
- * Accumulated session usage metrics, including premium request cost, token counts, model breakdown, and code-change totals.
- */
-export interface UsageGetMetricsResult {
-  /**
-   * Per-agent usage metrics, keyed by agent instance identifier. The main conversation uses the stable key `main`.
-   */
-  agentMetrics?: {
-    [k: string]: UsageMetricsAgentMetric | undefined;
-  };
-  aiCreditsStatus?: AiCreditsStatus;
-  codeChanges: UsageMetricsCodeChanges;
-  /**
-   * Currently active model identifier
-   */
-  currentModel?: string;
-  /**
-   * Input tokens from the most recent main-agent API call
-   */
-  lastCallInputTokens: number;
-  /**
-   * Output tokens from the most recent main-agent API call
-   */
-  lastCallOutputTokens: number;
-  /**
-   * Per-model token and request metrics, keyed by model identifier
-   */
-  modelMetrics: {
-    [k: string]: UsageMetricsModelMetric | undefined;
-  };
-  /**
-   * Provider-attributed model metrics, ordered by first observed provider and model.
-   * Null attribution preserves historical usage whose provider or model was not recorded.
-   */
-  providerModelMetrics?: UsageMetricsProviderModelMetric[];
-  /**
-   * ISO 8601 timestamp when the session started
-   */
-  sessionStartTime: string;
-  /**
-   * Session-wide per-token-type accumulated token counts
-   */
-  tokenDetails?: {
-    [k: string]: UsageMetricsTokenDetail | undefined;
-  };
-  /**
-   * Total time spent in model API calls (milliseconds)
-   */
-  totalApiDurationMs: number;
-  /**
-   * Session-wide accumulated nano-AI units cost
-   */
-  totalNanoAiu?: number;
-  /**
-   * Total user-initiated premium request cost across all models (may be fractional due to multipliers)
-   */
-  totalPremiumRequestCost: number;
-  /**
-   * Raw count of user-initiated API requests
-   */
-  totalUserRequests: number;
-}
-/**
- * Usage attributed to one agent instance, including its identity, API duration, AI units, and per-model breakdown.
- */
-export interface UsageMetricsAgentMetric {
-  /**
-   * Human-readable label for this subagent invocation, copied from the originating `subagent.started` event. For task-tool subagents this is the invocation's task description rather than the agent's configured display name, so group by `agentName` for stable per-agent labels.
-   */
-  agentDisplayName?: string;
-  /**
-   * Configured agent name, when this is a subagent
-   */
-  agentName?: string;
-  /**
-   * Per-model usage for this agent, keyed by model identifier
-   */
-  modelMetrics: {
-    [k: string]: UsageMetricsModelMetric | undefined;
-  };
-  /**
-   * Time spent in model API calls by this agent, in milliseconds
-   */
-  totalApiDurationMs: number;
-  /**
-   * Accumulated nano-AI units cost for this agent
-   */
-  totalNanoAiu: number;
-}
-/**
- * Per-model usage metrics, including request counts/costs, token usage, nano-AI units, and per-token-type details.
- */
-export interface UsageMetricsModelMetric {
-  aiCreditsStatus?: AiCreditsStatus;
-  /**
-   * Latest known prompt-cache expiration for this model. A timestamp in the past indicates that the observed cache has expired.
-   */
-  cacheExpiresAt?: string;
-  requests: UsageMetricsModelMetricRequests;
-  /**
-   * Token count details per type
-   */
-  tokenDetails?: {
-    [k: string]: UsageMetricsModelMetricTokenDetail | undefined;
-  };
-  /**
-   * Accumulated nano-AI units cost for this model
-   */
-  totalNanoAiu?: number;
-  usage: UsageMetricsModelMetricUsage;
-}
-/**
- * Request count and cost metrics for this model
- */
-export interface UsageMetricsModelMetricRequests {
-  /**
-   * User-initiated premium request cost (with multiplier applied)
-   */
-  cost: number;
-  /**
-   * Number of API requests made with this model
-   */
-  count: number;
-}
-/**
- * Per-model token-detail entry containing the accumulated token count for one token type.
- */
-export interface UsageMetricsModelMetricTokenDetail {
-  /**
-   * Accumulated token count for this token type
-   */
-  tokenCount: number;
-}
-/**
- * Token usage metrics for this model
- */
-export interface UsageMetricsModelMetricUsage {
-  /**
-   * Total tokens read from prompt cache
-   */
-  cacheReadTokens: number;
-  /**
-   * Total tokens written to prompt cache
-   */
-  cacheWriteTokens: number;
-  /**
-   * Total input tokens consumed
-   */
-  inputTokens: number;
-  /**
-   * Total output tokens produced
-   */
-  outputTokens: number;
-  /**
-   * Total output tokens used for reasoning
-   */
-  reasoningTokens?: number;
-}
-/**
- * Aggregated code change metrics
- */
-export interface UsageMetricsCodeChanges {
-  /**
-   * Distinct file paths modified during the session
-   */
-  filesModified: string[];
-  /**
-   * Number of distinct files modified
-   */
-  filesModifiedCount: number;
-  /**
-   * Total lines of code added
-   */
-  linesAdded: number;
-  /**
-   * Total lines of code removed
-   */
-  linesRemoved: number;
-}
-/**
- * Usage for one recorded provider and model, without merging identical model IDs across providers.
- */
-export interface UsageMetricsProviderModelMetric {
-  metrics: UsageMetricsModelMetric | undefined;
-  /**
-   * Model display name captured at call time, when known.
-   */
-  modelDisplayName?: string;
-  /**
-   * Model identity, or null for legacy aggregate-only usage.
-   */
-  modelId: string | null;
-  /**
-   * Provider identity and product label captured when the call was dispatched; null when unknown.
-   */
-  provider: ModelProviderRef | null;
-}
-/**
- * A neutral reference to the model provider that produced a model: an opaque id, a human-readable label, and the provider kind. Carried on each enumerated Model so consumers can group by provider without reaching into a provider-shaped internal type.
- */
-/** @experimental */
-export interface ModelProviderRef {
-  /**
-   * Opaque, stable id of the provider that produced this model. Matches the enumerated `ModelProviderDescriptor.id`.
-   */
-  id: string;
-  kind: ModelProviderKind;
-  /**
-   * Human-readable provider label, owned by the runtime so every consumer renders identical text.
-   */
-  label: string;
-}
-/**
- * Session-wide token-detail entry containing the accumulated token count for one token type.
- */
-export interface UsageMetricsTokenDetail {
-  /**
-   * Accumulated token count for this token type
-   */
-  tokenCount: number;
 }
 /**
  * Usage attributed to one agent instance at session shutdown.
@@ -3808,12 +3331,6 @@ export interface UsageCheckpointEvent {
  */
 export interface UsageCheckpointData {
   /**
-   * Complete accounting state captured atomically with the receipt watermarks.
-   *
-   * @internal
-   */
-  accountingSnapshot?: UsageGetMetricsResult;
-  /**
    * Internal per-model prompt-cache state used to restore expiration tracking on resume
    *
    * @internal
@@ -3826,10 +3343,6 @@ export interface UsageCheckpointData {
    */
   promptCacheBreakState?: JsonValue[];
   /**
-   * Provider/model accounting snapshot that subsumes preceding usage receipts.
-   */
-  providerModelMetrics?: UsageMetricsProviderModelMetric[];
-  /**
    * Session-wide accumulated nano-AI units cost at checkpoint time
    */
   totalNanoAiu: number;
@@ -3839,12 +3352,6 @@ export interface UsageCheckpointData {
    * @internal
    */
   totalPremiumRequests?: number;
-  /**
-   * Highest accounted sequence per source session; no per-call deduplication history is retained.
-   */
-  usageAccountingWatermarks?: {
-    [k: string]: number | undefined;
-  };
 }
 /**
  * Internal prompt-cache expiration state for one model
@@ -3865,177 +3372,6 @@ export interface UsageCheckpointModelCacheState {
    * Model identifier associated with this cache state
    */
   modelId: string;
-}
-/**
- * Session event "session.quota_observation". A provider-owned quota observation, distinct from per-call usage and charge accounting.
- */
-/** @experimental */
-export interface ProviderQuotaObservationEvent {
-  /**
-   * Sub-agent instance identifier. Absent for events from the root/main agent and session-level events.
-   */
-  agentId?: string;
-  data: ProviderQuotaObservationData;
-  /**
-   * Always true for events that are transient and not persisted to the session event log on disk.
-   */
-  ephemeral: true;
-  /**
-   * Unique event identifier (UUID v4), generated when the event is emitted
-   */
-  id: string;
-  /**
-   * ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event.
-   */
-  parentId: string | null;
-  /**
-   * ISO 8601 timestamp when the event was created
-   */
-  timestamp: string;
-  /**
-   * Type discriminator. Always "session.quota_observation".
-   */
-  type: "session.quota_observation";
-}
-/**
- * A provider-owned quota observation, distinct from per-call usage and charge accounting.
- */
-/** @experimental */
-export interface ProviderQuotaObservationData {
-  observation: ProviderQuotaState;
-}
-/**
- * An account quota reading. Absence of a quantity is unknown, never zero.
- */
-/** @experimental */
-export interface ProviderQuotaState {
-  accessState: ProviderQuotaAccessState;
-  /**
-   * Service error code or client acquisition category, separate from the business-state reason.
-   */
-  acquisitionError?: string;
-  acquisitionStatus?: ProviderQuotaAcquisitionStatus;
-  /**
-   * Independently reported signed 64-bit available quantity. Zero does not override the service access/capacity verdict; omission and null are preserved.
-   */
-  availableQuantity?: number | null;
-  budgetMetadata?: ProviderQuotaBudgetMetadata;
-  capacityState: ProviderQuotaCapacityState;
-  /**
-   * Key for the backwards-compatible snapshots projection, when the authoritative budget supports that contract.
-   */
-  compatibilityKey?: string;
-  /**
-   * Independently reported signed 64-bit entitlement. -1 is an unlimited sentinel, not a capacity-state rewrite; omission and null are preserved.
-   */
-  entitledQuantity?: number | null;
-  /**
-   * Explicit service admission flag, when reported.
-   */
-  hasQuota?: boolean | null;
-  /**
-   * HTTP status from acquisition, when available.
-   */
-  httpStatus?: number;
-  monthlyUsage?: ProviderMonthlyUsage;
-  observationKind?: ProviderQuotaObservationKind;
-  /**
-   * When the runtime observed this reading, not a charge timestamp or guarantee that consumption has settled.
-   */
-  observedAt?: string;
-  provider: ModelProviderRef;
-  quantityKind?: ProviderQuotaQuantityKind;
-  /**
-   * Service-owned quota identifier within this provider.
-   */
-  quotaId: string;
-  /**
-   * Service-reported explanation for the state.
-   */
-  reason?: string | null;
-  /**
-   * Service name owning this reading.
-   */
-  service?: string | null;
-  /**
-   * Service-reported quota source.
-   */
-  source?: string | null;
-  unit: ProviderQuotaUnit;
-}
-/**
- * Authoritative budget measurements and policy metadata, independent of provider.
- */
-export interface ProviderQuotaBudgetMetadata {
-  /**
-   * Exact measured consumption in the budget's unit.
-   */
-  consumed: number;
-  /**
-   * Exact budget entitlement, retaining incumbent fractional-unit compatibility.
-   */
-  entitlement: number;
-  /**
-   * Usage beyond entitlement, in the budget's unit.
-   */
-  overage: number;
-  /**
-   * Whether additional usage is allowed when the budget is exhausted.
-   */
-  overageAllowedWhenExhausted: boolean;
-  /**
-   * Optional additional-usage budget cap.
-   */
-  overageLimit?: number;
-  /**
-   * Service-reported remaining percentage for authoritative budget presentation.
-   */
-  remainingPercentage: number;
-  /**
-   * Reset instant in epoch milliseconds when this budget actually defines a window.
-   */
-  resetAtEpochMs?: number;
-  /**
-   * Whether the reset instant is an estimate.
-   */
-  resetEstimated?: boolean;
-  /**
-   * Whether this budget uses token-based billing.
-   */
-  tokenBasedBilling?: boolean;
-  /**
-   * Whether the budget has unlimited entitlement.
-   */
-  unlimited: boolean;
-  /**
-   * Whether service policy allows continued usage after exhaustion.
-   */
-  usageAllowedWhenExhausted: boolean;
-}
-/**
- * An authoritative monthly usage reading for the observation's provider, account, and service.
- */
-/** @experimental */
-export interface ProviderMonthlyUsage {
-  /**
-   * Nonnegative finite consumption reported by the service, preserving zero and fractions. Present only when state is available; never computed from tokens or balance differences.
-   */
-  consumedQuantity?: number;
-  /**
-   * Start of the service-reported monthly billing cycle, in UTC RFC 3339.
-   */
-  cycleStart?: string;
-  /**
-   * Service read time in UTC RFC 3339, not a ledger reconciliation watermark or confirmation of the latest inference charge.
-   */
-  queriedAt?: string;
-  /**
-   * End of the service-reported monthly billing cycle, in UTC RFC 3339.
-   */
-  resetOn?: string;
-  scope: ProviderMonthlyUsageScope;
-  state: ProviderMonthlyUsageState;
-  unit: ProviderQuotaUnit;
 }
 /**
  * Session event "session.context_changed". Updated working directory and git context after the change
@@ -4268,6 +3604,12 @@ export interface CompactionCompleteEvent {
  */
 export interface CompactionCompleteData {
   /**
+   * Legacy active-workflow reminder retained for replay compatibility
+   *
+   * @internal
+   */
+  activeFactorySummary?: string;
+  /**
    * Authoritative active-workflow reminder appended to the compacted context
    *
    * @internal
@@ -4357,7 +3699,6 @@ export interface CompactionCompleteData {
  * Token usage breakdown for the compaction LLM call (aligned with assistant.usage format)
  */
 export interface CompactionCompleteCompactionTokensUsed {
-  aiCreditsStatus?: AiCreditsStatus;
   /**
    * Cached input tokens reused in the compaction LLM call
    */
@@ -4385,18 +3726,9 @@ export interface CompactionCompleteCompactionTokensUsed {
    */
   model?: string;
   /**
-   * Model display name captured for the compaction call.
-   */
-  modelDisplayName?: string;
-  /**
    * Output tokens produced by the compaction LLM call
    */
   outputTokens?: number;
-  provider?: ModelProviderRef;
-  /**
-   * Number of model requests represented by this aggregated compaction usage
-   */
-  requestCount?: number;
 }
 /**
  * Per-request cost and usage data from the CAPI copilot_usage response field
@@ -4545,14 +3877,6 @@ export interface PermissionRecoveryData {
    */
   maxAttempts: number;
   onBlocked: PermissionRecoveryOnBlocked;
-  /**
-   * Subagent identifier that owns this recovery episode when the request was delegated through a parent permission service
-   */
-  ownerAgentId?: string;
-  /**
-   * Root or child execution-session identifier that owns this recovery episode; omitted for legacy snapshots
-   */
-  ownerSessionId?: string;
   reason: PermissionRecoveryReason;
   status: PermissionRecoveryStatus;
 }
@@ -6432,10 +5756,6 @@ export interface AssistantMessageData {
    * Generation phase for phased-output models (e.g., thinking vs. response phases)
    */
   phase?: string;
-  /**
-   * Opaque origin provider identity captured at dispatch. Only an exact match with the target provider permits replay of reasoningOpaque, encryptedContent, reasoningBlocks, serverTools, and provider response/item identifiers. Matching model ids or wire protocols is insufficient. Omitted for legacy or unattributed messages; the runtime excludes unproven opaque state when projecting to a known provider. Text content and client tool requests/results remain portable semantic history.
-   */
-  providerId?: string;
   reasoningBlocks?: AssistantMessageReasoningBlocks;
   /**
    * Opaque/encrypted extended thinking data from Anthropic models. Session-bound and stripped on resume.
@@ -6959,8 +6279,6 @@ export interface AssistantUsageData {
    * Number of accepted speculative prediction tokens
    */
   acceptedPredictionTokens?: number;
-  accounting?: UsageAccountingIdentity;
-  aiCreditsStatus?: AiCreditsStatus;
   /**
    * Completion ID from the model provider (e.g., chatcmpl-abc123)
    */
@@ -7068,10 +6386,6 @@ export interface AssistantUsageData {
    */
   model: string;
   /**
-   * Model display name captured for this call, not derived from the current selection.
-   */
-  modelDisplayName?: string;
-  /**
    * Fixed-set provider family serving the bring-your-own-key model (for example "openai", "anthropic", "azure_openai", "ollama", "llama_cpp", or "other"). Never the caller-supplied provider name. Absent for Copilot-served models.
    */
   modelProvider?: string;
@@ -7094,7 +6408,6 @@ export interface AssistantUsageData {
    * Parent tool call ID when this usage originates from a sub-agent
    */
   parentToolCallId?: string;
-  provider?: ModelProviderRef;
   /**
    * GitHub request tracing ID (x-github-request-id header) for server-side log correlation
    */
@@ -7120,15 +6433,6 @@ export interface AssistantUsageData {
    * Number of rejected speculative prediction tokens
    */
   rejectedPredictionTokens?: number;
-  /**
-   * Serialized (uncompressed) byte length of the request body, before any Content-Encoding. A content-free size signal.
-   */
-  requestBodyBytes?: number;
-  requestBodyEncoding?: ModelCallRequestBodyEncoding;
-  /**
-   * Byte length of the request body actually sent on the wire for the attempt that produced this outcome, after any Content-Encoding. Equals requestBodyBytes when the body was not compressed.
-   */
-  requestBodyWireBytes?: number;
   /**
    * Per-request treatment/eligibility signal returned by the Copilot API in the `X-GitHub-Copilot-Request-TE` response header for the associated model call; `false` when the header was absent or unparseable.
    */
@@ -7168,45 +6472,6 @@ export interface AssistantUsageData {
    */
   toolTokenCount?: number;
   transport?: AssistantUsageTransport;
-  /**
-   * Milliseconds spent on the WebSocket attempt before falling back to HTTP
-   */
-  websocketFallbackAfterMs?: number;
-  /**
-   * WebSocket close code received before the HTTP fallback
-   */
-  websocketFallbackCloseCode?: number;
-  websocketFallbackErrorKind?: ModelCallWebSocketFallbackErrorKind;
-  websocketFallbackReason?: ModelCallWebSocketFallbackReason;
-  /**
-   * Whether a WebSocket reconnect was attempted before falling back to HTTP
-   */
-  websocketFallbackReconnectAttempted?: boolean;
-  /**
-   * Whether the HTTP fallback started during this model call, rather than being inherited from an earlier call
-   */
-  websocketFallbackStartedThisCall?: boolean;
-  /**
-   * HTTP status of the WebSocket upgrade rejection or WebSocket API error that triggered the HTTP fallback
-   */
-  websocketFallbackStatusCode?: number;
-}
-/**
- * Ordered accounting identity assigned under the source session's emission lock.
- */
-export interface UsageAccountingIdentity {
-  /**
-   * Monotonically increasing sequence within the source session.
-   */
-  sequence: number;
-  /**
-   * Session that assigned this accounting sequence.
-   */
-  sourceSessionId: string;
-  /**
-   * Existing API call identifier, or a runtime-generated identity when none was supplied.
-   */
-  usageId: string;
 }
 /**
  * Per-request cost and usage data from the CAPI copilot_usage response field
@@ -7444,19 +6709,10 @@ export interface ModelCallFailureData {
    */
   reasoningEffort?: string;
   /**
-   * Serialized (uncompressed) byte length of the failed request body, before any Content-Encoding. A content-free size signal.
+   * Serialized (uncompressed) byte length of the failed request body. A content-free size signal.
    */
   requestBodyBytes?: number;
-  requestBodyEncoding?: ModelCallRequestBodyEncoding;
-  /**
-   * Byte length of the failed request body actually sent on the wire, after any Content-Encoding. Equals requestBodyBytes when the body was not compressed.
-   */
-  requestBodyWireBytes?: number;
   requestFingerprint?: ModelCallFailureRequestFingerprint;
-  /**
-   * Zero-based orchestrator retry index of the failed attempt
-   */
-  retryAttempt?: number;
   /**
    * Per-request treatment/eligibility signal returned by the Copilot API in the `X-GitHub-Copilot-Request-TE` response header for the associated model call; `false` when the header was absent or unparseable.
    */
@@ -7471,41 +6727,11 @@ export interface ModelCallFailureData {
    */
   statusCode?: number;
   transport?: ModelCallFailureTransport;
-  /**
-   * Milliseconds spent on the WebSocket attempt before falling back to HTTP
-   */
-  websocketFallbackAfterMs?: number;
-  /**
-   * WebSocket close code received before the HTTP fallback
-   */
-  websocketFallbackCloseCode?: number;
-  websocketFallbackErrorKind?: ModelCallWebSocketFallbackErrorKind;
-  websocketFallbackReason?: ModelCallWebSocketFallbackReason;
-  /**
-   * Whether a WebSocket reconnect was attempted before falling back to HTTP
-   */
-  websocketFallbackReconnectAttempted?: boolean;
-  /**
-   * Whether the HTTP fallback started during this model call, rather than being inherited from an earlier call
-   */
-  websocketFallbackStartedThisCall?: boolean;
-  /**
-   * HTTP status of the WebSocket upgrade rejection or WebSocket API error that triggered the HTTP fallback
-   */
-  websocketFallbackStatusCode?: number;
 }
 /**
  * Content-free structural summary of the failing request for diagnosing malformed 4xx calls
  */
 export interface ModelCallFailureRequestFingerprint {
-  /**
-   * Summed byte length of opaque or encrypted reasoning payloads
-   */
-  encryptedContentBytes?: number;
-  /**
-   * Summed byte length of inline image payloads (data URLs and base64 sources)
-   */
-  imageBytes?: number;
   /**
    * Total number of image content parts
    */
@@ -7526,10 +6752,6 @@ export interface ModelCallFailureRequestFingerprint {
    * Tool calls whose name is missing or empty (rejected by strict providers)
    */
   namelessToolCallCount: number;
-  /**
-   * Number of messages carrying opaque or encrypted reasoning
-   */
-  reasoningItemCount?: number;
   /**
    * Total number of tool calls across assistant messages
    */
@@ -8752,6 +7974,10 @@ export interface SubagentStartedData {
    */
   executionMode?: string;
   /**
+   * Legacy root id of the workflow run that spawned this sub-agent. New consumers should use workflowRunId.
+   */
+  factoryRunId?: string;
+  /**
    * Model the sub-agent will run with, when known at start.
    */
   model?: string;
@@ -9684,14 +8910,6 @@ export interface PermissionRequestedEvent {
  */
 export interface PermissionRequestedData {
   agentMode?: SessionMode;
-  /**
-   * Delegated agent that owns permission recovery when the owner session multiplexes remote agents. Absent otherwise.
-   */
-  ownerAgentId?: string;
-  /**
-   * Execution session that owns permission recovery for this request. Absent on historical events.
-   */
-  ownerSessionId?: string;
   permissionMode?: PermissionMode;
   permissionRequest: PermissionRequest;
   promptRequest?: PermissionPromptRequest;
@@ -9864,12 +9082,6 @@ export interface PermissionRequestWrite {
    */
   diff: string;
   /**
-   * Complete before/after text previews captured while planning this request. Omitted when a complete preview is unavailable, including pre-read sandbox requests and non-UTF-8 files. Missing sides mean creation or deletion, not unavailable content.
-   *
-   * @minItems 1
-   */
-  fileEdits?: [PermissionWriteFileEdit, ...PermissionWriteFileEdit[]];
-  /**
    * Path of the file being written to
    */
   fileName: string;
@@ -9913,26 +9125,6 @@ export interface PermissionRequestWrite {
    * Tool call ID that triggered this permission request
    */
   toolCallId?: string;
-}
-/**
- * Complete text snapshots for one proposed file change. At least one side is present. Different before and after paths describe a move.
- */
-export interface PermissionWriteFileEdit {
-  after?: PermissionWriteFileContent;
-  before?: PermissionWriteFileContent;
-}
-/**
- * A named, complete UTF-8 text snapshot for a pending file operation.
- */
-export interface PermissionWriteFileContent {
-  /**
-   * Complete file contents, including an empty string for an empty file.
-   */
-  content: string;
-  /**
-   * Absolute path in the session filesystem namespace.
-   */
-  path: string;
 }
 /**
  * File or directory read permission request
@@ -10501,12 +9693,6 @@ export interface PermissionPromptRequestWrite {
    * Unified diff showing the proposed changes
    */
   diff: string;
-  /**
-   * Complete before/after text previews captured while planning this request. Omitted when a complete preview is unavailable, including pre-read sandbox requests and non-UTF-8 files. Missing sides mean creation or deletion, not unavailable content.
-   *
-   * @minItems 1
-   */
-  fileEdits?: [PermissionWriteFileEdit, ...PermissionWriteFileEdit[]];
   /**
    * Path of the file being written to
    */
@@ -12865,48 +12051,6 @@ export interface AutoModeResolvedData {
   stickyOverride?: boolean;
 }
 /**
- * Session event "session.managed_plugin_progress". Experimental transient presentation-neutral progress for organization-required plugin preparation. Clients should localize the phase copy and display plugin specs without translating them.
- */
-/** @experimental */
-export interface ManagedPluginProgressEvent {
-  /**
-   * Sub-agent instance identifier. Absent for events from the root/main agent and session-level events.
-   */
-  agentId?: string;
-  data: ManagedPluginProgressData;
-  /**
-   * Always true for events that are transient and not persisted to the session event log on disk.
-   */
-  ephemeral: true;
-  /**
-   * Unique event identifier (UUID v4), generated when the event is emitted
-   */
-  id: string;
-  /**
-   * ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event.
-   */
-  parentId: string | null;
-  /**
-   * ISO 8601 timestamp when the event was created
-   */
-  timestamp: string;
-  /**
-   * Type discriminator. Always "session.managed_plugin_progress".
-   */
-  type: "session.managed_plugin_progress";
-}
-/**
- * Experimental transient presentation-neutral progress for organization-required plugin preparation. Clients should localize the phase copy and display plugin specs without translating them.
- */
-/** @experimental */
-export interface ManagedPluginProgressData {
-  phase: ManagedPluginProgressPhase;
-  /**
-   * Ordered plugin install specs affected by this phase. Empty while managed settings initialize and when preparation completes.
-   */
-  pluginSpecs: string[];
-}
-/**
  * Session event "session.managed_settings_resolved". Effective enterprise managed settings applied to the session and their contributing channels. Emitted whenever managed policy is applied or reapplied, including session start, resume, and account switch. This ephemeral live snapshot is delivered to subscribers but not persisted to the session event log; initial resolution occurs before session.start.
  */
 /** @experimental */
@@ -12943,7 +12087,7 @@ export interface ManagedSettingsResolvedEvent {
 /** @experimental */
 export interface ManagedSettingsResolvedData {
   /**
-   * Whether an explicit enterprise policy restriction disables bypass-permissions ("yolo") mode for this session. Deny-wins across layers; an unresolved policy does not force this on by itself.
+   * Whether enterprise policy disables bypass-permissions ("yolo") mode for this session. Deny-wins across layers, and forced on when `failClosed` is true.
    */
   bypassPermissionsDisabled: boolean;
   /**
@@ -12955,7 +12099,7 @@ export interface ManagedSettingsResolvedData {
    */
   deviceManaged: boolean;
   /**
-   * Whether managed policy could not be determined (e.g. a failed server fetch) and unresolved-policy safeguards remain active. This does not by itself disable bypass-permissions; `bypassPermissionsDisabled` reports only an explicit policy restriction.
+   * Whether managed policy could not be determined (e.g. a failed server fetch) and the session fell back to the fail-closed restriction. When true, restrictions such as disabling bypass-permissions are enforced even though `settings` may be absent.
    */
   failClosed: boolean;
   /**
@@ -12966,7 +12110,6 @@ export interface ManagedSettingsResolvedData {
    * Whether at least two managed sources supplied permission allowlists, so enforcement intersects them and the flattened settings payload omits `permissions.allow`.
    */
   permissionsAllowIntersected?: boolean;
-  permissionsContext?: ManagedPermissionsContext;
   /**
    * Whether the policy-helper managed-settings layer was present. The policy helper is the weakest channel: it fills keys no enterprise source set and can never replace one.
    */
@@ -12986,20 +12129,7 @@ export interface ManagedSettingsResolvedData {
   source: ManagedSettingsResolvedSource;
 }
 /**
- * Reusable managed permission evaluation context. Treat permissions as runtime-owned policy data and retain it verbatim; it includes source-aware composition metadata. This is a snapshot, not a capability or approval token; only use contexts obtained from trusted policy sources.
- */
-export interface ManagedPermissionsContext {
-  /**
-   * Policy could not be determined; evaluation must deny every operation.
-   */
-  failClosed: boolean;
-  /**
-   * Runtime-owned composed permissions object. Absent when no permission policy is configured.
-   */
-  permissions?: JsonValue;
-}
-/**
- * Session event "session.managed_settings_enforced". Runtime enforcement of enterprise managed settings: fires when the session blocks or caps a runtime action because enterprise policy governs it, so SDK clients can explain *why* an action was governed. Unlike `session.managed_settings_resolved` (which reports *what* is managed), this reports a concrete governed action — e.g. a user or host tried to turn on bypass permissions or Assisted Permissions while the corresponding policy disables it. Emitted live (not persisted to the session event log) on user/host-initiated attempts only, never for silent policy application. Marked experimental while the managed-settings surface stabilizes.
+ * Session event "session.managed_settings_enforced". Runtime enforcement of enterprise managed settings: fires when the session blocks or caps a runtime action because enterprise policy governs it, so SDK clients can explain *why* an action was governed. Unlike `session.managed_settings_resolved` (which reports *what* is managed), this reports a concrete governed action — e.g. a user or host tried to turn on a bypass-permissions escalation while policy disables it. Emitted live (not persisted to the session event log) on user/host-initiated attempts only, never for silent policy application. Marked experimental while the managed-settings surface stabilizes.
  */
 /** @experimental */
 export interface ManagedSettingsEnforcedEvent {
@@ -13030,7 +12160,7 @@ export interface ManagedSettingsEnforcedEvent {
   type: "session.managed_settings_enforced";
 }
 /**
- * Runtime enforcement of enterprise managed settings: fires when the session blocks or caps a runtime action because enterprise policy governs it, so SDK clients can explain *why* an action was governed. Unlike `session.managed_settings_resolved` (which reports *what* is managed), this reports a concrete governed action — e.g. a user or host tried to turn on bypass permissions or Assisted Permissions while the corresponding policy disables it. Emitted live (not persisted to the session event log) on user/host-initiated attempts only, never for silent policy application. Marked experimental while the managed-settings surface stabilizes.
+ * Runtime enforcement of enterprise managed settings: fires when the session blocks or caps a runtime action because enterprise policy governs it, so SDK clients can explain *why* an action was governed. Unlike `session.managed_settings_resolved` (which reports *what* is managed), this reports a concrete governed action — e.g. a user or host tried to turn on a bypass-permissions escalation while policy disables it. Emitted live (not persisted to the session event log) on user/host-initiated attempts only, never for silent policy application. Marked experimental while the managed-settings surface stabilizes.
  */
 /** @experimental */
 export interface ManagedSettingsEnforcedData {
@@ -13045,7 +12175,7 @@ export interface ManagedSettingsEnforcedData {
    */
   message: string;
   /**
-   * The managed setting key responsible for the enforcement (for example `permissions.disableBypassPermissionsMode` or `permissions.disableAssistedPermissionsMode`).
+   * The managed setting key responsible for the enforcement (e.g. `permissions.disableBypassPermissionsMode`).
    */
   setting: string;
 }

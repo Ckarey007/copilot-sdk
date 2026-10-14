@@ -9,12 +9,7 @@
  */
 
 export { CopilotClient } from "./client.js";
-export type {
-    HostLocalServerOptions,
-    HostGitHubEnvironmentOptions,
-    ModelGetReasoningSummariesRequest,
-    ModelGetReasoningSummariesResult,
-} from "./generated/rpc.js";
+export type { HostLocalServerOptions, HostGitHubEnvironmentOptions } from "./generated/rpc.js";
 export {
     AhpHost,
     type AhpHostExit,
@@ -250,7 +245,6 @@ export type {
     ToolTelemetry,
     ToolResultObject,
     ToolSearchConfig,
-    ImageGenerationConfig,
     TypedSessionEventHandler,
     TypedSessionLifecycleHandler,
     ZodSchema,

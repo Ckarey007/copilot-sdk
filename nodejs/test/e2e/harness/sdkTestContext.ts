@@ -4,10 +4,10 @@
 
 import fs, { realpathSync } from "fs";
 import { readdir, rm } from "fs/promises";
+import { createInterface } from "node:readline";
 import os from "os";
 import { basename, dirname, join, resolve } from "path";
 import { rimraf } from "rimraf";
-import { createInterface } from "readline";
 import { fileURLToPath } from "url";
 import { afterAll, afterEach, beforeEach, onTestFailed, onTestFinished, TestContext } from "vitest";
 import { CopilotClient, CopilotClientOptions, RuntimeConnection } from "../../../src";
@@ -16,8 +16,6 @@ import { CapiProxy } from "./CapiProxy";
 import { formatError, retry } from "./sdkTestHelper";
 import { resolvePreparedRuntimePath } from "../../../scripts/prepare-runtime.js";
 import { testBackend, withTestBackend } from "./testBackend";
-import { readDiagnosticTail } from "../../../../test/harness/sdk-diagnostics.mjs";
-import type { ReplayBackend } from "../../../../test/harness/replayingCapiProxy";
 
 export const isCI = process.env.GITHUB_ACTIONS === "true";
 export const DEFAULT_GITHUB_TOKEN = "fake-token-for-e2e-tests";
@@ -67,7 +65,6 @@ export async function createSdkTestContext({
     copilotClientOptions,
     replayOnly = process.env.COPILOT_SDK_E2E_REPLAY_ONLY === "true",
     modelNames,
-    backend = testBackend,
 }: {
     logLevel?: "error" | "none" | "warning" | "info" | "debug" | "all";
     cliPath?: string;
@@ -75,8 +72,6 @@ export async function createSdkTestContext({
     copilotClientOptions?: CopilotClientOptions;
     replayOnly?: boolean;
     modelNames?: Record<string, string>;
-    /** Pin a provider-specific contract instead of inheriting the CI backend matrix. */
-    backend?: ReplayBackend;
 } = {}) {
     const homeDir = realpathSync(fs.mkdtempSync(join(os.tmpdir(), "copilot-test-config-")));
     const copilotHomeDir = realpathSync(fs.mkdtempSync(join(os.tmpdir(), "copilot-test-home-")));
@@ -109,8 +104,6 @@ export async function createSdkTestContext({
         // CI runners and makes MCP servers time out before reaching connected.
         COPILOT_DEBUG_GITHUB_API_URL: proxyUrl,
         COPILOT_HOME: copilotHomeDir,
-        // Proxy ports can be reused by later fixtures with different account metadata.
-        COPILOT_CACHE_HOME: join(copilotHomeDir, "cache"),
         COPILOT_SDK_AUTH_TOKEN: "",
         GH_CONFIG_DIR: homeDir,
         // Use the proxy-recognized token rather than blanking these. Tests that spin up
@@ -175,11 +168,11 @@ export async function createSdkTestContext({
 
     class TestClient extends CopilotClient {
         override createSession(config: SessionConfig) {
-            return super.createSession(withTestBackend(config, backend, proxyUrl));
+            return super.createSession(withTestBackend(config, testBackend, proxyUrl));
         }
 
         override resumeSession(sessionId: string, config: ResumeSessionConfig) {
-            return super.resumeSession(sessionId, withTestBackend(config, backend, proxyUrl));
+            return super.resumeSession(sessionId, withTestBackend(config, testBackend, proxyUrl));
         }
     }
 
@@ -274,36 +267,24 @@ export async function createSdkTestContext({
             // Preserve only the bounded, metadata-only runtime diagnostics before afterAll removes the home.
             if (logLevel === "debug") {
                 try {
-                    const diagnostics = await readDiagnosticTail(copilotHomeDir);
-                    console.error(
-                        `[SDK diagnostics: last ${diagnostics.length} audited records]\n${diagnostics.join("\n")}`
-                    );
                     const logDir = join(copilotHomeDir, "logs");
                     for (const file of await readdir(logDir)) {
                         if (!file.endsWith(".log")) continue;
                         const lines = createInterface({
                             input: fs.createReadStream(join(logDir, file)),
                         });
-                        const mcpClosureDiagnostics: string[] = [];
+                        const diagnostics: string[] = [];
                         for await (const line of lines) {
-                            const mcpClosure = line.match(
-                                /^\S+ \[(?:DEBUG|WARN)\] \[rust:mcp::client\] MCP (?:liveness probe (?:found the (?:session expired|transport (?:closed|channel closed))|failed; awaiting corroboration|went unanswered; inconclusive|could not be sent in time; inconclusive|failed inconclusively|failed with an unrecognised transport error)|liveness probes are neither proving life nor consistently failing|session reported closed)/
-                            );
-                            if (mcpClosure) {
-                                // Keep only static messages; transport error fields can contain user data.
-                                mcpClosureDiagnostics.push(mcpClosure[0]);
-                                if (mcpClosureDiagnostics.length > 32)
-                                    mcpClosureDiagnostics.shift();
-                            }
+                            if (!/^\S+ \[DEBUG\] \[rust:sdk_diagnostics\] /.test(line)) continue;
+                            diagnostics.push(line);
+                            if (diagnostics.length > 200) diagnostics.shift();
                         }
-                        if (mcpClosureDiagnostics.length > 0) {
-                            console.error(
-                                `[MCP session-closure diagnostics: ${file}; last ${mcpClosureDiagnostics.length} matching lines]\n${mcpClosureDiagnostics.join("\n")}`
-                            );
-                        }
+                        console.error(
+                            `[SDK runtime diagnostics: ${file}; last ${diagnostics.length} matching lines]\n${diagnostics.join("\n")}`
+                        );
                     }
-                } catch {
-                    console.error("SDK diagnostics unavailable");
+                } catch (error) {
+                    console.error(`Could not read SDK runtime diagnostics: ${formatError(error)}`);
                 }
             }
         });
@@ -338,7 +319,6 @@ export async function createSdkTestContext({
         }
 
         await openAiEndpoint.updateConfig({
-            backend,
             replayOnly,
             filePath: getTrafficCapturePath(testContext),
             workDir,

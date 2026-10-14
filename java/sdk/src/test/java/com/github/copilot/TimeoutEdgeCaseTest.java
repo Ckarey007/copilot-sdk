@@ -4,10 +4,7 @@
 
 package com.github.copilot;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
@@ -19,8 +16,6 @@ import java.io.PipedOutputStream;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 
@@ -89,7 +84,10 @@ public class TimeoutEdgeCaseTest {
      * After {@code close()}, the future returned by {@code sendAndWait} must NOT be
      * completed by a stale timeout.
      * <p>
-     * Closing fails the pending response with {@code IllegalStateException}.
+     * Contract: {@code close()} shuts down the timeout scheduler before the
+     * blocking {@code session.detach} RPC call, so any pending timeout task is
+     * cancelled and the future remains incomplete (not exceptionally completed with
+     * {@code TimeoutException}).
      */
     @Test
     void testTimeoutDoesNotFireAfterSessionClose() throws Exception {
@@ -102,12 +100,12 @@ public class TimeoutEdgeCaseTest {
 
                 assertFalse(result.isDone(), "Future should be pending before timeout fires");
 
+                // close() blocks up to 5s on session.detach RPC. The 2s timeout
+                // fires during that window with the current per-call scheduler.
                 session.close();
 
-                ExecutionException error = assertThrows(ExecutionException.class,
-                        () -> result.get(5, TimeUnit.SECONDS));
-                IllegalStateException failure = assertInstanceOf(IllegalStateException.class, error.getCause());
-                assertEquals("Session closed before response completed", failure.getMessage());
+                assertFalse(result.isDone(), "Future should not be completed by a timeout after session is closed. "
+                        + "The per-call ScheduledExecutorService leaked a TimeoutException.");
             }
         } finally {
             rpc.close();

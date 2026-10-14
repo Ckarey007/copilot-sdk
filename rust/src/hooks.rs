@@ -271,9 +271,8 @@ pub struct SessionEndInput {
     /// The last assistant message.
     #[serde(default)]
     pub final_message: Option<String>,
-    /// Error message, if the session ended due to an error. The CLI sends an
-    /// error object here (`{"message"}`); see `HookErrorWire`.
-    #[serde(default, deserialize_with = "optional_hook_error_text")]
+    /// Error message, if the session ended due to an error.
+    #[serde(default)]
     pub error: Option<String>,
 }
 
@@ -303,54 +302,12 @@ pub struct ErrorOccurredInput {
     /// Working directory.
     #[serde(rename = "cwd")]
     pub working_directory: PathBuf,
-    /// The error message. The CLI sends an error object here
-    /// (`{"name", "message", "stack"}`); see `HookErrorWire`.
-    #[serde(deserialize_with = "hook_error_text")]
+    /// The error message.
     pub error: String,
     /// Context where the error occurred: `"model_call"`, `"tool_execution"`, `"system"`, `"user_input"`.
     pub error_context: String,
     /// Whether the error is recoverable.
     pub recoverable: bool,
-}
-
-/// The two wire shapes of a hook input's `error` field.
-///
-/// The CLI sends the `error` of the `errorOccurred` and `sessionEnd` inputs as
-/// an error object (`{"name", "message", "stack"}`), while the public fields
-/// stay strings. A string is the text, an object's string `message` is the
-/// text, and an object without one keeps its compact JSON form.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum HookErrorWire {
-    Text(String),
-    Object(serde_json::Map<String, Value>),
-}
-
-impl HookErrorWire {
-    fn into_text(self) -> String {
-        match self {
-            Self::Text(text) => text,
-            Self::Object(mut object) => match object.get_mut("message") {
-                Some(Value::String(message)) => std::mem::take(message),
-                _ => Value::Object(object).to_string(),
-            },
-        }
-    }
-}
-
-fn hook_error_text<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    HookErrorWire::deserialize(deserializer).map(HookErrorWire::into_text)
-}
-
-fn optional_hook_error_text<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Option::<HookErrorWire>::deserialize(deserializer)
-        .map(|wire| wire.map(HookErrorWire::into_text))
 }
 
 /// Output for the `errorOccurred` hook.

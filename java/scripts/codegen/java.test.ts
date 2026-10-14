@@ -10,7 +10,6 @@ import test from "node:test";
 import type { JSONSchema7 } from "json-schema";
 
 import {
-    buildNamespaceTree,
     collectDirectDiscriminatedUnionTypeNames,
     collectNestedDiscriminatedUnionTypeNames,
     generateApiMethod,
@@ -24,102 +23,6 @@ import {
 } from "./java.js";
 import { RPC_VARIANT_OWNERS } from "./rpc-variant-owners.js";
 
-test("managed permission contexts share the session-event model in RPC inputs and outputs", () => {
-    const generated = "../../sdk/src/generated/java/com/github/copilot/generated/";
-    for (const name of ["ManagedSettingsResolveResult", "ManagedSettingsPermissionsEvaluateParams"]) {
-        const source = fs.readFileSync(new URL(`${generated}rpc/${name}.java`, import.meta.url), "utf8");
-        assert.match(source, /import com\.github\.copilot\.generated\.ManagedPermissionsContext;/);
-        assert.match(source, /ManagedPermissionsContext (?:context|permissionsContext)/);
-    }
-    assert.equal(fs.existsSync(new URL(`${generated}rpc/ManagedPermissionsContext.java`, import.meta.url)), false);
-    const event = fs.readFileSync(new URL(`${generated}SessionManagedSettingsResolvedEvent.java`, import.meta.url), "utf8");
-    assert.match(event, /ManagedPermissionsContext permissionsContext/);
-});
-
-test("managed permission requests and results reuse one named operation and kind", async () => {
-    const files = await renderRpcTypes({
-        definitions: {
-            ManagedPermissionOperation: {
-                anyOf: [{
-                    type: "object",
-                    properties: { kind: { type: "string", const: "url" }, url: { type: "string" } },
-                    required: ["kind", "url"],
-                }],
-            },
-            ManagedPermissionEvaluation: {
-                type: "object",
-                properties: { operation: { $ref: "#/definitions/ManagedPermissionOperation" } },
-                required: ["operation"],
-            },
-        },
-        server: {
-            managedSettings: {
-                permissions: {
-                    evaluate: {
-                        rpcMethod: "managedSettings.permissions.evaluate",
-                        params: {
-                            type: "object",
-                            properties: { operations: { type: "array", items: { $ref: "#/definitions/ManagedPermissionOperation" } } },
-                            required: ["operations"],
-                        },
-                        result: {
-                            type: "object",
-                            properties: { results: { type: "array", items: { $ref: "#/definitions/ManagedPermissionEvaluation" } } },
-                            required: ["results"],
-                        },
-                    },
-                },
-            },
-        },
-    }, {});
-    const operation = generatedFile(files, "ManagedPermissionOperation");
-    assert.ok(operation);
-    assert.match(operation, /record ManagedPermissionOperation\(/);
-    assert.match(operation, /ManagedPermissionOperationKind kind/);
-    assert.match(operation, /enum ManagedPermissionOperationKind/);
-    assert.match(operation, /URL\("url"\)/);
-    assert.match(generatedFile(files, "ManagedSettingsPermissionsEvaluateParams")!, /List<ManagedPermissionOperation> operations/);
-    assert.match(generatedFile(files, "ManagedPermissionEvaluation")!, /ManagedPermissionOperation operation/);
-});
-
-test("wrapper Javadoc preserves the operation contract ahead of parameter documentation", () => {
-    const tree = buildNamespaceTree({
-        reconcile: {
-            rpcMethod: "session.extensions.reconcile",
-            description: "Host-only reconciliation; method-not-found must not fall back to persistent disables.",
-            params: {
-                type: "object",
-                description: "Identifies the target session.",
-                properties: { sessionId: { type: "string" } },
-                required: ["sessionId"],
-            },
-            result: { type: "object", properties: { extensions: { type: "array", items: { type: "string" } } } },
-        },
-    });
-    const method = tree.methods.get("reconcile");
-    assert.ok(method);
-    const source = generateApiMethod("reconcile", method, true, "sessionId").lines.join("\n");
-    assert.match(source, /Host-only reconciliation; method-not-found must not fall back to persistent disables/);
-    assert.doesNotMatch(source, /Identifies the target session/);
-});
-
-test("host environment options preserve the legacy two-argument constructor", () => {
-    const source = generateRpcClass("HostGitHubEnvironmentOptions", {
-        type: "object",
-        properties: {
-            name: { type: "string" },
-            computeId: { type: "string" },
-            requireConnectionBinding: { type: ["boolean", "null"] },
-        },
-        required: ["name", "computeId"],
-    }).code;
-    assert.match(source, /@JsonProperty\("requireConnectionBinding"\) Boolean requireConnectionBinding/);
-    assert.match(
-        source,
-        /public HostGitHubEnvironmentOptions\(\s*String name,\s*String computeId\s*\) \{\s*this\(name, computeId, null\);/s,
-    );
-});
-
 test("arbitrary handoff maps accept scalar and structured JSON values", () => {
     const result = schemaTypeToJava(
         { type: "object", additionalProperties: true },
@@ -127,34 +30,6 @@ test("arbitrary handoff maps accept scalar and structured JSON values", () => {
     );
     assert.equal(result.javaType, "Map<String, Object>");
     assert.ok(result.imports.has("java.util.Map"));
-});
-
-test("host session summaries retain their experimental schema designation", async () => {
-    const summary: JSONSchema7 & { stability: string } = {
-        type: "object",
-        stability: "experimental",
-        properties: { resource: { type: "string" } },
-        required: ["resource"],
-    };
-    const files = await renderRpcTypes({
-        definitions: { HostSessionSummary: summary },
-        server: {
-            listSessions: {
-                rpcMethod: "host.listSessions",
-                stability: "experimental",
-                params: null,
-                result: {
-                    type: "object",
-                    properties: { sessions: { type: "array", items: { $ref: "#/definitions/HostSessionSummary" } } },
-                },
-            },
-        },
-    }, {});
-    const source = [...files].find(([file]) => file.endsWith("/HostSessionSummary.java"))?.[1];
-    assert.ok(source, "missing HostSessionSummary.java");
-    assert.match(source, /import com\.github\.copilot\.CopilotExperimental;/);
-    assert.match(source, /@apiNote This type is experimental and may change in a future version\./);
-    assert.match(source, /@CopilotExperimental/);
 });
 
 test("preserves whole-event deprecation through a referenced event envelope", () => {
@@ -176,35 +51,6 @@ test("preserves whole-event deprecation through a referenced event envelope", ()
     assert.equal(variants.length, 1);
     assert.equal(variants[0].deprecated, true);
     assert.match(renderEventVariantClass(variants[0], "com.github.copilot.generated"), /@Deprecated/);
-});
-
-test("preserves whole-event experimental stability through a referenced event envelope", () => {
-    const schema: JSONSchema7 = {
-        definitions: {
-            SessionEvent: { anyOf: [{ $ref: "#/definitions/ExperimentalEvent" }] },
-            ExperimentalEvent: {
-                type: "object",
-                stability: "experimental",
-                properties: {
-                    type: { const: "session.experimental" },
-                    data: { $ref: "#/definitions/ExperimentalData" },
-                },
-            } as JSONSchema7,
-            ExperimentalData: { type: "object", properties: { phase: { type: "string" } } },
-        },
-    };
-    const variants = extractEventVariants(schema);
-    assert.equal(variants.length, 1);
-    assert.equal(variants[0].stability, "experimental");
-    const source = renderEventVariantClass(variants[0], "com.github.copilot.generated");
-    assert.match(
-        source,
-        /@CopilotExperimental\n(?:@[^\n]*\n)*public final class SessionExperimentalEvent\b/,
-    );
-    assert.match(
-        source,
-        /    @CopilotExperimental\n(?:    @[^\n]*\n)*    public record SessionExperimentalEventData\b/,
-    );
 });
 
 for (const referencedData of [false, true]) {
@@ -418,23 +264,6 @@ test("ordinary and empty root objects retain their existing records", () => {
     const empty = renderPayload({ type: "object", properties: {} });
     assert.match(empty, /public record ExampleNotificationEventData\(\)/);
     assert.doesNotMatch(empty, /JsonNode|DELEGATING|JsonValue/);
-});
-
-test("session event records preserve constructors declared by x-legacy-parameters", () => {
-    const source = renderPayload({
-        type: "object",
-        properties: {
-            before: { type: "string" },
-            added: { type: ["string", "null"] },
-            after: { type: "string" },
-        },
-        "x-legacy-parameters": ["before", "after"],
-    } as JSONSchema7);
-
-    assert.match(
-        source,
-        /public ExampleNotificationEventData\(\s*String before,\s*String after\s*\) \{\s*this\(before, null, after\);/,
-    );
 });
 
 test("session event fields promote directly referenced discriminated response unions", () => {
@@ -1239,44 +1068,6 @@ test("x-legacy-parameters response records keep every component and add the prev
 
     const twice = recordSource(legacyRecordSchema(["owned", "traceId"]));
     assert.deepEqual(legacyConstructors(twice), ["String name, String status, String error => name, status, null, error, null"]);
-});
-
-test("managed settings params keep their previous positional constructor", async () => {
-    const fixture = {
-        server: {
-            managedSettings: {
-                resolve: {
-                    rpcMethod: "managedSettings.resolve",
-                    params: { $ref: "#/definitions/ManagedSettingsResolveRequest" },
-                    result: null,
-                },
-            },
-        },
-        definitions: {
-            ManagedSettingsResolveRequest: {
-                anyOf: [
-                    { not: {} },
-                    {
-                        type: "object",
-                        properties: {
-                            selectionId: { type: "string" },
-                            gitHubToken: { type: "string" },
-                            clientName: { type: "string" },
-                            workingDirectory: { type: "string" },
-                        },
-                        additionalProperties: false,
-                    },
-                ],
-            },
-        },
-    } as Parameters<typeof renderRpcTypes>[0];
-
-    const files = await renderRpcTypes(fixture, {});
-    const params = generatedFile(files, "ManagedSettingsResolveParams")!;
-    assert.match(
-        params,
-        /public ManagedSettingsResolveParams\(\s*String selectionId,\s*String gitHubToken,\s*String clientName\s*\) \{\s*this\(selectionId, gitHubToken, clientName, null\);\s*\}/
-    );
 });
 
 test("x-legacy-parameters response records reject metadata a positional constructor cannot preserve", () => {

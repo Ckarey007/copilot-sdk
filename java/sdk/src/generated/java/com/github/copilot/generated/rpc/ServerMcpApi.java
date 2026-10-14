@@ -24,8 +24,6 @@ public final class ServerMcpApi {
 
     /** API methods for the {@code mcp.config} sub-namespace. */
     public final ServerMcpConfigApi config;
-    /** API methods for the {@code mcp.registry} sub-namespace. */
-    final ServerMcpRegistryApi registry;
     /** API methods for the {@code mcp.installations} sub-namespace. */
     public final ServerMcpInstallationsApi installations;
 
@@ -33,7 +31,6 @@ public final class ServerMcpApi {
     ServerMcpApi(RpcCaller caller) {
         this.caller = caller;
         this.config = new ServerMcpConfigApi(caller);
-        this.registry = new ServerMcpRegistryApi(caller);
         this.installations = new ServerMcpInstallationsApi(caller);
     }
 
@@ -46,28 +43,6 @@ public final class ServerMcpApi {
     @CopilotExperimental
     public CompletableFuture<McpDiscoverResult> discover(McpDiscoverParams params) {
         return caller.invoke("mcp.discover", params, McpDiscoverResult.class);
-    }
-
-    /**
-     * Lists the MCP servers the runtime supplies itself, so a host that disables the built-ins wholesale suppresses exactly the set the runtime would otherwise add. The names are fixed for a build and depend on no configuration, session or account.
-     *
-     * @apiNote This method is experimental and may change in a future version.
-     * @since 1.0.0
-     */
-    @CopilotExperimental
-    CompletableFuture<McpListBuiltinServerNamesResult> listBuiltinServerNames() {
-        return caller.invoke("mcp.listBuiltinServerNames", java.util.Map.of(), McpListBuiltinServerNamesResult.class);
-    }
-
-    /**
-     * Reports whether the gh-replaceable GitHub MCP tools may be clipped for a session, which a host feeds back as the `excludeGhReplaceableTools` build option. The tools are redundant only when the session can reach a shell *and* the host has the `gh` that would replace them, so both halves are decided here. The shell half runs the platform shell tool through the runtime's own tool-filter matcher, so entry forms like `builtin:bash` and `builtin:*` behave exactly as they do when a session builds its tool catalog. The host half probes for `gh`, and is skipped entirely when the filters already rule the shell out. Host presence alone is not enough: a session restricted to, say, `view` would otherwise lose the built-in issue-read fallback while having no shell to replace it with. The answer describes the host the runtime runs on, so it is never forwarded to a remote engine.
-     *
-     * @apiNote This method is experimental and may change in a future version.
-     * @since 1.0.0
-     */
-    @CopilotExperimental
-    CompletableFuture<McpShouldExcludeGitHubToolsResult> shouldExcludeGitHubTools(McpShouldExcludeGitHubToolsParams params) {
-        return caller.invoke("mcp.shouldExcludeGitHubTools", params, McpShouldExcludeGitHubToolsResult.class);
     }
 
     /**

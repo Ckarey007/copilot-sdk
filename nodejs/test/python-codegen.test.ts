@@ -43,49 +43,17 @@ describe("Python RPC projection compatibility", () => {
         "utf8"
     );
 
-    it("deserializes usage results shared with session events", () => {
-        expect(code).toContain(
-            'return UsageGetMetricsResult.from_dict(await self._client.request("session.usage.getMetrics"'
-        );
-    });
-
-    it("returns typed quota warning projections", () => {
-        expect(code).toContain(
-            "async def take_warnings(self, *, timeout: float | None = None) -> list[QuotaWarningProjection]:"
-        );
-        expect(code).toContain(
-            'return from_list(QuotaWarningProjection.from_dict, await self._client.request("session.quota.takeWarnings"'
-        );
-    });
-
-    it.each([
-        "account.getAllUsers",
-        "sessions.getClientMetadata",
-        "session.gitHubAuth.getAllAuthAvailable",
-        "session.gitHubAuth.lastAuthErrors",
-    ])("preserves the published dictionary-array result for %s", (method) => {
-        expect(code).toContain(`return list(await self._client.request("${method}"`);
-    });
-
-    it("keeps the managed permission discriminator independent of MCP URL kinds", () => {
-        expect(code).toContain("class ManagedPermissionOperationKind(Enum):");
-        const operation = code
-            .split("class ManagedPermissionOperation:")[1]
-            ?.split("\n\n@dataclass")[0];
-        expect(operation).toContain("kind: ManagedPermissionOperationKind");
-        expect(operation).toContain('kind = ManagedPermissionOperationKind(obj.get("kind"))');
-        expect(operation).toContain(
-            'result["kind"] = to_enum(ManagedPermissionOperationKind, self.kind)'
-        );
-        expect(operation).not.toContain("MCPServerCardURLKind");
-    });
-
     it("preserves the existing Workflow checkpoint result API", () => {
         const result = "SessionWorkflowPauseAtCheckpointResult";
         expect(code).toContain(`class ${result}:`);
         expect(code).toContain(`-> ${result}:`);
         expect(code).toContain(`return ${result}.from_dict(`);
         expect(code).toContain(`"${result}",`);
+    });
+
+    it("does not restore the retired Factory checkpoint aliases", () => {
+        expect(code).not.toContain("SessionFactoryPauseAtCheckpointResult");
+        expect(code).not.toContain('"session.factory.pauseAtCheckpoint"');
     });
 
     it("keeps named connection-scoped host callback results", () => {

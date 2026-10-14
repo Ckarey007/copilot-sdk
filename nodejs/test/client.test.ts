@@ -4895,105 +4895,6 @@ connection.listen();
             });
             expect(topLevelStop).not.toHaveBeenCalled();
         });
-
-        it.each([
-            [
-                "an error object",
-                { name: "Error", message: "model timeout", stack: "Error: model timeout" },
-                "model timeout",
-            ],
-            ["a string", "boom", "boom"],
-            ["null", null, null],
-            ["an object without a string message", { code: 7 }, '{"code":7}'],
-        ])("decodes %s in the error hook inputs", async (_name, error, expected) => {
-            const client = new CopilotClient({ autoStart: false });
-            const received: { hookType: string; error: unknown }[] = [];
-            const session = new CopilotSession("session-1", {} as any);
-            session.registerHooks({
-                onErrorOccurred: (input) => {
-                    received.push({ hookType: "errorOccurred", error: input.error });
-                },
-                onSessionEnd: (input) => {
-                    received.push({ hookType: "sessionEnd", error: input.error });
-                },
-            });
-            (client as any).sessions.set(session.sessionId, session);
-            const base = { sessionId: session.sessionId, timestamp: 1700000000000, cwd: "/repo" };
-
-            await (client as any).handleHooksInvoke({
-                sessionId: session.sessionId,
-                hookType: "errorOccurred",
-                input: { ...base, error, errorContext: "model_call", recoverable: true },
-            });
-            await (client as any).handleHooksInvoke({
-                sessionId: session.sessionId,
-                hookType: "sessionEnd",
-                input: { ...base, reason: "error", error },
-            });
-
-            expect(received).toEqual([
-                { hookType: "errorOccurred", error: expected },
-                { hookType: "sessionEnd", error: expected },
-            ]);
-        });
-
-        it("keeps the decoded timestamp and working directory when it decodes the error", async () => {
-            const client = new CopilotClient({ autoStart: false });
-            const received: { timestamp: unknown; workingDirectory: unknown }[] = [];
-            const session = new CopilotSession("session-1", {} as any);
-            session.registerHooks({
-                onErrorOccurred: (input) => {
-                    received.push({
-                        timestamp: input.timestamp,
-                        workingDirectory: input.workingDirectory,
-                    });
-                },
-            });
-            (client as any).sessions.set(session.sessionId, session);
-
-            await (client as any).handleHooksInvoke({
-                sessionId: session.sessionId,
-                hookType: "errorOccurred",
-                input: {
-                    sessionId: session.sessionId,
-                    timestamp: 1700000000000,
-                    cwd: "/repo",
-                    error: { message: "model timeout" },
-                    errorContext: "model_call",
-                    recoverable: true,
-                },
-            });
-
-            expect(received).toEqual([
-                { timestamp: new Date(1700000000000), workingDirectory: "/repo" },
-            ]);
-        });
-
-        it("leaves an absent sessionEnd error absent", async () => {
-            const client = new CopilotClient({ autoStart: false });
-            const received: unknown[] = [];
-            const session = new CopilotSession("session-1", {} as any);
-            session.registerHooks({
-                onSessionEnd: (input) => {
-                    received.push(input);
-                },
-            });
-            (client as any).sessions.set(session.sessionId, session);
-
-            await (client as any).handleHooksInvoke({
-                sessionId: session.sessionId,
-                hookType: "sessionEnd",
-                input: {
-                    sessionId: session.sessionId,
-                    timestamp: 1700000000000,
-                    cwd: "/repo",
-                    reason: "complete",
-                },
-            });
-
-            expect(received).toHaveLength(1);
-            expect(received[0]).not.toHaveProperty("error");
-        });
     });
 
     describe("shutdown", () => {
@@ -5444,7 +5345,6 @@ describe("managedSettings serialization", () => {
         const managedSettings = {
             permissions: {
                 disableBypassPermissionsMode: DisableBypassPermissionsModes.AllowAutoOnly,
-                disableAssistedPermissionsMode: true,
                 deny: ["Shell(git push)"],
                 ask: ["Domain(publish.example)"],
                 allow: ["Read(**)"],
@@ -5457,7 +5357,6 @@ describe("managedSettings serialization", () => {
         expect(params.managedSettings).toEqual({
             permissions: {
                 disableBypassPermissionsMode: "allow-auto-only",
-                disableAssistedPermissionsMode: true,
                 deny: ["Shell(git push)"],
                 ask: ["Domain(publish.example)"],
                 allow: ["Read(**)"],
@@ -5519,11 +5418,9 @@ describe("managedSettings serialization", () => {
     it("coexists with enableManagedSettings", async () => {
         const params = await captureCreateParams({
             enableManagedSettings: true,
-            enforceManagedModelDefaults: true,
             managedSettings: { permissions: { deny: ["Edit(/secrets/**)"] } },
         });
         expect(params.enableManagedSettings).toBe(true);
-        expect(params.enforceManagedModelDefaults).toBe(true);
         expect(params.managedSettings).toEqual({ permissions: { deny: ["Edit(/secrets/**)"] } });
     });
 

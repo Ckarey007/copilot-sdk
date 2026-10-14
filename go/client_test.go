@@ -545,33 +545,9 @@ func TestClient_ForceStopAndExternalStopDoNotRequestRuntimeShutdown(t *testing.T
 	externalServer.Stop()
 }
 
-func TestClient_ForceStopStopsRegisteredSessionEventProcessing(t *testing.T) {
-	rpcClient, server, shutdownCalled := newRuntimeShutdownRpcPair(t)
-	t.Cleanup(server.Stop)
-	sessions := make(map[string]*Session)
-	for _, id := range []string{"session-1", "session-2"} {
-		session := newSession(id, rpcClient, "", false)
-		t.Cleanup(session.stopEventProcessing)
-		sessions[id] = session
-	}
-	client := &Client{
-		client:   rpcClient,
-		RPC:      rpc.NewServerRPC(rpcClient),
-		sessions: sessions,
-	}
-
-	client.ForceStop()
-	for _, session := range sessions {
-		assertSessionEventChannelClosed(t, session)
-	}
-	client.ForceStop()
-	assertRuntimeShutdownNotCalled(t, shutdownCalled)
-}
-
 func TestClient_ForceStopCancelsPendingExternalTools(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	session := &Session{
-		eventDone: make(chan struct{}),
 		pendingExternalTools: map[string]*pendingExternalTool{
 			"request-1": {ctx: ctx, cancel: cancel},
 		},
@@ -588,89 +564,6 @@ func TestClient_ForceStopCancelsPendingExternalTools(t *testing.T) {
 	case <-ctx.Done():
 	case <-time.After(time.Second):
 		t.Fatal("ForceStop did not cancel the pending external tool")
-	}
-}
-
-func TestClient_ForceStopDropsRemainingEventHandlers(t *testing.T) {
-	for _, fromHandler := range []bool{false, true} {
-		name := "while handler is blocked"
-		if fromHandler {
-			name = "from event handler"
-		}
-		t.Run(name, func(t *testing.T) {
-			session := &Session{
-				eventCh:   make(chan SessionEvent, 1),
-				eventDone: make(chan struct{}),
-			}
-			client := &Client{sessions: map[string]*Session{"session-1": session}}
-			entered := make(chan struct{})
-			release := make(chan struct{})
-			releaseHandler := sync.OnceFunc(func() { close(release) })
-			forceStopped := make(chan struct{})
-			consumerExited := make(chan struct{})
-			unexpected := make(chan string, 3)
-			t.Cleanup(func() {
-				session.stopEventProcessing()
-				releaseHandler()
-				select {
-				case <-consumerExited:
-				case <-time.After(2 * time.Second):
-					t.Error("event consumer did not exit during cleanup")
-				}
-			})
-			session.On(func(event SessionEvent) {
-				if _, ok := event.Data.(*SessionIdleData); !ok {
-					unexpected <- "queued event"
-					return
-				}
-				close(entered)
-				<-release
-				if fromHandler {
-					client.ForceStop()
-					close(forceStopped)
-				}
-			})
-			session.On(func(SessionEvent) { unexpected <- "remaining handler" })
-			go func() {
-				defer close(consumerExited)
-				session.processEvents()
-			}()
-
-			session.eventCh <- newTestEvent()
-			select {
-			case <-entered:
-			case <-time.After(2 * time.Second):
-				t.Fatal("event handler did not enter its barrier")
-			}
-			session.eventCh <- SessionEvent{Data: &AssistantMessageData{
-				Content:   "queued",
-				MessageID: "queued",
-			}}
-			if fromHandler {
-				releaseHandler()
-			} else {
-				go func() {
-					client.ForceStop()
-					close(forceStopped)
-				}()
-			}
-			select {
-			case <-forceStopped:
-			case <-time.After(2 * time.Second):
-				t.Fatal("ForceStop waited for the in-flight event handler")
-			}
-			releaseHandler()
-			select {
-			case <-consumerExited:
-			case <-time.After(2 * time.Second):
-				t.Fatal("event consumer did not exit after the handler returned")
-			}
-			select {
-			case callback := <-unexpected:
-				t.Fatalf("ForceStop dispatched %s after cancellation", callback)
-			default:
-			}
-		})
 	}
 }
 
@@ -1147,68 +1040,6 @@ func assertAdditionalDirectories(t *testing.T, params json.RawMessage, want []st
 	}
 	if !reflect.DeepEqual(payload.AdditionalDirectories, want) {
 		t.Fatalf("additionalDirectories = %v, want %v", payload.AdditionalDirectories, want)
-	}
-}
-
-func TestClient_ForwardsGitHubCacheStoreToSessionRequests(t *testing.T) {
-	rpcClient, server, _ := newRuntimeShutdownRpcPair(t)
-	t.Cleanup(server.Stop)
-	client := &Client{
-		client:   rpcClient,
-		RPC:      rpc.NewServerRPC(rpcClient),
-		sessions: make(map[string]*Session),
-	}
-
-	createParams := make(chan json.RawMessage, 2)
-	server.SetRequestHandler("session.create", func(params json.RawMessage) (json.RawMessage, *jsonrpc2.Error) {
-		createParams <- append(json.RawMessage(nil), params...)
-		sessionID := sessionIDFromParams(t, params)
-		return []byte(`{"sessionId":"` + sessionID + `","workspacePath":"/workspace"}`), nil
-	})
-	resumeParams := make(chan json.RawMessage, 2)
-	server.SetRequestHandler("session.resume", func(params json.RawMessage) (json.RawMessage, *jsonrpc2.Error) {
-		resumeParams <- append(json.RawMessage(nil), params...)
-		return []byte(`{"sessionId":"` + sessionIDFromParams(t, params) + `","workspacePath":"/workspace"}`), nil
-	})
-
-	if _, err := client.CreateSession(t.Context(), &SessionConfig{EnableGitHubCacheStore: Bool(true)}); err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-	assertGitHubCacheStoreParam(t, <-createParams, Bool(true))
-	if _, err := client.ResumeSessionWithOptions(
-		t.Context(),
-		"resumed-cache-store",
-		&ResumeSessionConfig{EnableGitHubCacheStore: Bool(false)},
-	); err != nil {
-		t.Fatalf("ResumeSessionWithOptions failed: %v", err)
-	}
-	assertGitHubCacheStoreParam(t, <-resumeParams, Bool(false))
-
-	if _, err := client.CreateSession(t.Context(), &SessionConfig{}); err != nil {
-		t.Fatalf("CreateSession without option failed: %v", err)
-	}
-	assertGitHubCacheStoreParam(t, <-createParams, nil)
-	if _, err := client.ResumeSessionWithOptions(t.Context(), "resumed-cache-store-unset", &ResumeSessionConfig{}); err != nil {
-		t.Fatalf("ResumeSessionWithOptions without option failed: %v", err)
-	}
-	assertGitHubCacheStoreParam(t, <-resumeParams, nil)
-}
-
-func assertGitHubCacheStoreParam(t *testing.T, params json.RawMessage, want *bool) {
-	t.Helper()
-	var payload map[string]any
-	if err := json.Unmarshal(params, &payload); err != nil {
-		t.Fatalf("failed to decode request params: %v", err)
-	}
-	got, present := payload["enableGitHubCacheStore"]
-	if want == nil {
-		if present {
-			t.Fatalf("enableGitHubCacheStore = %v, want omitted", got)
-		}
-		return
-	}
-	if got != *want {
-		t.Fatalf("enableGitHubCacheStore = %v (present=%v), want %v", got, present, *want)
 	}
 }
 
@@ -2161,7 +1992,7 @@ func TestClient_InProcessConnection(t *testing.T) {
 			Mode:                      ModeEmpty,
 		})
 
-		config := client.inProcessHostConfig("")
+		config := client.inProcessHostConfig()
 		expectedArgs := []string{
 			"--log-level", "debug",
 			"--auth-token-env", "COPILOT_SDK_AUTH_TOKEN",
@@ -2179,33 +2010,6 @@ func TestClient_InProcessConnection(t *testing.T) {
 		}
 		if !reflect.DeepEqual(config.Environment, expectedEnvironment) {
 			t.Fatalf("Expected managed environment %v, got %v", expectedEnvironment, config.Environment)
-		}
-	})
-
-	t.Run("forwards supported CLI login sync integrations", func(t *testing.T) {
-		t.Setenv("GITHUB_COPILOT_INTEGRATION_ID", "github/github-app")
-		client := NewClient(&ClientOptions{Connection: InProcessConnection{}})
-		t.Setenv("GITHUB_COPILOT_INTEGRATION_ID", "changed/after-construction")
-
-		integrationID := getEnvValue(client.options.Env, "GITHUB_COPILOT_INTEGRATION_ID")
-		config := client.inProcessHostConfig(integrationID)
-
-		expectedArgs := []string{"--cli-login-sync-integration-id=github/github-app"}
-		if !reflect.DeepEqual(config.Args, expectedArgs) {
-			t.Fatalf("Expected CLI login sync arguments %v, got %v", expectedArgs, config.Args)
-		}
-	})
-
-	t.Run("forwards integration validation to the runtime", func(t *testing.T) {
-		t.Setenv("GITHUB_COPILOT_INTEGRATION_ID", "third-party/integration")
-		client := NewClient(&ClientOptions{Connection: InProcessConnection{}})
-
-		integrationID := getEnvValue(client.options.Env, "GITHUB_COPILOT_INTEGRATION_ID")
-		config := client.inProcessHostConfig(integrationID)
-
-		expectedArgs := []string{"--cli-login-sync-integration-id=third-party/integration"}
-		if !reflect.DeepEqual(config.Args, expectedArgs) {
-			t.Fatalf("Expected CLI login sync arguments %v, got %v", expectedArgs, config.Args)
 		}
 	})
 }
@@ -2370,38 +2174,6 @@ func TestCreateSessionRequest_ClientName(t *testing.T) {
 		json.Unmarshal(data, &m)
 		if _, ok := m["clientName"]; ok {
 			t.Error("Expected clientName to be omitted when empty")
-		}
-	})
-}
-
-func TestCreateSessionRequest_Name(t *testing.T) {
-	t.Run("includes name in JSON when set", func(t *testing.T) {
-		req := createSessionRequest{Name: "named at create"}
-		data, err := json.Marshal(req)
-		if err != nil {
-			t.Fatalf("Failed to marshal: %v", err)
-		}
-		var m map[string]any
-		if err := json.Unmarshal(data, &m); err != nil {
-			t.Fatalf("Failed to unmarshal: %v", err)
-		}
-		if m["name"] != "named at create" {
-			t.Errorf("Expected name to be 'named at create', got %v", m["name"])
-		}
-	})
-
-	t.Run("omits name from JSON when empty", func(t *testing.T) {
-		req := createSessionRequest{}
-		data, err := json.Marshal(req)
-		if err != nil {
-			t.Fatalf("Failed to marshal: %v", err)
-		}
-		var m map[string]any
-		if err := json.Unmarshal(data, &m); err != nil {
-			t.Fatalf("Failed to unmarshal: %v", err)
-		}
-		if _, ok := m["name"]; ok {
-			t.Error("Expected name to be omitted when empty")
 		}
 	})
 }
@@ -5415,22 +5187,20 @@ func TestIsTerminal(t *testing.T) {
 func TestSessionRequests_ManagedSettings(t *testing.T) {
 	settings := &ManagedSettings{
 		Permissions: &ManagedSettingsPermissions{
-			DisableBypassPermissionsMode:   DisableBypassPermissionsModeDisable,
-			DisableAssistedPermissionsMode: Bool(true),
-			Deny:                           []string{"Shell(git push)"},
-			Ask:                            []string{"Domain(publish.example)"},
-			Allow:                          []string{"Read(**)"},
-			LimitTo:                        []string{"Domain(github.com)"},
+			DisableBypassPermissionsMode: DisableBypassPermissionsModeDisable,
+			Deny:                         []string{"Shell(git push)"},
+			Ask:                          []string{"Domain(publish.example)"},
+			Allow:                        []string{"Read(**)"},
+			LimitTo:                      []string{"Domain(github.com)"},
 		},
 	}
 
 	expectedPermissions := map[string]any{
-		"disableBypassPermissionsMode":   "disable",
-		"disableAssistedPermissionsMode": true,
-		"deny":                           []any{"Shell(git push)"},
-		"ask":                            []any{"Domain(publish.example)"},
-		"allow":                          []any{"Read(**)"},
-		"limitTo":                        []any{"Domain(github.com)"},
+		"disableBypassPermissionsMode": "disable",
+		"deny":                         []any{"Shell(git push)"},
+		"ask":                          []any{"Domain(publish.example)"},
+		"allow":                        []any{"Read(**)"},
+		"limitTo":                      []any{"Domain(github.com)"},
 	}
 
 	t.Run("direct injection enables managed safeguards", func(t *testing.T) {
@@ -5443,11 +5213,7 @@ func TestSessionRequests_ManagedSettings(t *testing.T) {
 	})
 
 	t.Run("includes managedSettings on create when set", func(t *testing.T) {
-		req := createSessionRequest{
-			EnableManagedSettings:       Bool(true),
-			EnforceManagedModelDefaults: Bool(true),
-			ManagedSettings:             settings,
-		}
+		req := createSessionRequest{EnableManagedSettings: Bool(true), ManagedSettings: settings}
 		data, err := json.Marshal(req)
 		if err != nil {
 			t.Fatalf("Failed to marshal: %v", err)
@@ -5458,9 +5224,6 @@ func TestSessionRequests_ManagedSettings(t *testing.T) {
 		}
 		if m["enableManagedSettings"] != true {
 			t.Errorf("Expected enableManagedSettings true, got %v", m["enableManagedSettings"])
-		}
-		if m["enforceManagedModelDefaults"] != true {
-			t.Errorf("Expected enforceManagedModelDefaults true, got %v", m["enforceManagedModelDefaults"])
 		}
 		ms, ok := m["managedSettings"].(map[string]any)
 		if !ok {

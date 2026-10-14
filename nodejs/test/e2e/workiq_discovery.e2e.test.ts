@@ -15,7 +15,7 @@ import { createE2eRequestHandler } from "../../../test/harness/mockHandlers.js";
 describe("account-derived WorkIQ", async () => {
     const { env, workDir, openAiEndpoint } = await createSdkTestContext();
 
-    it("discovers WorkIQ only on supported platforms without requesting authentication or persisting a server", async () => {
+    it("discovers disabled WorkIQ without requesting authentication or persisting a server", async () => {
         const profile = join(workDir, "workiq-profile");
         await mkdir(profile, { recursive: true });
         await writeFile(
@@ -53,29 +53,22 @@ describe("account-derived WorkIQ", async () => {
             ])
         );
         const discovered = await session.rpc.mcp.list();
-        const expected =
-            process.platform === "linux"
-                ? []
-                : [
-                      expect.objectContaining({
-                          name: "WorkIQ",
-                          source: "account",
-                          status: "disabled",
-                          url: "https://workiq.svc.cloud.microsoft/mcp",
-                      }),
-                  ];
-        expect(discovered.servers.filter((server) => server.name === "WorkIQ")).toEqual(expected);
+        expect(discovered.servers).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    name: "WorkIQ",
+                    source: "account",
+                    status: "disabled",
+                    url: "https://workiq.svc.cloud.microsoft/mcp",
+                }),
+            ])
+        );
         expect(discovered).not.toHaveProperty("accountServerConfigs");
-        // Gating off WorkIQ can leave this fixture with no MCP configuration to reload.
-        if (discovered.servers.length === 0) {
-            await expect(session.rpc.mcp.reload()).rejects.toThrow(
-                "MCP config reload not available"
-            );
-        } else {
-            await session.rpc.mcp.reload();
-        }
+        await session.rpc.mcp.reload();
         const reloaded = await session.rpc.mcp.list();
-        expect(reloaded.servers.filter((server) => server.name === "WorkIQ")).toEqual(expected);
+        expect(reloaded.servers.find((server) => server.name === "WorkIQ")?.status).toBe(
+            "disabled"
+        );
         expect(authenticationRequests).toBe(0);
         await expect(readFile(join(profile, "mcp-config.json"))).rejects.toMatchObject({
             code: "ENOENT",
@@ -149,7 +142,7 @@ describe("account-derived WorkIQ", async () => {
         expect(result).not.toHaveProperty("accountServerConfigs");
     });
 
-    it.skipIf(process.platform === "linux").each(["silent", "browser"] as const)(
+    it.each(["silent", "browser"] as const)(
         "authenticates through %s, persists renewal, and disconnects on parent logout",
         async (authentication) => {
             const profile = join(workDir, `workiq-${authentication}-profile`);
@@ -378,10 +371,7 @@ describe("account-derived WorkIQ", async () => {
                 { timeoutMessage: "WorkIQ did not connect after enablement" }
             );
             const initialGrantCount = authentication === "browser" ? 2 : 1;
-            expect(
-                grants.map((grant) => Object.fromEntries(grant)),
-                JSON.stringify({ requests, browserScopes })
-            ).toHaveLength(initialGrantCount);
+            expect(grants).toHaveLength(initialGrantCount);
             expect(grants[0].get("client_id")).toBe("ba081686-5d24-4bc6-a0d6-d034ecffed87");
             expect(grants[0].get("refresh_token")).toBe("parent-refresh");
             expect(grants[0].get("scope")).toContain(scope);

@@ -91,12 +91,13 @@ export function publicationSdks(
         destination !== "public" || visibility === "public",
         "Internal releases cannot publish publicly"
     );
-    // Public Python publishes in the caller so PyPI authentication and attestations share one workflow identity.
-    return packagedSdks(channel, visibility).filter((language) =>
-        destination === "public"
-            ? language !== "python"
-            : language === "nodejs" ||
-              (channel !== "unstable" && (language === "dotnet" || language === "python"))
+    // Python publishes in the caller so PyPI authentication and attestations share one workflow identity.
+    return packagedSdks(channel, visibility).filter(
+        (language) =>
+            language !== "python" &&
+            (destination === "public" ||
+                language === "nodejs" ||
+                (channel !== "unstable" && language === "dotnet"))
     );
 }
 
