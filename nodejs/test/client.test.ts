@@ -26,6 +26,7 @@ import {
     type GitHubTelemetryNotification,
     type ManagedSettings,
     type ModelInfo,
+    type PolicyHelperFailure,
     type SubagentStartHookOutput,
     type SubagentStopHookOutput,
     type SessionFsProvider,
@@ -5483,12 +5484,17 @@ describe("RPC error data preservation", () => {
     it.each(["session.create", "session.resume"] as const)(
         "preserves structured data from %s",
         async (method) => {
-            const data = {
-                context: {
-                    category: "structured-runtime-failure",
-                    message: "The runtime preserved structured operation context.",
-                },
-            };
+            const policyHelperFailure = {
+                authority: "future-authority",
+                category: "future-category",
+                code: "helper.future-code",
+                failureMode: "future-mode",
+                message: "The Policy Helper rejected the current configuration.",
+                previousPolicyRetained: true,
+                reason: "future-reason",
+                severity: "future-severity",
+            } satisfies PolicyHelperFailure;
+            const data = { policyHelperFailure };
             const responseError = new ResponseError(-32001, "session operation failed", data);
             const client = new CopilotClient({ autoStart: false });
             (client as any).connection = {
@@ -5515,6 +5521,7 @@ describe("RPC error data preservation", () => {
             expect(responseError.code).toBe(-32001);
             expect(responseError.message).toBe("session operation failed");
             expect(responseError.data).toBe(data);
+            expect(responseError.data.policyHelperFailure).toBe(policyHelperFailure);
         }
     );
 });
