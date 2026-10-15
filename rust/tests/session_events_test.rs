@@ -3,7 +3,8 @@
 #![allow(clippy::unwrap_used)]
 
 use github_copilot_sdk::session_events::{
-    HumanResponseRecordedResponse, IndexedSearchData, PermissionApprovalEvaluation,
+    HumanResponseRecordedResponse, IndexedSearchData, ManagedSettingsRefreshFailureCause,
+    ManagedSettingsRefreshState, ManagedSettingsRefreshTrigger, PermissionApprovalEvaluation,
     PermissionApprovalEvaluationEvaluationStage, PermissionApprovalEvaluationJudgeStatus,
     PermissionApprovalEvaluationReasonCode, SandboxDecisionData, SessionEventData,
     ToolExecutionCompleteFileEdit, ToolExecutionCompleteFileEditKind, TypedSessionEvent,
@@ -35,6 +36,86 @@ fn event_envelope(event_type: &str, data: serde_json::Value) -> serde_json::Valu
         "type": event_type,
         "data": data
     })
+}
+
+#[test]
+fn managed_settings_refresh_event_preserves_retained_outage_and_refusal() {
+    for (state, trigger, cause, blocked) in [
+        ("outage_retained", "periodic", "outage", false),
+        ("failed", "explicit", "refusal", true),
+    ] {
+        let mut data = serde_json::json!({
+            "scope": "current-account-host-endpoint-scope",
+            "sessionIncarnation": "current-incarnation",
+            "authGeneration": i64::MAX,
+            "attempt": 4,
+            "revision": 8,
+            "trigger": trigger,
+            "required": true,
+            "state": state,
+            "executionBlocked": blocked,
+            "failureCause": cause,
+        });
+        if cause == "refusal" {
+            data["clientUpdateRequiredMessage"] = serde_json::json!("Update this client");
+        }
+        let wire = event_envelope("session.managed_settings_refresh_status_changed", data);
+        let event: TypedSessionEvent = serde_json::from_value(wire.clone()).unwrap();
+        let SessionEventData::SessionManagedSettingsRefreshStatusChanged(status) = &event.payload
+        else {
+            panic!("expected managed-settings refresh status event");
+        };
+        assert_eq!(status.execution_blocked, blocked);
+        assert_eq!(status.auth_generation, i64::MAX);
+        assert_eq!(
+            (&status.state, &status.trigger, &status.failure_cause),
+            if blocked {
+                (
+                    &ManagedSettingsRefreshState::Failed,
+                    &ManagedSettingsRefreshTrigger::Explicit,
+                    &Some(ManagedSettingsRefreshFailureCause::Refusal),
+                )
+            } else {
+                (
+                    &ManagedSettingsRefreshState::OutageRetained,
+                    &ManagedSettingsRefreshTrigger::Periodic,
+                    &Some(ManagedSettingsRefreshFailureCause::Outage),
+                )
+            }
+        );
+        assert_eq!(serde_json::to_value(event).unwrap(), wire);
+    }
+}
+
+#[test]
+fn unknown_managed_settings_refresh_classification_does_not_clear_execution_barrier() {
+    let wire = event_envelope(
+        "session.managed_settings_refresh_status_changed",
+        serde_json::json!({
+            "scope": "scope",
+            "sessionIncarnation": "incarnation",
+            "authGeneration": 1,
+            "attempt": 2,
+            "revision": 3,
+            "trigger": "future-trigger",
+            "required": true,
+            "state": "future-state",
+            "executionBlocked": true,
+            "failureCause": "future-cause",
+        }),
+    );
+    let event: TypedSessionEvent = serde_json::from_value(wire).unwrap();
+    let SessionEventData::SessionManagedSettingsRefreshStatusChanged(status) = event.payload else {
+        panic!("expected managed-settings refresh status event");
+    };
+    assert_eq!(status.state, ManagedSettingsRefreshState::Unknown);
+    assert_eq!(status.trigger, ManagedSettingsRefreshTrigger::Unknown);
+    assert_eq!(
+        status.failure_cause,
+        Some(ManagedSettingsRefreshFailureCause::Unknown)
+    );
+    assert!(status.required);
+    assert!(status.execution_blocked);
 }
 
 #[test]

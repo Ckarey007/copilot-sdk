@@ -452,6 +452,15 @@ pub enum SessionEventType {
     /// and may change or be removed in future SDK or CLI releases.
     ///
     /// </div>
+    #[serde(rename = "session.managed_settings_refresh_status_changed")]
+    SessionManagedSettingsRefreshStatusChanged,
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This type is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases.
+    ///
+    /// </div>
     #[serde(rename = "session.managed_settings_enforced")]
     SessionManagedSettingsEnforced,
     #[serde(rename = "commands.changed")]
@@ -991,6 +1000,15 @@ pub enum SessionEventData {
     /// </div>
     #[serde(rename = "session.managed_settings_resolved")]
     SessionManagedSettingsResolved(SessionManagedSettingsResolvedData),
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This type is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases.
+    ///
+    /// </div>
+    #[serde(rename = "session.managed_settings_refresh_status_changed")]
+    SessionManagedSettingsRefreshStatusChanged(SessionManagedSettingsRefreshStatusChangedData),
     ///
     /// <div class="warning">
     ///
@@ -8162,6 +8180,43 @@ pub struct SessionManagedSettingsResolvedData {
     pub source: ManagedSettingsResolvedSource,
 }
 
+/// Session event "session.managed_settings_refresh_status_changed". Retained runtime status for the live session's enterprise managed-settings refresh attempt, scope fences, and execution-barrier verdict.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionManagedSettingsRefreshStatusChangedData {
+    /// Monotonic managed-settings refresh attempt counter within this session incarnation.
+    pub attempt: i64,
+    /// Monotonic session authentication generation, incremented whenever session credentials or account state change.
+    pub auth_generation: i64,
+    /// Sanitized refusal message when `failureCause` is `refusal` (HTTP 466 client update required).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_update_required_message: Option<String>,
+    /// Whether governed session execution (new turns and prompts) is blocked by this managed-settings refresh state.
+    pub execution_blocked: bool,
+    /// Typed producer failure classification when `state` is `failed` or `outage_retained`; absent when `pending`, `satisfied`, or `not_required`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_cause: Option<ManagedSettingsRefreshFailureCause>,
+    /// Whether enterprise policy (`forceRemoteSettingsRefresh`) or an authoritative refusal requires a live server policy confirmation.
+    pub required: bool,
+    /// Monotonic status observation revision within this session incarnation, incremented on every refresh-status transition. Consumers combining RPC reads and event broadcasts should order snapshots by `(sessionIncarnation, revision)` and ignore older revisions.
+    pub revision: i64,
+    /// Opaque, non-credential scope token binding the selected account identity, host, and effective policy endpoint. Use `sessionIncarnation` / `expectedSessionIncarnation` to fence session replacement.
+    pub scope: String,
+    /// Opaque runtime session incarnation identifier that changes when a session is replaced or reconstructed.
+    pub session_incarnation: String,
+    /// Current refresh state (`not_required`, `pending`, `satisfied`, `failed`, or `outage_retained`).
+    pub state: ManagedSettingsRefreshState,
+    /// Trigger that initiated the active required-refresh obligation or current refresh attempt.
+    pub trigger: ManagedSettingsRefreshTrigger,
+}
+
 /// Session event "session.managed_settings_enforced". Runtime enforcement of enterprise managed settings: fires when the session blocks or caps a runtime action because enterprise policy governs it, so SDK clients can explain *why* an action was governed. Unlike `session.managed_settings_resolved` (which reports *what* is managed), this reports a concrete governed action — e.g. a user or host tried to turn on bypass permissions or Assisted Permissions while the corresponding policy disables it. Emitted live (not persisted to the session event log) on user/host-initiated attempts only, never for silent policy application. Marked experimental while the managed-settings surface stabilizes.
 ///
 /// <div class="warning">
@@ -12353,6 +12408,96 @@ pub enum ManagedSettingsResolvedSource {
     /// No managed policy is in force (no channel contributed).
     #[serde(rename = "none")]
     None,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Typed producer classification of why a managed-settings refresh attempt failed.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ManagedSettingsRefreshFailureCause {
+    /// The selected account credential was unavailable, missing, or rejected during policy resolution.
+    #[serde(rename = "auth")]
+    Auth,
+    /// A retryable network transport failure, retryable HTTP status, or timeout prevented live policy confirmation.
+    #[serde(rename = "outage")]
+    Outage,
+    /// The managed-settings service authoritatively refused this client (HTTP 466 client update required).
+    #[serde(rename = "refusal")]
+    Refusal,
+    /// A non-retryable server error, malformed policy document, device/helper failure, or policy application failure prevented completion.
+    #[serde(rename = "other")]
+    Other,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Current state of the session's managed-settings refresh attempt and required-refresh posture.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ManagedSettingsRefreshState {
+    /// No live remote refresh is required by policy, and managed-settings resolution does not block execution.
+    #[serde(rename = "not_required")]
+    NotRequired,
+    /// A managed-settings refresh attempt is currently in flight or applying policy.
+    #[serde(rename = "pending")]
+    Pending,
+    /// An authoritative live server result was received and canonically committed for the current scope.
+    #[serde(rename = "satisfied")]
+    Satisfied,
+    /// The refresh attempt failed to confirm and commit fresh policy; governed execution is blocked when a live check is required.
+    #[serde(rename = "failed")]
+    Failed,
+    /// A periodic refresh on a previously live-verified same-scope session encountered a retryable outage; the confirmed server policy and current device/helper restrictions remain enforced without blocking execution.
+    #[serde(rename = "outage_retained")]
+    OutageRetained,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Origin of a session's managed-settings refresh attempt or retained required-refresh obligation.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ManagedSettingsRefreshTrigger {
+    /// Initial managed-settings resolution started when the session was created.
+    #[serde(rename = "startup")]
+    Startup,
+    /// Managed-settings resolution started when resuming an existing session.
+    #[serde(rename = "resume")]
+    Resume,
+    /// Managed-settings resolution started because session authentication or account context changed.
+    #[serde(rename = "account_change")]
+    AccountChange,
+    /// Scoped cache-bypassing refresh requested explicitly via `session.managedSettings.refresh`.
+    #[serde(rename = "explicit")]
+    Explicit,
+    /// Background periodic or context-triggered managed-settings refresh on a running session.
+    #[serde(rename = "periodic")]
+    Periodic,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]

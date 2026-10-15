@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 
 pub use super::session_events::{
     AbortReason, AgentModelPolicy, AutoTier, ContextTier, IndexedSearchState,
-    ManagedPermissionsContext, ManagedSettingsResolvedSource, McpOauthHttpResponse,
+    ManagedPermissionsContext, ManagedSettingsRefreshFailureCause, ManagedSettingsRefreshState,
+    ManagedSettingsRefreshTrigger, ManagedSettingsResolvedSource, McpOauthHttpResponse,
     McpOauthWWWAuthenticateParams, McpServerMetadata, McpServerSource, McpServerStatus,
     ModelChangeSource, ModelProviderKind, ModelProviderRef, OmittedBinaryOmittedReason,
     PermissionDecisionSource, PermissionMode, PermissionPromptRequest, PermissionRule,
@@ -888,6 +889,11 @@ pub mod rpc_methods {
     pub const SESSION_CONNECTORS_WITHDRAWPROJECTION: &str = "session.connectors.withdrawProjection";
     /// `session.managedSettings.get`
     pub const SESSION_MANAGEDSETTINGS_GET: &str = "session.managedSettings.get";
+    /// `session.managedSettings.getRefreshStatus`
+    pub const SESSION_MANAGEDSETTINGS_GETREFRESHSTATUS: &str =
+        "session.managedSettings.getRefreshStatus";
+    /// `session.managedSettings.refresh`
+    pub const SESSION_MANAGEDSETTINGS_REFRESH: &str = "session.managedSettings.refresh";
     /// `session.plugins.list`
     pub const SESSION_PLUGINS_LIST: &str = "session.plugins.list";
     /// `session.plugins.install`
@@ -13085,6 +13091,43 @@ pub struct ManagedSettingsReadResult {
     /// Validated, canonical managed-settings JSON. Omitted when no managed settings were discovered or when discovered settings failed validation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings_json: Option<serde_json::Value>,
+}
+
+/// Retained runtime status for the live session's enterprise managed-settings refresh attempt, scope fences, and execution-barrier verdict.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedSettingsRefreshStatus {
+    /// Monotonic managed-settings refresh attempt counter within this session incarnation.
+    pub attempt: i64,
+    /// Monotonic session authentication generation, incremented whenever session credentials or account state change.
+    pub auth_generation: i64,
+    /// Sanitized refusal message when `failureCause` is `refusal` (HTTP 466 client update required).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_update_required_message: Option<String>,
+    /// Whether governed session execution (new turns and prompts) is blocked by this managed-settings refresh state.
+    pub execution_blocked: bool,
+    /// Typed producer failure classification when `state` is `failed` or `outage_retained`; absent when `pending`, `satisfied`, or `not_required`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_cause: Option<ManagedSettingsRefreshFailureCause>,
+    /// Whether enterprise policy (`forceRemoteSettingsRefresh`) or an authoritative refusal requires a live server policy confirmation.
+    pub required: bool,
+    /// Monotonic status observation revision within this session incarnation, incremented on every refresh-status transition. Consumers combining RPC reads and event broadcasts should order snapshots by `(sessionIncarnation, revision)` and ignore older revisions.
+    pub revision: i64,
+    /// Opaque, non-credential scope token binding the selected account identity, host, and effective policy endpoint. Use `sessionIncarnation` / `expectedSessionIncarnation` to fence session replacement.
+    pub scope: String,
+    /// Opaque runtime session incarnation identifier that changes when a session is replaced or reconstructed.
+    pub session_incarnation: String,
+    /// Current refresh state (`not_required`, `pending`, `satisfied`, `failed`, or `outage_retained`).
+    pub state: ManagedSettingsRefreshState,
+    /// Trigger that initiated the active required-refresh obligation or current refresh attempt.
+    pub trigger: ManagedSettingsRefreshTrigger,
 }
 
 /// The bypass-permissions state a host holds today, the account now signed in, and what the managed-policy resolution said.
@@ -26140,6 +26183,28 @@ pub struct SessionManagedSettings {
     /// Managed permission policy injected by the SDK host.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permissions: Option<SessionManagedPermissions>,
+}
+
+/// Optional preconditions fencing an explicit session managed-settings refresh to the scope, session incarnation, and authentication generation the caller observed.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionManagedSettingsRefreshParams {
+    /// Expected monotonic authentication generation from `session.managedSettings.getRefreshStatus`. When provided, the refresh rejects if session credentials changed before scheduling or at commit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_auth_generation: Option<i64>,
+    /// Expected opaque managed-settings scope token from `session.managedSettings.getRefreshStatus`. When provided, the refresh rejects if the session's current scope differs before scheduling or at commit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_scope: Option<String>,
+    /// Expected runtime session incarnation identifier from `session.managedSettings.getRefreshStatus`. When provided, the refresh rejects if the session was replaced.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_session_incarnation: Option<String>,
 }
 
 /// Records which IDE the host is connected to, or clears it.
@@ -39307,6 +39372,95 @@ pub struct SessionManagedSettingsGetResult {
     pub settings: Option<serde_json::Value>,
     /// Channel summary: `server`, `device`, `client`, or `policyHelper` when exactly one channel contributed; `mixed` when multiple channels contributed; otherwise `none`. Consult the per-channel booleans for exact provenance.
     pub source: ManagedSettingsResolvedSource,
+}
+
+/// Identifies the target session.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionManagedSettingsGetRefreshStatusParams {
+    /// Target session identifier
+    pub session_id: SessionId,
+}
+
+/// Retained runtime status for the live session's enterprise managed-settings refresh attempt, scope fences, and execution-barrier verdict.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionManagedSettingsGetRefreshStatusResult {
+    /// Monotonic managed-settings refresh attempt counter within this session incarnation.
+    pub attempt: i64,
+    /// Monotonic session authentication generation, incremented whenever session credentials or account state change.
+    pub auth_generation: i64,
+    /// Sanitized refusal message when `failureCause` is `refusal` (HTTP 466 client update required).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_update_required_message: Option<String>,
+    /// Whether governed session execution (new turns and prompts) is blocked by this managed-settings refresh state.
+    pub execution_blocked: bool,
+    /// Typed producer failure classification when `state` is `failed` or `outage_retained`; absent when `pending`, `satisfied`, or `not_required`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_cause: Option<ManagedSettingsRefreshFailureCause>,
+    /// Whether enterprise policy (`forceRemoteSettingsRefresh`) or an authoritative refusal requires a live server policy confirmation.
+    pub required: bool,
+    /// Monotonic status observation revision within this session incarnation, incremented on every refresh-status transition. Consumers combining RPC reads and event broadcasts should order snapshots by `(sessionIncarnation, revision)` and ignore older revisions.
+    pub revision: i64,
+    /// Opaque, non-credential scope token binding the selected account identity, host, and effective policy endpoint. Use `sessionIncarnation` / `expectedSessionIncarnation` to fence session replacement.
+    pub scope: String,
+    /// Opaque runtime session incarnation identifier that changes when a session is replaced or reconstructed.
+    pub session_incarnation: String,
+    /// Current refresh state (`not_required`, `pending`, `satisfied`, `failed`, or `outage_retained`).
+    pub state: ManagedSettingsRefreshState,
+    /// Trigger that initiated the active required-refresh obligation or current refresh attempt.
+    pub trigger: ManagedSettingsRefreshTrigger,
+}
+
+/// Retained runtime status for the live session's enterprise managed-settings refresh attempt, scope fences, and execution-barrier verdict.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionManagedSettingsRefreshResult {
+    /// Monotonic managed-settings refresh attempt counter within this session incarnation.
+    pub attempt: i64,
+    /// Monotonic session authentication generation, incremented whenever session credentials or account state change.
+    pub auth_generation: i64,
+    /// Sanitized refusal message when `failureCause` is `refusal` (HTTP 466 client update required).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_update_required_message: Option<String>,
+    /// Whether governed session execution (new turns and prompts) is blocked by this managed-settings refresh state.
+    pub execution_blocked: bool,
+    /// Typed producer failure classification when `state` is `failed` or `outage_retained`; absent when `pending`, `satisfied`, or `not_required`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_cause: Option<ManagedSettingsRefreshFailureCause>,
+    /// Whether enterprise policy (`forceRemoteSettingsRefresh`) or an authoritative refusal requires a live server policy confirmation.
+    pub required: bool,
+    /// Monotonic status observation revision within this session incarnation, incremented on every refresh-status transition. Consumers combining RPC reads and event broadcasts should order snapshots by `(sessionIncarnation, revision)` and ignore older revisions.
+    pub revision: i64,
+    /// Opaque, non-credential scope token binding the selected account identity, host, and effective policy endpoint. Use `sessionIncarnation` / `expectedSessionIncarnation` to fence session replacement.
+    pub scope: String,
+    /// Opaque runtime session incarnation identifier that changes when a session is replaced or reconstructed.
+    pub session_incarnation: String,
+    /// Current refresh state (`not_required`, `pending`, `satisfied`, `failed`, or `outage_retained`).
+    pub state: ManagedSettingsRefreshState,
+    /// Trigger that initiated the active required-refresh obligation or current refresh attempt.
+    pub trigger: ManagedSettingsRefreshTrigger,
 }
 
 /// Identifies the target session.
