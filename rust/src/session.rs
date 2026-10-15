@@ -3826,6 +3826,21 @@ async fn handle_request(
 
         "userInput.request" => {
             let params = request.params.as_ref();
+            let Some(callback_request_id) = params.and_then(extract_request_id) else {
+                warn!("userInput.request missing 'requestId' field");
+                let rpc_response = JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: request.id,
+                    result: None,
+                    error: Some(crate::JsonRpcError {
+                        code: error_codes::INVALID_PARAMS,
+                        message: "missing required field: requestId".to_string(),
+                        data: None,
+                    }),
+                };
+                let _ = client.send_response(&rpc_response).await;
+                return;
+            };
             let Some(question) = params
                 .and_then(|p| p.get("question"))
                 .and_then(|v| v.as_str())
@@ -3860,7 +3875,13 @@ async fn handle_request(
             let handler_start = Instant::now();
             let response = if let Some(user_input_handler) = handlers.user_input.as_ref() {
                 user_input_handler
-                    .handle(sid.clone(), question, choices, allow_freeform)
+                    .handle(
+                        sid.clone(),
+                        callback_request_id.clone(),
+                        question,
+                        choices,
+                        allow_freeform,
+                    )
                     .await
             } else {
                 None
@@ -3868,6 +3889,7 @@ async fn handle_request(
             tracing::debug!(
                 elapsed_ms = handler_start.elapsed().as_millis(),
                 session_id = %sid,
+                request_id = %callback_request_id,
                 "UserInputHandler::handle dispatch"
             );
 
@@ -3891,6 +3913,22 @@ async fn handle_request(
         }
 
         "exitPlanMode.request" => {
+            let Some(callback_request_id) = request.params.as_ref().and_then(extract_request_id)
+            else {
+                warn!("exitPlanMode.request missing 'requestId' field");
+                let rpc_response = JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: request.id,
+                    result: None,
+                    error: Some(crate::JsonRpcError {
+                        code: error_codes::INVALID_PARAMS,
+                        message: "missing required field: requestId".to_string(),
+                        data: None,
+                    }),
+                };
+                let _ = client.send_response(&rpc_response).await;
+                return;
+            };
             let params = request
                 .params
                 .as_ref()
@@ -3905,7 +3943,9 @@ async fn handle_request(
             };
 
             let rpc_result = if let Some(exit_plan_handler) = handlers.exit_plan_mode.as_ref() {
-                let result = exit_plan_handler.handle(sid, data).await;
+                let result = exit_plan_handler
+                    .handle(sid, callback_request_id, data)
+                    .await;
                 serde_json::to_value(result).expect("ExitPlanModeResult serialization cannot fail")
             } else {
                 serde_json::json!({ "approved": true })

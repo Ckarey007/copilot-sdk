@@ -306,6 +306,7 @@ pub trait UserInputHandler: Send + Sync + 'static {
     async fn handle(
         &self,
         session_id: SessionId,
+        request_id: RequestId,
         question: String,
         choices: Option<Vec<String>>,
         allow_freeform: Option<bool>,
@@ -317,7 +318,12 @@ pub trait UserInputHandler: Send + Sync + 'static {
 #[async_trait]
 pub trait ExitPlanModeHandler: Send + Sync + 'static {
     /// Decide whether to leave plan mode.
-    async fn handle(&self, session_id: SessionId, data: ExitPlanModeData) -> ExitPlanModeResult;
+    async fn handle(
+        &self,
+        session_id: SessionId,
+        request_id: RequestId,
+        data: ExitPlanModeData,
+    ) -> ExitPlanModeResult;
 }
 
 /// Handler for `auto_mode_switch.requested` events. When unset,

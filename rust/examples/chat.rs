@@ -15,7 +15,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use github_copilot_sdk::handler::{ApproveAllHandler, UserInputHandler, UserInputResponse};
 use github_copilot_sdk::types::{MessageOptions, SessionConfig, SessionEvent, SessionId};
-use github_copilot_sdk::{Client, ClientOptions};
+use github_copilot_sdk::{Client, ClientOptions, RequestId};
 
 /// User input handler that prompts on stdin.
 struct StdinUserInputHandler;
@@ -25,6 +25,7 @@ impl UserInputHandler for StdinUserInputHandler {
     async fn handle(
         &self,
         _session_id: SessionId,
+        _request_id: RequestId,
         question: String,
         _choices: Option<Vec<String>>,
         _allow_freeform: Option<bool>,

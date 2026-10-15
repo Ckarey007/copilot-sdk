@@ -24,7 +24,9 @@ use github_copilot_sdk::rpc::{
     ConnectorConnectResult, ConnectorContinueRequest, ConnectorDisconnectResult,
     ConnectorMcpStatus, ConnectorReconcileOptions, ConnectorReconcileRequest,
     ConnectorSessionAccount, ConnectorStatus, ModelSetAllowedModelsRequest, OpenCanvasInstance,
-    SendAgentMode, SendMode, SendRequest, SessionRpcConnectors,
+    SendAgentMode, SendMode, SendRequest, SessionRpcConnectors, UIElicitationResponse,
+    UIElicitationResponseAction, UIExitPlanModeResponse, UIHandlePendingElicitationRequest,
+    UIHandlePendingExitPlanModeRequest, UIHandlePendingUserInputRequest, UIUserInputResponse,
 };
 use github_copilot_sdk::session_events::{
     ManagedSettingsResolvedSource, McpOauthRequiredData, ReasoningSummary, SessionLimitsConfig,
@@ -813,7 +815,9 @@ async fn github_token_provider_pending_callback_does_not_block_other_providers()
             913,
             "userInput.request",
             serde_json::json!({
-                "sessionId": first.id(), "question": "Still responsive?"
+                "sessionId": first.id(),
+                "requestId": "responsive-user-input",
+                "question": "Still responsive?"
             }),
         )
         .await;
@@ -3822,6 +3826,127 @@ async fn elicitation_returns_typed_result() {
 }
 
 #[tokio::test]
+async fn trusted_human_ui_methods_preserve_callback_correlation() {
+    let (session, mut server) = create_session_pair().await;
+    let session = Arc::new(session);
+
+    let ask_user = tokio::spawn({
+        let session = session.clone();
+        async move {
+            session
+                .rpc()
+                .ui()
+                .handle_human_ask_user(UIHandlePendingElicitationRequest {
+                    request_id: RequestId::from("ask-user/request:1"),
+                    result: UIElicitationResponse {
+                        meta: None,
+                        action: UIElicitationResponseAction::Decline,
+                        content: None,
+                    },
+                })
+                .await
+        }
+    });
+    let request = server.read_request().await;
+    assert_eq!(request["method"], "session.ui.handleHumanAskUser");
+    assert_eq!(
+        request["params"],
+        serde_json::json!({
+            "requestId": "ask-user/request:1",
+            "result": { "action": "decline" },
+            "sessionId": server.session_id,
+        })
+    );
+    server
+        .respond(&request, serde_json::json!({ "success": true }))
+        .await;
+    assert!(
+        timeout(TIMEOUT, ask_user)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .success
+    );
+
+    let user_input = tokio::spawn({
+        let session = session.clone();
+        async move {
+            session
+                .rpc()
+                .ui()
+                .handle_human_user_input(UIHandlePendingUserInputRequest {
+                    request_id: RequestId::from("user-input/request:2"),
+                    response: UIUserInputResponse {
+                        answer: "Blue".to_string(),
+                        was_freeform: false,
+                    },
+                })
+                .await
+        }
+    });
+    let request = server.read_request().await;
+    assert_eq!(request["method"], "session.ui.handleHumanUserInput");
+    assert_eq!(
+        request["params"],
+        serde_json::json!({
+            "requestId": "user-input/request:2",
+            "response": { "answer": "Blue", "wasFreeform": false },
+            "sessionId": server.session_id,
+        })
+    );
+    server
+        .respond(&request, serde_json::json!({ "success": true }))
+        .await;
+    assert!(
+        timeout(TIMEOUT, user_input)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .success
+    );
+
+    let exit_plan_mode = tokio::spawn({
+        let session = session.clone();
+        async move {
+            session
+                .rpc()
+                .ui()
+                .handle_human_exit_plan_mode(UIHandlePendingExitPlanModeRequest {
+                    request_id: RequestId::from("exit-plan/request:3"),
+                    response: UIExitPlanModeResponse {
+                        approved: true,
+                        ..Default::default()
+                    },
+                })
+                .await
+        }
+    });
+    let request = server.read_request().await;
+    assert_eq!(request["method"], "session.ui.handleHumanExitPlanMode");
+    assert_eq!(
+        request["params"],
+        serde_json::json!({
+            "requestId": "exit-plan/request:3",
+            "response": { "approved": true },
+            "sessionId": server.session_id,
+        })
+    );
+    server
+        .respond(&request, serde_json::json!({ "success": true }))
+        .await;
+    assert!(
+        timeout(TIMEOUT, exit_plan_mode)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .success
+    );
+}
+
+#[tokio::test]
 async fn user_input_request_dispatches_to_handler() {
     struct InputHandler;
     #[async_trait]
@@ -3829,10 +3954,12 @@ async fn user_input_request_dispatches_to_handler() {
         async fn handle(
             &self,
             _session_id: SessionId,
+            request_id: RequestId,
             question: String,
             _choices: Option<Vec<String>>,
             _allow_freeform: Option<bool>,
         ) -> Option<UserInputResponse> {
+            assert_eq!(request_id, "user-input/request:300");
             assert_eq!(question, "Pick a color");
             Some(UserInputResponse {
                 answer: "blue".to_string(),
@@ -3850,6 +3977,7 @@ async fn user_input_request_dispatches_to_handler() {
             "userInput.request",
             serde_json::json!({
                 "sessionId": server.session_id,
+                "requestId": "user-input/request:300",
                 "question": "Pick a color",
                 "choices": ["red", "blue"],
                 "allowFreeform": true,
@@ -3871,8 +3999,10 @@ async fn exit_plan_mode_request_dispatches_to_handler() {
         async fn handle(
             &self,
             _session_id: SessionId,
+            request_id: RequestId,
             data: ExitPlanModeData,
         ) -> ExitPlanModeResult {
+            assert_eq!(request_id, "exit-plan/request:310");
             assert_eq!(data.summary, "Ready to implement");
             assert_eq!(data.plan_content.as_deref(), Some("Plan text"));
             assert_eq!(
@@ -3898,6 +4028,7 @@ async fn exit_plan_mode_request_dispatches_to_handler() {
             "exitPlanMode.request",
             serde_json::json!({
                 "sessionId": server.session_id,
+                "requestId": "exit-plan/request:310",
                 "summary": "Ready to implement",
                 "planContent": "Plan text",
                 "actions": ["interactive", "autopilot"],
@@ -3911,6 +4042,47 @@ async fn exit_plan_mode_request_dispatches_to_handler() {
     assert_eq!(response["result"]["approved"], true);
     assert_eq!(response["result"]["selectedAction"], "interactive");
     assert_eq!(response["result"]["feedback"], "Looks good");
+}
+
+#[tokio::test]
+async fn reverse_ui_requests_require_runtime_request_id() {
+    let (_session, mut server) = create_session_pair().await;
+
+    server
+        .send_request(
+            313,
+            "userInput.request",
+            serde_json::json!({
+                "sessionId": server.session_id,
+                "question": "Missing correlation ID",
+            }),
+        )
+        .await;
+    let response = timeout(TIMEOUT, server.read_response()).await.unwrap();
+    assert_eq!(response["id"], 313);
+    assert_eq!(response["error"]["code"], -32602);
+    assert_eq!(
+        response["error"]["message"],
+        "missing required field: requestId"
+    );
+
+    server
+        .send_request(
+            314,
+            "exitPlanMode.request",
+            serde_json::json!({
+                "sessionId": server.session_id,
+                "summary": "Missing correlation ID",
+            }),
+        )
+        .await;
+    let response = timeout(TIMEOUT, server.read_response()).await.unwrap();
+    assert_eq!(response["id"], 314);
+    assert_eq!(response["error"]["code"], -32602);
+    assert_eq!(
+        response["error"]["message"],
+        "missing required field: requestId"
+    );
 }
 
 #[tokio::test]
@@ -3963,6 +4135,7 @@ async fn default_exit_plan_mode_response_omits_optional_fields() {
             "exitPlanMode.request",
             serde_json::json!({
                 "sessionId": server.session_id,
+                "requestId": "default-exit-plan",
                 "summary": "Ready to implement",
             }),
         )
@@ -3993,6 +4166,7 @@ async fn user_input_requested_notification_does_not_double_dispatch() {
         async fn handle(
             &self,
             _session_id: SessionId,
+            _request_id: RequestId,
             _question: String,
             _choices: Option<Vec<String>>,
             _allow_freeform: Option<bool>,
@@ -4044,6 +4218,7 @@ async fn user_input_requested_notification_does_not_double_dispatch() {
             "userInput.request",
             serde_json::json!({
                 "sessionId": server.session_id,
+                "requestId": "single-dispatch-user-input",
                 "question": "Pick a color",
                 "allowFreeform": true,
             }),
@@ -5329,6 +5504,7 @@ async fn stop_event_loop_completes_in_flight_handler() {
         async fn handle(
             &self,
             _session_id: SessionId,
+            _request_id: RequestId,
             _question: String,
             _choices: Option<Vec<String>>,
             _allow_freeform: Option<bool>,
@@ -5352,6 +5528,7 @@ async fn stop_event_loop_completes_in_flight_handler() {
             "userInput.request",
             serde_json::json!({
                 "sessionId": server.session_id,
+                "requestId": "slow-user-input",
                 "question": "slow",
                 "choices": null,
                 "allowFreeform": true,
@@ -5394,6 +5571,7 @@ async fn panicking_request_handler_responds_with_internal_error() {
         async fn handle(
             &self,
             _session_id: SessionId,
+            _request_id: RequestId,
             _question: String,
             _choices: Option<Vec<String>>,
             _allow_freeform: Option<bool>,
@@ -5413,6 +5591,7 @@ async fn panicking_request_handler_responds_with_internal_error() {
             "userInput.request",
             serde_json::json!({
                 "sessionId": server.session_id,
+                "requestId": "panicking-user-input",
                 "question": "boom",
                 "choices": null,
                 "allowFreeform": true,
@@ -5460,6 +5639,7 @@ async fn drop_session_does_not_abort_handler() {
         async fn handle(
             &self,
             _session_id: SessionId,
+            _request_id: RequestId,
             _question: String,
             _choices: Option<Vec<String>>,
             _allow_freeform: Option<bool>,
@@ -5485,6 +5665,7 @@ async fn drop_session_does_not_abort_handler() {
             "userInput.request",
             serde_json::json!({
                 "sessionId": server.session_id,
+                "requestId": "drop-user-input",
                 "question": "drop-test",
                 "choices": null,
                 "allowFreeform": true,

@@ -18362,7 +18362,7 @@ impl<'a> SessionRpcUi<'a> {
     /// SDK and CLI versions if your code depends on it.
     ///
     /// </div>
-    pub(crate) async fn handle_human_ask_user(
+    pub async fn handle_human_ask_user(
         &self,
         params: UIHandlePendingElicitationRequest,
     ) -> Result<UIElicitationResult, Error> {
@@ -18434,7 +18434,7 @@ impl<'a> SessionRpcUi<'a> {
     /// SDK and CLI versions if your code depends on it.
     ///
     /// </div>
-    pub(crate) async fn handle_human_user_input(
+    pub async fn handle_human_user_input(
         &self,
         params: UIHandlePendingUserInputRequest,
     ) -> Result<UIHandlePendingResult, Error> {
@@ -18614,7 +18614,7 @@ impl<'a> SessionRpcUi<'a> {
     /// SDK and CLI versions if your code depends on it.
     ///
     /// </div>
-    pub(crate) async fn handle_human_exit_plan_mode(
+    pub async fn handle_human_exit_plan_mode(
         &self,
         params: UIHandlePendingExitPlanModeRequest,
     ) -> Result<UIHandlePendingResult, Error> {

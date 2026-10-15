@@ -94,6 +94,12 @@ const STRING_NEWTYPE_OVERRIDES: Record<string, string> = {
 	requestId: "RequestId",
 };
 
+const PUBLIC_INTERNAL_RPC_METHODS = new Set([
+	"session.ui.handleHumanAskUser",
+	"session.ui.handleHumanUserInput",
+	"session.ui.handleHumanExitPlanMode",
+]);
+
 // ── Naming helpers ──────────────────────────────────────────────────────────
 
 function toPascalCase(s: string): string {
@@ -2629,11 +2635,13 @@ function emitNamespaceMethod(
 
 	const paramArg = hasParams ? `, params: ${paramsTypeName}` : "";
 	const fnVis =
-		method.visibility === "internal" ||
-		methodUsesInternalSchema(method.params, defCollections) ||
-		methodUsesInternalSchema(method.result, defCollections)
-			? "pub(crate)"
-			: "pub";
+		PUBLIC_INTERNAL_RPC_METHODS.has(wireMethod)
+			? "pub"
+			: method.visibility === "internal" ||
+				  methodUsesInternalSchema(method.params, defCollections) ||
+				  methodUsesInternalSchema(method.result, defCollections)
+				? "pub(crate)"
+				: "pub";
 
 	const legacyRequest = hasParams ? rustLegacyRequest(method, defCollections, isSession) : undefined;
 

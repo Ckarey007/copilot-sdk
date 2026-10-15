@@ -48,6 +48,7 @@ async fn should_invoke_user_input_handler_when_model_uses_ask_user_tool() {
 
                 let request = recv_with_timeout(&mut request_rx, "user input request").await;
                 assert_eq!(request.session_id, *session.id());
+                assert!(!request.request_id.is_empty());
                 assert!(!request.question.is_empty());
 
                 session.disconnect().await.expect("disconnect session");
@@ -225,6 +226,7 @@ async fn ask_user_does_not_block_sibling_tool_call_in_same_turn() {
 #[derive(Debug)]
 struct RecordedUserInputRequest {
     session_id: SessionId,
+    request_id: RequestId,
     question: String,
     choices: Option<Vec<String>>,
 }
@@ -244,12 +246,14 @@ impl UserInputHandler for RecordingUserInputHandler {
     async fn handle(
         &self,
         session_id: SessionId,
+        request_id: RequestId,
         question: String,
         choices: Option<Vec<String>>,
         allow_freeform: Option<bool>,
     ) -> Option<UserInputResponse> {
         let _ = self.request_tx.send(RecordedUserInputRequest {
             session_id,
+            request_id,
             question,
             choices: choices.clone(),
         });
@@ -292,6 +296,7 @@ impl UserInputHandler for SiblingAwareUserInputHandler {
     async fn handle(
         &self,
         _session_id: SessionId,
+        _request_id: RequestId,
         _question: String,
         choices: Option<Vec<String>>,
         _allow_freeform: Option<bool>,
