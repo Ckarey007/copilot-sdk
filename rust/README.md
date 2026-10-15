@@ -127,8 +127,10 @@ transports.
 On Windows, SDK-spawned CLI processes start suspended and are assigned to a
 private kill-on-close Job Object before their initial thread resumes. Thread
 lookup captures only that child's process snapshot, rather than enumerating
-machine-wide threads. The Job owns the CLI and its descendants until client
-shutdown or final-client drop, including abrupt termination of the SDK host.
+machine-wide threads. The Job cleans up the CLI and its ordinary descendants on
+client shutdown, final-client drop, or abrupt termination of the SDK host.
+Descendants explicitly launched with `CREATE_BREAKAWAY_FROM_JOB` can leave this
+Job and survive its cleanup.
 
 **`ClientOptions`:**
 
