@@ -9,6 +9,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import {
     createMessageConnection,
+    ResponseError,
     StreamMessageReader,
     StreamMessageWriter,
     type MessageConnection,
@@ -5476,6 +5477,46 @@ connection.listen();
             expect(externalSendRequest).not.toHaveBeenCalled();
         });
     });
+});
+
+describe("RPC error data preservation", () => {
+    it.each(["session.create", "session.resume"] as const)(
+        "preserves structured data from %s",
+        async (method) => {
+            const data = {
+                context: {
+                    category: "structured-runtime-failure",
+                    message: "The runtime preserved structured operation context.",
+                },
+            };
+            const responseError = new ResponseError(-32001, "session operation failed", data);
+            const client = new CopilotClient({ autoStart: false });
+            (client as any).connection = {
+                sendRequest: vi.fn(async (requestedMethod: string) => {
+                    if (requestedMethod !== method) {
+                        throw new Error(`Unexpected method: ${requestedMethod}`);
+                    }
+                    throw responseError;
+                }),
+            };
+
+            const operation =
+                method === "session.create"
+                    ? client.createSession({ onPermissionRequest: approveAll })
+                    : client.resumeSession("structured-error-session", {
+                          onPermissionRequest: approveAll,
+                      });
+            const error = await operation.then(
+                () => undefined,
+                (reason: unknown) => reason
+            );
+
+            expect(error).toBe(responseError);
+            expect(responseError.code).toBe(-32001);
+            expect(responseError.message).toBe("session operation failed");
+            expect(responseError.data).toBe(data);
+        }
+    );
 });
 
 describe("managedSettings serialization", () => {

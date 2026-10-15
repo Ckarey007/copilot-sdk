@@ -736,6 +736,12 @@ async fn cancelled_prepared_resume_cleans_up_and_allows_retry() {
 async fn create_rpc_error_preserves_kind_and_cleans_up() {
     let (client, mut server) = make_client();
     let session_id = SessionId::new("prepared-create-rpc-error");
+    let data = json!({
+        "context": {
+            "category": "structured-runtime-failure",
+            "message": "The runtime preserved structured operation context.",
+        },
+    });
 
     let prepared = client
         .prepare_session(SessionConfig::default().with_session_id(session_id.clone()))
@@ -745,7 +751,12 @@ async fn create_rpc_error_preserves_kind_and_cleans_up() {
 
     let create_req = server.read_request().await;
     server
-        .respond_error(&create_req, -32000, "session create failed")
+        .respond_error_with_data(
+            &create_req,
+            -32000,
+            "session create failed",
+            Some(data.clone()),
+        )
         .await;
 
     let error = expect_error(timeout(TIMEOUT, start).await.unwrap().unwrap());
@@ -754,6 +765,43 @@ async fn create_rpc_error_preserves_kind_and_cleans_up() {
         "unexpected error kind: {:?}",
         error.kind()
     );
+    assert_eq!(error.rpc_data(), Some(&data));
+    await_no_registrations(&client).await;
+    expect_closed(&mut events).await;
+}
+
+#[tokio::test]
+async fn resume_rpc_error_preserves_data_and_cleans_up() {
+    let (client, mut server) = make_client();
+    let session_id = SessionId::new("prepared-resume-rpc-error");
+    let data = json!({
+        "context": {
+            "category": "structured-runtime-failure",
+            "message": "The runtime preserved structured operation context.",
+        },
+    });
+
+    let prepared = client
+        .prepare_resume_session(ResumeSessionConfig::new(session_id))
+        .unwrap();
+    let mut events = prepared.subscribe();
+    let start = tokio::spawn(prepared.start());
+
+    let resume_req = server.read_request().await;
+    assert_eq!(resume_req["method"], "session.resume");
+    server
+        .respond_error_with_data(
+            &resume_req,
+            -32001,
+            "session resume failed",
+            Some(data.clone()),
+        )
+        .await;
+
+    let error = expect_error(timeout(TIMEOUT, start).await.unwrap().unwrap());
+    assert_eq!(error.kind(), &ErrorKind::Rpc { code: -32001 });
+    assert_eq!(error.message(), Some("session resume failed"));
+    assert_eq!(error.rpc_data(), Some(&data));
     await_no_registrations(&client).await;
     expect_closed(&mut events).await;
 }
