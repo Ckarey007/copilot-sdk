@@ -1058,7 +1058,7 @@ func (c *Client) CreateSession(ctx context.Context, config *SessionConfig) (*Ses
 		config.Hooks.OnSubagentStop != nil) {
 		req.Hooks = Bool(true)
 	}
-	if config.OnPermissionRequest != nil {
+	if config.OnPermissionRequest != nil || config.OnPermissionRequestWithPrompt != nil {
 		req.RequestPermission = Bool(true)
 	}
 
@@ -1114,6 +1114,7 @@ func (c *Client) CreateSession(ctx context.Context, config *SessionConfig) (*Ses
 
 		s.registerTools(config.Tools)
 		s.registerPermissionHandler(config.OnPermissionRequest)
+		s.registerPermissionHandlerWithPrompt(config.OnPermissionRequestWithPrompt)
 		s.registerMCPAuthHandler(config.OnMCPAuthRequest)
 		if config.OnUserInputRequest != nil {
 			s.registerUserInputHandler(config.OnUserInputRequest)
@@ -1494,7 +1495,7 @@ func (c *Client) ResumeSessionWithOptions(ctx context.Context, sessionID string,
 	req.EnforceManagedModelDefaults = config.EnforceManagedModelDefaults
 	req.InteractiveUser = config.InteractiveUser
 	req.ManagedSettings = config.ManagedSettings
-	if config.OnPermissionRequest != nil {
+	if config.OnPermissionRequest != nil || config.OnPermissionRequestWithPrompt != nil {
 		req.RequestPermission = Bool(true)
 	}
 
@@ -1534,6 +1535,7 @@ func (c *Client) ResumeSessionWithOptions(ctx context.Context, sessionID string,
 
 	session.registerTools(config.Tools)
 	session.registerPermissionHandler(config.OnPermissionRequest)
+	session.registerPermissionHandlerWithPrompt(config.OnPermissionRequestWithPrompt)
 	session.registerMCPAuthHandler(config.OnMCPAuthRequest)
 	if config.OnUserInputRequest != nil {
 		session.registerUserInputHandler(config.OnUserInputRequest)

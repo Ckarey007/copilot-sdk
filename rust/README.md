@@ -677,6 +677,8 @@ The SDK exposes five focused handler traits, one per CLI callback type. Implemen
 
 The CLI's `requestPermission` / `requestElicitation` / `requestUserInput` / etc. wire flags are derived automatically from which traits you've installed — clients that don't install a handler are silently skipped, letting another connected client handle the request.
 
+`Session::subscribe()` exposes permission events through an observation-only stream, and `PermissionHandler` receives the same `PermissionRequestData`. Call `data.prompt_request()` for optional derived prompt context. The raw `managed_approval_required` field remains managed-policy provenance and enforces one-shot restrictions. Only derived `Commands`, `Read`, `Write`, `Url`, and `Workflow` prompts can clear the human requirement after Assisted approval; for missing or other prompt kinds, keep the raw marker authoritative.
+
 ```rust,ignore
 use std::sync::Arc;
 use async_trait::async_trait;

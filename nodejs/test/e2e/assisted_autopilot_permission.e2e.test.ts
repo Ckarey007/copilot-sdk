@@ -8,7 +8,7 @@ import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { text } from "node:stream/consumers";
-import { describe, expect, it, onTestFailed, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import {
     createAttributedPermissionResult,
     type CopilotSession,
@@ -82,32 +82,6 @@ describe("Assisted permission handling in Autopilot", async () => {
                 : contractFixtureName(scope, recommendation);
         const authorizationJudgeRequests: string[] = [];
         const providerFailures: Error[] = [];
-        const progress = {
-            scenario: "fixture",
-            phase: "setup",
-            permissionCallbacks: 0,
-            permissionRequests: 0,
-            toolCompletions: 0,
-            taskCompletions: 0,
-            lastEventType: "none",
-        };
-        const recordEvent = (type: string) => {
-            progress.lastEventType = type;
-            if (type === "permission.requested") progress.permissionRequests++;
-            if (type === "tool.execution_complete") progress.toolCompletions++;
-            if (type === "session.task_complete") progress.taskCompletions++;
-        };
-        onTestFailed(() => {
-            console.error(
-                `[Assisted fixture progress] ${JSON.stringify({
-                    ...progress,
-                    agentCalls,
-                    judgeCalls: judgeOutputs.length,
-                    authorizationJudgeCalls: authorizationJudgeRequests.length,
-                    providerFailures: providerFailures.length,
-                })}`
-            );
-        });
         const outsideDir = `${workDir}-outside`;
         await mkdir(outsideDir, { recursive: true });
         await writeFile(join(outsideDir, "approval-probe.txt"), "ASSISTED_READ_PROBE\n");
@@ -549,8 +523,6 @@ describe("Assisted permission handling in Autopilot", async () => {
                   ] as const)
                 : [];
         for (const scenario of scenarios) {
-            progress.scenario = `routing:${JSON.stringify(scenario)}`;
-            progress.phase = "create-session";
             let permissionCallbacks = 0;
             const expectedRecommendation =
                 scenario.decision === "judge" ? "approve" : "requireApproval";
@@ -581,7 +553,6 @@ describe("Assisted permission handling in Autopilot", async () => {
                     ASSISTED_PERMISSIONS_V2: true,
                 },
                 onPermissionRequest: async (request: PermissionRequest) => {
-                    progress.permissionCallbacks++;
                     permissionCallbacks++;
                     if (!request.toolCallId) {
                         throw new Error(
@@ -628,27 +599,19 @@ describe("Assisted permission handling in Autopilot", async () => {
                 session = await client.createSession(sessionConfig);
                 if (scenario.lifecycle === "resume") {
                     const sessionId = session.sessionId;
-                    progress.phase = "prime-turn";
                     await session.sendAndWait({
                         prompt: "ASSISTED_SESSION_PRIME: Reply with prime-ready without tools.",
                     });
-                    progress.phase = "configure-before-resume";
                     await configureAssistedAutopilot(session, workDir);
-                    progress.phase = "verify-before-resume";
                     await expectAssistedAutopilotConfigured(session, workDir);
-                    progress.phase = "disconnect-before-resume";
                     await session.disconnect();
                     session = undefined;
-                    progress.phase = "resume-session";
                     session = await client.resumeSession(sessionId, sessionConfig);
-                    progress.phase = "verify-after-resume";
                     await expectAssistedAutopilotConfigured(session, workDir);
                 } else {
-                    progress.phase = "configure-session";
                     await configureAssistedAutopilot(session, workDir);
                 }
                 session.on((event) => {
-                    recordEvent(event.type);
                     if (event.type === "permission.requested") {
                         const promptRequest = (
                             event.data as {
@@ -690,7 +653,6 @@ describe("Assisted permission handling in Autopilot", async () => {
 
                 try {
                     const taskComplete = getNextEventOfType(session, "session.task_complete");
-                    progress.phase = "send-turn";
                     await session.send({
                         prompt:
                             scenario.route === "shell"
@@ -699,13 +661,11 @@ describe("Assisted permission handling in Autopilot", async () => {
                                   ? `ASSISTED_PATH_ROUTE: Use only glob to find *.txt in ${outsideDir} and report the matching filename.`
                                   : `ASSISTED_HUMAN_${scenario.decision.toUpperCase()}_${scenario.lifecycle.toUpperCase()}_ROUTE: Try to create the human-reviewed fixture directory once and report human-${scenario.decision === "approve" ? "approved" : "denied"}.`,
                     });
-                    progress.phase = "await-task-complete";
                     await taskComplete;
                 } catch (error) {
                     throw new Error(`${JSON.stringify(scenario)} failed`, { cause: error });
                 }
 
-                progress.phase = "assert-results";
                 const expectedCompletions =
                     scenario.route === "path" && scenario.lifecycle === "create" ? 2 : 1;
                 expect(permissionCallbacks, JSON.stringify(scenario)).toBe(expectedCompletions);
@@ -755,23 +715,19 @@ describe("Assisted permission handling in Autopilot", async () => {
                 }
             } finally {
                 if (session) {
-                    progress.phase = "abort-session";
                     await session.abort();
-                    progress.phase = "disconnect-session";
                     await session.disconnect();
                 }
             }
         }
 
         if (routingLifecycle !== undefined) {
-            progress.phase = "assert-routing-totals";
             expect(providerFailures).toEqual([]);
             expect(judgeOutputs).toEqual([
                 ...Array(2).fill(JUDGE_OUTPUT),
                 ...Array(2).fill(HUMAN_REVIEW_OUTPUT),
             ]);
             expect(agentCalls).toBe(scenarios.length * 2 + (routingLifecycle === "resume" ? 4 : 0));
-            progress.phase = "complete";
             return;
         }
 
@@ -788,8 +744,6 @@ describe("Assisted permission handling in Autopilot", async () => {
                 resolveAuthorizationRecommendation = resolve;
             });
             let authorizationSession: CopilotSession | undefined;
-            progress.scenario = "updated-authorization";
-            progress.phase = "create-session";
             try {
                 authorizationSession = await client.createSession({
                     model: "local/gpt-5.6-sol",
@@ -803,7 +757,6 @@ describe("Assisted permission handling in Autopilot", async () => {
                         ASSISTED_PERMISSIONS_V2: true,
                     },
                     onPermissionRequest: async (request) => {
-                        progress.permissionCallbacks++;
                         authorizationPermissionCallbacks++;
                         if (request.toolCallId !== "assisted-authorization-shell") {
                             throw new Error(
@@ -831,14 +784,11 @@ describe("Assisted permission handling in Autopilot", async () => {
                         );
                     },
                 });
-                progress.phase = "restriction-turn";
                 await authorizationSession.sendAndWait({
                     prompt: `${EARLIER_RESTRICTION_MARKER}: Do not create the authorization fixture. Reply restriction-recorded without tools.`,
                 });
-                progress.phase = "configure-session";
                 await configureAssistedAutopilot(authorizationSession, workDir);
                 authorizationSession.on((event) => {
-                    recordEvent(event.type);
                     if (event.type === "permission.requested") {
                         const recommendation = (
                             event.data as {
@@ -872,14 +822,11 @@ describe("Assisted permission handling in Autopilot", async () => {
                     authorizationSession,
                     "session.task_complete"
                 );
-                progress.phase = "send-turn";
                 await authorizationSession.send({
                     prompt: `${LATER_AUTHORIZATION_MARKER}: The earlier restriction is superseded. Create the authorization fixture now and report authorization-updated.`,
                 });
-                progress.phase = "await-task-complete";
                 await taskComplete;
 
-                progress.phase = "assert-results";
                 expect(judgeOutputs.slice(authorizationJudgeStart)).toEqual([JUDGE_OUTPUT]);
                 expect(authorizationJudgeRequests).toHaveLength(1);
                 const authorizationRequest = authorizationJudgeRequests[0] ?? "";
@@ -906,14 +853,11 @@ describe("Assisted permission handling in Autopilot", async () => {
                 expect(existsSync(join(workDir, AUTHORIZATION_FIXTURE))).toBe(true);
             } finally {
                 if (authorizationSession) {
-                    progress.phase = "abort-session";
                     await authorizationSession.abort();
-                    progress.phase = "disconnect-session";
                     await authorizationSession.disconnect();
                 }
             }
             expect(providerFailures).toEqual([]);
-            progress.phase = "complete";
             return;
         }
 
@@ -938,8 +882,6 @@ describe("Assisted permission handling in Autopilot", async () => {
             : rootOnlyProvenance
               ? contractScenarios.slice(0, 3)
               : contractScenarios) {
-            progress.scenario = `recovery:${JSON.stringify(scenario)}`;
-            progress.phase = "create-session";
             const scenarioJudgeStart = judgeOutputs.length;
             expect(
                 existsSync(join(workDir, fixtureName(scenario.scope, scenario.recommendation)))
@@ -962,7 +904,6 @@ describe("Assisted permission handling in Autopilot", async () => {
             const permissionRequests: PermissionRequest[] = [];
             const onPermissionRequest = (request: PermissionRequest) => {
                 permissionRequests.push(request);
-                progress.permissionCallbacks++;
                 permissionCallbacks++;
                 sequence.push("host");
                 if (scenario.recommendation === "approve") {
@@ -1019,7 +960,6 @@ describe("Assisted permission handling in Autopilot", async () => {
             let session: CopilotSession | undefined;
             try {
                 session = await client.createSession(sessionConfig);
-                progress.phase = "configure-session";
                 await configureAssistedAutopilot(session, workDir);
                 if (
                     (group === "receiver provenance" || exclusionOnlyProvenance) &&
@@ -1028,7 +968,6 @@ describe("Assisted permission handling in Autopilot", async () => {
                     await session.rpc.options.update({ enableScriptSafety: true });
                 }
                 session.on((event) => {
-                    recordEvent(event.type);
                     if (event.type === "permission.requested") {
                         const promptRequest = (
                             event.data as {
@@ -1076,15 +1015,12 @@ describe("Assisted permission handling in Autopilot", async () => {
                         : `ASSISTED_CONTRACT_SUBAGENT_${marker}: Use the task tool once so a task subagent runs the requested shell command.`;
                 try {
                     const taskComplete = getNextEventOfType(session, "session.task_complete");
-                    progress.phase = "send-turn";
                     await session.send({ prompt });
-                    progress.phase = "await-task-complete";
                     await taskComplete;
                 } catch (error) {
                     throw new Error(`${JSON.stringify(scenario)} failed`, { cause: error });
                 }
 
-                progress.phase = "assert-results";
                 expect(
                     judgeOutputs.slice(scenarioJudgeStart),
                     JSON.stringify({ scenario, recommendations, permissionRequests, toolResults })
@@ -1180,7 +1116,6 @@ describe("Assisted permission handling in Autopilot", async () => {
                 if (group === "provenance") {
                     expect(JSON.stringify(toolResults)).not.toContain(provenanceData);
                 }
-                progress.phase = "read-pending-requests";
                 expect(
                     (await session.rpc.permissions.pendingRequests()).items,
                     JSON.stringify(scenario)
@@ -1197,15 +1132,12 @@ describe("Assisted permission handling in Autopilot", async () => {
                 }
             } finally {
                 if (session) {
-                    progress.phase = "abort-session";
                     await session.abort();
-                    progress.phase = "disconnect-session";
                     await session.disconnect();
                 }
             }
         }
 
-        progress.phase = "assert-recovery-totals";
         expect(providerFailures).toEqual([]);
         expect(judgeOutputs.slice(contractJudgeStart)).toEqual(
             exclusionOnlyProvenance
@@ -1229,7 +1161,6 @@ describe("Assisted permission handling in Autopilot", async () => {
                 expect(request).not.toContain("expressionReview");
             }
         }
-        progress.phase = "complete";
     });
 });
 

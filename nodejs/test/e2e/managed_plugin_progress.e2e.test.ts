@@ -433,8 +433,10 @@ describe("Managed plugin progress", async () => {
             );
 
             const home = join(workDir, "managed-cache-home");
-            // URL-derived checkout names exceed Git for Windows' path limit with a longer cache root.
-            const cache = mkdtempSync(join(tmpdir(), "sdk-cache-"));
+            // Git's Windows index-pack still bounds $GIT_DIR even with core.longpaths.
+            // Keep this test-owned cache shallow before the URL-derived checkout name.
+            const cache = mkdtempSync(join(tmpdir(), "sdk-mpc-"));
+            onTestFinished(() => rmSync(cache, { recursive: true, force: true }));
             mkdirSync(home, { recursive: true });
             const client = new CopilotClient({
                 workingDirectory: workDir,
@@ -457,7 +459,6 @@ describe("Managed plugin progress", async () => {
             });
             onTestFinished(async () => {
                 await client.stop();
-                rmSync(cache, { recursive: true, force: true });
             });
             await client.start();
 
@@ -469,14 +470,27 @@ describe("Managed plugin progress", async () => {
             try {
                 await session.rpc.agent.list();
                 await vi.waitFor(
-                    async () =>
+                    async () => {
+                        const plugins = (await client.rpc.plugins.list()).plugins;
                         expect(
-                            (await client.rpc.plugins.list()).plugins.find(
+                            plugins.find(
                                 (plugin) =>
                                     plugin.name === pluginName &&
                                     plugin.marketplace === sourceMarketplace
-                            )
-                        ).toMatchObject({ version: "2.0.0" }),
+                            ),
+                            JSON.stringify({
+                                plugins,
+                                managedEvents: events
+                                    .filter(
+                                        (event) =>
+                                            event.type === "session.warning" ||
+                                            event.type === "session.info" ||
+                                            event.type === "session.managed_plugin_progress"
+                                    )
+                                    .map((event) => ({ type: event.type, data: event.data })),
+                            })
+                        ).toMatchObject({ version: "2.0.0" });
+                    },
                     { timeout: 45_000 }
                 );
                 await vi.waitFor(

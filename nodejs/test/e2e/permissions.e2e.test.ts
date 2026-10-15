@@ -9,6 +9,7 @@ import { describe, expect, it, onTestFailed, vi } from "vitest";
 import { z } from "zod";
 import type {
     PermissionDecisionContext,
+    PermissionHandlerInvocation,
     PermissionRequest,
     PermissionRequestResult,
     ToolResultObject,
@@ -289,7 +290,7 @@ describe("Permission callbacks", async () => {
 
     it("should receive toolCallId in permission requests", async () => {
         let receivedRequest: PermissionRequest | undefined;
-        let receivedInvocation: { sessionId: string; managedSettingsEnabled?: boolean } | undefined;
+        let receivedInvocation: PermissionHandlerInvocation | undefined;
 
         const session = await client.createSession({
             onPermissionRequest: (request, invocation) => {
@@ -303,9 +304,13 @@ describe("Permission callbacks", async () => {
             prompt: "Run 'echo test'",
         });
 
-        expect(receivedInvocation).toEqual({
+        expect(receivedInvocation).toMatchObject({
             sessionId: session.sessionId,
             managedSettingsEnabled: false,
+            promptRequest: {
+                kind: "commands",
+                toolCallId: expect.any(String),
+            },
         });
         expect(receivedRequest).toMatchObject({
             kind: "shell",

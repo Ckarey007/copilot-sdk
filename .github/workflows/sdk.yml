@@ -204,7 +204,7 @@ jobs:
     name: "Build runtime addons (win32-x64)"
     needs: detect-layout
     if: github.event_name != 'merge_group' && needs.detect-layout.outputs.runtime-source == 'checkout'
-    runs-on: ubuntu-latest-xl
+    runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-24.04-16core-ar-mq' || 'ubuntu-24.04-16core-agent-runtime' }}
     concurrency:
       group: windows-x64-addons-release-windows-e2e-no-icf-${{ github.sha }}
       queue: max
@@ -349,6 +349,7 @@ jobs:
       runtime-source: ${{ needs.detect-layout.outputs.runtime-source }}
       sdk-home: ${{ needs.detect-layout.outputs.sdk-home }}
       os: ubuntu-26.04-16core-agent-runtime
+      merge-queue-os: ubuntu-26.04-16core-ar-mq
       target: linux-x64
       artifact: Linux-X64-gnu
       bazel-config: e2e-no-lto
@@ -369,6 +370,7 @@ jobs:
       runtime-source: ${{ needs.detect-layout.outputs.runtime-source }}
       sdk-home: ${{ needs.detect-layout.outputs.sdk-home }}
       os: ubuntu-26.04-16core-agent-runtime
+      merge-queue-os: ubuntu-26.04-16core-ar-mq
       target: linuxmusl-x64
       artifact: Linux-X64-musl
       bazel-config: e2e-no-lto
@@ -388,6 +390,7 @@ jobs:
       runtime-source: ${{ needs.detect-layout.outputs.runtime-source }}
       sdk-home: ${{ needs.detect-layout.outputs.sdk-home }}
       os: ubuntu-26.04-16core-agent-runtime
+      merge-queue-os: ubuntu-26.04-16core-ar-mq
       target: linuxmusl-arm64
       artifact: Linux-ARM64-musl
       bazel-config: e2e-no-lto
@@ -407,6 +410,7 @@ jobs:
       runtime-source: ${{ needs.detect-layout.outputs.runtime-source }}
       sdk-home: ${{ needs.detect-layout.outputs.sdk-home }}
       os: macos-26-xlarge-agent-runtime
+      merge-queue-os: macos-26-xlarge-ar-mq
       target: darwin-arm64
       artifact: macOS-ARM64
       bazel-config: e2e-no-lto
@@ -428,6 +432,7 @@ jobs:
       runtime-source: ${{ needs.detect-layout.outputs.runtime-source }}
       sdk-home: ${{ needs.detect-layout.outputs.sdk-home }}
       os: windows-2025-16core-agent-runtime
+      merge-queue-os: windows-2025-16core-ar-mq
       target: win32-x64
       artifact: Windows-X64
       bazel-config: windows-e2e-no-icf
@@ -518,7 +523,7 @@ jobs:
   check-freshness:
     name: "Check schema and SDK freshness"
     needs: detect-layout
-    runs-on: ubuntu-26.04-2core-agent-runtime
+    runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-26.04-2core-ar-mq' || 'ubuntu-26.04-2core-agent-runtime' }}
     permissions:
       contents: read
       id-token: write

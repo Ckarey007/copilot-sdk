@@ -8,6 +8,7 @@
 package com.github.copilot.generated.rpc;
 
 import com.github.copilot.CopilotExperimental;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import javax.annotation.processing.Generated;
 
@@ -42,6 +43,21 @@ public final class SessionAccountsLoginApi {
     @CopilotExperimental
     public CompletableFuture<SessionAccountsLoginBeginResult> begin(SessionAccountsLoginBeginParams params) {
         com.fasterxml.jackson.databind.node.ObjectNode _p = MAPPER.valueToTree(params);
+        _p.put("sessionId", this.sessionId);
+        return caller.invoke("session.accounts.login.begin", _p, SessionAccountsLoginBeginResult.class);
+    }
+
+    /**
+     * Begin an interactive login flow for a provider kind (dispatch is kind-only) and return its opaque flow id and first step.
+     * <p>
+     * Accepts the extensible request, including inputs added after the params record.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    public CompletableFuture<SessionAccountsLoginBeginResult> begin(SessionAccountsLoginBeginRequest request) {
+        com.fasterxml.jackson.databind.node.ObjectNode _p = MAPPER.valueToTree(Objects.requireNonNull(request, "request"));
         _p.put("sessionId", this.sessionId);
         return caller.invoke("session.accounts.login.begin", _p, SessionAccountsLoginBeginResult.class);
     }

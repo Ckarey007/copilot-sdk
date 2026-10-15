@@ -90,19 +90,19 @@ async fn send_error(client: &Client, request_id: u64, message: &str) {
         .await;
 }
 
-fn parse_params<T: serde::de::DeserializeOwned>(request: &JsonRpcRequest) -> Option<T> {
+fn parse_params<T: serde::de::DeserializeOwned>(request: &mut JsonRpcRequest) -> Option<T> {
     request
         .params
-        .as_ref()
-        .and_then(|p| serde_json::from_value(p.clone()).ok())
+        .take()
+        .and_then(|p| serde_json::from_value(p).ok())
 }
 
 pub(crate) async fn read_file(
     client: &Client,
     provider: &Arc<dyn SessionFsProvider>,
-    request: JsonRpcRequest,
+    mut request: JsonRpcRequest,
 ) {
-    let params: SessionFsReadFileRequest = match parse_params(&request) {
+    let params: SessionFsReadFileRequest = match parse_params(&mut request) {
         Some(p) => p,
         None => {
             send_error(client, request.id, "invalid sessionFs.readFile params").await;
@@ -126,9 +126,9 @@ pub(crate) async fn read_file(
 pub(crate) async fn read_file_bytes(
     client: &Client,
     provider: &Arc<dyn SessionFsProvider>,
-    request: JsonRpcRequest,
+    mut request: JsonRpcRequest,
 ) {
-    let params: SessionFsReadFileBytesRequest = match parse_params(&request) {
+    let params: SessionFsReadFileBytesRequest = match parse_params(&mut request) {
         Some(params) => params,
         None => {
             send_error(client, request.id, "invalid sessionFs.readFileBytes params").await;
@@ -173,9 +173,9 @@ fn binary_read_response(
 pub(crate) async fn write_file(
     client: &Client,
     provider: &Arc<dyn SessionFsProvider>,
-    request: JsonRpcRequest,
+    mut request: JsonRpcRequest,
 ) {
-    let params: SessionFsWriteFileRequest = match parse_params(&request) {
+    let params: SessionFsWriteFileRequest = match parse_params(&mut request) {
         Some(p) => p,
         None => {
             send_error(client, request.id, "invalid sessionFs.writeFile params").await;
@@ -195,9 +195,9 @@ pub(crate) async fn write_file(
 pub(crate) async fn write_file_bytes(
     client: &Client,
     provider: &Arc<dyn SessionFsProvider>,
-    request: JsonRpcRequest,
+    mut request: JsonRpcRequest,
 ) {
-    let params: SessionFsWriteFileBytesRequest = match parse_params(&request) {
+    let params: SessionFsWriteFileBytesRequest = match parse_params(&mut request) {
         Some(params) => params,
         None => {
             send_error(
@@ -242,9 +242,9 @@ pub(crate) async fn write_file_bytes(
 pub(crate) async fn append_file(
     client: &Client,
     provider: &Arc<dyn SessionFsProvider>,
-    request: JsonRpcRequest,
+    mut request: JsonRpcRequest,
 ) {
-    let params: SessionFsAppendFileRequest = match parse_params(&request) {
+    let params: SessionFsAppendFileRequest = match parse_params(&mut request) {
         Some(p) => p,
         None => {
             send_error(client, request.id, "invalid sessionFs.appendFile params").await;
@@ -264,9 +264,9 @@ pub(crate) async fn append_file(
 pub(crate) async fn exists(
     client: &Client,
     provider: &Arc<dyn SessionFsProvider>,
-    request: JsonRpcRequest,
+    mut request: JsonRpcRequest,
 ) {
-    let params: SessionFsExistsRequest = match parse_params(&request) {
+    let params: SessionFsExistsRequest = match parse_params(&mut request) {
         Some(p) => p,
         None => {
             send_error(client, request.id, "invalid sessionFs.exists params").await;
@@ -288,9 +288,9 @@ pub(crate) async fn exists(
 pub(crate) async fn stat(
     client: &Client,
     provider: &Arc<dyn SessionFsProvider>,
-    request: JsonRpcRequest,
+    mut request: JsonRpcRequest,
 ) {
-    let params: SessionFsStatRequest = match parse_params(&request) {
+    let params: SessionFsStatRequest = match parse_params(&mut request) {
         Some(p) => p,
         None => {
             send_error(client, request.id, "invalid sessionFs.stat params").await;
@@ -315,9 +315,9 @@ pub(crate) async fn stat(
 pub(crate) async fn mkdir(
     client: &Client,
     provider: &Arc<dyn SessionFsProvider>,
-    request: JsonRpcRequest,
+    mut request: JsonRpcRequest,
 ) {
-    let params: SessionFsMkdirRequest = match parse_params(&request) {
+    let params: SessionFsMkdirRequest = match parse_params(&mut request) {
         Some(p) => p,
         None => {
             send_error(client, request.id, "invalid sessionFs.mkdir params").await;
@@ -335,9 +335,9 @@ pub(crate) async fn mkdir(
 pub(crate) async fn readdir(
     client: &Client,
     provider: &Arc<dyn SessionFsProvider>,
-    request: JsonRpcRequest,
+    mut request: JsonRpcRequest,
 ) {
-    let params: SessionFsReaddirRequest = match parse_params(&request) {
+    let params: SessionFsReaddirRequest = match parse_params(&mut request) {
         Some(p) => p,
         None => {
             send_error(client, request.id, "invalid sessionFs.readdir params").await;
@@ -361,9 +361,9 @@ pub(crate) async fn readdir(
 pub(crate) async fn readdir_with_types(
     client: &Client,
     provider: &Arc<dyn SessionFsProvider>,
-    request: JsonRpcRequest,
+    mut request: JsonRpcRequest,
 ) {
-    let params: SessionFsReaddirWithTypesRequest = match parse_params(&request) {
+    let params: SessionFsReaddirWithTypesRequest = match parse_params(&mut request) {
         Some(p) => p,
         None => {
             send_error(
@@ -392,9 +392,9 @@ pub(crate) async fn readdir_with_types(
 pub(crate) async fn rm(
     client: &Client,
     provider: &Arc<dyn SessionFsProvider>,
-    request: JsonRpcRequest,
+    mut request: JsonRpcRequest,
 ) {
-    let params: SessionFsRmRequest = match parse_params(&request) {
+    let params: SessionFsRmRequest = match parse_params(&mut request) {
         Some(p) => p,
         None => {
             send_error(client, request.id, "invalid sessionFs.rm params").await;
@@ -413,9 +413,9 @@ pub(crate) async fn rm(
 pub(crate) async fn rename(
     client: &Client,
     provider: &Arc<dyn SessionFsProvider>,
-    request: JsonRpcRequest,
+    mut request: JsonRpcRequest,
 ) {
-    let params: SessionFsRenameRequest = match parse_params(&request) {
+    let params: SessionFsRenameRequest = match parse_params(&mut request) {
         Some(p) => p,
         None => {
             send_error(client, request.id, "invalid sessionFs.rename params").await;
@@ -432,9 +432,9 @@ pub(crate) async fn rename(
 pub(crate) async fn sqlite_query(
     client: &Client,
     provider: &Arc<dyn SessionFsProvider>,
-    request: JsonRpcRequest,
+    mut request: JsonRpcRequest,
 ) {
-    let params: SessionFsSqliteQueryRequest = match parse_params(&request) {
+    let params: SessionFsSqliteQueryRequest = match parse_params(&mut request) {
         Some(p) => p,
         None => {
             send_error(client, request.id, "invalid sessionFs.sqliteQuery params").await;
@@ -501,9 +501,9 @@ pub(crate) async fn sqlite_query(
 pub(crate) async fn sqlite_transaction(
     client: &Client,
     provider: &Arc<dyn SessionFsProvider>,
-    request: JsonRpcRequest,
+    mut request: JsonRpcRequest,
 ) {
-    let params: SessionFsSqliteTransactionRequest = match parse_params(&request) {
+    let params: SessionFsSqliteTransactionRequest = match parse_params(&mut request) {
         Some(p) => p,
         None => {
             send_error(
@@ -564,9 +564,9 @@ pub(crate) async fn sqlite_transaction(
 pub(crate) async fn sqlite_exists(
     client: &Client,
     provider: &Arc<dyn SessionFsProvider>,
-    request: JsonRpcRequest,
+    mut request: JsonRpcRequest,
 ) {
-    let _params: SessionFsSqliteExistsParams = match parse_params(&request) {
+    let _params: SessionFsSqliteExistsParams = match parse_params(&mut request) {
         Some(p) => p,
         None => {
             send_error(client, request.id, "invalid sessionFs.sqliteExists params").await;

@@ -3,6 +3,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { describe, expect, it, onTestFailed } from "vitest";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { join } from "node:path";
@@ -11,6 +12,7 @@ import {
     approveAll,
     CopilotRequestHandler,
     type CopilotSession,
+    type GitHubTelemetryNotification,
     type SessionEvent,
 } from "../../src/index.js";
 import { createSdkTestContext, isCI } from "./harness/sdkTestContext.js";
@@ -18,6 +20,9 @@ import { testBackend } from "./harness/testBackend.js";
 import { withTestCleanup } from "../helpers/withTestCleanup.js";
 
 const compactionTimeoutMs = 60_000;
+const uncataloguedModelTelemetryHash = createHash("sha256")
+    .update("uncatalogued-budget-model")
+    .digest("hex");
 
 interface CacheWireBlock {
     text?: string;
@@ -195,6 +200,98 @@ class RefusalBudgetReplayHandler extends CopilotRequestHandler {
             {
                 type: "message_delta",
                 delta: { stop_reason: message.stop_reason, stop_sequence: null },
+                usage: { output_tokens: 10 },
+            },
+            { type: "message_stop" },
+        ];
+        return new Response(
+            events
+                .map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
+                .join(""),
+            { headers: { "content-type": "text/event-stream" } }
+        );
+    }
+}
+
+class CompactionRedispatchFailureHandler extends RefusalBudgetReplayHandler {
+    readonly compactionModels: string[] = [];
+
+    protected override async sendRequest(request: Request): Promise<Response> {
+        const path = new URL(request.url).pathname;
+        if (path !== "/v1/messages") {
+            return super.sendRequest(request);
+        }
+
+        const body = (await request.json()) as CacheWireRequest;
+        this.requests.push(body);
+        this.requestUrls.push(request.url);
+        const compaction =
+            Boolean(body.tools?.length) &&
+            typeof body.tool_choice === "object" &&
+            body.tool_choice !== null &&
+            "type" in body.tool_choice &&
+            body.tool_choice.type === "none";
+        if (!compaction) {
+            return this.message(body, "FOREGROUND_REDISPATCH_OK", "end_turn");
+        }
+
+        this.compactionModels.push(body.model);
+        if (this.compactionModels.length === 1) {
+            return this.message(body, "PARTIAL_COMPACTION_SUMMARY", "max_tokens");
+        }
+        if (this.compactionModels.length === 2) {
+            return this.message(body, "PRIMARY_COMPACTION_REFUSAL", "refusal");
+        }
+
+        expect(this.compactionModels).toHaveLength(3);
+        expect(body.model).toBe("claude-sonnet-5");
+        return Response.json(
+            {
+                error: {
+                    code: "invalid_request",
+                    message: "Controlled fallback compaction rejection",
+                },
+            },
+            { status: 400 }
+        );
+    }
+
+    private message(request: CacheWireRequest, content: string, stopReason: string): Response {
+        const message = {
+            id: "compaction-redispatch-replay",
+            type: "message",
+            role: "assistant",
+            model: request.model,
+            content: [{ type: "text", text: content }],
+            stop_reason: stopReason,
+            stop_sequence: null,
+            usage: {
+                input_tokens: 100,
+                output_tokens: 10,
+                cache_read_input_tokens: 0,
+                cache_creation_input_tokens: 0,
+            },
+        };
+        if (!request.stream) return Response.json(message);
+        const events = [
+            {
+                type: "message_start",
+                message: { ...message, content: [], stop_reason: null },
+            },
+            {
+                type: "content_block_start",
+                index: 0,
+                content_block: { type: "text", text: "" },
+            },
+            {
+                type: "content_block_delta",
+                index: 0,
+                delta: { type: "text_delta", text: content },
+            },
+            { type: "content_block_stop", index: 0 },
+            {
+                type: "message_delta",
+                delta: { stop_reason: stopReason, stop_sequence: null },
                 usage: { output_tokens: 10 },
             },
             { type: "message_stop" },
@@ -562,6 +659,99 @@ describe("Disposable Anthropic prompt caching during refusal fallback", async ()
     });
 });
 
+describe("Compaction failure attribution after model redispatch", async () => {
+    const { createClient } = await createSdkTestContext({
+        replayOnly: true,
+        copilotClientOptions: {
+            env: {
+                ANTHROPIC_REFUSAL_FALLBACK: "true",
+                COPILOT_EXP_COPILOT_CLI_ANTHROPIC_REFUSAL_FALLBACK: "true",
+            },
+        },
+    });
+
+    it("reports the terminal failure model while retaining earlier usage", async () => {
+        const githubTelemetry: GitHubTelemetryNotification[] = [];
+        const handler = new CompactionRedispatchFailureHandler();
+        const compactionClient = createClient({
+            requestHandler: handler,
+            onGitHubTelemetry: (notification) => {
+                githubTelemetry.push(notification);
+            },
+        });
+        try {
+            await using session = await compactionClient.createSession({
+                onPermissionRequest: approveAll,
+                model: "claude-sonnet-5.5",
+                providers: [],
+                streaming: false,
+                systemMessage: {
+                    mode: "replace",
+                    content: "Automatic redispatch attribution policy. ".repeat(600),
+                },
+                infiniteSessions: {
+                    enabled: true,
+                    backgroundCompactionThreshold: 0.005,
+                    bufferExhaustionThreshold: 0.01,
+                },
+            });
+            expect(
+                (await session.sendAndWait({ prompt: "Initialize compaction redispatch." }))?.data
+                    .content
+            ).toBe("FOREGROUND_REDISPATCH_OK");
+
+            const completed: Extract<SessionEvent, { type: "session.compaction_complete" }>[] = [];
+            session.on("session.compaction_complete", (event) => completed.push(event));
+            expect(
+                (await session.sendAndWait({ prompt: "Trigger automatic compaction redispatch." }))
+                    ?.data.content
+            ).toBe("FOREGROUND_REDISPATCH_OK");
+            await expect.poll(() => completed).toHaveLength(1);
+            const completion = completed[0]!;
+            expect(handler.compactionModels).toEqual([
+                "claude-sonnet-5.5",
+                "claude-sonnet-5.5",
+                "claude-sonnet-5",
+            ]);
+            expect(completion.data).toMatchObject({
+                success: false,
+                outcome: "failed",
+                trigger: "threshold",
+                failureReason: "provider_rejected",
+                model: "claude-sonnet-5",
+                initialModel: "claude-sonnet-5.5",
+                compactionTokensUsed: {
+                    model: "claude-sonnet-5.5",
+                    inputTokens: 200,
+                    outputTokens: 20,
+                },
+            });
+            await expect
+                .poll(() =>
+                    githubTelemetry.find(
+                        ({ sessionId, restricted, event }) =>
+                            sessionId === session.sessionId &&
+                            !restricted &&
+                            event.kind === "session_compaction_complete" &&
+                            event.properties?.compaction_attempt_id ===
+                                completion.data.compactionAttemptId
+                    )
+                )
+                .toMatchObject({
+                    event: {
+                        properties: {
+                            model: "claude-sonnet-5",
+                            initial_model: "claude-sonnet-5.5",
+                            failure_reason: "provider_rejected",
+                        },
+                    },
+                });
+        } finally {
+            await compactionClient.stop();
+        }
+    });
+});
+
 describe("Disposable Anthropic prompt caching during Fusion review", async () => {
     const { createClient } = await createSdkTestContext({ replayOnly: true });
     it("avoids tool-less critic writes without disabling the solver cache", async () => {
@@ -623,23 +813,44 @@ describe("Disposable Anthropic prompt caching during Fusion review", async () =>
     });
 });
 
+interface BudgetReplayRequest {
+    model: string;
+    stream?: boolean;
+    messages?: Array<{ role: string; content: unknown }>;
+    tools?: unknown[];
+    tool_choice?: unknown;
+}
+
 class BudgetReplayHandler extends CopilotRequestHandler {
-    readonly requests: unknown[] = [];
+    readonly requests: BudgetReplayRequest[] = [];
+    readonly requestUrls: string[] = [];
+
+    protected responseContent(_request: BudgetReplayRequest, _requestNumber: number): string {
+        return "BUDGET_CONTROL_OK";
+    }
+
+    protected async beforeResponse(
+        _request: BudgetReplayRequest,
+        _requestNumber: number
+    ): Promise<void> {}
 
     protected override async sendRequest(request: Request): Promise<Response> {
         expect(request.url).toMatch(/\/chat\/completions$/);
-        const body = (await request.json()) as { stream?: boolean };
+        const body = (await request.json()) as BudgetReplayRequest;
         this.requests.push(body);
+        this.requestUrls.push(request.url);
+        await this.beforeResponse(body, this.requests.length);
+        const content = this.responseContent(body, this.requests.length);
         if (!body.stream) {
             return Response.json({
                 id: "budget-replay",
                 object: "chat.completion",
                 created: 1,
-                model: "uncatalogued-budget-model",
+                model: body.model,
                 choices: [
                     {
                         index: 0,
-                        message: { role: "assistant", content: "BUDGET_CONTROL_OK" },
+                        message: { role: "assistant", content },
                         finish_reason: "stop",
                     },
                 ],
@@ -650,8 +861,8 @@ class BudgetReplayHandler extends CopilotRequestHandler {
             id: "budget-replay",
             object: "chat.completion.chunk",
             created: 1,
-            model: "uncatalogued-budget-model",
-            choices: [{ index: 0, delta: { content: "BUDGET_CONTROL_OK" }, finish_reason: null }],
+            model: body.model,
+            choices: [{ index: 0, delta: { content }, finish_reason: null }],
         };
         return new Response(
             `data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify({
@@ -659,6 +870,33 @@ class BudgetReplayHandler extends CopilotRequestHandler {
                 choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
             })}\n\ndata: [DONE]\n\n`,
             { headers: { "content-type": "text/event-stream" } }
+        );
+    }
+}
+
+class FailingCompactionReplayHandler extends BudgetReplayHandler {
+    constructor(
+        private readonly status = 400,
+        private readonly code = "invalid_request"
+    ) {
+        super();
+    }
+
+    protected override async sendRequest(request: Request): Promise<Response> {
+        if (this.requests.length === 0) {
+            return super.sendRequest(request);
+        }
+        const body = (await request.json()) as BudgetReplayRequest;
+        this.requests.push(body);
+        this.requestUrls.push(request.url);
+        return Response.json(
+            {
+                error: {
+                    code: this.code,
+                    message: "Controlled compaction rejection",
+                },
+            },
+            { status: this.status }
         );
     }
 }
@@ -1089,16 +1327,24 @@ function getNextSessionEvent<TEventType extends SessionEvent["type"]>(
 }
 
 describe("Compaction", async () => {
+    const githubTelemetry: GitHubTelemetryNotification[] = [];
+    const recordGitHubTelemetry = (notification: GitHubTelemetryNotification) => {
+        githubTelemetry.push(notification);
+    };
     const {
         copilotClient: client,
         openAiEndpoint,
         createClient,
         workDir,
-    } = await createSdkTestContext();
+    } = await createSdkTestContext({
+        copilotClientOptions: {
+            onGitHubTelemetry: recordGitHubTelemetry,
+        },
+    });
 
     // Paused-clock Rust tests pin the cancellation/timeout budgets; this covers
     // cancellation across the real SDK filesystem callback boundary.
-    it("should abort manual compaction while workflow storage is stalled", async () => {
+    it("should retain aborted attempt attribution when replacement compaction starts", async () => {
         let markEntered!: () => void;
         const entered = new Promise<void>((resolve) => {
             markEntered = resolve;
@@ -1108,9 +1354,21 @@ describe("Compaction", async () => {
             releaseStorage = resolve;
         });
         const database = new DatabaseSync(":memory:");
-        const handler = new BudgetReplayHandler();
+        class ReplacementCompactionReplayHandler extends BudgetReplayHandler {
+            private compactionCount = 0;
+
+            protected override responseContent(request: BudgetReplayRequest): string {
+                if (request.tool_choice !== "none") return "BUDGET_CONTROL_OK";
+                this.compactionCount++;
+                return this.compactionCount === 1
+                    ? "FIRST_CANCELLED_SUMMARY"
+                    : "SECOND_APPLIED_SUMMARY";
+            }
+        }
+        const handler = new ReplacementCompactionReplayHandler();
         const compactionClient = createClient({
             requestHandler: handler,
+            onGitHubTelemetry: recordGitHubTelemetry,
             sessionFs: {
                 initialCwd: workDir,
                 sessionStatePath: join(workDir, "compaction-state"),
@@ -1123,6 +1381,7 @@ describe("Compaction", async () => {
         try {
             await using session = await compactionClient.createSession({
                 onPermissionRequest: approveAll,
+                streaming: false,
                 model: "uncatalogued-budget-model",
                 provider: {
                     type: "openai",
@@ -1209,13 +1468,12 @@ describe("Compaction", async () => {
                 (await session.sendAndWait({ prompt: "Initialize cancellable compaction." }))?.data
                     .content
             ).toBe("BUDGET_CONTROL_OK");
-            const conversation = (events: SessionEvent[]) =>
-                events.filter(
-                    (event) => event.type === "user.message" || event.type === "assistant.message"
-                );
-            const before = conversation(await session.getEvents());
+            const started: Extract<SessionEvent, { type: "session.compaction_start" }>[] = [];
             const completed: Extract<SessionEvent, { type: "session.compaction_complete" }>[] = [];
-            session.on("session.compaction_complete", (event) => completed.push(event));
+            session.on((event) => {
+                if (event.type === "session.compaction_start") started.push(event);
+                if (event.type === "session.compaction_complete") completed.push(event);
+            });
             stalled = true;
             const compaction = session.rpc.history.compact().then(
                 (result) => ({ result }),
@@ -1230,24 +1488,71 @@ describe("Compaction", async () => {
                 }),
             ]);
 
+            await expect.poll(() => started).toHaveLength(1);
+            const firstAttemptId = started[0]!.data.compactionAttemptId;
             expect(await session.rpc.history.abortManualCompaction()).toEqual({ aborted: true });
-            const outcome = await compaction;
+            stalled = false;
+            const replacement = session.rpc.history.compact({ trigger: "manual" });
+            await expect.poll(() => started).toHaveLength(2);
+            const replacementAttemptId = started[1]!.data.compactionAttemptId;
+            expect(replacementAttemptId).not.toBe(firstAttemptId);
+            releaseStorage();
+
+            const [outcome, replacementResult] = await Promise.all([compaction, replacement]);
             expect(outcome).toMatchObject({
                 error: expect.objectContaining({
                     message: expect.stringContaining("Compaction Cancelled"),
                 }),
             });
+            expect(replacementResult).toMatchObject({
+                success: true,
+                summaryContent: "SECOND_APPLIED_SUMMARY",
+            });
+            await expect.poll(() => completed).toHaveLength(2);
+            const completion = completed.find(
+                (event) => event.data.compactionAttemptId === firstAttemptId
+            );
+            expect(completion?.data).toMatchObject({
+                success: false,
+                error: "Compaction Cancelled",
+                outcome: "cancelled",
+                outcomeReason: "manual_abort",
+                compactionTokensUsed: expect.objectContaining({
+                    model: "uncatalogued-budget-model",
+                    inputTokens: 100,
+                    outputTokens: 10,
+                }),
+            });
+            expect(completion?.data.model).toBeUndefined();
+            expect(completion?.data.failureReason).toBeUndefined();
+            expect(
+                completed.find((event) => event.data.compactionAttemptId === replacementAttemptId)
+                    ?.data
+            ).toMatchObject({
+                success: true,
+                outcome: "applied",
+                summaryContent: "SECOND_APPLIED_SUMMARY",
+            });
             await expect
-                .poll(() => completed)
-                .toEqual([
-                    expect.objectContaining({
-                        data: expect.objectContaining({
-                            success: false,
-                            error: "Compaction Cancelled",
-                        }),
-                    }),
-                ]);
-            expect(conversation(await session.getEvents())).toEqual(before);
+                .poll(() =>
+                    githubTelemetry.find(
+                        ({ sessionId, restricted, event }) =>
+                            sessionId === session.sessionId &&
+                            !restricted &&
+                            event.kind === "session_compaction_complete" &&
+                            event.properties?.compaction_attempt_id ===
+                                completion?.data.compactionAttemptId
+                    )
+                )
+                .toMatchObject({
+                    event: {
+                        properties: {
+                            model: uncataloguedModelTelemetryHash,
+                            outcome: "cancelled",
+                            outcome_reason: "manual_abort",
+                        },
+                    },
+                });
             expect(await session.rpc.history.abortManualCompaction()).toEqual({ aborted: false });
             expect(
                 (await session.sendAndWait({ prompt: "Continue after the cancelled compaction." }))
@@ -1257,10 +1562,13 @@ describe("Compaction", async () => {
                 messages: expect.arrayContaining([
                     expect.objectContaining({
                         role: "user",
-                        content: expect.stringContaining("Initialize cancellable compaction."),
+                        content: expect.stringContaining("SECOND_APPLIED_SUMMARY"),
                     }),
                 ]),
             });
+            expect(JSON.stringify(handler.requests.at(-1)?.messages)).not.toContain(
+                "FIRST_CANCELLED_SUMMARY"
+            );
         } finally {
             releaseStorage();
             await storageRequest;
@@ -1271,6 +1579,520 @@ describe("Compaction", async () => {
             }
         }
     });
+
+    it("should report manual context growth with one trusted token domain", async () => {
+        class ManualGrowthReplayHandler extends BudgetReplayHandler {
+            protected override responseContent(
+                request: BudgetReplayRequest,
+                _requestNumber: number
+            ): string {
+                if (request.tool_choice === "none") {
+                    return "MANUAL_GROWTH_SUMMARY ".repeat(300);
+                }
+                const messages = JSON.stringify(request.messages);
+                return messages.includes("Continue after measured growth.")
+                    ? "MANUAL_FOLLOWUP_ONLY"
+                    : "MANUAL_OLD_ASSISTANT_ONLY";
+            }
+        }
+
+        const handler = new ManualGrowthReplayHandler();
+        const accountingClient = createClient({
+            requestHandler: handler,
+            onGitHubTelemetry: recordGitHubTelemetry,
+        });
+        try {
+            await using session = await accountingClient.createSession({
+                onPermissionRequest: approveAll,
+                streaming: false,
+                model: "uncatalogued-budget-model",
+                provider: {
+                    type: "openai",
+                    wireApi: "completions",
+                    baseUrl: "https://budget-replay.invalid/v1",
+                    bearerToken: "fake-byok-credential-for-e2e-tests",
+                    modelId: "uncatalogued-budget-model",
+                    maxPromptTokens: 100_000,
+                },
+                systemMessage: {
+                    mode: "replace",
+                    content: "Stable accounting policy.",
+                },
+                infiniteSessions: { enabled: false },
+            });
+            expect(
+                (await session.sendAndWait({ prompt: "Initialize measured manual growth." }))?.data
+                    .content
+            ).toBe("MANUAL_OLD_ASSISTANT_ONLY");
+
+            const completed = getNextSessionEvent(
+                session,
+                "session.compaction_complete",
+                "manual token accounting completion"
+            );
+            const result = await session.rpc.history.compact({ trigger: "manual" });
+            const completion = await completed;
+            expect(Object.keys(result).sort()).toEqual(
+                [
+                    "contextWindow",
+                    "messagesRemoved",
+                    "success",
+                    "summaryContent",
+                    "tokensRemoved",
+                ].sort()
+            );
+            expect(completion.data).toMatchObject({
+                success: true,
+                tokenAccountingBasis: "local_full_context_estimate",
+                tokensRemoved: 0,
+            });
+            const pre = completion.data.preCompactionTokens;
+            const post = completion.data.postCompactionTokens;
+            expect(pre).toBeTypeOf("number");
+            expect(post).toBeTypeOf("number");
+            expect(post!).toBeGreaterThan(pre!);
+            expect(completion.data.tokensRemoved).toBe(Math.max(pre! - post!, 0));
+            expect(result.tokensRemoved).toBe(completion.data.tokensRemoved);
+            expect(result.contextWindow?.currentTokens).toBe(post);
+            await expect
+                .poll(async () =>
+                    (await session.getEvents()).find(
+                        (event) =>
+                            event.type === "session.compaction_complete" &&
+                            event.data.compactionAttemptId === completion.data.compactionAttemptId
+                    )
+                )
+                .toMatchObject({
+                    data: {
+                        preCompactionTokens: pre,
+                        postCompactionTokens: post,
+                        tokensRemoved: 0,
+                        tokenAccountingBasis: "local_full_context_estimate",
+                    },
+                });
+
+            await expect
+                .poll(() =>
+                    githubTelemetry.find(
+                        ({ sessionId, restricted, event }) =>
+                            sessionId === session.sessionId &&
+                            !restricted &&
+                            event.kind === "session_compaction_complete" &&
+                            event.properties?.compaction_attempt_id ===
+                                completion.data.compactionAttemptId
+                    )
+                )
+                .toMatchObject({
+                    event: {
+                        properties: {
+                            token_accounting_basis: "local_full_context_estimate",
+                        },
+                        metrics: {
+                            pre_compaction_tokens: pre,
+                            post_compaction_tokens: post,
+                            tokens_removed: 0,
+                            context_delta_tokens: post! - pre!,
+                        },
+                    },
+                });
+
+            expect(
+                (await session.sendAndWait({ prompt: "Continue after measured growth." }))?.data
+                    .content
+            ).toBe("MANUAL_FOLLOWUP_ONLY");
+            const followup = JSON.stringify(handler.requests.at(-1)?.messages);
+            expect(followup).toContain("MANUAL_GROWTH_SUMMARY");
+            expect(followup).toContain("Initialize measured manual growth.");
+            expect(followup).toContain("Continue after measured growth.");
+            expect(followup).not.toContain("MANUAL_OLD_ASSISTANT_ONLY");
+        } finally {
+            await accountingClient.stop();
+        }
+    });
+
+    it("should preserve plan context after recording manual compaction completion", async () => {
+        const planSentinel = "MANUAL_COMPACTION_PLAN_SENTINEL";
+        class ManualPlanReplayHandler extends BudgetReplayHandler {
+            protected override responseContent(
+                request: BudgetReplayRequest,
+                _requestNumber: number
+            ): string {
+                if (request.tool_choice === "none") return "MANUAL_PLAN_SUMMARY";
+                return JSON.stringify(request.messages).includes(planSentinel)
+                    ? "MANUAL_PLAN_RETAINED"
+                    : "MANUAL_PLAN_DROPPED";
+            }
+        }
+
+        const handler = new ManualPlanReplayHandler();
+        const planClient = createClient({ requestHandler: handler });
+        try {
+            await using session = await planClient.createSession({
+                onPermissionRequest: approveAll,
+                streaming: false,
+                model: "uncatalogued-budget-model",
+                provider: {
+                    type: "openai",
+                    wireApi: "completions",
+                    baseUrl: "https://budget-replay.invalid/v1",
+                    bearerToken: "fake-byok-credential-for-e2e-tests",
+                    modelId: "uncatalogued-budget-model",
+                    maxPromptTokens: 100_000,
+                },
+                infiniteSessions: {
+                    enabled: true,
+                    backgroundCompactionThreshold: 1,
+                    bufferExhaustionThreshold: 1,
+                },
+            });
+            expect(
+                (await session.sendAndWait({ prompt: "Initialize plan-preserving compaction." }))
+                    ?.data.content
+            ).toBe("MANUAL_PLAN_DROPPED");
+            await session.rpc.plan.update({
+                content: `# Active plan\n\n- Preserve ${planSentinel} after compaction.`,
+            });
+            expect(await session.rpc.plan.read()).toMatchObject({
+                content: expect.stringContaining(planSentinel),
+            });
+
+            await expect(session.rpc.history.compact({ trigger: "manual" })).resolves.toMatchObject(
+                {
+                    success: true,
+                    summaryContent: "MANUAL_PLAN_SUMMARY",
+                }
+            );
+            expect(
+                (await session.sendAndWait({ prompt: "Continue with the active plan." }))?.data
+                    .content
+            ).toBe("MANUAL_PLAN_RETAINED");
+            expect(JSON.stringify(handler.requests.at(-1)?.messages)).toContain(planSentinel);
+        } finally {
+            await planClient.stop();
+        }
+    });
+
+    it("should count automatic retained tail in the trusted pre and post context", async () => {
+        class AutomaticAccountingReplayHandler extends BudgetReplayHandler {
+            readonly summaryEntered = Promise.withResolvers<void>();
+            readonly releaseSummary = Promise.withResolvers<void>();
+
+            protected override async beforeResponse(
+                request: BudgetReplayRequest,
+                _requestNumber: number
+            ): Promise<void> {
+                if (request.tool_choice === "none") {
+                    this.summaryEntered.resolve();
+                    await this.releaseSummary.promise;
+                }
+            }
+
+            protected override responseContent(
+                request: BudgetReplayRequest,
+                _requestNumber: number
+            ): string {
+                if (request.tool_choice === "none") return "AUTO_ACCOUNTING_SUMMARY_ONLY";
+                const messages = JSON.stringify(request.messages);
+                if (messages.includes("Follow the measured automatic summary.")) {
+                    return "AUTO_FOLLOWUP_ONLY";
+                }
+                if (messages.includes("Add the retained automatic tail.")) {
+                    return "AUTO_TAIL_ASSISTANT_ONLY";
+                }
+                return "AUTO_OLD_ASSISTANT_ONLY";
+            }
+        }
+
+        const handler = new AutomaticAccountingReplayHandler();
+        const accountingClient = createClient({
+            requestHandler: handler,
+            onGitHubTelemetry: recordGitHubTelemetry,
+        });
+        try {
+            await using session = await accountingClient.createSession({
+                onPermissionRequest: approveAll,
+                streaming: false,
+                model: "uncatalogued-budget-model",
+                provider: {
+                    type: "openai",
+                    wireApi: "completions",
+                    baseUrl: "https://budget-replay.invalid/v1",
+                    bearerToken: "fake-byok-credential-for-e2e-tests",
+                    modelId: "uncatalogued-budget-model",
+                    maxPromptTokens: 100_000,
+                },
+                systemMessage: {
+                    mode: "replace",
+                    content: "Automatic accounting policy. ".repeat(600),
+                },
+                infiniteSessions: {
+                    enabled: true,
+                    backgroundCompactionThreshold: 0.005,
+                    bufferExhaustionThreshold: 0.01,
+                },
+            });
+            expect(
+                (await session.sendAndWait({ prompt: "Start measured automatic accounting." }))
+                    ?.data.content
+            ).toBe("AUTO_OLD_ASSISTANT_ONLY");
+
+            const completed = getNextSessionEvent(
+                session,
+                "session.compaction_complete",
+                "automatic token accounting completion",
+                (event) => event.data.success
+            );
+            const started = getNextSessionEvent(
+                session,
+                "session.compaction_start",
+                "automatic token accounting start"
+            );
+            const tailTurn = session.sendAndWait({
+                prompt: "Add the retained automatic tail.",
+            });
+            await handler.summaryEntered.promise;
+            expect((await tailTurn)?.data.content).toBe("AUTO_TAIL_ASSISTANT_ONLY");
+            handler.releaseSummary.resolve();
+            const [start, completion] = await Promise.all([started, completed]);
+            expect(completion.data).toMatchObject({
+                success: true,
+                tokenAccountingBasis: "local_full_context_estimate",
+            });
+            expect(start.data.toolDefinitionsTokens).toBeGreaterThan(0);
+            expect(completion.data.toolDefinitionsTokens).toBe(start.data.toolDefinitionsTokens);
+            const pre = completion.data.preCompactionTokens;
+            const post = completion.data.postCompactionTokens;
+            expect(pre).toBeTypeOf("number");
+            expect(post).toBeTypeOf("number");
+            expect(completion.data.tokensRemoved).toBe(Math.max(pre! - post!, 0));
+            await expect
+                .poll(async () =>
+                    (await session.getEvents()).find(
+                        (event) =>
+                            event.type === "session.compaction_complete" &&
+                            event.data.compactionAttemptId === completion.data.compactionAttemptId
+                    )
+                )
+                .toMatchObject({
+                    data: {
+                        preCompactionTokens: pre,
+                        postCompactionTokens: post,
+                        tokensRemoved: Math.max(pre! - post!, 0),
+                        tokenAccountingBasis: "local_full_context_estimate",
+                    },
+                });
+
+            await expect
+                .poll(() =>
+                    githubTelemetry.find(
+                        ({ sessionId, restricted, event }) =>
+                            sessionId === session.sessionId &&
+                            !restricted &&
+                            event.kind === "session_compaction_complete" &&
+                            event.properties?.compaction_attempt_id ===
+                                completion.data.compactionAttemptId
+                    )
+                )
+                .toMatchObject({
+                    event: {
+                        properties: {
+                            token_accounting_basis: "local_full_context_estimate",
+                        },
+                        metrics: {
+                            pre_compaction_tokens: pre,
+                            post_compaction_tokens: post,
+                            tokens_removed: Math.max(pre! - post!, 0),
+                            context_delta_tokens: post! - pre!,
+                        },
+                    },
+                });
+
+            expect(
+                (
+                    await session.sendAndWait({
+                        prompt: "Follow the measured automatic summary.",
+                    })
+                )?.data.content
+            ).toBe("AUTO_FOLLOWUP_ONLY");
+            const followup = JSON.stringify(handler.requests.at(-1)?.messages);
+            expect(followup).toContain("AUTO_ACCOUNTING_SUMMARY_ONLY");
+            expect(followup).toContain("Add the retained automatic tail.");
+            expect(followup).toContain("AUTO_TAIL_ASSISTANT_ONLY");
+            expect(followup).toContain("Follow the measured automatic summary.");
+            expect(followup).not.toContain("AUTO_OLD_ASSISTANT_ONLY");
+        } finally {
+            handler.releaseSummary.resolve();
+            await accountingClient.stop();
+        }
+    });
+
+    it("should classify manual compaction with empty history as not applicable", async () => {
+        const handler = new BudgetReplayHandler();
+        const noOpClient = createClient({
+            requestHandler: handler,
+            onGitHubTelemetry: recordGitHubTelemetry,
+        });
+        try {
+            await using session = await noOpClient.createSession({
+                onPermissionRequest: approveAll,
+                streaming: false,
+                model: "uncatalogued-budget-model",
+                provider: {
+                    type: "openai",
+                    wireApi: "completions",
+                    baseUrl: "https://budget-replay.invalid/v1",
+                    bearerToken: "fake-byok-credential-for-e2e-tests",
+                    modelId: "uncatalogued-budget-model",
+                    maxPromptTokens: 100_000,
+                },
+                infiniteSessions: { enabled: false },
+            });
+            const started: Extract<SessionEvent, { type: "session.compaction_start" }>[] = [];
+            const completed: Extract<SessionEvent, { type: "session.compaction_complete" }>[] = [];
+            session.on("session.compaction_start", (event) => started.push(event));
+            session.on("session.compaction_complete", (event) => completed.push(event));
+
+            await expect(session.rpc.history.compact({ trigger: "manual" })).rejects.toThrow(
+                "Nothing to compact."
+            );
+            await expect
+                .poll(() => completed)
+                .toEqual([
+                    expect.objectContaining({
+                        data: expect.objectContaining({
+                            success: false,
+                            model: "uncatalogued-budget-model",
+                            outcome: "not_applicable",
+                            outcomeReason: "nothing_to_compact",
+                        }),
+                    }),
+                ]);
+            expect(started).toHaveLength(1);
+            expect(started[0]?.data.compactionAttemptId).toEqual(expect.any(String));
+            expect(started[0]?.data.tokenLimit).toBeGreaterThan(0);
+            expect(completed[0]?.data).toMatchObject({
+                compactionAttemptId: started[0]?.data.compactionAttemptId,
+                tokenLimit: started[0]?.data.tokenLimit,
+            });
+            expect(completed[0]?.data.failureReason).toBeUndefined();
+            expect(completed[0]?.data.compactionTokensUsed).toBeUndefined();
+            expect(handler.requests).toHaveLength(0);
+
+            await expect
+                .poll(() =>
+                    githubTelemetry.find(
+                        ({ sessionId, restricted, event }) =>
+                            sessionId === session.sessionId &&
+                            !restricted &&
+                            event.kind === "session_compaction_complete" &&
+                            event.properties?.compaction_attempt_id ===
+                                completed[0]?.data.compactionAttemptId
+                    )
+                )
+                .toMatchObject({
+                    event: {
+                        properties: {
+                            model: uncataloguedModelTelemetryHash,
+                            outcome: "not_applicable",
+                            outcome_reason: "nothing_to_compact",
+                        },
+                    },
+                });
+        } finally {
+            await noOpClient.stop();
+        }
+    });
+
+    it.each([
+        {
+            scenario: "provider rejection",
+            status: 400,
+            code: "invalid_request",
+            reason: "provider_rejected",
+            category: "other",
+        },
+        {
+            scenario: "request body timeout",
+            status: 408,
+            code: "user_request_timeout",
+            reason: "transport_timeout",
+            category: "network",
+        },
+    ])(
+        "should preserve typed HTTP $scenario attribution without fabricating usage",
+        async ({ status, code, reason, category }) => {
+            const handler = new FailingCompactionReplayHandler(status, code);
+            const failureClient = createClient({
+                requestHandler: handler,
+                onGitHubTelemetry: recordGitHubTelemetry,
+            });
+            try {
+                await using session = await failureClient.createSession({
+                    onPermissionRequest: approveAll,
+                    streaming: false,
+                    model: "uncatalogued-budget-model",
+                    provider: {
+                        type: "openai",
+                        wireApi: "completions",
+                        baseUrl: "https://budget-replay.invalid/v1",
+                        bearerToken: "fake-byok-credential-for-e2e-tests",
+                        modelId: "uncatalogued-budget-model",
+                        maxPromptTokens: 100_000,
+                    },
+                    infiniteSessions: { enabled: false },
+                });
+                expect(
+                    (await session.sendAndWait({ prompt: "Initialize failed compaction." }))?.data
+                        .content
+                ).toBe("BUDGET_CONTROL_OK");
+                const completed: Extract<SessionEvent, { type: "session.compaction_complete" }>[] =
+                    [];
+                session.on("session.compaction_complete", (event) => completed.push(event));
+
+                await expect(session.rpc.history.compact({ trigger: "manual" })).rejects.toThrow();
+                await expect
+                    .poll(() => completed)
+                    .toEqual([
+                        expect.objectContaining({
+                            data: expect.objectContaining({
+                                success: false,
+                                model: "uncatalogued-budget-model",
+                                outcome: "failed",
+                                failureReason: reason,
+                                statusCode: status,
+                            }),
+                        }),
+                    ]);
+                expect(completed[0]?.data.outcomeReason).toBeUndefined();
+                expect(completed[0]?.data.compactionTokensUsed).toBeUndefined();
+
+                await expect
+                    .poll(() =>
+                        githubTelemetry.find(
+                            ({ sessionId, restricted, event }) =>
+                                sessionId === session.sessionId &&
+                                !restricted &&
+                                event.kind === "session_compaction_complete" &&
+                                event.properties?.compaction_attempt_id ===
+                                    completed[0]?.data.compactionAttemptId
+                        )
+                    )
+                    .toMatchObject({
+                        event: {
+                            properties: {
+                                model: uncataloguedModelTelemetryHash,
+                                outcome: "failed",
+                                failure_reason: reason,
+                                failure_category: category,
+                            },
+                            metrics: { status_code: status },
+                        },
+                    });
+            } finally {
+                await failureClient.stop();
+            }
+        }
+    );
 
     it("should reject an oversized provider prompt before any inference request", async () => {
         const handler = new BudgetReplayHandler();
@@ -1317,20 +2139,43 @@ describe("Compaction", async () => {
         }
     });
 
-    it("should report the effective prompt budget after manual compaction", async () => {
-        const handler = new BudgetReplayHandler();
+    it("should preserve registered provider selection while attributing its wire model", async () => {
+        class ManualAttributionReplayHandler extends BudgetReplayHandler {
+            protected override responseContent(
+                _request: BudgetReplayRequest,
+                requestNumber: number
+            ): string {
+                if (requestNumber === 1) return "INITIAL_ASSISTANT_ONLY";
+                if (requestNumber === 2) return "COMPACTION_SUMMARY_ONLY";
+                return "FOLLOWUP_ASSISTANT_ONLY";
+            }
+        }
+        const handler = new ManualAttributionReplayHandler();
         const budgetClient = createClient({ requestHandler: handler });
         try {
             const session = await budgetClient.createSession({
                 onPermissionRequest: approveAll,
-                model: "uncatalogued-budget-model",
-                provider: {
-                    type: "openai",
-                    wireApi: "completions",
-                    baseUrl: "https://budget-replay.invalid/v1",
-                    bearerToken: "fake-byok-credential-for-e2e-tests",
-                    modelId: "uncatalogued-budget-model",
-                },
+                model: "local/selection",
+                providers: [
+                    {
+                        name: "local",
+                        type: "openai",
+                        wireApi: "completions",
+                        baseUrl: "https://registered-budget-replay.invalid/v1",
+                        bearerToken: "fake-byok-credential-for-e2e-tests",
+                    },
+                ],
+                models: [
+                    {
+                        id: "selection",
+                        provider: "local",
+                        modelId: "uncatalogued-budget-model",
+                        wireModel: "deployment-private",
+                        maxPromptTokens: 112_000,
+                        maxContextWindowTokens: 128_000,
+                        maxOutputTokens: 32_000,
+                    },
+                ],
                 modelCapabilities: {
                     limits: {
                         max_prompt_tokens: 112_000,
@@ -1343,7 +2188,7 @@ describe("Compaction", async () => {
             expect(
                 (await session.sendAndWait({ prompt: "Initialize manual compaction." }))?.data
                     .content
-            ).toBe("BUDGET_CONTROL_OK");
+            ).toBe("INITIAL_ASSISTANT_ONLY");
             const events: SessionEvent[] = [];
             session.on((event) => {
                 if (
@@ -1356,17 +2201,60 @@ describe("Compaction", async () => {
             const result = await session.rpc.history.compact({ trigger: "manual" });
             expect(result).toMatchObject({
                 success: true,
-                summaryContent: "BUDGET_CONTROL_OK",
+                summaryContent: "COMPACTION_SUMMARY_ONLY",
                 contextWindow: { tokenLimit: 96_000 },
             });
-            expect(events.map((event) => [event.type, event.data])).toEqual([
-                ["session.compaction_start", expect.objectContaining({ tokenLimit: 96_000 })],
-                [
-                    "session.compaction_complete",
-                    expect.objectContaining({ success: true, tokenLimit: 96_000 }),
-                ],
-            ]);
+            expect(events).toHaveLength(2);
+            const [start, complete] = events;
+            if (
+                start?.type !== "session.compaction_start" ||
+                complete?.type !== "session.compaction_complete"
+            ) {
+                throw new Error(`Unexpected compaction event sequence: ${JSON.stringify(events)}`);
+            }
+            expect(start).toMatchObject({
+                type: "session.compaction_start",
+                data: {
+                    model: "deployment-private",
+                    trigger: "manual",
+                    tokenLimit: 96_000,
+                },
+            });
+            expect(start.data.compactionAttemptId).toMatch(
+                /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+            );
+            expect(complete).toMatchObject({
+                type: "session.compaction_complete",
+                data: {
+                    success: true,
+                    compactionAttemptId: start.data.compactionAttemptId,
+                    trigger: "manual",
+                    tokenLimit: 96_000,
+                    compactionTokensUsed: { model: "deployment-private" },
+                },
+            });
+            expect(complete.data.model).toBeUndefined();
+            expect(complete.data.initialModel).toBeUndefined();
             expect(handler.requests).toHaveLength(2);
+            expect(handler.requests[1]?.model).toBe("deployment-private");
+            expect(handler.requestUrls[1]).toBe(
+                "https://registered-budget-replay.invalid/v1/chat/completions"
+            );
+            expect(
+                (await session.sendAndWait({ prompt: "Continue from the compacted summary." }))
+                    ?.data.content
+            ).toBe("FOLLOWUP_ASSISTANT_ONLY");
+            expect(handler.requests).toHaveLength(3);
+            const followupRequest = handler.requests.at(-1);
+            expect(followupRequest?.model).toBe("deployment-private");
+            expect(handler.requestUrls[2]).toBe(
+                "https://registered-budget-replay.invalid/v1/chat/completions"
+            );
+            const followupMessages = JSON.stringify(followupRequest?.messages);
+            expect(followupMessages).toContain("COMPACTION_SUMMARY_ONLY");
+            expect(followupMessages).toContain("Initialize manual compaction.");
+            expect(followupMessages).toContain("Continue from the compacted summary.");
+            expect(followupMessages).not.toContain("INITIAL_ASSISTANT_ONLY");
             await session.disconnect();
         } finally {
             await budgetClient.stop();
@@ -1536,7 +2424,16 @@ describe("Compaction", async () => {
         ]);
 
         expect(startEvent.data.conversationTokens ?? 0).toBeGreaterThan(0);
+        expect(startEvent.data.model).toBeTruthy();
+        expect(startEvent.data.trigger).toBe("threshold");
+        expect(startEvent.data.compactionAttemptId).toMatch(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+        );
         expect(completeEvent.data.success).toBe(true);
+        expect(completeEvent.data.compactionAttemptId).toBe(startEvent.data.compactionAttemptId);
+        expect(completeEvent.data.compactionTokensUsed?.model ?? completeEvent.data.model).toBe(
+            startEvent.data.model
+        );
         expect(completeEvent.data.compactionTokensUsed).toBeDefined();
         // Replay has no prompt usage; recording must preserve the provider's value or absence.
         if (isCI) {
@@ -1689,7 +2586,17 @@ describe("selected-tier model catalog", async () => {
     const { createClient } = await createSdkTestContext();
     it("should resolve selected-tier defaults and confirm a smaller-tier switch", async () => {
         const modelId = "gpt-5.4-mini";
+        const targetModelId = "gpt-5.4-mini-target";
         class TierBudgetReplayHandler extends BudgetReplayHandler {
+            protected override responseContent(
+                _request: BudgetReplayRequest,
+                requestNumber: number
+            ): string {
+                if (requestNumber === 1) return "TIER_INITIAL_ASSISTANT_ONLY";
+                if (requestNumber === 2) return "TIER_COMPACTION_SUMMARY_ONLY";
+                return "TIER_FOLLOWUP_ASSISTANT_ONLY";
+            }
+
             protected override async sendRequest(request: Request): Promise<Response> {
                 const path = new URL(request.url).pathname;
                 if (path === "/models") {
@@ -1718,6 +2625,26 @@ describe("selected-tier model catalog", async () => {
                                     token_prices: {
                                         default: { max_prompt_tokens: 88_000 },
                                         long_context: { max_prompt_tokens: 112_000 },
+                                    },
+                                },
+                            },
+                            {
+                                id: targetModelId,
+                                name: "Tier budget target fixture",
+                                object: "model",
+                                vendor: "OpenAI",
+                                version: "1",
+                                model_picker_enabled: true,
+                                supported_endpoints: ["/chat/completions"],
+                                capabilities: {
+                                    type: "chat",
+                                    family: targetModelId,
+                                    tokenizer: "o200k_base",
+                                    supports: { vision: false, streaming: true, tool_calls: true },
+                                    limits: {
+                                        max_prompt_tokens: 112_000,
+                                        max_context_window_tokens: 128_000,
+                                        max_output_tokens: 64_000,
                                     },
                                 },
                             },
@@ -1751,7 +2678,7 @@ describe("selected-tier model catalog", async () => {
             expect(
                 (await session.sendAndWait({ prompt: "tier-budget-boundary ".repeat(16_384) }))
                     ?.data.content
-            ).toBe("BUDGET_CONTROL_OK");
+            ).toBe("TIER_INITIAL_ASSISTANT_ONLY");
             const longContext = await session.rpc.metadata.contextInfo({
                 promptTokenLimit: 0,
                 outputTokenLimit: 0,
@@ -1770,7 +2697,7 @@ describe("selected-tier model catalog", async () => {
             });
             expect((await session.rpc.model.getCurrent()).contextTier).toBe("long_context");
             const target = {
-                modelId,
+                modelId: targetModelId,
                 contextTier: "default",
                 modelCapabilities: { limits: { max_output_tokens: 64_000 } },
                 runCompactionPreflight: true,
@@ -1780,7 +2707,7 @@ describe("selected-tier model catalog", async () => {
                 status: "confirmation_required",
                 modelState: { contextTier: "long_context" },
                 confirmation: {
-                    targetModelDisplayName: modelId,
+                    targetModelDisplayName: targetModelId,
                     targetLimit: 64_000,
                 },
             });
@@ -1807,30 +2734,65 @@ describe("selected-tier model catalog", async () => {
                 await session.rpc.model.switchTo({ ...target, compactionDecision: "compact" })
             ).toMatchObject({
                 status: "applied",
-                modelState: { contextTier: "default" },
+                modelState: { modelId: targetModelId, contextTier: "default" },
             });
-            expect(compactionEvents.map((event) => [event.type, event.data])).toEqual([
-                ["session.compaction_start", expect.objectContaining({ tokenLimit: 64_000 })],
-                [
-                    "session.compaction_complete",
-                    expect.objectContaining({ success: true, tokenLimit: 64_000 }),
-                ],
-            ]);
+            expect(compactionEvents).toHaveLength(2);
+            const [start, complete] = compactionEvents;
+            if (
+                start?.type !== "session.compaction_start" ||
+                complete?.type !== "session.compaction_complete"
+            ) {
+                throw new Error(
+                    `Unexpected model-switch compaction events: ${JSON.stringify(compactionEvents)}`
+                );
+            }
+            expect(start).toMatchObject({
+                type: "session.compaction_start",
+                data: {
+                    model: modelId,
+                    trigger: "model_switch",
+                    tokenLimit: 64_000,
+                    switchTargetModel: targetModelId,
+                },
+            });
+            expect(start.data.compactionAttemptId).toMatch(
+                /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+            );
+            expect(complete).toMatchObject({
+                type: "session.compaction_complete",
+                data: {
+                    success: true,
+                    compactionAttemptId: start.data.compactionAttemptId,
+                    trigger: "model_switch",
+                    tokenLimit: 64_000,
+                    switchTargetModel: targetModelId,
+                    compactionTokensUsed: { model: modelId },
+                    summaryContent: "TIER_COMPACTION_SUMMARY_ONLY",
+                },
+            });
             expect(handler.requests).toHaveLength(2);
+            expect(handler.requests[1]?.model).toBe(modelId);
             expect(
                 (await session.sendAndWait({ prompt: "Check the compacted default tier." }))?.data
                     .content
-            ).toBe("BUDGET_CONTROL_OK");
+            ).toBe("TIER_FOLLOWUP_ASSISTANT_ONLY");
             const defaultContext = await session.rpc.metadata.contextInfo({
                 promptTokenLimit: 0,
                 outputTokenLimit: 0,
             });
             expect(defaultContext.contextInfo).toMatchObject({
-                modelName: modelId,
-                limit: 88_000,
+                modelName: targetModelId,
+                limit: 112_000,
                 promptTokenLimit: 64_000,
             });
             expect(handler.requests).toHaveLength(3);
+            const followupRequest = handler.requests[2];
+            expect(followupRequest?.model).toBe(targetModelId);
+            const followupMessages = JSON.stringify(followupRequest?.messages);
+            expect(followupMessages).toContain("TIER_COMPACTION_SUMMARY_ONLY");
+            expect(followupMessages).toContain("tier-budget-boundary");
+            expect(followupMessages).toContain("Check the compacted default tier.");
+            expect(followupMessages).not.toContain("TIER_INITIAL_ASSISTANT_ONLY");
             await session.disconnect();
         } finally {
             await budgetClient.stop();

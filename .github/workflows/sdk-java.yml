@@ -35,7 +35,7 @@ jobs:
             test-jdk: "17"
           - os: windows-2025-4core-agent-runtime
             test-jdk: "17"
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ github.event_name == 'merge_group' && fromJSON('{"ubuntu-26.04-2core-agent-runtime":"ubuntu-26.04-2core-ar-mq","macos-26-agent-runtime":"macos-26-ar-mq","windows-2025-4core-agent-runtime":"windows-2025-4core-ar-mq"}')[matrix.os] || matrix.os }}
     defaults:
       run:
         shell: bash
@@ -123,7 +123,7 @@ jobs:
   java-musl-x64:
     name: "Java (JDK 25, linuxmusl-x64)"
     if: inputs.platform == 'all' || inputs.platform == 'linuxmusl-x64'
-    runs-on: ubuntu-26.04-2core-agent-runtime
+    runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-26.04-2core-ar-mq' || 'ubuntu-26.04-2core-agent-runtime' }}
     steps:
       - uses: actions/checkout@v7
         with:

@@ -2264,6 +2264,22 @@ pub struct AuthEnumerateQueryProviders {
     pub kind: AuthEnumerateQueryProvidersKind,
 }
 
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthEnumerateQueryLoginAccounts {
+    /// Account-collection query variant discriminator.
+    pub kind: AuthEnumerateQueryLoginAccountsKind,
+    /// The provider whose cached base identities should be listed.
+    pub provider: LoginProviderKind,
+}
+
 /// Enumerate request carrying the typed collection query.
 ///
 /// <div class="warning">
@@ -3671,6 +3687,34 @@ pub struct AuthEnumerateValueProviders {
     pub kind: AuthEnumerateValueProvidersKind,
 }
 
+/// A cached base identity a provider can reuse for login without asking the user to choose an account again.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthLoginIdentity {
+    /// Opaque provider-owned identity id. Pass it back to accounts.login.begin; consumers must not parse it.
+    pub account_id: String,
+    /// Whether this base identity owns the session's active derived account.
+    pub active: bool,
+    /// Human-readable sign-in label owned by the runtime.
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthEnumerateValueLoginAccounts {
+    /// Cached base identities reusable by the selected login provider, active first.
+    pub items: Vec<AuthLoginIdentity>,
+    /// Enumerated account-collection variant discriminator.
+    pub kind: AuthEnumerateValueLoginAccountsKind,
+}
+
 /// Credential-free identity metadata.
 ///
 /// <div class="warning">
@@ -3729,7 +3773,7 @@ pub struct AuthLoginAdvanceRequest {
     pub input: Option<String>,
 }
 
-/// Begin an interactive login flow for a provider kind. Dispatch is kind-only.
+/// Begin an interactive login flow for a provider kind, optionally reusing a cached base identity or explicitly requesting provider account selection.
 ///
 /// <div class="warning">
 ///
@@ -3742,6 +3786,51 @@ pub struct AuthLoginAdvanceRequest {
 pub struct AuthLoginBeginRequest {
     /// The provider kind to sign in with.
     pub kind: LoginProviderKind,
+}
+
+/// Extensible [`AuthLoginBeginRequest`], including inputs added after it was published.
+///
+/// Required inputs are [`AuthLoginBeginOptions::new`] arguments; optional inputs have fluent setters.
+/// Input-only: it serialises to the flat wire request and is not deserialisable.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthLoginBeginOptions {
+    #[serde(flatten)]
+    legacy: AuthLoginBeginRequest,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mode: Option<AuthLoginMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    account_id: Option<String>,
+}
+
+impl AuthLoginBeginOptions {
+    /// Creates options with the required inputs.
+    pub fn new(kind: LoginProviderKind) -> Self {
+        Self {
+            legacy: AuthLoginBeginRequest { kind },
+            mode: None,
+            account_id: None,
+        }
+    }
+
+    /// Neutral identity-selection intent. Omitted is equivalent to default.
+    pub fn mode(mut self, value: AuthLoginMode) -> Self {
+        self.mode = Some(value);
+        self
+    }
+
+    /// Opaque cached base identity id returned by accounts.enumerate loginAccounts. Valid only with default mode; consumers must not parse it.
+    pub fn account_id(mut self, value: impl Into<String>) -> Self {
+        self.account_id = Some(value.into());
+        self
+    }
 }
 
 ///
@@ -11156,6 +11245,59 @@ pub struct HostUnregisterSessionRequest {
     pub session_id: SessionId,
 }
 
+/// Default-tier text and image token prices reported for an image model, in AI credits per billing batch. Missing rates remain absent; these are not per-image quotes or actual billed usage.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageToolModelPricing {
+    /// Number of tokens per billing batch.
+    pub batch_size: i64,
+    /// Distinct AI credits per batch of image-input tokens, when reported, including zero.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_input_price: Option<f64>,
+    /// Distinct AI credits per batch of image-output tokens, when reported, including zero.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_output_price: Option<f64>,
+    /// AI credits per batch of text-input tokens, including a reported zero.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_input_price: Option<f64>,
+    /// AI credits per batch of text-output tokens, not generated image tokens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_output_price: Option<f64>,
+}
+
+/// The runtime-selected image model and its account availability. Availability is independent of per-session image-generation enablement and does not override session policy or permissions.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageToolModel {
+    /// Whether the resolved account can use this image model. This is not the session's enabled setting.
+    pub availability: ImageToolModelAvailability,
+    /// Image model identifier selected by the runtime.
+    pub id: String,
+    /// Whether this is the model the runtime currently uses for its native image tool.
+    pub is_default: bool,
+    /// Human-readable model name, supplied by the runtime when unavailable from the catalog.
+    pub name: String,
+    /// Catalog-reported token prices. Absent means prices were not reported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pricing: Option<ImageToolModelPricing>,
+    /// Image operations supported by the model's available versioned endpoints.
+    pub supported_operations: Vec<ImageToolModelOperation>,
+}
+
 /// The configuration-change alternative for the transportChoices entry at the same index. Only the selected alternative is applied; entries are not cumulative. The payload stays behind the runtime boundary.
 ///
 /// <div class="warning">
@@ -18170,6 +18312,9 @@ pub struct ModelList {
     /// metadata; same shape and semantics as `SessionModelList.auto`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto: Option<AutoTierMetadata>,
+    /// The runtime's default image model, separate from conversation models, with its availability for the resolved account. The default is reported even when unavailable; clients choose whether to display it. These entries must not be selected as chat models. Absent on runtimes that do not expose this catalog.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_models: Option<Vec<ImageToolModel>>,
     /// List of available models with full metadata
     pub models: Vec<Model>,
 }
@@ -21778,6 +21923,22 @@ pub struct ProtocolExternalToolDefinition {
     /// Optional human-readable display title.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+}
+
+/// Opt into native CAPI image generation.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtocolImageGenerationOptions {
+    /// Disabled by default for SDK sessions. CAPI model access and permissions still apply.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
 }
 
 ///
@@ -28447,6 +28608,10 @@ pub struct SessionUpdateOptionsParams {
     /// Skill scan directories and descendants excluded from discovery. Supports `~`-relative paths.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignored_skills_locations: Option<Vec<String>>,
+    /// Enable or disable the native image tool for this session without changing the conversation model.
+    /// Omitted values preserve the current setting. Re-supply consent on cold resume.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_generation: Option<ProtocolImageGenerationOptions>,
     /// Built-in subagent names to include in this session. When specified, only these built-ins are available, subject to runtime availability and exclusions. Custom agents with the same name remain available. Set to null to remove the allowlist restriction.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub included_builtin_agents: Option<Vec<String>>,
@@ -34718,6 +34883,9 @@ pub struct ModelsListResult {
     /// metadata; same shape and semantics as `SessionModelList.auto`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto: Option<AutoTierMetadata>,
+    /// The runtime's default image model, separate from conversation models, with its availability for the resolved account. The default is reported even when unavailable; clients choose whether to display it. These entries must not be selected as chat models. Absent on runtimes that do not expose this catalog.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_models: Option<Vec<ImageToolModel>>,
     /// List of available models with full metadata
     pub models: Vec<Model>,
 }
@@ -42816,6 +42984,39 @@ pub enum AuthEnumerateQueryProvidersKind {
     Providers,
 }
 
+/// Account-collection query variant discriminator.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthEnumerateQueryLoginAccountsKind {
+    #[serde(rename = "loginAccounts")]
+    #[default]
+    LoginAccounts,
+}
+
+/// A provider a consumer may interactively sign in with.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LoginProviderKind {
+    /// OAuth github.com sign-in via the browser (web loopback + PKCE).
+    #[serde(rename = "githubDotCom")]
+    GitHubDotCom,
+    /// A GitHub Enterprise Cloud account — a GitHub account on a non-github.com host, e.g. *.ghe.com; the host is supplied interactively through the neutral input-required step.
+    #[serde(rename = "proxima")]
+    Proxima,
+    /// Microsoft Entra sign-in that derives a GitHub (EMU) credential.
+    #[serde(rename = "entra")]
+    Entra,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
 /// Selects which accounts collection to enumerate. A no-arg selector is the empty-payload variant.
 ///
 /// <div class="warning">
@@ -42829,6 +43030,7 @@ pub enum AuthEnumerateQueryProvidersKind {
 pub enum AuthEnumerateQuery {
     Accounts(AuthEnumerateQueryAccounts),
     Providers(AuthEnumerateQueryProviders),
+    LoginAccounts(AuthEnumerateQueryLoginAccounts),
 }
 
 /// Account read-datum query variant discriminator.
@@ -43404,37 +43606,20 @@ pub enum AuthEnumerateValueAccountsKind {
     Accounts,
 }
 
-/// A provider a consumer may interactively sign in with.
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum LoginProviderKind {
-    /// OAuth github.com sign-in via the browser (web loopback + PKCE).
-    #[serde(rename = "githubDotCom")]
-    GitHubDotCom,
-    /// A GitHub Enterprise Cloud account — a GitHub account on a non-github.com host, e.g. *.ghe.com; the host is supplied interactively through the neutral input-required step.
-    #[serde(rename = "proxima")]
-    Proxima,
-    /// Microsoft Entra sign-in that derives a GitHub (EMU) credential.
-    #[serde(rename = "entra")]
-    Entra,
-    /// Unknown variant for forward compatibility.
-    #[default]
-    #[serde(other)]
-    Unknown,
-}
-
 /// Enumerated account-collection variant discriminator.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AuthEnumerateValueProvidersKind {
     #[serde(rename = "providers")]
     #[default]
     Providers,
+}
+
+/// Enumerated account-collection variant discriminator.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthEnumerateValueLoginAccountsKind {
+    #[serde(rename = "loginAccounts")]
+    #[default]
+    LoginAccounts,
 }
 
 /// The enumerated collection, keyed by the same selector as the query.
@@ -43450,6 +43635,29 @@ pub enum AuthEnumerateValueProvidersKind {
 pub enum AuthEnumerateValue {
     Accounts(AuthEnumerateValueAccounts),
     Providers(AuthEnumerateValueProviders),
+    LoginAccounts(AuthEnumerateValueLoginAccounts),
+}
+
+/// How an interactive provider login should choose its base identity.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthLoginMode {
+    /// Use normal provider behavior, optionally pinned to accountId.
+    #[serde(rename = "default")]
+    Default,
+    /// Explicitly ask the provider to present its account-selection UI instead of serving from a retained identity.
+    #[serde(rename = "selectAccount")]
+    SelectAccount,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
 }
 
 /// Login flow step variant discriminator.
@@ -46862,6 +47070,50 @@ pub enum HostExitReason {
     /// The runtime is shutting down.
     #[serde(rename = "runtimeShutdown")]
     RuntimeShutdown,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Account availability of the runtime image model. Discovery errors are returned as errors, not converted to unavailable.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ImageToolModelAvailability {
+    /// The account has access to a supported image operation.
+    #[serde(rename = "available")]
+    Available,
+    /// The runtime default is not available to this account; enabling the tool cannot grant access.
+    #[serde(rename = "unavailable")]
+    Unavailable,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// A supported image-service operation.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ImageToolModelOperation {
+    /// Generate an image from a text prompt.
+    #[serde(rename = "generate")]
+    Generate,
+    /// Generate or edit an image using explicitly selected image inputs.
+    #[serde(rename = "edit")]
+    Edit,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]

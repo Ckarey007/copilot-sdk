@@ -1414,6 +1414,7 @@ public final class CopilotClient implements AutoCloseable {
         }
 
         var params = new SessionOptionsUpdateParams(null, // sessionId - set by SessionOptionsApi
+                null, // imageGeneration
                 null, // model
                 null, // modelCapabilitiesOverrides
                 null, // reasoningEffort

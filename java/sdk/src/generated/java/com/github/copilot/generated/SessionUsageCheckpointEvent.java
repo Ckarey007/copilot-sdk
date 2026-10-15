@@ -36,6 +36,8 @@ public final class SessionUsageCheckpointEvent extends SessionEvent {
     @JsonIgnoreProperties(ignoreUnknown = true)
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record SessionUsageCheckpointEventData(
+        /** Runtime tool-operation identities already included in this checkpoint. Prevents duplicate charges when an operation is delivered again with a newer sequence. */
+        @JsonProperty("toolUsageRequestIds") List<String> toolUsageRequestIds,
         /** Session-wide accumulated nano-AI units cost at checkpoint time */
         @JsonProperty("totalNanoAiu") Double totalNanoAiu,
         /** Complete accounting state captured atomically with the receipt watermarks. */

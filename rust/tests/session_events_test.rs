@@ -6,8 +6,8 @@ use github_copilot_sdk::session_events::{
     HumanResponseRecordedResponse, IndexedSearchData, PermissionApprovalEvaluation,
     PermissionApprovalEvaluationEvaluationStage, PermissionApprovalEvaluationJudgeStatus,
     PermissionApprovalEvaluationReasonCode, SandboxDecisionData, SessionEventData,
-    ToolExecutionCompleteFileEdit, ToolExecutionCompleteFileEditKind, TypedSessionEvent,
-    UserMessageData,
+    ToolExecutionCompleteData, ToolExecutionCompleteFileEdit, ToolExecutionCompleteFileEditKind,
+    TypedSessionEvent, UserMessageData,
 };
 
 #[test]
@@ -35,6 +35,56 @@ fn event_envelope(event_type: &str, data: serde_json::Value) -> serde_json::Valu
         "type": event_type,
         "data": data
     })
+}
+
+#[test]
+fn image_tool_usage_round_trips_without_inline_payload_storage() {
+    for (success, total_nano_aiu) in [(true, 0.0), (true, 598_500_000.0), (false, 598_500_000.0)] {
+        let wire = event_envelope(
+            "tool.execution_complete",
+            serde_json::json!({
+                "toolCallId": "image-call",
+                "success": success,
+                "toolUsage": {
+                    "requestId": "image-usage",
+                    "model": "gpt-image-2.5-sunburst",
+                    "inputTokens": 21,
+                    "outputTokens": 196,
+                    "totalTokens": 217,
+                    "inputTokensDetails": { "textTokens": 21, "imageTokens": 0 },
+                    "outputTokensDetails": { "textTokens": 0, "imageTokens": 196 },
+                    "copilotUsage": { "totalNanoAiu": total_nano_aiu }
+                }
+            }),
+        );
+        let event: TypedSessionEvent = serde_json::from_value(wire.clone()).unwrap();
+        let SessionEventData::ToolExecutionComplete(data) = &event.payload else {
+            panic!("expected tool-completion event");
+        };
+        assert_eq!(
+            std::mem::size_of_val(&data.tool_usage),
+            std::mem::size_of::<usize>(),
+            "Image usage should occupy only an optional pointer in the shared event"
+        );
+        assert_eq!(
+            data.tool_usage.as_ref().unwrap().model,
+            "gpt-image-2.5-sunburst"
+        );
+        assert_eq!(serde_json::to_value(event).unwrap(), wire);
+    }
+}
+
+#[test]
+fn tool_completion_without_usage_omits_the_usage_field() {
+    let wire = serde_json::json!({ "toolCallId": "ordinary-tool", "success": true });
+    let data: ToolExecutionCompleteData = serde_json::from_value(wire.clone()).unwrap();
+
+    assert!(data.tool_usage.is_none());
+    assert_eq!(
+        std::mem::size_of_val(&data.tool_usage),
+        std::mem::size_of::<usize>()
+    );
+    assert_eq!(serde_json::to_value(data).unwrap(), wire);
 }
 
 #[test]

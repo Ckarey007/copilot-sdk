@@ -3619,6 +3619,12 @@ public sealed partial class SessionShutdownData
     [JsonPropertyName("toolDefinitionsTokens")]
     public long? ToolDefinitionsTokens { get; set; }
 
+    /// <summary>Runtime tool-operation identities already included in the final accounting snapshot.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonInclude]
+    [JsonPropertyName("toolUsageRequestIds")]
+    internal string[]? ToolUsageRequestIds { get; set; }
+
     /// <summary>Cumulative time spent in API calls during the session, in milliseconds.</summary>
     [JsonConverter(typeof(MillisecondsTimeSpanConverter))]
     [JsonPropertyName("totalApiDurationMs")]
@@ -3667,6 +3673,12 @@ public sealed partial class SessionUsageCheckpointData
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("providerModelMetrics")]
     public UsageMetricsProviderModelMetric[]? ProviderModelMetrics { get; set; }
+
+    /// <summary>Runtime tool-operation identities already included in this checkpoint. Prevents duplicate charges when an operation is delivered again with a newer sequence.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonInclude]
+    [JsonPropertyName("toolUsageRequestIds")]
+    internal string[]? ToolUsageRequestIds { get; set; }
 
     /// <summary>Session-wide accumulated nano-AI units cost at checkpoint time.</summary>
     [JsonPropertyName("totalNanoAiu")]
@@ -3793,6 +3805,11 @@ public sealed partial class SessionContextClearedData
 /// <summary>Context window breakdown at the start of LLM-powered conversation compaction.</summary>
 public sealed partial class SessionCompactionStartData
 {
+    /// <summary>Identifier shared with the matching compaction completion event.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("compactionAttemptId")]
+    public string? CompactionAttemptId { get; set; }
+
     /// <summary>Token count from non-system messages (user, assistant, tool) at compaction start.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("conversationTokens")]
@@ -3808,10 +3825,20 @@ public sealed partial class SessionCompactionStartData
     [JsonPropertyName("model")]
     public string? Model { get; set; }
 
+    /// <summary>Destination model for a model-switch compaction when it differs from the compacting model.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("switchTargetModel")]
+    public string? SwitchTargetModel { get; set; }
+
     /// <summary>Token count from system message(s) at compaction start.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("systemTokens")]
     public long? SystemTokens { get; set; }
+
+    /// <summary>Destination prompt-token budget when it differs from the effective compaction token limit.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("targetPromptTokenLimit")]
+    public long? TargetPromptTokenLimit { get; set; }
 
     /// <summary>Model context window token limit the compaction is targeting, when known.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -3853,6 +3880,11 @@ public sealed partial class SessionCompactionCompleteData
     [JsonPropertyName("checkpointPath")]
     public string? CheckpointPath { get; set; }
 
+    /// <summary>Identifier shared with the matching compaction start event.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("compactionAttemptId")]
+    public string? CompactionAttemptId { get; set; }
+
     /// <summary>Token usage breakdown for the compaction LLM call (aligned with assistant.usage format).</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("compactionTokensUsed")]
@@ -3873,10 +3905,35 @@ public sealed partial class SessionCompactionCompleteData
     [JsonPropertyName("error")]
     public string? Error { get; set; }
 
+    /// <summary>Bounded reason for a typed failed outcome. Unknown future values are preserved.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("failureReason")]
+    public string? FailureReason { get; set; }
+
+    /// <summary>Model identifier at admission when routing later changed to the reported compaction model.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("initialModel")]
+    public string? InitialModel { get; set; }
+
     /// <summary>Number of messages removed during compaction.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("messagesRemoved")]
     public long? MessagesRemoved { get; set; }
+
+    /// <summary>Model identifier used for compaction when provider usage does not already supply it.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+
+    /// <summary>Typed terminal outcome for this observed compaction completion. Unknown future values are preserved.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("outcome")]
+    public string? Outcome { get; set; }
+
+    /// <summary>Bounded reason for an expected non-application outcome such as cancellation or no applicable history. Unknown future values are preserved.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("outcomeReason")]
+    public string? OutcomeReason { get; set; }
 
     /// <summary>Total tokens in conversation after compaction.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -3922,10 +3979,25 @@ public sealed partial class SessionCompactionCompleteData
     [JsonPropertyName("summaryContent")]
     public string? SummaryContent { get; set; }
 
+    /// <summary>Destination model for a model-switch compaction when it differs from the compacting model.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("switchTargetModel")]
+    public string? SwitchTargetModel { get; set; }
+
     /// <summary>Token count from system message(s) after compaction.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("systemTokens")]
     public long? SystemTokens { get; set; }
+
+    /// <summary>Destination prompt-token budget when it differs from the effective compaction token limit.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("targetPromptTokenLimit")]
+    public long? TargetPromptTokenLimit { get; set; }
+
+    /// <summary>Open accounting-basis identifier for trustworthy paired pre/post token measurements. The current runtime emits local_full_context_estimate.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("tokenAccountingBasis")]
+    public string? TokenAccountingBasis { get; set; }
 
     /// <summary>Model context window token limit the compaction was targeting, when known.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -6017,6 +6089,12 @@ public sealed partial class ToolExecutionCompleteData
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("toolTelemetry")]
     public IDictionary<string, JsonElement>? ToolTelemetry { get; set; }
+
+    /// <summary>Provider-reported usage of a separately metered runtime-owned tool operation, independent of the conversation model. Present on success or failure when usage is known. Experimental.</summary>
+    [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("toolUsage")]
+    public ToolExecutionUsage? ToolUsage { get; set; }
 
     /// <summary>Identifier for the agent loop turn this tool was invoked in, matching the corresponding assistant.turn_start event.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -11063,6 +11141,79 @@ public sealed partial class ToolExecutionCompleteToolDescription
     /// <summary>Tool name.</summary>
     [JsonPropertyName("name")]
     public required string Name { get; set; }
+}
+
+/// <summary>Provider-reported image and text token counts, which are subsets of the corresponding total rather than additional tokens.</summary>
+/// <remarks>Nested data type for <c>ToolExecutionUsageTokenDetails</c>.</remarks>
+public sealed partial class ToolExecutionUsageTokenDetails
+{
+    /// <summary>Image tokens included in the corresponding input or output total.</summary>
+    [JsonPropertyName("imageTokens")]
+    public required long ImageTokens { get; set; }
+
+    /// <summary>Text tokens included in the corresponding input or output total.</summary>
+    [JsonPropertyName("textTokens")]
+    public required long TextTokens { get; set; }
+}
+
+/// <summary>Authoritative usage reported by a separately metered runtime-owned tool operation. May be present on a failed tool when the service reported usage before local result processing failed. Missing token counts or billing mean unavailable, not zero.</summary>
+/// <remarks>Nested data type for <c>ToolExecutionUsage</c>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed partial class ToolExecutionUsage
+{
+    /// <summary>Runtime-owned accounting order, preserved across session checkpoints and replay.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("accounting")]
+    public UsageAccountingIdentity? Accounting { get; set; }
+
+    /// <summary>Server-reported charge. Divide totalNanoAiu by 1,000,000,000 for AI credits; do not calculate customer cost from token prices.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("copilotUsage")]
+    public AssistantUsageCopilotUsage? CopilotUsage { get; set; }
+
+    /// <summary>Total provider-reported input tokens across all modalities.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("inputTokens")]
+    public long? InputTokens { get; set; }
+
+    /// <summary>Optional input modality breakdown; these counts are already included in inputTokens.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("inputTokensDetails")]
+    public ToolExecutionUsageTokenDetails? InputTokensDetails { get; set; }
+
+    /// <summary>Requested model for the tool operation, independent of the conversation model. Not a provider-confirmed serving model.</summary>
+    [JsonPropertyName("model")]
+    public required string Model { get; set; }
+
+    /// <summary>Total provider-reported output tokens across all modalities.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("outputTokens")]
+    public long? OutputTokens { get; set; }
+
+    /// <summary>Optional output modality breakdown; these counts are already included in outputTokens.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("outputTokensDetails")]
+    public ToolExecutionUsageTokenDetails? OutputTokensDetails { get; set; }
+
+    /// <summary>Provider responsible for the tool operation, captured independently of the conversation provider.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("provider")]
+    public ModelProviderRef? Provider { get; set; }
+
+    /// <summary>Account quota snapshots, not per-operation cost deltas.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonInclude]
+    [JsonPropertyName("quotaSnapshots")]
+    internal IDictionary<string, JsonElement>? QuotaSnapshots { get; set; }
+
+    /// <summary>Runtime-generated identifier for this metered operation. Deduplicates repeated delivery or replay; not an upstream billing identifier.</summary>
+    [JsonPropertyName("requestId")]
+    public required string RequestId { get; set; }
+
+    /// <summary>Provider-reported sum of input and output tokens.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("totalTokens")]
+    public long? TotalTokens { get; set; }
 }
 
 /// <summary>Effective sandbox filesystem rules, in policy order. Only populated when content capture is enabled, since these are real host paths.</summary>
@@ -23993,6 +24144,8 @@ public readonly struct ExtensionsLoadedExtensionStatus : IEquatable<ExtensionsLo
 [JsonSerializable(typeof(ToolExecutionStartToolDescription))]
 [JsonSerializable(typeof(ToolExecutionStartToolDescriptionMeta))]
 [JsonSerializable(typeof(ToolExecutionStartToolDescriptionMetaUI))]
+[JsonSerializable(typeof(ToolExecutionUsage))]
+[JsonSerializable(typeof(ToolExecutionUsageTokenDetails))]
 [JsonSerializable(typeof(ToolSearchActivatedData))]
 [JsonSerializable(typeof(ToolSearchActivatedEvent))]
 [JsonSerializable(typeof(ToolShellOutputData))]

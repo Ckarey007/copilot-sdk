@@ -1158,6 +1158,16 @@ func (AuthEnumerateQueryAccounts) Kind() AuthEnumerateQueryKind {
 	return AuthEnumerateQueryKindAccounts
 }
 
+type AuthEnumerateQueryLoginAccounts struct {
+	// The provider whose cached base identities should be listed.
+	Provider LoginProviderKind `json:"provider"`
+}
+
+func (AuthEnumerateQueryLoginAccounts) authEnumerateQuery() {}
+func (AuthEnumerateQueryLoginAccounts) Kind() AuthEnumerateQueryKind {
+	return AuthEnumerateQueryKindLoginAccounts
+}
+
 type AuthEnumerateQueryProviders struct {
 	// Whether an interactive Entra broker is available on the host; gates Entra availability in
 	// the returned list.
@@ -1195,6 +1205,16 @@ type AuthEnumerateValueAccounts struct {
 func (AuthEnumerateValueAccounts) authEnumerateValue() {}
 func (AuthEnumerateValueAccounts) Kind() AuthEnumerateValueKind {
 	return AuthEnumerateValueKindAccounts
+}
+
+type AuthEnumerateValueLoginAccounts struct {
+	// Cached base identities reusable by the selected login provider, active first.
+	Items []AuthLoginIdentity `json:"items"`
+}
+
+func (AuthEnumerateValueLoginAccounts) authEnumerateValue() {}
+func (AuthEnumerateValueLoginAccounts) Kind() AuthEnumerateValueKind {
+	return AuthEnumerateValueKindLoginAccounts
 }
 
 type AuthEnumerateValueProviders struct {
@@ -1454,12 +1474,18 @@ type AuthLoginAdvanceRequest struct {
 	Input *string `json:"input,omitempty"`
 }
 
-// Begin an interactive login flow for a provider kind. Dispatch is kind-only.
+// Begin an interactive login flow for a provider kind, optionally reusing a cached base
+// identity or explicitly requesting provider account selection.
 // Experimental: AuthLoginBeginRequest is part of an experimental API and may change or be
 // removed.
 type AuthLoginBeginRequest struct {
+	// Opaque cached base identity id returned by accounts.enumerate loginAccounts. Valid only
+	// with default mode; consumers must not parse it.
+	AccountID *string `json:"accountId,omitempty"`
 	// The provider kind to sign in with.
 	Kind LoginProviderKind `json:"kind"`
+	// Neutral identity-selection intent. Omitted is equivalent to default.
+	Mode *AuthLoginMode `json:"mode,omitempty"`
 }
 
 // A started login flow: its opaque id and first step.
@@ -1477,6 +1503,20 @@ type AuthLoginBegun struct {
 type AuthLoginCancelRequest struct {
 	// Opaque flow id from begin.
 	FlowID string `json:"flowId"`
+}
+
+// A cached base identity a provider can reuse for login without asking the user to choose
+// an account again.
+// Experimental: AuthLoginIdentity is part of an experimental API and may change or be
+// removed.
+type AuthLoginIdentity struct {
+	// Opaque provider-owned identity id. Pass it back to accounts.login.begin; consumers must
+	// not parse it.
+	AccountID string `json:"accountId"`
+	// Whether this base identity owns the session's active derived account.
+	Active bool `json:"active"`
+	// Human-readable sign-in label owned by the runtime.
+	Label string `json:"label"`
 }
 
 // Result of an interactive login flow. Pending consent or account selection is not terminal.
@@ -6763,6 +6803,44 @@ type HostUnregisterSessionRequest struct {
 type HostUnregisterSessionResult struct {
 	// True when a publication was removed; false when it was already absent.
 	Unpublished bool `json:"unpublished"`
+}
+
+// The runtime-selected image model and its account availability. Availability is
+// independent of per-session image-generation enablement and does not override session
+// policy or permissions.
+// Experimental: ImageToolModel is part of an experimental API and may change or be removed.
+type ImageToolModel struct {
+	// Whether the resolved account can use this image model. This is not the session's enabled
+	// setting.
+	Availability ImageToolModelAvailability `json:"availability"`
+	// Image model identifier selected by the runtime.
+	ID string `json:"id"`
+	// Whether this is the model the runtime currently uses for its native image tool.
+	IsDefault bool `json:"isDefault"`
+	// Human-readable model name, supplied by the runtime when unavailable from the catalog.
+	Name string `json:"name"`
+	// Catalog-reported token prices. Absent means prices were not reported.
+	Pricing *ImageToolModelPricing `json:"pricing,omitempty"`
+	// Image operations supported by the model's available versioned endpoints.
+	SupportedOperations []ImageToolModelOperation `json:"supportedOperations"`
+}
+
+// Default-tier text and image token prices reported for an image model, in AI credits per
+// billing batch. Missing rates remain absent; these are not per-image quotes or actual
+// billed usage.
+// Experimental: ImageToolModelPricing is part of an experimental API and may change or be
+// removed.
+type ImageToolModelPricing struct {
+	// Number of tokens per billing batch.
+	BatchSize int64 `json:"batchSize"`
+	// Distinct AI credits per batch of image-input tokens, when reported, including zero.
+	ImageInputPrice *float64 `json:"imageInputPrice,omitempty"`
+	// Distinct AI credits per batch of image-output tokens, when reported, including zero.
+	ImageOutputPrice *float64 `json:"imageOutputPrice,omitempty"`
+	// AI credits per batch of text-input tokens, including a reported zero.
+	TextInputPrice *float64 `json:"textInputPrice,omitempty"`
+	// AI credits per batch of text-output tokens, not generated image tokens.
+	TextOutputPrice *float64 `json:"textOutputPrice,omitempty"`
 }
 
 // Catalogue identity retained from a bound candidate or plan at installation time.
@@ -12213,6 +12291,11 @@ type ModelList struct {
 	// when the runtime runs with `DYNAMIC_AUTO_TIERS` enabled and CAPI returned Auto
 	// metadata; same shape and semantics as `SessionModelList.auto`.
 	Auto *AutoTierMetadata `json:"auto,omitempty"`
+	// The runtime's default image model, separate from conversation models, with its
+	// availability for the resolved account. The default is reported even when unavailable;
+	// clients choose whether to display it. These entries must not be selected as chat models.
+	// Absent on runtimes that do not expose this catalog.
+	ImageModels []ImageToolModel `json:"imageModels,omitzero"`
 	// List of available models with full metadata
 	Models []Model `json:"models"`
 }
@@ -15080,6 +15163,14 @@ type ProtocolExternalToolDefinition struct {
 	SkipPermission *bool `json:"skipPermission,omitempty"`
 	// Optional human-readable display title.
 	Title *string `json:"title,omitempty"`
+}
+
+// Opt into native CAPI image generation.
+// Experimental: ProtocolImageGenerationOptions is part of an experimental API and may
+// change or be removed.
+type ProtocolImageGenerationOptions struct {
+	// Disabled by default for SDK sessions. CAPI model access and permissions still apply.
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // Experimental: ProtocolMarkerSectionOverride is part of an experimental API and may change
@@ -20686,6 +20777,10 @@ type SessionUpdateOptionsParams struct {
 	// Skill scan directories and descendants excluded from discovery. Supports `~`-relative
 	// paths.
 	IgnoredSkillsLocations []string `json:"ignoredSkillsLocations,omitzero"`
+	// Enable or disable the native image tool for this session without changing the
+	// conversation model.
+	// Omitted values preserve the current setting. Re-supply consent on cold resume.
+	ImageGeneration *ProtocolImageGenerationOptions `json:"imageGeneration,omitempty"`
 	// Built-in subagent names to include in this session. When specified, only these built-ins
 	// are available, subject to runtime availability and exclusions. Custom agents with the
 	// same name remain available. Set to null to remove the allowlist restriction.
@@ -26101,8 +26196,9 @@ const (
 type AuthEnumerateQueryKind string
 
 const (
-	AuthEnumerateQueryKindAccounts  AuthEnumerateQueryKind = "accounts"
-	AuthEnumerateQueryKindProviders AuthEnumerateQueryKind = "providers"
+	AuthEnumerateQueryKindAccounts      AuthEnumerateQueryKind = "accounts"
+	AuthEnumerateQueryKindLoginAccounts AuthEnumerateQueryKind = "loginAccounts"
+	AuthEnumerateQueryKindProviders     AuthEnumerateQueryKind = "providers"
 )
 
 // Kind discriminator for AuthEnumerateValue.
@@ -26111,8 +26207,9 @@ const (
 type AuthEnumerateValueKind string
 
 const (
-	AuthEnumerateValueKindAccounts  AuthEnumerateValueKind = "accounts"
-	AuthEnumerateValueKindProviders AuthEnumerateValueKind = "providers"
+	AuthEnumerateValueKindAccounts      AuthEnumerateValueKind = "accounts"
+	AuthEnumerateValueKindLoginAccounts AuthEnumerateValueKind = "loginAccounts"
+	AuthEnumerateValueKindProviders     AuthEnumerateValueKind = "providers"
 )
 
 // Type discriminator for AuthInfo.
@@ -26129,6 +26226,18 @@ const (
 	AuthInfoTypeToken           AuthInfoType = "token"
 	AuthInfoTypeTokenProvider   AuthInfoType = "token-provider"
 	AuthInfoTypeUser            AuthInfoType = "user"
+)
+
+// How an interactive provider login should choose its base identity.
+// Experimental: AuthLoginMode is part of an experimental API and may change or be removed.
+type AuthLoginMode string
+
+const (
+	// Use normal provider behavior, optionally pinned to accountId.
+	AuthLoginModeDefault AuthLoginMode = "default"
+	// Explicitly ask the provider to present its account-selection UI instead of serving from a
+	// retained identity.
+	AuthLoginModeSelectAccount AuthLoginMode = "selectAccount"
 )
 
 // Disposition of a login attempt, including pending user decisions.
@@ -27788,6 +27897,32 @@ const (
 	HostExitReasonOwnerDisconnected HostExitReason = "ownerDisconnected"
 	// The runtime is shutting down.
 	HostExitReasonRuntimeShutdown HostExitReason = "runtimeShutdown"
+)
+
+// Account availability of the runtime image model. Discovery errors are returned as errors,
+// not converted to unavailable.
+// Experimental: ImageToolModelAvailability is part of an experimental API and may change or
+// be removed.
+type ImageToolModelAvailability string
+
+const (
+	// The account has access to a supported image operation.
+	ImageToolModelAvailabilityAvailable ImageToolModelAvailability = "available"
+	// The runtime default is not available to this account; enabling the tool cannot grant
+	// access.
+	ImageToolModelAvailabilityUnavailable ImageToolModelAvailability = "unavailable"
+)
+
+// A supported image-service operation.
+// Experimental: ImageToolModelOperation is part of an experimental API and may change or be
+// removed.
+type ImageToolModelOperation string
+
+const (
+	// Generate or edit an image using explicitly selected image inputs.
+	ImageToolModelOperationEdit ImageToolModelOperation = "edit"
+	// Generate an image from a text prompt.
+	ImageToolModelOperationGenerate ImageToolModelOperation = "generate"
 )
 
 // Live indexed-search state for this session activation, never inferred from persisted
@@ -37863,13 +37998,20 @@ func (a *AccountsLoginAPI) Advance(ctx context.Context, params *AuthLoginAdvance
 //
 // RPC method: session.accounts.login.begin.
 //
-// Parameters: Begin an interactive login flow for a provider kind. Dispatch is kind-only.
+// Parameters: Begin an interactive login flow for a provider kind, optionally reusing a
+// cached base identity or explicitly requesting provider account selection.
 //
 // Returns: A started login flow: its opaque id and first step.
 func (a *AccountsLoginAPI) Begin(ctx context.Context, params *AuthLoginBeginRequest) (*AuthLoginBegun, error) {
 	req := map[string]any{"sessionId": a.sessionID}
 	if params != nil {
+		if params.AccountID != nil {
+			req["accountId"] = *params.AccountID
+		}
 		req["kind"] = params.Kind
+		if params.Mode != nil {
+			req["mode"] = *params.Mode
+		}
 	}
 	raw, err := a.client.Request(ctx, "session.accounts.login.begin", req)
 	if err != nil {
@@ -41308,6 +41450,9 @@ func (a *OptionsAPI) Update(ctx context.Context, params *SessionUpdateOptionsPar
 		}
 		if params.IgnoredSkillsLocations != nil {
 			req["ignoredSkillsLocations"] = params.IgnoredSkillsLocations
+		}
+		if params.ImageGeneration != nil {
+			req["imageGeneration"] = *params.ImageGeneration
 		}
 		if params.IncludedBuiltinAgents != nil {
 			req["includedBuiltinAgents"] = params.IncludedBuiltinAgents

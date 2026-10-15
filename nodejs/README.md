@@ -128,11 +128,13 @@ await using host = await client.startAhpHost({
             ...config,
             onPermissionRequest: approveAll,
             systemMessage: { mode: "append", content: "Use the app's greeting tool." },
-            tools: [defineTool("greeting", {
-                description: "Get the application's greeting",
-                parameters: { type: "object", properties: {} },
-                handler: () => "Hello from the application!",
-            })],
+            tools: [
+                defineTool("greeting", {
+                    description: "Get the application's greeting",
+                    parameters: { type: "object", properties: {} },
+                    handler: () => "Hello from the application!",
+                }),
+            ],
         });
     },
     onSessionReleased: async (originalSession) => {
@@ -1352,6 +1354,8 @@ Inbound trace context from the CLI is available on the `ToolInvocation` object p
 ## Permission Handling
 
 An `onPermissionRequest` handler is optional when you create or resume a session. When provided, it is called before the agent executes each tool (file writes, shell commands, custom tools, etc.) and returns a decision. When omitted, permission requests are emitted as events and left pending for the consumer to resolve with the pending permission RPC.
+
+Callbacks receive optional derived prompt context as `invocation.promptRequest`. The raw request's `managedApprovalRequired` remains managed-policy provenance and enforces one-shot restrictions. Only derived `commands`, `read`, `write`, `url`, and `workflow` prompts can clear the human requirement after Assisted approval; for missing or other prompt kinds, keep the raw marker authoritative.
 
 ### Approve All (simplest)
 

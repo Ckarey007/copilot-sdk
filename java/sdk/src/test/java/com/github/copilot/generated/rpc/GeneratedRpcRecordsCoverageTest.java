@@ -1096,10 +1096,11 @@ class GeneratedRpcRecordsCoverageTest {
         var billing = new ModelBilling(1.0, null, null, promo);
         var modelItem = new Model("gpt-5", "GPT-5", capabilities, null, null, policy, billing, null, null, null, null,
                 null, null, null, null, null);
-        var result = new ModelsListResult(List.of(modelItem), null);
+        var result = new ModelsListResult(List.of(modelItem), null, null);
 
         assertNull(result.auto());
         assertEquals(1, result.models().size());
+        assertNull(result.imageModels());
         assertEquals("gpt-5", result.models().get(0).id());
         assertEquals("GPT-5", result.models().get(0).name());
         assertFalse(result.models().get(0).capabilities().supports().thinking());

@@ -4,8 +4,10 @@
 
 import { createServer, type Server } from "node:http";
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { createInterface } from "node:readline";
 import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import {
@@ -15,6 +17,7 @@ import {
     RuntimeConnection,
 } from "../../src/index.js";
 import { resolvePreparedRuntimePath } from "../../scripts/prepare-runtime.js";
+import { readDiagnosticTail } from "../../../test/harness/sdk-diagnostics.mjs";
 import { createSdkTestContext } from "./harness/sdkTestContext.js";
 import { waitForCondition } from "./harness/sdkTestHelper.js";
 
@@ -117,6 +120,45 @@ async function withTelemetryClient<T>(
     } finally {
         if (!stopPromise) await stopClient();
     }
+}
+
+async function readTelemetryUploadDiagnostics(logDirectory: string, priorLogs: Set<string>) {
+    // Project only fixed counters: native logs can contain credentials and user content.
+    const patterns = {
+        sandboxStateAccepted: /^Sending telemetry event: .* \(kind: sandbox_session_state\)$/,
+        sessionStartAccepted: /^Sending telemetry event: .* \(kind: session_start\)$/,
+        modelChangeAccepted: /^Sending telemetry event: .* \(kind: session_model_change\)$/,
+        flushBatches: /^\[telemetry-queue\] Flushing \d+ events /,
+        postsAccepted: /^\[telemetry-queue\] POST accepted\b/,
+        postsRejected: /^\[telemetry-queue\] POST was not accepted; events dropped\b/,
+        queueCreationFailures: /^\[telemetry\] failed to create telemetry queue\b/,
+        workerStartupFailures: /^\[telemetry-queue\] failed to start worker runtime\b/,
+        httpClientFailures:
+            /^\[telemetry-queue\] (?:invalid proxy URL|failed to assemble explicit root certificates|invalid extra CA certificate|failed to build HTTP client)/,
+        gzipFailures: /^\[telemetry-queue\] gzip failed\b/,
+        startupBufferOverflows: /^Native startup telemetry buffer full; dropping oldest event\b/,
+        eligibilityFailures: /^Unable to resolve native telemetry upload eligibility\b/,
+    };
+    const counts: Record<string, number> = Object.fromEntries(
+        Object.keys(patterns).map((name) => [name, 0])
+    );
+    const files = (await readdir(logDirectory)).filter(
+        (file) => file.endsWith(".log") && !priorLogs.has(file)
+    );
+    for (const file of files) {
+        const lines = createInterface({
+            input: createReadStream(join(logDirectory, file)),
+            crlfDelay: Infinity,
+        });
+        for await (const line of lines) {
+            const message = /^\S+ \[(?:DEBUG|WARN|WARNING)\] \[rust:[\w:]+\] (.*)$/.exec(line)?.[1];
+            if (!message) continue;
+            for (const [name, pattern] of Object.entries(patterns)) {
+                if (pattern.test(message)) counts[name] = (counts[name] ?? 0) + 1;
+            }
+        }
+    }
+    return { logFiles: files.length, counts };
 }
 
 // Experimental: exercises the end-to-end GitHub (hydro) telemetry forwarding
@@ -232,15 +274,17 @@ describe("GitHub telemetry forwarding", async () => {
 describe("GitHub telemetry uploads", async () => {
     const nativeCliPath = await resolvePreparedRuntimePath({ option: "--print-path" });
     const nativeConnection = RuntimeConnection.forStdio({ path: nativeCliPath });
+    const uploadEnvironment = {
+        COPILOT_E2E_TEST_HOOKS: "1",
+        COPILOT_TEST_TELEMETRY_FLUSH_INTERVAL_MS: "100",
+        COPILOT_GITHUB_TELEMETRY_DISABLED: "false",
+    };
     const { createClient, openAiEndpoint, env, workDir } = await createSdkTestContext({
+        logLevel: "debug",
         backend: "capi",
         copilotClientOptions: {
             connection: nativeConnection,
-            env: {
-                COPILOT_E2E_TEST_HOOKS: "1",
-                COPILOT_TEST_TELEMETRY_FLUSH_INTERVAL_MS: "100",
-                COPILOT_GITHUB_TELEMETRY_DISABLED: "false",
-            },
+            env: uploadEnvironment,
             gitHubToken: undefined,
             useLoggedInUser: false,
             clientInfo: { applicationName: "vscode-agent-host" },
@@ -676,6 +720,12 @@ describe("GitHub telemetry uploads", async () => {
                         token: "native-client-token",
                         sessionConfig: (_token: string) => ({}),
                     },
+                    {
+                        name: "session token without client identity",
+                        token: "native-session-without-client-identity-token",
+                        clientToken: "native-client-without-copilot-user",
+                        sessionConfig: (token: string) => ({ gitHubToken: token }),
+                    },
                 ];
 
                 for (const [index, credential] of credentials.entries()) {
@@ -691,12 +741,28 @@ describe("GitHub telemetry uploads", async () => {
                         analytics_tracking_id: trackingId,
                     });
 
+                    const diagnosticHome = join(workDir, "telemetry-upload", String(index));
+                    const logDirectory = join(diagnosticHome, "logs");
+                    await mkdir(logDirectory, { recursive: true });
                     const forwarded: GitHubTelemetryNotification[] = [];
+                    const priorLogs = new Set(await readdir(logDirectory));
                     await withTelemetryClient(
                         () =>
-                            createClient({
-                                connection: nativeConnection,
-                                gitHubToken: index === 2 ? credential.token : env.GITHUB_TOKEN,
+                            new CopilotClient({
+                                connection: RuntimeConnection.forStdio({
+                                    path: nativeCliPath,
+                                    args: ["--log-dir", join(diagnosticHome, "logs")],
+                                }),
+                                workingDirectory: workDir,
+                                env: {
+                                    ...env,
+                                    ...uploadEnvironment,
+                                    COPILOT_RUNTIME_PROCESS_FILE_LOGGING: "1",
+                                },
+                                logLevel: "debug",
+                                gitHubToken:
+                                    credential.clientToken ??
+                                    (index === 2 ? credential.token : env.GITHUB_TOKEN),
                                 useLoggedInUser: false,
                                 clientInfo: { applicationName: "vscode-agent-host" },
                                 onGitHubTelemetry: (notification) => {
@@ -771,7 +837,7 @@ describe("GitHub telemetry uploads", async () => {
                                     event.kind,
                                     id,
                                 ]),
-                                collectorErrors: collector.errors,
+                                collectorErrors: [...collector.errors],
                             });
                             try {
                                 await expect
@@ -787,10 +853,46 @@ describe("GitHub telemetry uploads", async () => {
                                         collectorErrors: [],
                                     });
                             } catch (error) {
+                                const finalUploadState = uploadState();
+                                const [shutdown] = await Promise.allSettled([stopClient()]);
+                                const [diagnostics, audited] = await Promise.allSettled([
+                                    readTelemetryUploadDiagnostics(logDirectory, priorLogs),
+                                    readDiagnosticTail(diagnosticHome),
+                                ]);
+                                const failures = [error];
+                                if (shutdown.status === "rejected") {
+                                    failures.push(shutdown.reason);
+                                } else {
+                                    failures.push(...shutdown.value);
+                                }
+                                if (diagnostics.status === "rejected") {
+                                    failures.push(diagnostics.reason);
+                                }
+                                if (audited.status === "rejected") {
+                                    failures.push(audited.reason);
+                                }
                                 throw new Error(
                                     `${error instanceof Error ? error.message : String(error)}\n` +
-                                        `Final telemetry upload state: ${JSON.stringify(uploadState())}`,
-                                    { cause: error }
+                                        `Final telemetry upload state: ${JSON.stringify(finalUploadState)}\n` +
+                                        `Telemetry upload state after shutdown: ${JSON.stringify(uploadState())}\n` +
+                                        `Native telemetry upload diagnostics: ${JSON.stringify(
+                                            diagnostics.status === "fulfilled"
+                                                ? diagnostics.value
+                                                : { unavailable: true }
+                                        )}\n` +
+                                        `Audited native telemetry diagnostics: ${JSON.stringify(
+                                            audited.status === "fulfilled"
+                                                ? audited.value.filter((line) =>
+                                                      line.startsWith("github telemetry ")
+                                                  )
+                                                : { unavailable: true }
+                                        )}`,
+                                    {
+                                        cause: new AggregateError(
+                                            failures,
+                                            "Telemetry upload failed"
+                                        ),
+                                    }
                                 );
                             }
 

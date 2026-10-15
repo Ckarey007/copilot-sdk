@@ -1367,6 +1367,56 @@ it("RPC records promote nested discriminated union references to sealed interfac
     expect(rpcSource(files, "McpInstallationOperationStatus")).toMatch(/property = "phase"/);
 });
 
+it("RPC request records promote nested discriminated query unions", async () => {
+    const files = await renderRpcTypes(
+        {
+            definitions: {
+                AuthEnumerateQuery: {
+                    anyOf: [
+                        {
+                            type: "object",
+                            properties: { kind: { type: "string", const: "accounts" } },
+                            required: ["kind"],
+                        },
+                        {
+                            type: "object",
+                            properties: {
+                                kind: { type: "string", const: "loginAccounts" },
+                                provider: { type: "string" },
+                            },
+                            required: ["kind", "provider"],
+                        },
+                    ],
+                },
+                SessionAccountsEnumerateParams: {
+                    type: "object",
+                    properties: {
+                        sessionId: { type: "string" },
+                        query: { $ref: "#/definitions/AuthEnumerateQuery" },
+                    },
+                    required: ["sessionId", "query"],
+                },
+            },
+            session: {
+                accounts: {
+                    enumerate: {
+                        rpcMethod: "session.accounts.enumerate",
+                        params: { $ref: "#/definitions/SessionAccountsEnumerateParams" },
+                        result: { type: "object", properties: {} },
+                    },
+                },
+            },
+        },
+        {}
+    );
+
+    expect(rpcSource(files, "SessionAccountsEnumerateParams")).toContain(
+        '@JsonProperty("query") Object query'
+    );
+    expect(rpcSource(files, "AuthEnumerateQuery")).toBeDefined();
+    expect(rpcSource(files, "AuthEnumerateQueryLoginAccounts")).toBeDefined();
+});
+
 function sharedUnionFixture(roots: string[]) {
     const definitions: Record<string, JSONSchema7> = {
         SharedError: {
@@ -1803,6 +1853,23 @@ it("x-legacy-parameters keeps the params record and adds a fluent request with a
     const overloads = (api: string) =>
         api.match(/public CompletableFuture<SamplePlanResult> plan\([^)]*\)/g);
     expect(overloads(twice.api)).toEqual(overloads(once.api));
+});
+
+it("x-legacy-parameters generates types referenced only by additive request fields", async () => {
+    const fixture = legacyRequestFixture(1);
+    const request = fixture.definitions!.SamplePlanRequest as JSONSchema7;
+    request.properties!.policySessionId = { $ref: "#/definitions/PolicyMode" };
+    fixture.definitions!.PolicyMode = {
+        type: "string",
+        enum: ["default", "strict"],
+    };
+
+    const types = await renderRpcTypes(fixture, {});
+
+    expect(generatedFile(types, "SamplePlanRequest")).toContain(
+        "private PolicyMode policySessionId;"
+    );
+    expect(generatedFile(types, "PolicyMode")).toBeDefined();
 });
 
 it("x-legacy-parameters session requests keep sessionId injected by the wrapper", async () => {

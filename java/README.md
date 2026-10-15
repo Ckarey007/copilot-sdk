@@ -472,7 +472,27 @@ Cancellation and timeout stop waiting without aborting the agent.
 
 `PermissionHandler.APPROVE_ALL` approves requests when managed settings are disabled. When `enableManagedSettings` is true, it completes exceptionally. Custom handlers can inspect `request.getManagedApprovalRequired()` for human-facing confirmation logic.
 
-When handling `PermissionRequestedEvent` directly, convert its generated event value with `PermissionRequest.fromJsonValue(event.getData().permissionRequest())` to access the typed metadata.
+When handling `PermissionRequestedEvent` directly, convert its generated event values with `PermissionRequest.fromJsonValue(...)` to access the typed metadata:
+
+```java
+if (Boolean.TRUE.equals(event.getData().resolvedByHook())) {
+    return; // The permissionRequest hook already answered this request.
+}
+
+var rawRequest = PermissionRequest.fromJsonValue(event.getData().permissionRequest());
+var promptValue = event.getData().promptRequest();
+var promptRequest = promptValue == null ? null : PermissionRequest.fromJsonValue(promptValue);
+
+var assistedApprovalClearsManagedRequirement = promptRequest != null
+        && ("commands".equals(promptRequest.getKind()) || "read".equals(promptRequest.getKind())
+                || "write".equals(promptRequest.getKind()) || "url".equals(promptRequest.getKind())
+                || "workflow".equals(promptRequest.getKind()))
+        && !Boolean.TRUE.equals(promptRequest.getManagedApprovalRequired());
+var humanApprovalRequired = Boolean.TRUE.equals(rawRequest.getManagedApprovalRequired())
+        && !assistedApprovalClearsManagedRequirement;
+```
+
+`PermissionHandler` receives the same derived prompt as `invocation.getPromptRequest()` when newer runtimes provide it. The raw request's `managedApprovalRequired` remains managed-policy provenance and enforces one-shot restrictions. Only derived `commands`, `read`, `write`, `url`, and `workflow` prompts can clear the human requirement after Assisted approval; for missing or other prompt kinds, keep the raw marker authoritative. Java represents the derived prompt as `PermissionRequest`, so prompt-only fields such as `assistedApproval` are available through `getExtensionData()`.
 
 Custom handlers must check managed approval before applying kind-specific automatic decisions:
 
@@ -483,7 +503,14 @@ import com.github.copilot.rpc.PermissionHandler;
 import com.github.copilot.rpc.PermissionRequestResult;
 
 PermissionHandler handler = (request, invocation) -> {
-    if (Boolean.TRUE.equals(request.getManagedApprovalRequired())) {
+    var prompt = invocation.getPromptRequest();
+    var assistedApprovalClearsManagedRequirement = prompt != null
+            && ("commands".equals(prompt.getKind()) || "read".equals(prompt.getKind())
+                    || "write".equals(prompt.getKind()) || "url".equals(prompt.getKind())
+                    || "workflow".equals(prompt.getKind()))
+            && !Boolean.TRUE.equals(prompt.getManagedApprovalRequired());
+    if (Boolean.TRUE.equals(request.getManagedApprovalRequired())
+            && !assistedApprovalClearsManagedRequirement) {
         return CompletableFuture.completedFuture(PermissionRequestResult.noResult());
     }
 

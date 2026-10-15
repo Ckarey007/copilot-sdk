@@ -7,6 +7,7 @@ use std::sync::{Arc, Weak};
 use async_trait::async_trait;
 use futures_util::FutureExt;
 use parking_lot::Mutex;
+use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -975,9 +976,9 @@ fn config_from_host(settings: &HashMap<String, Value>) -> Result<SessionConfig, 
                     ($($name:literal => $field:ident,)*) => {
                         for (key, value) in settings {
                             match key.as_str() {
-                                "sessionId" => config.session_id = serde_json::from_value(value.clone())?,
-                                "refreshCustomInstructions" => config.refresh_custom_instructions = serde_json::from_value(value.clone())?,
-                                $($name => config.$field = serde_json::from_value(value.clone())?,)*
+                                "sessionId" => config.session_id = Deserialize::deserialize(value)?,
+                                "refreshCustomInstructions" => config.refresh_custom_instructions = Deserialize::deserialize(value)?,
+                                $($name => config.$field = Deserialize::deserialize(value)?,)*
                                 _ => return Err(handoff_error("Unsupported AHP session configuration setting")),
                             }
                         }
@@ -1019,10 +1020,10 @@ fn resume_config_from_host(
             for (key, value) in settings {
                 match key.as_str() {
                     "sessionId" => {},
-                    "continuePendingWork" => config.continue_pending_work = serde_json::from_value(value.clone())?,
-                    "suppressResumeEvent" => config.suppress_resume_event = serde_json::from_value(value.clone())?,
-                    "allowTranscriptRecovery" => config.allow_transcript_recovery = serde_json::from_value(value.clone())?,
-                    $($name => config.$field = serde_json::from_value(value.clone())?,)*
+                    "continuePendingWork" => config.continue_pending_work = Deserialize::deserialize(value)?,
+                    "suppressResumeEvent" => config.suppress_resume_event = Deserialize::deserialize(value)?,
+                    "allowTranscriptRecovery" => config.allow_transcript_recovery = Deserialize::deserialize(value)?,
+                    $($name => config.$field = Deserialize::deserialize(value)?,)*
                     _ => return Err(handoff_error("Unsupported AHP resume configuration setting")),
                 }
             }

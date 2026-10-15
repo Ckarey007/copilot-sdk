@@ -3439,12 +3439,30 @@ public sealed partial class ClientSessionLifetimeTests
         {
             Data = new PermissionRequestedData
             {
-                PermissionRequest = new PermissionRequest { Kind = "read" },
+                PermissionRequest = new PermissionRequest
+                {
+                    Kind = "read",
+                    ManagedApprovalRequired = true
+                },
+                PromptRequest = new PermissionPromptRequestCommands
+                {
+                    FullCommandText = "ls",
+                    Intention = "List files",
+                    CommandIdentifiers = ["ls"],
+                    CanOfferSessionApproval = false,
+                    AssistedApproval = new PermissionAssistedApproval
+                    {
+                        Recommendation = AssistedApprovalRecommendation.Approve
+                    }
+                },
                 RequestId = "managed-permission"
             }
         });
         var invocation = await permissionInvocation.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.True(invocation.ManagedSettingsEnabled);
+        var promptRequest = Assert.IsType<PermissionPromptRequestCommands>(invocation.PromptRequest);
+        Assert.Null(promptRequest.ManagedApprovalRequired);
+        Assert.Equal(AssistedApprovalRecommendation.Approve, promptRequest.AssistedApproval?.Recommendation);
     }
 
     [Fact]

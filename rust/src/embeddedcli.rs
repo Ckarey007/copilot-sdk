@@ -955,8 +955,10 @@ fn extract_cli_binary(archive: &[u8]) -> Result<Vec<u8>, EmbeddedCliError> {
         let mut entry = zip
             .by_index(index)
             .map_err(|e| EmbeddedCliError::new(EmbeddedCliErrorKind::Archive, e))?;
-        if entry.name() == CLI_BINARY_NAME || entry.name().ends_with(&format!("/{CLI_BINARY_NAME}"))
-        {
+        let name = entry
+            .name()
+            .map_err(|e| EmbeddedCliError::new(EmbeddedCliErrorKind::Archive, e))?;
+        if name == CLI_BINARY_NAME || name.ends_with(&format!("/{CLI_BINARY_NAME}")) {
             let mut bytes = Vec::with_capacity(entry.size() as usize);
             entry
                 .read_to_end(&mut bytes)

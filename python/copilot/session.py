@@ -97,6 +97,7 @@ from .generated.session_events import (
     ExternalToolCompletedData,
     ExternalToolRequestedData,
     McpOauthRequiredData,
+    PermissionPromptRequest,
     PermissionRequest,
     PermissionRequestedData,
     SessionCanvasClosedData,
@@ -549,6 +550,9 @@ def create_attributed_permission_result(
 class PermissionInvocation(TypedDict, total=False):
     session_id: Required[str]
     managed_settings_enabled: NotRequired[bool]
+    # Only standard prompt kinds can clear a raw managed-approval requirement.
+    # Missing and other prompt kinds must remain conservative.
+    prompt_request: NotRequired[PermissionPromptRequest]
 
 
 _PermissionHandlerFn = Callable[
@@ -2628,7 +2632,7 @@ class CopilotSession:
 
                 asyncio.ensure_future(
                     self._execute_permission_and_respond(
-                        request_id, permission_request, perm_handler
+                        request_id, permission_request, perm_handler, data.prompt_request
                     )
                 )
 
@@ -2882,17 +2886,18 @@ class CopilotSession:
         request_id: str,
         permission_request: Any,
         handler: _PermissionHandlerFn,
+        prompt_request: PermissionPromptRequest | None = None,
     ) -> None:
         """Execute a permission handler and respond via RPC."""
         try:
             handler_start = time.perf_counter()
-            result = handler(
-                permission_request,
-                {
-                    "session_id": self.session_id,
-                    "managed_settings_enabled": self._managed_settings_enabled,
-                },
-            )
+            invocation: PermissionInvocation = {
+                "session_id": self.session_id,
+                "managed_settings_enabled": self._managed_settings_enabled,
+            }
+            if prompt_request is not None:
+                invocation["prompt_request"] = prompt_request
+            result = handler(permission_request, invocation)
             if inspect.isawaitable(result):
                 result = await result
             log_timing(

@@ -1311,10 +1311,11 @@ import type { PermissionDecisionRequest, PermissionDecisionContext } from "./gen
  * access the variant-specific fields (e.g. shell `commands`, write
  * `fileName`/`diff`, mcp `toolName`/`args`).
  *
- * `managedApprovalRequired` indicates that managed policy requires an explicit
- * user decision. Hosts should bypass automatic approval and present their
- * normal confirmation UI. The runtime currently emits it for managed Shell,
- * Read, Edit, and Domain selector asks.
+ * On the raw `permissionRequest`, `managedApprovalRequired` preserves managed
+ * policy provenance and one-shot restrictions. To determine whether a human
+ * response is still required, hosts should prefer
+ * `event.data.promptRequest?.managedApprovalRequired` when `promptRequest` is
+ * present, and fall back to the raw marker for older runtimes.
  */
 export type PermissionRequest = GeneratedPermissionRequest & {
     readonly managedApprovalRequired?: boolean;
@@ -1377,9 +1378,26 @@ export function createAttributedPermissionResult(
     return { kind: "attributed", result: inner, decisionContext };
 }
 
+/**
+ * Context supplied with a permission request callback.
+ */
+export interface PermissionHandlerInvocation {
+    sessionId: string;
+    managedSettingsEnabled?: boolean;
+    /**
+     * Derived user-facing prompt context when supplied by the runtime.
+     *
+     * Managed requests retain their raw `managedApprovalRequired` marker. Only
+     * standard prompt kinds (`commands`, `read`, `write`, `url`, and
+     * `workflow`) can clear that human requirement after Assisted approval.
+     * For missing or other prompt kinds, keep the raw marker authoritative.
+     */
+    promptRequest?: PermissionRequestedData["promptRequest"];
+}
+
 export type PermissionHandler = (
     request: PermissionRequest,
-    invocation: { sessionId: string; managedSettingsEnabled?: boolean }
+    invocation: PermissionHandlerInvocation
 ) =>
     | Promise<PermissionRequestResult | AttributedPermissionResult>
     | PermissionRequestResult

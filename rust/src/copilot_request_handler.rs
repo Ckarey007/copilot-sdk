@@ -14,6 +14,7 @@
 //! [`send_request`](CopilotRequestHandler::send_request) to mutate / replace HTTP
 //! requests, or [`open_websocket`](CopilotRequestHandler::open_websocket) to
 //! mutate the handshake or return a custom [`CopilotWebSocketHandler`].
+//! Default pass-through uses native-tls for HTTPS and secure WebSockets.
 //!
 //! # Cancellation
 //!
@@ -36,7 +37,9 @@ use tokio::net::TcpStream;
 use tokio::sync::{Mutex as AsyncMutex, mpsc};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
+use tokio_tungstenite::{
+    Connector, MaybeTlsStream, WebSocketStream, connect_async_tls_with_config,
+};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
@@ -395,12 +398,13 @@ fn strip_forbidden_headers(headers: &mut HeaderMap) {
     }
 }
 
-static SHARED_HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .expect("default reqwest client must build")
-});
+static SHARED_HTTP_CLIENT: LazyLock<Result<reqwest::Client, reqwest::Error>> =
+    LazyLock::new(|| {
+        reqwest::Client::builder()
+            .tls_backend_native()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+    });
 
 /// Forward an HTTP request to its real upstream and stream the response back.
 ///
@@ -416,6 +420,10 @@ pub async fn forward_http(
     strip_forbidden_headers(&mut headers);
 
     let mut builder = SHARED_HTTP_CLIENT
+        .as_ref()
+        .map_err(|error| {
+            CopilotRequestError::Upstream(format!("HTTP TLS configuration failed: {error}"))
+        })?
         .request(method, &request.url)
         .headers(headers);
     if !request.body.is_empty() {
@@ -508,7 +516,23 @@ impl CopilotWebSocketForwarderBuilder {
             request.headers_mut().append(name.clone(), value.clone());
         }
 
-        let (stream, _) = connect_async(request)
+        // Explicit selection survives consumers enabling another TLS backend.
+        let connector = if request.uri().scheme_str() == Some("wss") {
+            let connector = tokio::task::spawn_blocking(native_tls::TlsConnector::new)
+                .await
+                .map_err(|e| {
+                    CopilotRequestError::Upstream(format!("websocket TLS setup task failed: {e}"))
+                })?
+                .map_err(|e| {
+                    CopilotRequestError::Upstream(format!(
+                        "websocket TLS configuration failed: {e}"
+                    ))
+                })?;
+            Connector::NativeTls(connector)
+        } else {
+            Connector::Plain
+        };
+        let (stream, _) = connect_async_tls_with_config(request, None, false, Some(connector))
             .await
             .map_err(|e| CopilotRequestError::Upstream(format!("websocket connect failed: {e}")))?;
         let (write, mut read) = stream.split();
@@ -1331,3 +1355,6 @@ fn headers_to_wire(headers: &HeaderMap) -> HashMap<String, Vec<String>> {
     }
     wire
 }
+
+#[cfg(test)]
+mod tests;

@@ -90,10 +90,11 @@ export async function createSdkTestContext({
     // Keep destructured paths and objects stable without allocating resources
     // during collection: filtered suites never execute their cleanup hooks.
     const tempDir = realpathSync(os.tmpdir());
-    const contextId = randomUUID();
+    // Preserve UUID entropy while leaving room for nested fixtures in Windows Git's path budget.
+    const contextId = Buffer.from(randomUUID().replaceAll("-", ""), "hex").toString("base64url");
     const homeDir = join(tempDir, `copilot-test-config-${contextId}`);
     const copilotHomeDir = join(tempDir, `copilot-test-home-${contextId}`);
-    const workDir = join(tempDir, `copilot-test-work-${contextId}`);
+    const workDir = join(tempDir, `sdk-w-${contextId}`);
 
     const openAiEndpoint = new CapiProxy();
     let proxyUrl = "";

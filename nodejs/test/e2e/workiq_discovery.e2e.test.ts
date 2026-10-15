@@ -172,6 +172,12 @@ describe("account-derived WorkIQ", async () => {
                         [`entra:${parent}:entra`]: {
                             token: JSON.stringify({ web: { refresh_token: "parent-refresh" } }),
                         },
+                        // Keep inference-token renewal separate from WorkIQ authentication.
+                        [`loki:${parent}:loki`]: {
+                            token: "loki-inference-token",
+                            expiresAt: "2099-01-01T00:00:00Z",
+                            accountType: "entra",
+                        },
                     },
                 })
             );

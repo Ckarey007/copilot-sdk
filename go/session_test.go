@@ -35,6 +35,54 @@ func newTestEvent() SessionEvent {
 	return SessionEvent{Data: &SessionIdleData{}}
 }
 
+func TestPermissionHandlerReceivesDerivedPromptContext(t *testing.T) {
+	session := &Session{
+		SessionID:       "session-1",
+		managedSettings: true,
+	}
+	promptRequest := &rpc.PermissionPromptRequestCommands{
+		FullCommandText:         "ls",
+		Intention:               "List files",
+		CommandIdentifiers:      []string{"ls"},
+		CanOfferSessionApproval: false,
+		AssistedApproval: &rpc.PermissionAssistedApproval{
+			Recommendation: rpc.AssistedApprovalRecommendationApprove,
+		},
+	}
+	var observed PermissionHandlerInvocation
+	session.registerPermissionHandlerWithPrompt(func(_ PermissionRequest, invocation PermissionHandlerInvocation) (rpc.PermissionDecision, error) {
+		observed = invocation
+		return &rpc.PermissionDecisionNoResult{}, nil
+	})
+	managedApprovalRequired := true
+
+	session.handleBroadcastEvent(SessionEvent{
+		Data: &PermissionRequestedData{
+			RequestID: "permission-1",
+			PermissionRequest: &rpc.PermissionRequestShell{
+				FullCommandText:         "ls",
+				Intention:               "List files",
+				ManagedApprovalRequired: &managedApprovalRequired,
+			},
+			PromptRequest: promptRequest,
+		},
+	})
+
+	if observed.PromptRequest != promptRequest {
+		t.Fatalf("expected derived prompt context, got %#v", observed.PromptRequest)
+	}
+	if !observed.ManagedSettingsEnabled {
+		t.Fatal("expected managed settings context")
+	}
+}
+
+func TestPermissionInvocationPreservesPositionalFields(t *testing.T) {
+	invocation := PermissionInvocation{"session-1", true}
+	if invocation.SessionID != "session-1" || !invocation.ManagedSettingsEnabled {
+		t.Fatalf("unexpected legacy invocation: %#v", invocation)
+	}
+}
+
 func TestExternalToolCompletedCancelsBlockedHandler(t *testing.T) {
 	session, cleanup := newTestSession()
 	defer cleanup()

@@ -74,6 +74,6 @@ rust_library(
         "@sdk_vendor__log-0.4.34//:log",
         "@sdk_vendor__rand-0.9.5//:rand",
         "@sdk_vendor__sha1-0.10.7//:sha1",
-        "@sdk_vendor__thiserror-2.0.20//:thiserror",
+        "@sdk_vendor__thiserror-2.0.21//:thiserror",
     ],
 )

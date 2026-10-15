@@ -272,6 +272,12 @@ func unmarshalAuthEnumerateQuery(data []byte) (AuthEnumerateQuery, error) {
 			return nil, err
 		}
 		return &d, nil
+	case AuthEnumerateQueryKindLoginAccounts:
+		var d AuthEnumerateQueryLoginAccounts
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
 	case AuthEnumerateQueryKindProviders:
 		var d AuthEnumerateQueryProviders
 		if err := json.Unmarshal(data, &d); err != nil {
@@ -296,6 +302,17 @@ func (r RawAuthEnumerateQueryData) MarshalJSON() ([]byte, error) {
 
 func (r AuthEnumerateQueryAccounts) MarshalJSON() ([]byte, error) {
 	type alias AuthEnumerateQueryAccounts
+	return json.Marshal(struct {
+		Kind AuthEnumerateQueryKind `json:"kind"`
+		alias
+	}{
+		Kind:  r.Kind(),
+		alias: alias(r),
+	})
+}
+
+func (r AuthEnumerateQueryLoginAccounts) MarshalJSON() ([]byte, error) {
+	type alias AuthEnumerateQueryLoginAccounts
 	return json.Marshal(struct {
 		Kind AuthEnumerateQueryKind `json:"kind"`
 		alias
@@ -930,6 +947,12 @@ func unmarshalAuthEnumerateValue(data []byte) (AuthEnumerateValue, error) {
 			return nil, err
 		}
 		return &d, nil
+	case AuthEnumerateValueKindLoginAccounts:
+		var d AuthEnumerateValueLoginAccounts
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
 	case AuthEnumerateValueKindProviders:
 		var d AuthEnumerateValueProviders
 		if err := json.Unmarshal(data, &d); err != nil {
@@ -954,6 +977,17 @@ func (r RawAuthEnumerateValueData) MarshalJSON() ([]byte, error) {
 
 func (r AuthEnumerateValueAccounts) MarshalJSON() ([]byte, error) {
 	type alias AuthEnumerateValueAccounts
+	return json.Marshal(struct {
+		Kind AuthEnumerateValueKind `json:"kind"`
+		alias
+	}{
+		Kind:  r.Kind(),
+		alias: alias(r),
+	})
+}
+
+func (r AuthEnumerateValueLoginAccounts) MarshalJSON() ([]byte, error) {
+	type alias AuthEnumerateValueLoginAccounts
 	return json.Marshal(struct {
 		Kind AuthEnumerateValueKind `json:"kind"`
 		alias

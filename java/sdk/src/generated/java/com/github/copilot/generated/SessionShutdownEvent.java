@@ -37,6 +37,8 @@ public final class SessionShutdownEvent extends SessionEvent {
     @JsonIgnoreProperties(ignoreUnknown = true)
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record SessionShutdownEventData(
+        /** Runtime tool-operation identities already included in the final accounting snapshot. */
+        @JsonProperty("toolUsageRequestIds") List<String> toolUsageRequestIds,
         /** Complete accounting state captured atomically with receipt watermarks. */
         @JsonProperty("accountingSnapshot") UsageGetMetricsResult accountingSnapshot,
         /** Provider/model accounting preserved for replay without consulting current provider selection. */

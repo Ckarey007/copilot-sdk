@@ -3407,6 +3407,12 @@ export interface ShutdownData {
    */
   toolDefinitionsTokens?: number;
   /**
+   * Runtime tool-operation identities already included in the final accounting snapshot.
+   *
+   * @internal
+   */
+  toolUsageRequestIds?: string[];
+  /**
    * Cumulative time spent in API calls during the session, in milliseconds
    */
   totalApiDurationMs: number;
@@ -3830,6 +3836,12 @@ export interface UsageCheckpointData {
    */
   providerModelMetrics?: UsageMetricsProviderModelMetric[];
   /**
+   * Runtime tool-operation identities already included in this checkpoint. Prevents duplicate charges when an operation is delivered again with a newer sequence.
+   *
+   * @internal
+   */
+  toolUsageRequestIds?: string[];
+  /**
    * Session-wide accumulated nano-AI units cost at checkpoint time
    */
   totalNanoAiu: number;
@@ -4208,6 +4220,10 @@ export interface CompactionStartEvent {
  */
 export interface CompactionStartData {
   /**
+   * Identifier shared with the matching compaction completion event
+   */
+  compactionAttemptId?: string;
+  /**
    * Token count from non-system messages (user, assistant, tool) at compaction start
    */
   conversationTokens?: number;
@@ -4220,9 +4236,17 @@ export interface CompactionStartData {
    */
   model?: string;
   /**
+   * Destination model for a model-switch compaction when it differs from the compacting model
+   */
+  switchTargetModel?: string;
+  /**
    * Token count from system message(s) at compaction start
    */
   systemTokens?: number;
+  /**
+   * Destination prompt-token budget when it differs from the effective compaction token limit
+   */
+  targetPromptTokenLimit?: number;
   /**
    * Model context window token limit the compaction is targeting, when known
    */
@@ -4285,6 +4309,10 @@ export interface CompactionCompleteData {
    * File path where the checkpoint was stored
    */
   checkpointPath?: string;
+  /**
+   * Identifier shared with the matching compaction start event
+   */
+  compactionAttemptId?: string;
   compactionTokensUsed?: CompactionCompleteCompactionTokensUsed;
   /**
    * Token count from non-system messages (user, assistant, tool) after compaction
@@ -4299,9 +4327,29 @@ export interface CompactionCompleteData {
    */
   error?: string;
   /**
+   * Bounded reason for a typed failed outcome. Unknown future values are preserved.
+   */
+  failureReason?: string;
+  /**
+   * Model identifier at admission when routing later changed to the reported compaction model
+   */
+  initialModel?: string;
+  /**
    * Number of messages removed during compaction
    */
   messagesRemoved?: number;
+  /**
+   * Model identifier used for compaction when provider usage does not already supply it
+   */
+  model?: string;
+  /**
+   * Typed terminal outcome for this observed compaction completion. Unknown future values are preserved.
+   */
+  outcome?: string;
+  /**
+   * Bounded reason for an expected non-application outcome such as cancellation or no applicable history. Unknown future values are preserved.
+   */
+  outcomeReason?: string;
   /**
    * Total tokens in conversation after compaction
    */
@@ -4336,9 +4384,21 @@ export interface CompactionCompleteData {
    */
   summaryContent?: string;
   /**
+   * Destination model for a model-switch compaction when it differs from the compacting model
+   */
+  switchTargetModel?: string;
+  /**
    * Token count from system message(s) after compaction
    */
   systemTokens?: number;
+  /**
+   * Destination prompt-token budget when it differs from the effective compaction token limit
+   */
+  targetPromptTokenLimit?: number;
+  /**
+   * Open accounting-basis identifier for trustworthy paired pre/post token measurements. The current runtime emits local_full_context_estimate.
+   */
+  tokenAccountingBasis?: string;
   /**
    * Model context window token limit the compaction was targeting, when known
    */
@@ -8073,6 +8133,12 @@ export interface ToolExecutionCompleteData {
     [k: string]: JsonValue | undefined;
   };
   /**
+   * Provider-reported usage of a separately metered runtime-owned tool operation, independent of the conversation model. Present on success or failure when usage is known. Experimental.
+   *
+   * @experimental
+   */
+  toolUsage?: ToolExecutionUsage;
+  /**
    * Identifier for the agent loop turn this tool was invoked in, matching the corresponding assistant.turn_start event
    */
   turnId?: string;
@@ -8579,6 +8645,58 @@ export interface ToolExecutionCompleteToolDescriptionMetaUI {
    * Who can access this tool
    */
   visibility?: ToolExecutionCompleteToolDescriptionMetaUIVisibility[];
+}
+/**
+ * Authoritative usage reported by a separately metered runtime-owned tool operation. May be present on a failed tool when the service reported usage before local result processing failed. Missing token counts or billing mean unavailable, not zero.
+ */
+/** @experimental */
+export interface ToolExecutionUsage {
+  accounting?: UsageAccountingIdentity;
+  copilotUsage?: AssistantUsageCopilotUsage;
+  /**
+   * Total provider-reported input tokens across all modalities.
+   */
+  inputTokens?: number;
+  inputTokensDetails?: ToolExecutionUsageTokenDetails;
+  /**
+   * Requested model for the tool operation, independent of the conversation model. Not a provider-confirmed serving model.
+   */
+  model: string;
+  /**
+   * Total provider-reported output tokens across all modalities.
+   */
+  outputTokens?: number;
+  outputTokensDetails?: ToolExecutionUsageTokenDetails;
+  provider?: ModelProviderRef;
+  /**
+   * Account quota snapshots, not per-operation cost deltas.
+   *
+   * @internal
+   */
+  quotaSnapshots?: {
+    [k: string]: JsonValue | undefined;
+  };
+  /**
+   * Runtime-generated identifier for this metered operation. Deduplicates repeated delivery or replay; not an upstream billing identifier.
+   */
+  requestId: string;
+  /**
+   * Provider-reported sum of input and output tokens.
+   */
+  totalTokens?: number;
+}
+/**
+ * Provider-reported image and text token counts, which are subsets of the corresponding total rather than additional tokens.
+ */
+export interface ToolExecutionUsageTokenDetails {
+  /**
+   * Image tokens included in the corresponding input or output total.
+   */
+  imageTokens: number;
+  /**
+   * Text tokens included in the corresponding input or output total.
+   */
+  textTokens: number;
 }
 /**
  * Session event "tool_search.activated". Persisted generic client-side tool activations restored when a session resumes.

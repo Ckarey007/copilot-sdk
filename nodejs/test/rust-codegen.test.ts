@@ -898,7 +898,8 @@ pub struct Container`);
 describe("Rust session event codegen", () => {
     function eventSchema(
         data: JSONSchema7,
-        definitions: JSONSchema7["definitions"] = {}
+        definitions: JSONSchema7["definitions"] = {},
+        eventType = "session.search"
     ): JSONSchema7 {
         return {
             definitions: {
@@ -909,7 +910,7 @@ describe("Rust session event codegen", () => {
                             type: "object",
                             required: ["type", "data"],
                             properties: {
-                                type: { const: "session.search" },
+                                type: { const: eventType },
                                 data,
                             },
                         },
@@ -918,6 +919,35 @@ describe("Rust session event codegen", () => {
             },
         };
     }
+
+    it("boxes image tool usage without changing the event variant or unrelated fields", () => {
+        const code = generateSessionEventsCode(
+            eventSchema(
+                {
+                    type: "object",
+                    properties: {
+                        toolUsage: { $ref: "#/definitions/ToolExecutionUsage" },
+                        otherUsage: { $ref: "#/definitions/ToolExecutionUsage" },
+                    },
+                },
+                {
+                    ToolExecutionUsage: {
+                        type: "object",
+                        properties: { requestId: { type: "string" } },
+                        required: ["requestId"],
+                    },
+                },
+                "tool.execution_complete"
+            )
+        );
+
+        expect(code).toContain(
+            '#[serde(skip_serializing_if = "Option::is_none")]\n    pub tool_usage: Option<Box<ToolExecutionUsage>>,'
+        );
+        expect(code).toContain("pub other_usage: Option<ToolExecutionUsage>,");
+        expect(code).toContain("ToolExecutionComplete(ToolExecutionCompleteData),");
+        expect(code).not.toContain("allow(clippy::large_enum_variant)");
+    });
 
     it.each([
         ["anyOf", false],

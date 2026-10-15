@@ -7,23 +7,24 @@ load("//src/sdk/rust/bazel/crates:defs.bzl", "aliases", "all_crate_deps", "crate
 _LOCAL_RUNTIME_DEPS = [
     "@vendor__base64-0.23.1//:base64",
     "@vendor__bytes-1.12.1//:bytes",
-    "@vendor__dirs-5.0.1//:dirs",
+    "@vendor__dirs-7.0.0//:dirs",
     "@vendor__futures-util-0.3.34//:futures_util",
     "@vendor__getrandom-0.4.3//:getrandom",
     "@vendor__http-1.5.0//:http",
     "@vendor__indexmap-2.14.2//:indexmap",
     "@vendor__libloading-0.9.0//:libloading",
+    "@vendor__native-tls-0.2.18//:native_tls",
     "@vendor__parking_lot-0.12.5//:parking_lot",
     "@vendor__regex-1.13.1//:regex",
     "@vendor__reqwest-0.13.5//:reqwest",
     "@vendor__serde-1.0.229//:serde",
-    "@vendor__serde_json-1.0.151//:serde_json",
-    "@vendor__tokio-1.53.1//:tokio",
+    "@vendor__serde_json-1.0.154//:serde_json",
+    "@vendor//tokio",
     "@vendor__tokio-stream-0.1.19//:tokio_stream",
-    "@vendor__tokio-tungstenite-0.28.0//:tokio_tungstenite",
-    "@vendor__tokio-util-0.7.19//:tokio_util",
+    "@vendor__tokio-tungstenite-0.30.0//:tokio_tungstenite",
+    "@vendor__tokio-util-0.7.20//:tokio_util",
     "@vendor__tracing-0.1.44//:tracing",
-    "@vendor__uuid-1.26.1//:uuid",
+    "@vendor__uuid-1.28.0//:uuid",
 ] + select({
     "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
         "@vendor__windows-sys-0.61.2//:windows_sys",
@@ -68,7 +69,7 @@ def sdk_targets():
         crate_name = "build_script_build",
         crate_root = "build.rs",
         # crate_universe can classify shared build/dev dependencies as dev-only.
-        deps = all_crate_deps(build = True) + crate_deps(["native-tls", "sha2", "ureq"]),
+        deps = all_crate_deps(build = True) + crate_deps(["sha2", "ureq"]),
     )
 
     rust_library(
@@ -83,10 +84,7 @@ def sdk_targets():
         crate_root = "src/lib.rs",
         proc_macro_deps = all_crate_deps(proc_macro = True),
         visibility = ["//visibility:public"],
-        deps = [
-            ":build_script",
-            "//src/sdk/rust/bazel/crates:schemars-1.2.2",
-        ] + all_crate_deps(),
+        deps = [":build_script"] + all_crate_deps() + crate_deps(["schemars"]),
     )
 
     rust_library(

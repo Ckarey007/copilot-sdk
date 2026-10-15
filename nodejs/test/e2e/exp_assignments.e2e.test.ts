@@ -174,15 +174,15 @@ describe("create-time ExP assignments", async () => {
         const session = await client.createSession({
             onPermissionRequest: approveAll,
             expAssignments: {
-                Features: ["copilot_cli_blackbird_lexical_search"],
+                Features: ["copilot_cli_blackbird_lexical_search_v2_mode"],
                 Flights: {
-                    copilot_cli_blackbird_lexical_search: "treatment",
+                    copilot_cli_blackbird_lexical_search_v2_mode: "native_auto",
                 },
                 Configs: [
                     {
                         Id: "default",
                         Parameters: {
-                            copilot_cli_blackbird_lexical_search: true,
+                            copilot_cli_blackbird_lexical_search_v2_mode: "native_auto",
                         },
                     },
                 ],

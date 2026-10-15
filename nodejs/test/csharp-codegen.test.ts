@@ -379,6 +379,46 @@ describe("C# required opaque JSON parameters", () => {
 });
 
 describe("C# additive request entry compatibility", () => {
+    it("preserves the legacy login signature and exposes new inputs through the request overload", () => {
+        const { schema } = legacySignatureFixture("session", ["kind"]);
+        const methods = schema.session!.sample as Record<string, RpcMethod>;
+        const method = methods.run;
+        methods.begin = method;
+        delete methods.run;
+        schema.definitions = {
+            LoginProviderKind: { type: "string", enum: ["github", "entra"] },
+            AuthLoginMode: { type: "string", enum: ["default", "selectAccount"] },
+        };
+        method.rpcMethod = "session.accounts.login.begin";
+        method.params = {
+            title: "AuthLoginBeginRequest",
+            type: "object",
+            properties: {
+                sessionId: { type: "string" },
+                kind: { $ref: "#/definitions/LoginProviderKind" },
+                mode: { $ref: "#/definitions/AuthLoginMode" },
+                accountId: { type: "string" },
+            },
+            required: ["sessionId", "kind"],
+            "x-legacy-parameters": ["kind"],
+        };
+
+        const code = generateRpcCode(schema);
+
+        expect(code).toContain(
+            "BeginAsync(LoginProviderKind kind, CancellationToken cancellationToken = default)"
+        );
+        expect(code).toContain(
+            "BeginAsync(AuthLoginBeginRequest request, CancellationToken cancellationToken = default)"
+        );
+        expect(code).toContain("public AuthLoginMode? Mode { get; set; }");
+        expect(code).toContain("public string? AccountId { get; set; }");
+        expect(code).toContain(
+            "new AuthLoginBeginRequestWithSession { SessionId = _session.SessionId, Kind = request.Kind, Mode = request.Mode, AccountId = request.AccountId }"
+        );
+        expect(code).not.toContain("CancellationToken cancellationToken = default, AuthLoginMode?");
+    });
+
     it("preserves cancellation-token calls when a server method gains optional parameters", () => {
         const params = { $ref: "#/definitions/ModelsListRequest" };
         const optionalRequest: JSONSchema7 = {

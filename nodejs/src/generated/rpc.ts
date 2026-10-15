@@ -111,7 +111,28 @@ export type AuthEnumerateQuery =
        * Account-collection query variant discriminator.
        */
       kind: "providers";
+    }
+  | {
+      provider: LoginProviderKind;
+      /**
+       * Account-collection query variant discriminator.
+       */
+      kind: "loginAccounts";
     };
+/**
+ * A provider a consumer may interactively sign in with.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "LoginProviderKind".
+ */
+/** @experimental */
+export type LoginProviderKind =
+  /** OAuth github.com sign-in via the browser (web loopback + PKCE). */
+  | "githubDotCom"
+  /** A GitHub Enterprise Cloud account — a GitHub account on a non-github.com host, e.g. *.ghe.com; the host is supplied interactively through the neutral input-required step. */
+  | "proxima"
+  /** Microsoft Entra sign-in that derives a GitHub (EMU) credential. */
+  | "entra";
 /**
  * Selects which typed accounts datum to read.
  *
@@ -414,21 +435,29 @@ export type AuthEnumerateValue =
        * Enumerated account-collection variant discriminator.
        */
       kind: "providers";
+    }
+  | {
+      /**
+       * Cached base identities reusable by the selected login provider, active first.
+       */
+      items: AuthLoginIdentity[];
+      /**
+       * Enumerated account-collection variant discriminator.
+       */
+      kind: "loginAccounts";
     };
 /**
- * A provider a consumer may interactively sign in with.
+ * How an interactive provider login should choose its base identity.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "LoginProviderKind".
+ * via the `definition` "AuthLoginMode".
  */
 /** @experimental */
-export type LoginProviderKind =
-  /** OAuth github.com sign-in via the browser (web loopback + PKCE). */
-  | "githubDotCom"
-  /** A GitHub Enterprise Cloud account — a GitHub account on a non-github.com host, e.g. *.ghe.com; the host is supplied interactively through the neutral input-required step. */
-  | "proxima"
-  /** Microsoft Entra sign-in that derives a GitHub (EMU) credential. */
-  | "entra";
+export type AuthLoginMode =
+  /** Use normal provider behavior, optionally pinned to accountId. */
+  | "default"
+  /** Explicitly ask the provider to present its account-selection UI instead of serving from a retained identity. */
+  | "selectAccount";
 /**
  * One step in an interactive login flow. The consumer acts on the step and calls advance to proceed. Browser-open is encoded as two distinct steps by design: `open-url` is CONSUMER-driven (the provider surfaces the authorize URL and the consumer opens it — github.com/GHEC web), while `needs-interaction` is PROVIDER-driven (the provider opens the browser or broker UI itself and does not surface a URL — Entra).
  *
@@ -2576,6 +2605,30 @@ export type HostExitReason =
   | "ownerDisconnected"
   /** The runtime is shutting down. */
   | "runtimeShutdown";
+/**
+ * A supported image-service operation.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "ImageToolModelOperation".
+ */
+/** @experimental */
+export type ImageToolModelOperation =
+  /** Generate an image from a text prompt. */
+  | "generate"
+  /** Generate or edit an image using explicitly selected image inputs. */
+  | "edit";
+/**
+ * Account availability of the runtime image model. Discovery errors are returned as errors, not converted to unavailable.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "ImageToolModelAvailability".
+ */
+/** @experimental */
+export type ImageToolModelAvailability =
+  /** The account has access to a supported image operation. */
+  | "available"
+  /** The runtime default is not available to this account; enabling the tool cannot grant access. */
+  | "unavailable";
 /**
  * Only resource kinds with an implemented installation engine have a review variant.
  *
@@ -8615,6 +8668,27 @@ export interface ProviderDescriptor {
   available: boolean;
 }
 /**
+ * A cached base identity a provider can reuse for login without asking the user to choose an account again.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AuthLoginIdentity".
+ */
+/** @experimental */
+export interface AuthLoginIdentity {
+  /**
+   * Opaque provider-owned identity id. Pass it back to accounts.login.begin; consumers must not parse it.
+   */
+  accountId: string;
+  /**
+   * Human-readable sign-in label owned by the runtime.
+   */
+  label: string;
+  /**
+   * Whether this base identity owns the session's active derived account.
+   */
+  active: boolean;
+}
+/**
  * Credential-free identity metadata.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -8672,7 +8746,7 @@ export interface AuthLoginAdvanceRequest {
   input?: string;
 }
 /**
- * Begin an interactive login flow for a provider kind. Dispatch is kind-only.
+ * Begin an interactive login flow for a provider kind, optionally reusing a cached base identity or explicitly requesting provider account selection.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
  * via the `definition` "AuthLoginBeginRequest".
@@ -8680,6 +8754,11 @@ export interface AuthLoginAdvanceRequest {
 /** @experimental */
 export interface AuthLoginBeginRequest {
   kind: LoginProviderKind;
+  mode?: AuthLoginMode;
+  /**
+   * Opaque cached base identity id returned by accounts.enumerate loginAccounts. Valid only with default mode; consumers must not parse it.
+   */
+  accountId?: string;
 }
 /**
  * A started login flow: its opaque id and first step.
@@ -15258,6 +15337,62 @@ export interface HostUnregisterSessionRequest {
   sessionId: string;
 }
 /**
+ * The runtime-selected image model and its account availability. Availability is independent of per-session image-generation enablement and does not override session policy or permissions.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "ImageToolModel".
+ */
+/** @experimental */
+export interface ImageToolModel {
+  /**
+   * Image model identifier selected by the runtime.
+   */
+  id: string;
+  /**
+   * Human-readable model name, supplied by the runtime when unavailable from the catalog.
+   */
+  name: string;
+  /**
+   * Image operations supported by the model's available versioned endpoints.
+   */
+  supportedOperations: ImageToolModelOperation[];
+  /**
+   * Whether this is the model the runtime currently uses for its native image tool.
+   */
+  isDefault: boolean;
+  availability: ImageToolModelAvailability;
+  pricing?: ImageToolModelPricing;
+}
+/**
+ * Default-tier text and image token prices reported for an image model, in AI credits per billing batch. Missing rates remain absent; these are not per-image quotes or actual billed usage.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "ImageToolModelPricing".
+ */
+/** @experimental */
+export interface ImageToolModelPricing {
+  /**
+   * Number of tokens per billing batch.
+   */
+  batchSize: number;
+  /**
+   * AI credits per batch of text-input tokens, including a reported zero.
+   */
+  textInputPrice?: number;
+  /**
+   * AI credits per batch of text-output tokens, not generated image tokens.
+   */
+  textOutputPrice?: number;
+  /**
+   * Distinct AI credits per batch of image-input tokens, when reported, including zero.
+   */
+  imageInputPrice?: number;
+  /**
+   * Distinct AI credits per batch of image-output tokens, when reported, including zero.
+   */
+  imageOutputPrice?: number;
+}
+/**
  * One connection-owned, expiring request for a trusted host's explicit user decision.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -20939,6 +21074,10 @@ export interface ModelList {
    */
   models: Model[];
   auto?: AutoTierMetadata;
+  /**
+   * The runtime's default image model, separate from conversation models, with its availability for the resolved account. The default is reported even when unavailable; clients choose whether to display it. These entries must not be selected as chat models. Absent on runtimes that do not expose this catalog.
+   */
+  imageModels?: ImageToolModel[];
 }
 
 /** @experimental */
@@ -24083,6 +24222,19 @@ export interface ProtocolExternalToolDefinition {
   metadata?: {
     [k: string]: JsonValue | undefined;
   };
+}
+/**
+ * Opt into native CAPI image generation.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "ProtocolImageGenerationOptions".
+ */
+/** @experimental */
+export interface ProtocolImageGenerationOptions {
+  /**
+   * Disabled by default for SDK sessions. CAPI model access and permissions still apply.
+   */
+  enabled?: boolean;
 }
 /**
  * BYOK providers and/or models to add to the session's registry at runtime. Both fields are optional; provide providers, models, or both.
@@ -30046,6 +30198,7 @@ export interface SessionTelemetryEngagement {
  */
 /** @experimental */
 export interface SessionUpdateOptionsParams {
+  imageGeneration?: ProtocolImageGenerationOptions;
   /**
    * The model ID to use for assistant turns.
    */
@@ -38532,7 +38685,7 @@ export function createSessionRpc(connection: MessageConnection, sessionId: strin
                 /**
                  * Begin an interactive login flow for a provider kind (dispatch is kind-only) and return its opaque flow id and first step.
                  *
-                 * @param params Begin an interactive login flow for a provider kind. Dispatch is kind-only.
+                 * @param params Begin an interactive login flow for a provider kind, optionally reusing a cached base identity or explicitly requesting provider account selection.
                  *
                  * @returns A started login flow: its opaque id and first step.
                  */

@@ -27,6 +27,8 @@ const OUTPUT_ROOT = process.env.COPILOT_CODEGEN_OUTPUT_ROOT ?? REPO_ROOT;
 const EXCLUDED_EVENT_TYPES = new Set(["session.import_legacy"]);
 // Existing event unions are Object in the shipped Java API; opt in new unions without changing those signatures.
 const PROMOTED_SESSION_EVENT_UNION_TYPES = new Set(["HumanResponseRecordedResponse"]);
+// Existing request unions are Object in the shipped Java API; opt in new typed request unions.
+const PROMOTED_RPC_REQUEST_UNION_TYPES = new Set(["AuthEnumerateQuery"]);
 
 function isSchemaInternal(schema: JSONSchema7 | null | undefined): boolean {
     return typeof schema === "object" &&
@@ -1343,6 +1345,14 @@ export function schemaTypeToJava(
         const name = schema.$ref.replace(/^#\/definitions\//, "");
         const resolved = resolution.definitions[name];
         if (resolved) {
+            if (
+                context === "SessionAccountsEnumerateParams"
+                && propName === "query"
+                && name === "AuthEnumerateQuery"
+            ) {
+                resolution.standaloneTypes.set(name, resolved);
+                return { javaType: "Object", imports };
+            }
             if (
                 name === "ManagedPermissionsContext"
                 && generatedSessionEventTypeNames.has(name)
@@ -2851,6 +2861,17 @@ async function collectRpcTypes(schema: RpcSchema): Promise<void> {
 
     for (const [, sectionNode] of sections) {
         for (const [, method] of collectRpcMethods(sectionNode)) {
+            const resolvedParams = resolveRef(method.params as JSONSchema7 | undefined);
+            for (const typeName of collectDirectDiscriminatedUnionTypeNames(
+                resolvedParams,
+                currentDefinitions,
+                PROMOTED_RPC_REQUEST_UNION_TYPES,
+            )) {
+                promotedNestedUnionTypes.add(typeName);
+            }
+            for (const typeName of collectNestedDiscriminatedUnionTypeNames(method.params, currentDefinitions)) {
+                promotedNestedUnionTypes.add(typeName);
+            }
             for (const typeName of collectNestedDiscriminatedUnionTypeNames(method.result, currentDefinitions)) {
                 promotedNestedUnionTypes.add(typeName);
             }
@@ -2957,6 +2978,18 @@ async function collectRpcTypes(schema: RpcSchema): Promise<void> {
                 }
             }
         }
+    }
+
+    // Legacy request additions can introduce referenced types absent from the
+    // preserved params record. Resolve them before standalone generation so the
+    // fluent request never refers to a class that was discovered too late.
+    for (const request of legacyRequests) {
+        generateLegacyRequestClass(
+            request.className,
+            request.schema,
+            request.legacy,
+            request.method.visibility === "internal" ? "internal" : "public"
+        );
     }
 
     // Generate standalone types discovered via $ref resolution

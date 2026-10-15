@@ -1082,6 +1082,8 @@ Install with telemetry extras: `pip install "github-copilot-sdk[telemetry]"` (pr
 
 An `on_permission_request` handler is optional when you create or resume a session. When provided, it is called before the agent executes each tool (file writes, shell commands, custom tools, etc.) and returns a decision. When omitted, permission requests are emitted as events and left pending for the consumer to resolve with the pending permission RPC.
 
+Callbacks receive optional derived prompt context as `invocation["prompt_request"]`, matching `PermissionRequestedData.prompt_request`. The raw request's `managed_approval_required` remains managed-policy provenance and enforces one-shot restrictions. Only derived `commands`, `read`, `write`, `url`, and `workflow` prompts can clear the human requirement after Assisted approval; for missing or other prompt kinds, keep the raw marker authoritative.
+
 ### Approve All (simplest)
 
 Use the built-in `PermissionHandler.approve_all` helper to approve ordinary permission requests automatically:

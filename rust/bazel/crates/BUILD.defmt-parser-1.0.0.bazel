@@ -60,6 +60,6 @@ rust_library(
     }),
     version = "1.0.0",
     deps = [
-        "@sdk_vendor__thiserror-2.0.20//:thiserror",
+        "@sdk_vendor__thiserror-2.0.21//:thiserror",
     ],
 )

@@ -6721,6 +6721,27 @@ pub struct PermissionRequestData {
     pub extra: Value,
 }
 
+impl PermissionRequestData {
+    /// Returns the derived user-facing prompt supplied by newer runtimes.
+    ///
+    /// The raw request retains managed-policy provenance. Only `commands`,
+    /// `read`, `write`, `url`, and `workflow` prompts can clear that human
+    /// requirement after Assisted approval. For missing or other prompt kinds,
+    /// keep the raw marker authoritative.
+    ///
+    /// `Ok(None)` indicates an older runtime without the derived prompt.
+    /// Unknown future prompt kinds return a deserialization error.
+    pub fn prompt_request(
+        &self,
+    ) -> Result<Option<crate::session_events::PermissionPromptRequest>, serde_json::Error> {
+        self.extra
+            .get("promptRequest")
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()
+    }
+}
+
 /// Data sent by the CLI with an `exitPlanMode.request` RPC call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

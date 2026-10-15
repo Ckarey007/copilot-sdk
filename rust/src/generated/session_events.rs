@@ -2183,6 +2183,10 @@ pub struct SessionShutdownData {
     /// Tool definitions token count at shutdown
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_definitions_tokens: Option<i64>,
+    /// Runtime tool-operation identities already included in the final accounting snapshot.
+    #[doc(hidden)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) tool_usage_request_ids: Option<Vec<String>>,
     /// Cumulative time spent in API calls during the session, in milliseconds
     pub total_api_duration_ms: i64,
     /// Session-wide accumulated nano-AI units cost
@@ -2236,6 +2240,10 @@ pub struct SessionUsageCheckpointData {
     /// Provider/model accounting snapshot that subsumes preceding usage receipts.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_model_metrics: Option<Vec<UsageMetricsProviderModelMetric>>,
+    /// Runtime tool-operation identities already included in this checkpoint. Prevents duplicate charges when an operation is delivered again with a newer sequence.
+    #[doc(hidden)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) tool_usage_request_ids: Option<Vec<String>>,
     /// Session-wide accumulated nano-AI units cost at checkpoint time
     pub total_nano_aiu: f64,
     /// Total number of premium API requests used at checkpoint time
@@ -2464,6 +2472,9 @@ pub struct SessionContextClearedData {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionCompactionStartData {
+    /// Identifier shared with the matching compaction completion event
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compaction_attempt_id: Option<String>,
     /// Token count from non-system messages (user, assistant, tool) at compaction start
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation_tokens: Option<i64>,
@@ -2473,9 +2484,15 @@ pub struct SessionCompactionStartData {
     /// Model identifier used for compaction, when known
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Destination model for a model-switch compaction when it differs from the compacting model
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub switch_target_model: Option<String>,
     /// Token count from system message(s) at compaction start
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_tokens: Option<i64>,
+    /// Destination prompt-token budget when it differs from the effective compaction token limit
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_prompt_token_limit: Option<i64>,
     /// Model context window token limit the compaction is targeting, when known
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_limit: Option<i64>,
@@ -2590,6 +2607,9 @@ pub struct SessionCompactionCompleteData {
     /// File path where the checkpoint was stored
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_path: Option<String>,
+    /// Identifier shared with the matching compaction start event
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compaction_attempt_id: Option<String>,
     /// Token usage breakdown for the compaction LLM call (aligned with assistant.usage format)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compaction_tokens_used: Option<CompactionCompleteCompactionTokensUsed>,
@@ -2602,9 +2622,24 @@ pub struct SessionCompactionCompleteData {
     /// Error message if compaction failed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Bounded reason for a typed failed outcome. Unknown future values are preserved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_reason: Option<String>,
+    /// Model identifier at admission when routing later changed to the reported compaction model
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub initial_model: Option<String>,
     /// Number of messages removed during compaction
     #[serde(skip_serializing_if = "Option::is_none")]
     pub messages_removed: Option<i64>,
+    /// Model identifier used for compaction when provider usage does not already supply it
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Typed terminal outcome for this observed compaction completion. Unknown future values are preserved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
+    /// Bounded reason for an expected non-application outcome such as cancellation or no applicable history. Unknown future values are preserved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome_reason: Option<String>,
     /// Total tokens in conversation after compaction
     #[serde(skip_serializing_if = "Option::is_none")]
     pub post_compaction_tokens: Option<i64>,
@@ -2631,9 +2666,18 @@ pub struct SessionCompactionCompleteData {
     /// LLM-generated summary of the compacted conversation history
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary_content: Option<String>,
+    /// Destination model for a model-switch compaction when it differs from the compacting model
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub switch_target_model: Option<String>,
     /// Token count from system message(s) after compaction
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_tokens: Option<i64>,
+    /// Destination prompt-token budget when it differs from the effective compaction token limit
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_prompt_token_limit: Option<i64>,
+    /// Open accounting-basis identifier for trustworthy paired pre/post token measurements. The current runtime emits local_full_context_estimate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_accounting_basis: Option<String>,
     /// Model context window token limit the compaction was targeting, when known
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_limit: Option<i64>,
@@ -5202,6 +5246,61 @@ pub struct ToolExecutionCompleteToolDescription {
     pub name: String,
 }
 
+/// Provider-reported image and text token counts, which are subsets of the corresponding total rather than additional tokens.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolExecutionUsageTokenDetails {
+    /// Image tokens included in the corresponding input or output total.
+    pub image_tokens: i64,
+    /// Text tokens included in the corresponding input or output total.
+    pub text_tokens: i64,
+}
+
+/// Authoritative usage reported by a separately metered runtime-owned tool operation. May be present on a failed tool when the service reported usage before local result processing failed. Missing token counts or billing mean unavailable, not zero.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolExecutionUsage {
+    /// Runtime-owned accounting order, preserved across session checkpoints and replay.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accounting: Option<UsageAccountingIdentity>,
+    /// Server-reported charge. Divide totalNanoAiu by 1,000,000,000 for AI credits; do not calculate customer cost from token prices.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub copilot_usage: Option<AssistantUsageCopilotUsage>,
+    /// Total provider-reported input tokens across all modalities.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<i64>,
+    /// Optional input modality breakdown; these counts are already included in inputTokens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_tokens_details: Option<ToolExecutionUsageTokenDetails>,
+    /// Requested model for the tool operation, independent of the conversation model. Not a provider-confirmed serving model.
+    pub model: String,
+    /// Total provider-reported output tokens across all modalities.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<i64>,
+    /// Optional output modality breakdown; these counts are already included in outputTokens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_tokens_details: Option<ToolExecutionUsageTokenDetails>,
+    /// Provider responsible for the tool operation, captured independently of the conversation provider.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<ModelProviderRef>,
+    /// Account quota snapshots, not per-operation cost deltas.
+    #[doc(hidden)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) quota_snapshots: Option<HashMap<String, serde_json::Value>>,
+    /// Runtime-generated identifier for this metered operation. Deduplicates repeated delivery or replay; not an upstream billing identifier.
+    pub request_id: RequestId,
+    /// Provider-reported sum of input and output tokens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<i64>,
+}
+
 /// Session event "tool.execution_complete". Tool execution completion results including success status, detailed output, and error information
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -5282,6 +5381,16 @@ pub struct ToolExecutionCompleteData {
     /// Tool-specific telemetry data (e.g., CodeQL check counts, grep match counts)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_telemetry: Option<HashMap<String, serde_json::Value>>,
+    /// Provider-reported usage of a separately metered runtime-owned tool operation, independent of the conversation model. Present on success or failure when usage is known. Experimental.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This type is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases.
+    ///
+    /// </div>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_usage: Option<Box<ToolExecutionUsage>>,
     /// Identifier for the agent loop turn this tool was invoked in, matching the corresponding assistant.turn_start event
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,

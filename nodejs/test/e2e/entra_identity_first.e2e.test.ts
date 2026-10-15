@@ -80,7 +80,7 @@ const scenarios = [
         staff: true,
         capi: 200,
         loki: 200,
-        expected: "failure",
+        expected: "loki",
     },
     {
         name: "denied EMU exchange preserves the rotated web identity",
@@ -89,7 +89,7 @@ const scenarios = [
         staff: true,
         capi: 200,
         loki: 200,
-        expected: "failure",
+        expected: "loki",
     },
     {
         name: "initial EMU user lookup outage suggests trying again later",
@@ -97,7 +97,7 @@ const scenarios = [
         userLookupFailure: 503,
         staff: true,
         capi: 200,
-        loki: 200,
+        loki: 403,
         expected: "failure",
     },
     {
@@ -106,7 +106,7 @@ const scenarios = [
         userLookupFailure: "network",
         staff: true,
         capi: 200,
-        loki: 200,
+        loki: 403,
         expected: "failure",
     },
     {
@@ -116,7 +116,7 @@ const scenarios = [
         plaintextConsent: true,
         staff: true,
         capi: 200,
-        loki: 200,
+        loki: 403,
         expected: "failure",
     },
     {
@@ -125,7 +125,7 @@ const scenarios = [
         userLookupFailure: 403,
         staff: true,
         capi: 200,
-        loki: 200,
+        loki: 403,
         expected: "failure",
     },
     {
@@ -144,7 +144,7 @@ const scenarios = [
         staff: false,
         capi: 200,
         loki: 200,
-        expected: "failure",
+        expected: "loki",
         emptyCapi: true,
     },
     {
@@ -182,34 +182,39 @@ describe("Entra identity-first resource discovery", () => {
             const baseId = `entra:${oid}@${tid}`;
             const emuToken = `ghu_identity_first_${randomUUID()}`;
             const savedEmuToken = `ghu_saved_${randomUUID()}`;
-            if ("savedLoki" in scenario) {
-                await writeFile(
-                    join(profile, "config.json"),
-                    JSON.stringify({
-                        loggedInUsers: [
-                            {
-                                host: "https://github.com",
-                                login: "saved_emu",
-                                kind: "entraEmu",
-                                derivedFrom: baseId,
-                            },
-                            {
-                                host: `https://${LOKI_HOST}/api`,
-                                login: "identity@example.test",
-                                kind: "loki",
-                                derivedFrom: baseId,
-                            },
-                        ],
-                        authTokens: {
-                            "https://github.com:saved_emu:entra": {
-                                token: savedEmuToken,
-                                accountType: "entra",
-                                expiresAt: "2099-01-01T00:00:00Z",
-                            },
-                        },
-                    })
-                );
-            }
+            await writeFile(
+                join(profile, "config.json"),
+                JSON.stringify(
+                    "savedLoki" in scenario
+                        ? {
+                              staff: true,
+                              loggedInUsers: [
+                                  {
+                                      host: "https://github.com",
+                                      login: "saved_emu",
+                                      kind: "entraEmu",
+                                      derivedFrom: baseId,
+                                  },
+                                  {
+                                      host: `https://${LOKI_HOST}/api`,
+                                      login: "identity@example.test",
+                                      kind: "loki",
+                                      derivedFrom: baseId,
+                                  },
+                              ],
+                              authTokens: {
+                                  "https://github.com:saved_emu:entra": {
+                                      token: savedEmuToken,
+                                      accountType: "entra",
+                                      expiresAt: "2099-01-01T00:00:00Z",
+                                  },
+                              },
+                          }
+                        : {
+                              staff: true,
+                          }
+                )
+            );
             const grants: URLSearchParams[] = [];
             const catalogs: string[] = [];
             const receipts: CatalogReceipt[] = [];
@@ -555,12 +560,7 @@ describe("Entra identity-first resource discovery", () => {
             );
             const base = JSON.parse(saved.authTokens[`entra:${baseId}:entra`].token);
             expect(base.web.refresh_token).toBe(latestRefresh);
-            if (
-                "exchangeDenied" in scenario ||
-                ("userLookupFailure" in scenario && !("savedLoki" in scenario))
-            ) {
-                expect(base.web.refresh_token).toBe("rotated-after-emu");
-            }
+            expect(base.web.refresh_token).toBe("rotated-after-m365");
             if (scenario.expected === "failure") {
                 expect(saved.lastLoggedInUser).toBeUndefined();
                 expect(
@@ -622,17 +622,15 @@ describe("Entra identity-first resource discovery", () => {
                 !("userLookupFailure" in scenario);
             if (emuVerified) expect(catalogs).toContain("capi");
             else expect(catalogs).not.toContain("capi");
-            if ((scenario.staff && emuVerified) || "savedLoki" in scenario) {
-                expect(catalogs).toContain("loki");
-                expect(grants.map((grant) => grant.get("scope"))).toEqual([
-                    "openid profile offline_access",
-                    `${EMU_SCOPE} openid profile offline_access`,
-                    `${M365_SCOPE} openid profile offline_access`,
-                ]);
-            } else {
-                expect(catalogs).not.toContain("loki");
-                expect(grants).toHaveLength(2);
-            }
+            expect(catalogs).toContain("loki");
+            const expectedScopes = [
+                "openid profile offline_access",
+                `${EMU_SCOPE} openid profile offline_access`,
+                `${M365_SCOPE} openid profile offline_access`,
+            ];
+            if ("plaintextConsent" in scenario)
+                expectedScopes.push(`${M365_SCOPE} openid profile offline_access`);
+            expect(grants.map((grant) => grant.get("scope"))).toEqual(expectedScopes);
         });
     }
 });

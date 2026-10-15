@@ -3129,6 +3129,60 @@ public sealed class AutoTierMetadata
     public IList<AutoTierDescriptor> Tiers { get => field ??= []; set; }
 }
 
+/// <summary>Default-tier text and image token prices reported for an image model, in AI credits per billing batch. Missing rates remain absent; these are not per-image quotes or actual billed usage.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class ImageToolModelPricing
+{
+    /// <summary>Number of tokens per billing batch.</summary>
+    [JsonPropertyName("batchSize")]
+    public long BatchSize { get; set; }
+
+    /// <summary>Distinct AI credits per batch of image-input tokens, when reported, including zero.</summary>
+    [JsonPropertyName("imageInputPrice")]
+    public double? ImageInputPrice { get; set; }
+
+    /// <summary>Distinct AI credits per batch of image-output tokens, when reported, including zero.</summary>
+    [JsonPropertyName("imageOutputPrice")]
+    public double? ImageOutputPrice { get; set; }
+
+    /// <summary>AI credits per batch of text-input tokens, including a reported zero.</summary>
+    [JsonPropertyName("textInputPrice")]
+    public double? TextInputPrice { get; set; }
+
+    /// <summary>AI credits per batch of text-output tokens, not generated image tokens.</summary>
+    [JsonPropertyName("textOutputPrice")]
+    public double? TextOutputPrice { get; set; }
+}
+
+/// <summary>The runtime-selected image model and its account availability. Availability is independent of per-session image-generation enablement and does not override session policy or permissions.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class ImageToolModel
+{
+    /// <summary>Whether the resolved account can use this image model. This is not the session's enabled setting.</summary>
+    [JsonPropertyName("availability")]
+    public ImageToolModelAvailability Availability { get; set; }
+
+    /// <summary>Image model identifier selected by the runtime.</summary>
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    /// <summary>Whether this is the model the runtime currently uses for its native image tool.</summary>
+    [JsonPropertyName("isDefault")]
+    public bool IsDefault { get; set; }
+
+    /// <summary>Human-readable model name, supplied by the runtime when unavailable from the catalog.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Catalog-reported token prices. Absent means prices were not reported.</summary>
+    [JsonPropertyName("pricing")]
+    public ImageToolModelPricing? Pricing { get; set; }
+
+    /// <summary>Image operations supported by the model's available versioned endpoints.</summary>
+    [JsonPropertyName("supportedOperations")]
+    public IList<ImageToolModelOperation> SupportedOperations { get => field ??= []; set; }
+}
+
 /// <summary>Active server-driven promotion for a model, including its discount and optional expiry.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public sealed class ModelBillingPromo
@@ -3472,6 +3526,10 @@ public sealed class ModelList
     /// </summary>
     [JsonPropertyName("auto")]
     public AutoTierMetadata? Auto { get; set; }
+
+    /// <summary>The runtime's default image model, separate from conversation models, with its availability for the resolved account. The default is reported even when unavailable; clients choose whether to display it. These entries must not be selected as chat models. Absent on runtimes that do not expose this catalog.</summary>
+    [JsonPropertyName("imageModels")]
+    public IList<ImageToolModel>? ImageModels { get; set; }
 
     /// <summary>List of available models with full metadata.</summary>
     [JsonPropertyName("models")]
@@ -14815,6 +14873,7 @@ internal sealed class SessionGitHubAuthLastAuthErrorsRequest
     UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FallBackToBaseType)]
 [JsonDerivedType(typeof(AuthEnumerateValueAccounts), "accounts")]
 [JsonDerivedType(typeof(AuthEnumerateValueProviders), "providers")]
+[JsonDerivedType(typeof(AuthEnumerateValueLoginAccounts), "loginAccounts")]
 public partial class AuthEnumerateValue
 {
     /// <summary>The type discriminator.</summary>
@@ -14901,6 +14960,36 @@ public partial class AuthEnumerateValueProviders : AuthEnumerateValue
     public required IList<ProviderDescriptor> Items { get; set; }
 }
 
+/// <summary>A cached base identity a provider can reuse for login without asking the user to choose an account again.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AuthLoginIdentity
+{
+    /// <summary>Opaque provider-owned identity id. Pass it back to accounts.login.begin; consumers must not parse it.</summary>
+    [JsonPropertyName("accountId")]
+    public string AccountId { get; set; } = string.Empty;
+
+    /// <summary>Whether this base identity owns the session's active derived account.</summary>
+    [JsonPropertyName("active")]
+    public bool Active { get; set; }
+
+    /// <summary>Human-readable sign-in label owned by the runtime.</summary>
+    [JsonPropertyName("label")]
+    public string Label { get; set; } = string.Empty;
+}
+
+/// <summary>The <c>loginAccounts</c> variant of <see cref="AuthEnumerateValue"/>.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class AuthEnumerateValueLoginAccounts : AuthEnumerateValue
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "loginAccounts";
+
+    /// <summary>Cached base identities reusable by the selected login provider, active first.</summary>
+    [JsonPropertyName("items")]
+    public required IList<AuthLoginIdentity> Items { get; set; }
+}
+
 /// <summary>Selects which accounts collection to enumerate. A no-arg selector is the empty-payload variant.</summary>
 /// <remarks>Polymorphic base type discriminated by <c>kind</c>.</remarks>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
@@ -14909,6 +14998,7 @@ public partial class AuthEnumerateValueProviders : AuthEnumerateValue
     UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FallBackToBaseType)]
 [JsonDerivedType(typeof(AuthEnumerateQueryAccounts), "accounts")]
 [JsonDerivedType(typeof(AuthEnumerateQueryProviders), "providers")]
+[JsonDerivedType(typeof(AuthEnumerateQueryLoginAccounts), "loginAccounts")]
 public partial class AuthEnumerateQuery
 {
     /// <summary>The type discriminator.</summary>
@@ -14938,6 +15028,19 @@ public partial class AuthEnumerateQueryProviders : AuthEnumerateQuery
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("brokerAvailable")]
     public bool? BrokerAvailable { get; set; }
+}
+
+/// <summary>The <c>loginAccounts</c> variant of <see cref="AuthEnumerateQuery"/>.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class AuthEnumerateQueryLoginAccounts : AuthEnumerateQuery
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "loginAccounts";
+
+    /// <summary>The provider whose cached base identities should be listed.</summary>
+    [JsonPropertyName("provider")]
+    public required LoginProviderKind Provider { get; set; }
 }
 
 /// <summary>Enumerate request carrying the typed collection query.</summary>
@@ -15339,13 +15442,38 @@ public sealed class AuthLoginBegun
     public AuthLoginStep Step { get => field ??= new(); set; }
 }
 
-/// <summary>Begin an interactive login flow for a provider kind. Dispatch is kind-only.</summary>
+/// <summary>Begin an interactive login flow for a provider kind, optionally reusing a cached base identity or explicitly requesting provider account selection.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-internal sealed class AuthLoginBeginRequest
+public sealed class AuthLoginBeginRequest
 {
+    /// <summary>Opaque cached base identity id returned by accounts.enumerate loginAccounts. Valid only with default mode; consumers must not parse it.</summary>
+    [JsonPropertyName("accountId")]
+    public string? AccountId { get; set; }
+
+    /// <summary>The provider kind to sign in with.</summary>
+    [JsonPropertyName("kind")]
+    public required LoginProviderKind Kind { get; set; }
+
+    /// <summary>Neutral identity-selection intent. Omitted is equivalent to default.</summary>
+    [JsonPropertyName("mode")]
+    public AuthLoginMode? Mode { get; set; }
+}
+
+/// <summary>Begin an interactive login flow for a provider kind, optionally reusing a cached base identity or explicitly requesting provider account selection.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class AuthLoginBeginRequestWithSession
+{
+    /// <summary>Opaque cached base identity id returned by accounts.enumerate loginAccounts. Valid only with default mode; consumers must not parse it.</summary>
+    [JsonPropertyName("accountId")]
+    public string? AccountId { get; set; }
+
     /// <summary>The provider kind to sign in with.</summary>
     [JsonPropertyName("kind")]
     public LoginProviderKind Kind { get; set; }
+
+    /// <summary>Neutral identity-selection intent. Omitted is equivalent to default.</summary>
+    [JsonPropertyName("mode")]
+    public AuthLoginMode? Mode { get; set; }
 
     /// <summary>Target session identifier.</summary>
     [JsonPropertyName("sessionId")]
@@ -23029,6 +23157,15 @@ public sealed class CapiSessionOptions
     public bool? EnableWebSocketResponses { get; set; }
 }
 
+/// <summary>Opt into native CAPI image generation.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class ProtocolImageGenerationOptions
+{
+    /// <summary>Disabled by default for SDK sessions. CAPI model access and permissions still apply.</summary>
+    [JsonPropertyName("enabled")]
+    public bool? Enabled { get; set; }
+}
+
 /// <summary>Installed plugin record for a session, with marketplace, version, install time, enabled state, cache path, and source.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public sealed class SessionInstalledPlugin
@@ -23366,6 +23503,13 @@ internal sealed class SessionUpdateOptionsParams
     /// <summary>Skill scan directories and descendants excluded from discovery. Supports `~`-relative paths.</summary>
     [JsonPropertyName("ignoredSkillsLocations")]
     public IList<string>? IgnoredSkillsLocations { get; set; }
+
+    /// <summary>
+    /// Enable or disable the native image tool for this session without changing the conversation model.
+    /// Omitted values preserve the current setting. Re-supply consent on cold resume.
+    /// </summary>
+    [JsonPropertyName("imageGeneration")]
+    public ProtocolImageGenerationOptions? ImageGeneration { get; set; }
 
     /// <summary>Built-in subagent names to include in this session. When specified, only these built-ins are available, subject to runtime availability and exclusions. Custom agents with the same name remain available. Set to null to remove the allowlist restriction.</summary>
     [JsonPropertyName("includedBuiltinAgents")]
@@ -32835,6 +32979,132 @@ public readonly struct HookOrigin : IEquatable<HookOrigin>
 }
 
 
+/// <summary>Account availability of the runtime image model. Discovery errors are returned as errors, not converted to unavailable.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct ImageToolModelAvailability : IEquatable<ImageToolModelAvailability>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="ImageToolModelAvailability"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="ImageToolModelAvailability"/>.</param>
+    [JsonConstructor]
+    public ImageToolModelAvailability(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="ImageToolModelAvailability"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>The account has access to a supported image operation.</summary>
+    public static ImageToolModelAvailability Available { get; } = new("available");
+
+    /// <summary>The runtime default is not available to this account; enabling the tool cannot grant access.</summary>
+    public static ImageToolModelAvailability Unavailable { get; } = new("unavailable");
+
+    /// <summary>Returns a value indicating whether two <see cref="ImageToolModelAvailability"/> instances are equivalent.</summary>
+    public static bool operator ==(ImageToolModelAvailability left, ImageToolModelAvailability right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="ImageToolModelAvailability"/> instances are not equivalent.</summary>
+    public static bool operator !=(ImageToolModelAvailability left, ImageToolModelAvailability right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is ImageToolModelAvailability other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(ImageToolModelAvailability other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{ImageToolModelAvailability}"/> for serializing <see cref="ImageToolModelAvailability"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<ImageToolModelAvailability>
+    {
+        /// <inheritdoc />
+        public override ImageToolModelAvailability Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, ImageToolModelAvailability value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(ImageToolModelAvailability));
+        }
+    }
+}
+
+
+/// <summary>A supported image-service operation.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct ImageToolModelOperation : IEquatable<ImageToolModelOperation>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="ImageToolModelOperation"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="ImageToolModelOperation"/>.</param>
+    [JsonConstructor]
+    public ImageToolModelOperation(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="ImageToolModelOperation"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>Generate an image from a text prompt.</summary>
+    public static ImageToolModelOperation Generate { get; } = new("generate");
+
+    /// <summary>Generate or edit an image using explicitly selected image inputs.</summary>
+    public static ImageToolModelOperation Edit { get; } = new("edit");
+
+    /// <summary>Returns a value indicating whether two <see cref="ImageToolModelOperation"/> instances are equivalent.</summary>
+    public static bool operator ==(ImageToolModelOperation left, ImageToolModelOperation right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="ImageToolModelOperation"/> instances are not equivalent.</summary>
+    public static bool operator !=(ImageToolModelOperation left, ImageToolModelOperation right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is ImageToolModelOperation other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(ImageToolModelOperation other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{ImageToolModelOperation}"/> for serializing <see cref="ImageToolModelOperation"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<ImageToolModelOperation>
+    {
+        /// <inheritdoc />
+        public override ImageToolModelOperation Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, ImageToolModelOperation value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(ImageToolModelOperation));
+        }
+    }
+}
+
+
 /// <summary>Resolved Anthropic adaptive-thinking capability for a model.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 [JsonConverter(typeof(Converter))]
@@ -40924,6 +41194,69 @@ public readonly struct AuthLoginResultStatus : IEquatable<AuthLoginResultStatus>
         public override void Write(Utf8JsonWriter writer, AuthLoginResultStatus value, JsonSerializerOptions options)
         {
             GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(AuthLoginResultStatus));
+        }
+    }
+}
+
+
+/// <summary>How an interactive provider login should choose its base identity.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct AuthLoginMode : IEquatable<AuthLoginMode>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="AuthLoginMode"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="AuthLoginMode"/>.</param>
+    [JsonConstructor]
+    public AuthLoginMode(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="AuthLoginMode"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>Use normal provider behavior, optionally pinned to accountId.</summary>
+    public static AuthLoginMode Default { get; } = new("default");
+
+    /// <summary>Explicitly ask the provider to present its account-selection UI instead of serving from a retained identity.</summary>
+    public static AuthLoginMode SelectAccount { get; } = new("selectAccount");
+
+    /// <summary>Returns a value indicating whether two <see cref="AuthLoginMode"/> instances are equivalent.</summary>
+    public static bool operator ==(AuthLoginMode left, AuthLoginMode right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="AuthLoginMode"/> instances are not equivalent.</summary>
+    public static bool operator !=(AuthLoginMode left, AuthLoginMode right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is AuthLoginMode other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(AuthLoginMode other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{AuthLoginMode}"/> for serializing <see cref="AuthLoginMode"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<AuthLoginMode>
+    {
+        /// <inheritdoc />
+        public override AuthLoginMode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, AuthLoginMode value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(AuthLoginMode));
         }
     }
 }
@@ -53034,8 +53367,20 @@ public sealed class AccountsLoginApi
     {
         _session.ThrowIfDisposed();
 
-        var request = new AuthLoginBeginRequest { SessionId = _session.SessionId, Kind = kind };
+        var request = new AuthLoginBeginRequestWithSession { SessionId = _session.SessionId, Kind = kind };
         return await CopilotClient.InvokeRpcAsync<AuthLoginBegun>(_session.Rpc, "session.accounts.login.begin", [request], cancellationToken);
+    }
+
+    /// <summary>Begin an interactive login flow for a provider kind (dispatch is kind-only) and return its opaque flow id and first step.</summary>
+    /// <param name="request">Begin an interactive login flow for a provider kind, optionally reusing a cached base identity or explicitly requesting provider account selection.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>A started login flow: its opaque id and first step.</returns>
+    public async Task<AuthLoginBegun> BeginAsync(AuthLoginBeginRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        _session.ThrowIfDisposed();
+        var wireRequest = new AuthLoginBeginRequestWithSession { SessionId = _session.SessionId, Kind = request.Kind, Mode = request.Mode, AccountId = request.AccountId };
+        return await CopilotClient.InvokeRpcAsync<AuthLoginBegun>(_session.Rpc, "session.accounts.login.begin", [wireRequest], cancellationToken);
     }
 
     /// <summary>Advance an in-flight login flow, optionally fulfilling an input-required step, and return the next step.</summary>
@@ -55824,6 +56169,10 @@ public sealed class OptionsApi
     }
 
     /// <summary>Patches the genuinely-mutable subset of session options.</summary>
+    /// <param name="imageGeneration">
+    /// Enable or disable the native image tool for this session without changing the conversation model.
+    /// Omitted values preserve the current setting. Re-supply consent on cold resume.
+    /// </param>
     /// <param name="model">The model ID to use for assistant turns.</param>
     /// <param name="modelCapabilitiesOverrides">Per-property model capability overrides for the selected model.</param>
     /// <param name="reasoningEffort">Reasoning effort for the selected model. CAPI values are model-defined and validated against the selected model; BYOK providers may define additional values. When omitted, no effort override is applied.</param>
@@ -55889,11 +56238,11 @@ public sealed class OptionsApi
     /// <param name="sessionLimits">Optional session limits. Pass null to clear the session limits.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>Indicates whether the session options patch was applied successfully.</returns>
-    public async Task<SessionUpdateOptionsResult> UpdateAsync(string? model = null, ModelCapabilitiesOverride? modelCapabilitiesOverrides = null, string? reasoningEffort = null, OptionsUpdateReasoningSummary? reasoningSummary = null, Verbosity? verbosity = null, string? clientName = null, string? lspClientName = null, string? integrationId = null, IDictionary<string, bool>? featureFlags = null, bool? isExperimentalMode = null, ProviderConfig? provider = null, CapiSessionOptions? capi = null, string? workingDirectory = null, IList<string>? availableTools = null, IList<string>? excludedTools = null, IList<string>? includedBuiltinAgents = null, IList<string>? excludedBuiltinAgents = null, OptionsUpdateToolFilterPrecedence? toolFilterPrecedence = null, bool? enableScriptSafety = null, ShellOptions? shell = null, string? shellInitProfile = null, IList<string>? shellProcessFlags = null, SandboxConfig? sandboxConfig = null, SandboxConfigSource? sandboxConfigSource = null, bool? logInteractiveShells = null, OptionsUpdateEnvValueMode? envValueMode = null, bool? allowAllMcpServerInstructions = null, IList<string>? skillDirectories = null, IList<string>? agentDirectories = null, IList<string>? instructionDirectories = null, IList<string>? hookDirectories = null, IList<string>? ignoredSkillsLocations = null, IList<string>? includedBuiltinSkills = null, IList<string>? disabledSkills = null, bool? enableOnDemandInstructionDiscovery = null, long? maxInlineBinaryBytes = null, IList<SessionInstalledPlugin>? installedPlugins = null, bool? customAgentsLocalOnly = null, bool? suppressCustomAgentPrompt = null, bool? skipCustomInstructions = null, IList<string>? disabledInstructionSources = null, bool? coauthorEnabled = null, string? trajectoryFile = null, bool? enableStreaming = null, string? copilotUrl = null, bool? askUserDisabled = null, bool? continueOnAutoMode = null, bool? runningInInteractiveMode = null, bool? enableReasoningSummaries = null, string? agentContext = null, string? eventsLogDirectory = null, bool? eventsLogIncludesSubagents = null, IList<OptionsUpdateAdditionalContentExclusionPolicy>? additionalContentExclusionPolicies = null, bool? manageScheduleEnabled = null, IList<SessionCapability>? sessionCapabilities = null, bool? skipEmbeddingRetrieval = null, string? organizationCustomInstructions = null, bool? enableFileHooks = null, bool? enableHostGitOperations = null, bool? enableSessionStore = null, bool? enableSkills = null, OptionsUpdateContextTier? contextTier = null, SessionLimitsConfig? sessionLimits = null, CancellationToken cancellationToken = default)
+    public async Task<SessionUpdateOptionsResult> UpdateAsync(ProtocolImageGenerationOptions? imageGeneration = null, string? model = null, ModelCapabilitiesOverride? modelCapabilitiesOverrides = null, string? reasoningEffort = null, OptionsUpdateReasoningSummary? reasoningSummary = null, Verbosity? verbosity = null, string? clientName = null, string? lspClientName = null, string? integrationId = null, IDictionary<string, bool>? featureFlags = null, bool? isExperimentalMode = null, ProviderConfig? provider = null, CapiSessionOptions? capi = null, string? workingDirectory = null, IList<string>? availableTools = null, IList<string>? excludedTools = null, IList<string>? includedBuiltinAgents = null, IList<string>? excludedBuiltinAgents = null, OptionsUpdateToolFilterPrecedence? toolFilterPrecedence = null, bool? enableScriptSafety = null, ShellOptions? shell = null, string? shellInitProfile = null, IList<string>? shellProcessFlags = null, SandboxConfig? sandboxConfig = null, SandboxConfigSource? sandboxConfigSource = null, bool? logInteractiveShells = null, OptionsUpdateEnvValueMode? envValueMode = null, bool? allowAllMcpServerInstructions = null, IList<string>? skillDirectories = null, IList<string>? agentDirectories = null, IList<string>? instructionDirectories = null, IList<string>? hookDirectories = null, IList<string>? ignoredSkillsLocations = null, IList<string>? includedBuiltinSkills = null, IList<string>? disabledSkills = null, bool? enableOnDemandInstructionDiscovery = null, long? maxInlineBinaryBytes = null, IList<SessionInstalledPlugin>? installedPlugins = null, bool? customAgentsLocalOnly = null, bool? suppressCustomAgentPrompt = null, bool? skipCustomInstructions = null, IList<string>? disabledInstructionSources = null, bool? coauthorEnabled = null, string? trajectoryFile = null, bool? enableStreaming = null, string? copilotUrl = null, bool? askUserDisabled = null, bool? continueOnAutoMode = null, bool? runningInInteractiveMode = null, bool? enableReasoningSummaries = null, string? agentContext = null, string? eventsLogDirectory = null, bool? eventsLogIncludesSubagents = null, IList<OptionsUpdateAdditionalContentExclusionPolicy>? additionalContentExclusionPolicies = null, bool? manageScheduleEnabled = null, IList<SessionCapability>? sessionCapabilities = null, bool? skipEmbeddingRetrieval = null, string? organizationCustomInstructions = null, bool? enableFileHooks = null, bool? enableHostGitOperations = null, bool? enableSessionStore = null, bool? enableSkills = null, OptionsUpdateContextTier? contextTier = null, SessionLimitsConfig? sessionLimits = null, CancellationToken cancellationToken = default)
     {
         _session.ThrowIfDisposed();
 
-        var request = new SessionUpdateOptionsParams { SessionId = _session.SessionId, Model = model, ModelCapabilitiesOverrides = modelCapabilitiesOverrides, ReasoningEffort = reasoningEffort, ReasoningSummary = reasoningSummary, Verbosity = verbosity, ClientName = clientName, LspClientName = lspClientName, IntegrationId = integrationId, FeatureFlags = featureFlags, IsExperimentalMode = isExperimentalMode, Provider = provider, Capi = capi, WorkingDirectory = workingDirectory, AvailableTools = availableTools, ExcludedTools = excludedTools, IncludedBuiltinAgents = includedBuiltinAgents, ExcludedBuiltinAgents = excludedBuiltinAgents, ToolFilterPrecedence = toolFilterPrecedence, EnableScriptSafety = enableScriptSafety, Shell = shell, ShellInitProfile = shellInitProfile, ShellProcessFlags = shellProcessFlags, SandboxConfig = sandboxConfig, SandboxConfigSource = sandboxConfigSource, LogInteractiveShells = logInteractiveShells, EnvValueMode = envValueMode, AllowAllMcpServerInstructions = allowAllMcpServerInstructions, SkillDirectories = skillDirectories, AgentDirectories = agentDirectories, InstructionDirectories = instructionDirectories, HookDirectories = hookDirectories, IgnoredSkillsLocations = ignoredSkillsLocations, IncludedBuiltinSkills = includedBuiltinSkills, DisabledSkills = disabledSkills, EnableOnDemandInstructionDiscovery = enableOnDemandInstructionDiscovery, MaxInlineBinaryBytes = maxInlineBinaryBytes, InstalledPlugins = installedPlugins, CustomAgentsLocalOnly = customAgentsLocalOnly, SuppressCustomAgentPrompt = suppressCustomAgentPrompt, SkipCustomInstructions = skipCustomInstructions, DisabledInstructionSources = disabledInstructionSources, CoauthorEnabled = coauthorEnabled, TrajectoryFile = trajectoryFile, EnableStreaming = enableStreaming, CopilotUrl = copilotUrl, AskUserDisabled = askUserDisabled, ContinueOnAutoMode = continueOnAutoMode, RunningInInteractiveMode = runningInInteractiveMode, EnableReasoningSummaries = enableReasoningSummaries, AgentContext = agentContext, EventsLogDirectory = eventsLogDirectory, EventsLogIncludesSubagents = eventsLogIncludesSubagents, AdditionalContentExclusionPolicies = additionalContentExclusionPolicies, ManageScheduleEnabled = manageScheduleEnabled, SessionCapabilities = sessionCapabilities, SkipEmbeddingRetrieval = skipEmbeddingRetrieval, OrganizationCustomInstructions = organizationCustomInstructions, EnableFileHooks = enableFileHooks, EnableHostGitOperations = enableHostGitOperations, EnableSessionStore = enableSessionStore, EnableSkills = enableSkills, ContextTier = contextTier, SessionLimits = sessionLimits };
+        var request = new SessionUpdateOptionsParams { SessionId = _session.SessionId, ImageGeneration = imageGeneration, Model = model, ModelCapabilitiesOverrides = modelCapabilitiesOverrides, ReasoningEffort = reasoningEffort, ReasoningSummary = reasoningSummary, Verbosity = verbosity, ClientName = clientName, LspClientName = lspClientName, IntegrationId = integrationId, FeatureFlags = featureFlags, IsExperimentalMode = isExperimentalMode, Provider = provider, Capi = capi, WorkingDirectory = workingDirectory, AvailableTools = availableTools, ExcludedTools = excludedTools, IncludedBuiltinAgents = includedBuiltinAgents, ExcludedBuiltinAgents = excludedBuiltinAgents, ToolFilterPrecedence = toolFilterPrecedence, EnableScriptSafety = enableScriptSafety, Shell = shell, ShellInitProfile = shellInitProfile, ShellProcessFlags = shellProcessFlags, SandboxConfig = sandboxConfig, SandboxConfigSource = sandboxConfigSource, LogInteractiveShells = logInteractiveShells, EnvValueMode = envValueMode, AllowAllMcpServerInstructions = allowAllMcpServerInstructions, SkillDirectories = skillDirectories, AgentDirectories = agentDirectories, InstructionDirectories = instructionDirectories, HookDirectories = hookDirectories, IgnoredSkillsLocations = ignoredSkillsLocations, IncludedBuiltinSkills = includedBuiltinSkills, DisabledSkills = disabledSkills, EnableOnDemandInstructionDiscovery = enableOnDemandInstructionDiscovery, MaxInlineBinaryBytes = maxInlineBinaryBytes, InstalledPlugins = installedPlugins, CustomAgentsLocalOnly = customAgentsLocalOnly, SuppressCustomAgentPrompt = suppressCustomAgentPrompt, SkipCustomInstructions = skipCustomInstructions, DisabledInstructionSources = disabledInstructionSources, CoauthorEnabled = coauthorEnabled, TrajectoryFile = trajectoryFile, EnableStreaming = enableStreaming, CopilotUrl = copilotUrl, AskUserDisabled = askUserDisabled, ContinueOnAutoMode = continueOnAutoMode, RunningInInteractiveMode = runningInInteractiveMode, EnableReasoningSummaries = enableReasoningSummaries, AgentContext = agentContext, EventsLogDirectory = eventsLogDirectory, EventsLogIncludesSubagents = eventsLogIncludesSubagents, AdditionalContentExclusionPolicies = additionalContentExclusionPolicies, ManageScheduleEnabled = manageScheduleEnabled, SessionCapabilities = sessionCapabilities, SkipEmbeddingRetrieval = skipEmbeddingRetrieval, OrganizationCustomInstructions = organizationCustomInstructions, EnableFileHooks = enableFileHooks, EnableHostGitOperations = enableHostGitOperations, EnableSessionStore = enableSessionStore, EnableSkills = enableSkills, ContextTier = contextTier, SessionLimits = sessionLimits };
         return await CopilotClient.InvokeRpcAsync<SessionUpdateOptionsResult>(_session.Rpc, "session.options.update", [request], cancellationToken);
     }
 }
@@ -58801,6 +59150,8 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(GitHub.Copilot.ToolExecutionStartToolDescriptionMeta), TypeInfoPropertyName = "SessionEventsToolExecutionStartToolDescriptionMeta")]
 [JsonSerializable(typeof(GitHub.Copilot.ToolExecutionStartToolDescriptionMetaUI), TypeInfoPropertyName = "SessionEventsToolExecutionStartToolDescriptionMetaUI")]
 [JsonSerializable(typeof(GitHub.Copilot.ToolExecutionStartToolDescriptionMetaUIVisibility), TypeInfoPropertyName = "SessionEventsToolExecutionStartToolDescriptionMetaUIVisibility")]
+[JsonSerializable(typeof(GitHub.Copilot.ToolExecutionUsage), TypeInfoPropertyName = "SessionEventsToolExecutionUsage")]
+[JsonSerializable(typeof(GitHub.Copilot.ToolExecutionUsageTokenDetails), TypeInfoPropertyName = "SessionEventsToolExecutionUsageTokenDetails")]
 [JsonSerializable(typeof(GitHub.Copilot.ToolSearchActivatedData), TypeInfoPropertyName = "SessionEventsToolSearchActivatedData")]
 [JsonSerializable(typeof(GitHub.Copilot.ToolSearchActivatedEvent), TypeInfoPropertyName = "SessionEventsToolSearchActivatedEvent")]
 [JsonSerializable(typeof(GitHub.Copilot.ToolShellOutputData), TypeInfoPropertyName = "SessionEventsToolShellOutputData")]
@@ -58905,8 +59256,10 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(AuthLoginAccount))]
 [JsonSerializable(typeof(AuthLoginAdvanceRequest))]
 [JsonSerializable(typeof(AuthLoginBeginRequest))]
+[JsonSerializable(typeof(AuthLoginBeginRequestWithSession))]
 [JsonSerializable(typeof(AuthLoginBegun))]
 [JsonSerializable(typeof(AuthLoginCancelRequest))]
+[JsonSerializable(typeof(AuthLoginIdentity))]
 [JsonSerializable(typeof(AuthLoginResultDto))]
 [JsonSerializable(typeof(AuthLoginStep))]
 [JsonSerializable(typeof(AuthReadQuery))]
@@ -59161,6 +59514,8 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(IList<QuotaWarningProjection>))]
 [JsonSerializable(typeof(IList<SessionAuthStatus>))]
 [JsonSerializable(typeof(IList<SessionsClientMetadataEntry>))]
+[JsonSerializable(typeof(ImageToolModel))]
+[JsonSerializable(typeof(ImageToolModelPricing))]
 [JsonSerializable(typeof(InstallationCatalogueIdentity))]
 [JsonSerializable(typeof(InstallationReview))]
 [JsonSerializable(typeof(InstallationsConfirmRequest))]
@@ -59579,6 +59934,7 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(PluginsUpdateRequest))]
 [JsonSerializable(typeof(PluginsUpdateRequestWithSession))]
 [JsonSerializable(typeof(ProtocolExternalToolDefinition))]
+[JsonSerializable(typeof(ProtocolImageGenerationOptions))]
 [JsonSerializable(typeof(ProtocolMarkerSectionOverride))]
 [JsonSerializable(typeof(ProtocolSectionOverride))]
 [JsonSerializable(typeof(ProtocolStaticSectionOverride))]

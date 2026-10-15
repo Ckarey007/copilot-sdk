@@ -35,7 +35,7 @@ jobs:
       fail-fast: false
       matrix:
         os: ${{ fromJSON(inputs.platform == 'linux-x64' && '["ubuntu-26.04-4core-agent-runtime"]' || inputs.platform == 'darwin-arm64' && '["macos-26-agent-runtime"]' || inputs.platform == 'win32-x64' && '["windows-2025-4core-agent-runtime"]' || '["ubuntu-26.04-4core-agent-runtime","macos-26-agent-runtime","windows-2025-4core-agent-runtime"]') }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ github.event_name == 'merge_group' && fromJSON('{"ubuntu-26.04-4core-agent-runtime":"ubuntu-26.04-4core-ar-mq","macos-26-agent-runtime":"macos-26-ar-mq","windows-2025-4core-agent-runtime":"windows-2025-4core-ar-mq"}')[matrix.os] || matrix.os }}
     defaults:
       run:
         shell: bash
@@ -125,7 +125,7 @@ jobs:
   nodejs-inprocess:
     name: "Node.js (ubuntu-26.04-4core-agent-runtime, in-process, CAPI)"
     if: github.event_name != 'merge_group' && (inputs.platform == 'all' || inputs.platform == 'linux-x64')
-    runs-on: ubuntu-26.04-4core-agent-runtime
+    runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-26.04-4core-ar-mq' || 'ubuntu-26.04-4core-agent-runtime' }}
     defaults:
       run:
         shell: bash
@@ -162,7 +162,7 @@ jobs:
   nodejs-backends:
     name: "Node.js (ubuntu-26.04-2core-agent-runtime, ${{ matrix.backend }})"
     if: github.event_name != 'merge_group' && (inputs.platform == 'all' || inputs.platform == 'linux-x64')
-    runs-on: ubuntu-26.04-2core-agent-runtime
+    runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-26.04-2core-ar-mq' || 'ubuntu-26.04-2core-agent-runtime' }}
     strategy:
       fail-fast: false
       matrix:
@@ -200,7 +200,7 @@ jobs:
   nodejs-musl-x64:
     name: "Node.js (Alpine x64, CAPI)"
     if: inputs.platform == 'all' || inputs.platform == 'linuxmusl-x64'
-    runs-on: ubuntu-26.04-2core-agent-runtime
+    runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-26.04-2core-ar-mq' || 'ubuntu-26.04-2core-agent-runtime' }}
     steps:
       - uses: actions/checkout@v7
         with:

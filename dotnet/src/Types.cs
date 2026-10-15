@@ -987,6 +987,18 @@ public sealed class PermissionInvocation
 
     /// <summary>Whether managed settings are enabled for this session.</summary>
     public bool ManagedSettingsEnabled { get; set; }
+
+    /// <summary>
+    /// Derived user-facing permission prompt supplied by newer runtimes.
+    /// </summary>
+    /// <remarks>
+    /// The raw request retains managed-policy provenance. Only standard prompt
+    /// kinds (<c>commands</c>, <c>read</c>, <c>write</c>, <c>url</c>, and
+    /// <c>workflow</c>) can clear that human requirement after Assisted
+    /// approval. For missing or other prompt kinds, keep the raw marker
+    /// authoritative.
+    /// </remarks>
+    public PermissionPromptRequest? PromptRequest { get; set; }
 }
 
 // ============================================================================

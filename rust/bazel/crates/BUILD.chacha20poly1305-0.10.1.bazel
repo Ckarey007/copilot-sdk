@@ -70,6 +70,6 @@ rust_library(
         "@sdk_vendor__chacha20-0.9.1//:chacha20",
         "@sdk_vendor__cipher-0.4.4//:cipher",
         "@sdk_vendor__poly1305-0.8.0//:poly1305",
-        "@sdk_vendor__zeroize-1.9.0//:zeroize",
+        "@sdk_vendor__zeroize-1.9.1//:zeroize",
     ],
 )

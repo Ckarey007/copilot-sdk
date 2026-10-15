@@ -84,8 +84,8 @@ rustup toolchain install "<formatter-toolchain>" --profile minimal --component r
 ```
 
 Use your host's native build prerequisites: for example, MSVC build tools for
-Windows native compilation, or a C compiler, `pkg-config`, and OpenSSL
-development libraries for Linux Rust SDK tests using native TLS. Windows
+Windows native compilation, or a C compiler, Make, and Perl for Linux Rust
+SDK tests with bundled OpenSSL. Windows
 runtime builds also use Git for Windows Bash. Do not install cross-compilers,
 Docker, or every tested JDK just to run the normal host SDK tasks. The musl,
 cross-target, and transport matrices in [SDK CI](.github/workflows/sdk.yml)

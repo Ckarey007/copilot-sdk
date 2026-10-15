@@ -45,7 +45,9 @@ import type {
     McpAuthHandler,
     McpAuthRequest,
     PermissionHandler,
+    PermissionHandlerInvocation,
     PermissionRequest,
+    PermissionRequestedData,
     PermissionRequestResult,
     ContextTier,
     ReasoningEffort,
@@ -1266,16 +1268,13 @@ export class CopilotSession {
                 }
             }
         } else if (event.type === "permission.requested") {
-            const { requestId, permissionRequest, resolvedByHook } = event.data as {
-                requestId: string;
-                permissionRequest: PermissionRequest;
-                resolvedByHook?: boolean;
-            };
+            const { requestId, permissionRequest, promptRequest, resolvedByHook } =
+                event.data as PermissionRequestedData;
             if (resolvedByHook) {
                 return; // Already resolved by a permissionRequest hook; no client action needed.
             }
             if (this.permissionHandler) {
-                void this._executePermissionAndRespond(requestId, permissionRequest);
+                void this._executePermissionAndRespond(requestId, permissionRequest, promptRequest);
             }
         } else if (event.type === "mcp.oauth_required") {
             const data = event.data as McpAuthRequest | undefined;
@@ -1471,13 +1470,16 @@ export class CopilotSession {
      */
     private async _executePermissionAndRespond(
         requestId: string,
-        permissionRequest: PermissionRequest
+        permissionRequest: PermissionRequest,
+        promptRequest?: PermissionRequestedData["promptRequest"]
     ): Promise<void> {
         try {
-            const handlerResult = await this.permissionHandler!(permissionRequest, {
+            const invocation: PermissionHandlerInvocation = {
                 sessionId: this.sessionId,
                 managedSettingsEnabled: this.managedSettingsEnabled,
-            });
+                ...(promptRequest === undefined ? {} : { promptRequest }),
+            };
+            const handlerResult = await this.permissionHandler!(permissionRequest, invocation);
             const isAttributed = isAttributedPermissionResult(handlerResult);
             const result: PermissionRequestResult = isAttributed
                 ? handlerResult.result

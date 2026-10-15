@@ -300,3 +300,44 @@ fn permission_request_data_preserves_valid_false_managed_flag() {
 
     assert_eq!(data.managed_approval_required, Some(false));
 }
+
+#[test]
+fn permission_request_data_exposes_typed_derived_prompt() {
+    let data = permission_request_data(
+        &json!({
+            "requestId": "permission-1",
+            "permissionRequest": {
+                "kind": "shell",
+                "managedApprovalRequired": true,
+                "fullCommandText": "ls"
+            },
+            "promptRequest": {
+                "kind": "commands",
+                "fullCommandText": "ls",
+                "intention": "List files",
+                "commandIdentifiers": ["ls"],
+                "canOfferSessionApproval": false,
+                "assistedApproval": {
+                    "recommendation": "approve"
+                }
+            }
+        }),
+        true,
+    );
+
+    let prompt = data
+        .prompt_request()
+        .expect("derived prompt should deserialize")
+        .expect("derived prompt should be present");
+    let crate::session_events::PermissionPromptRequest::Commands(prompt) = prompt else {
+        panic!("expected commands prompt");
+    };
+    assert_eq!(prompt.managed_approval_required, None);
+    assert_eq!(
+        prompt
+            .assisted_approval
+            .expect("assisted approval should be present")
+            .recommendation,
+        crate::session_events::AssistedApprovalRecommendation::Approve
+    );
+}

@@ -462,10 +462,28 @@ type SystemMessageConfig struct {
 //	&rpc.PermissionDecisionNoResult{}  // decline to respond; another client may answer
 type PermissionHandlerFunc func(request PermissionRequest, invocation PermissionInvocation) (rpc.PermissionDecision, error)
 
-// PermissionInvocation provides context about a permission request
+// PermissionInvocation provides context about a permission request.
+//
+// This type retains its original two-field shape for source compatibility with
+// existing positional composite literals.
 type PermissionInvocation struct {
 	SessionID              string
 	ManagedSettingsEnabled bool
+}
+
+// PermissionHandlerWithPromptFunc executes a permission request with the
+// optional derived user-facing prompt supplied by newer runtimes.
+type PermissionHandlerWithPromptFunc func(request PermissionRequest, invocation PermissionHandlerInvocation) (rpc.PermissionDecision, error)
+
+// PermissionHandlerInvocation provides the complete context for a permission
+// request, including the optional derived prompt.
+type PermissionHandlerInvocation struct {
+	PermissionInvocation
+	// PromptRequest is the derived user-facing prompt supplied by newer runtimes.
+	// Only commands, read, write, url, and workflow prompts can clear a raw
+	// managed-approval requirement after Assisted approval. Missing and other
+	// prompt kinds must remain conservative.
+	PromptRequest rpc.PermissionPromptRequest
 }
 
 // PermissionDecisionContext describes how and where a permission decision was
@@ -1661,6 +1679,10 @@ type SessionConfig struct {
 	// When nil, permission requests are surfaced as events and left pending for the
 	// consumer to resolve via pending permission RPCs.
 	OnPermissionRequest PermissionHandlerFunc
+	// OnPermissionRequestWithPrompt receives the optional derived user-facing
+	// prompt supplied by newer runtimes. When both permission handlers are set,
+	// this handler takes precedence.
+	OnPermissionRequestWithPrompt PermissionHandlerWithPromptFunc
 	// OnMCPAuthRequest is an optional handler for MCP OAuth requests from MCP servers.
 	// When provided, the SDK can satisfy MCP server OAuth requests with host-provided
 	// token data or cancellation.
@@ -2323,6 +2345,10 @@ type ResumeSessionConfig struct {
 	// When nil, permission requests are surfaced as events and left pending for the
 	// consumer to resolve via pending permission RPCs.
 	OnPermissionRequest PermissionHandlerFunc
+	// OnPermissionRequestWithPrompt receives the optional derived user-facing
+	// prompt supplied by newer runtimes. When both permission handlers are set,
+	// this handler takes precedence.
+	OnPermissionRequestWithPrompt PermissionHandlerWithPromptFunc
 	// OnMCPAuthRequest is an optional handler for MCP OAuth requests from MCP servers.
 	// See SessionConfig.OnMCPAuthRequest.
 	OnMCPAuthRequest MCPAuthHandler

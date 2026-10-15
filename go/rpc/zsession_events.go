@@ -636,14 +636,20 @@ func (*SessionBinaryAssetData) Type() SessionEventType { return SessionEventType
 
 // Context window breakdown at the start of LLM-powered conversation compaction
 type SessionCompactionStartData struct {
+	// Identifier shared with the matching compaction completion event
+	CompactionAttemptID *string `json:"compactionAttemptId,omitempty"`
 	// Token count from non-system messages (user, assistant, tool) at compaction start
 	ConversationTokens *int64 `json:"conversationTokens,omitempty"`
 	// Total context tokens (system + conversation + tool definitions) at compaction start, when known
 	CurrentTokens *int64 `json:"currentTokens,omitempty"`
 	// Model identifier used for compaction, when known
 	Model *string `json:"model,omitempty"`
+	// Destination model for a model-switch compaction when it differs from the compacting model
+	SwitchTargetModel *string `json:"switchTargetModel,omitempty"`
 	// Token count from system message(s) at compaction start
 	SystemTokens *int64 `json:"systemTokens,omitempty"`
+	// Destination prompt-token budget when it differs from the effective compaction token limit
+	TargetPromptTokenLimit *int64 `json:"targetPromptTokenLimit,omitempty"`
 	// Model context window token limit the compaction is targeting, when known
 	TokenLimit *int64 `json:"tokenLimit,omitempty"`
 	// Token count from tool definitions at compaction start
@@ -681,6 +687,8 @@ type SessionCompactionCompleteData struct {
 	CheckpointNumber *int64 `json:"checkpointNumber,omitempty"`
 	// File path where the checkpoint was stored
 	CheckpointPath *string `json:"checkpointPath,omitempty"`
+	// Identifier shared with the matching compaction start event
+	CompactionAttemptID *string `json:"compactionAttemptId,omitempty"`
 	// Token usage breakdown for the compaction LLM call (aligned with assistant.usage format)
 	CompactionTokensUsed *CompactionCompleteCompactionTokensUsed `json:"compactionTokensUsed,omitempty"`
 	// Token count from non-system messages (user, assistant, tool) after compaction
@@ -689,8 +697,18 @@ type SessionCompactionCompleteData struct {
 	CustomInstructions *string `json:"customInstructions,omitempty"`
 	// Error message if compaction failed
 	Error *string `json:"error,omitempty"`
+	// Bounded reason for a typed failed outcome. Unknown future values are preserved.
+	FailureReason *string `json:"failureReason,omitempty"`
+	// Model identifier at admission when routing later changed to the reported compaction model
+	InitialModel *string `json:"initialModel,omitempty"`
 	// Number of messages removed during compaction
 	MessagesRemoved *int64 `json:"messagesRemoved,omitempty"`
+	// Model identifier used for compaction when provider usage does not already supply it
+	Model *string `json:"model,omitempty"`
+	// Typed terminal outcome for this observed compaction completion. Unknown future values are preserved.
+	Outcome *string `json:"outcome,omitempty"`
+	// Bounded reason for an expected non-application outcome such as cancellation or no applicable history. Unknown future values are preserved.
+	OutcomeReason *string `json:"outcomeReason,omitempty"`
 	// Total tokens in conversation after compaction
 	PostCompactionTokens *int64 `json:"postCompactionTokens,omitempty"`
 	// Number of messages before compaction
@@ -709,8 +727,14 @@ type SessionCompactionCompleteData struct {
 	Success bool `json:"success"`
 	// LLM-generated summary of the compacted conversation history
 	SummaryContent *string `json:"summaryContent,omitempty"`
+	// Destination model for a model-switch compaction when it differs from the compacting model
+	SwitchTargetModel *string `json:"switchTargetModel,omitempty"`
 	// Token count from system message(s) after compaction
 	SystemTokens *int64 `json:"systemTokens,omitempty"`
+	// Destination prompt-token budget when it differs from the effective compaction token limit
+	TargetPromptTokenLimit *int64 `json:"targetPromptTokenLimit,omitempty"`
+	// Open accounting-basis identifier for trustworthy paired pre/post token measurements. The current runtime emits local_full_context_estimate.
+	TokenAccountingBasis *string `json:"tokenAccountingBasis,omitempty"`
 	// Model context window token limit the compaction was targeting, when known
 	TokenLimit *int64 `json:"tokenLimit,omitempty"`
 	// Number of tokens removed during compaction
@@ -862,6 +886,9 @@ type SessionUsageCheckpointData struct {
 	PromptCacheBreakState []any `json:"promptCacheBreakState,omitzero"`
 	// Provider/model accounting snapshot that subsumes preceding usage receipts.
 	ProviderModelMetrics []UsageMetricsProviderModelMetric `json:"providerModelMetrics,omitzero"`
+	// Runtime tool-operation identities already included in this checkpoint. Prevents duplicate charges when an operation is delivered again with a newer sequence.
+	// Internal: ToolUsageRequestIDs is part of the SDK's internal API surface and is not intended for external use.
+	ToolUsageRequestIDs []string `json:"toolUsageRequestIds,omitzero"`
 	// Session-wide accumulated nano-AI units cost at checkpoint time
 	TotalNanoAiu float64 `json:"totalNanoAiu"`
 	// Total number of premium API requests used at checkpoint time
@@ -2957,6 +2984,9 @@ type SessionShutdownData struct {
 	TokenDetails map[string]ShutdownTokenDetail `json:"tokenDetails,omitzero"`
 	// Tool definitions token count at shutdown
 	ToolDefinitionsTokens *int64 `json:"toolDefinitionsTokens,omitempty"`
+	// Runtime tool-operation identities already included in the final accounting snapshot.
+	// Internal: ToolUsageRequestIDs is part of the SDK's internal API surface and is not intended for external use.
+	ToolUsageRequestIDs []string `json:"toolUsageRequestIds,omitzero"`
 	// Cumulative time spent in API calls during the session, in milliseconds
 	TotalAPIDurationMs int64 `json:"totalApiDurationMs"`
 	// Session-wide accumulated nano-AI units cost
@@ -3297,6 +3327,9 @@ type ToolExecutionCompleteData struct {
 	ToolDescription *ToolExecutionCompleteToolDescription `json:"toolDescription,omitempty"`
 	// Tool-specific telemetry data (e.g., CodeQL check counts, grep match counts)
 	ToolTelemetry map[string]any `json:"toolTelemetry,omitzero"`
+	// Provider-reported usage of a separately metered runtime-owned tool operation, independent of the conversation model. Present on success or failure when usage is known. Experimental.
+	// Experimental: ToolUsage is part of an experimental API and may change or be removed.
+	ToolUsage *ToolExecutionUsage `json:"toolUsage,omitempty"`
 	// Identifier for the agent loop turn this tool was invoked in, matching the corresponding assistant.turn_start event
 	TurnID *string `json:"turnId,omitempty"`
 }
@@ -5873,6 +5906,42 @@ type ToolExecutionStartToolDescriptionMetaUI struct {
 	ResourceURI *string `json:"resourceUri,omitempty"`
 	// Who can access this tool
 	Visibility []ToolExecutionStartToolDescriptionMetaUIVisibility `json:"visibility,omitzero"`
+}
+
+// Authoritative usage reported by a separately metered runtime-owned tool operation. May be present on a failed tool when the service reported usage before local result processing failed. Missing token counts or billing mean unavailable, not zero.
+// Experimental: ToolExecutionUsage is part of an experimental API and may change or be removed.
+type ToolExecutionUsage struct {
+	// Runtime-owned accounting order, preserved across session checkpoints and replay.
+	Accounting *UsageAccountingIdentity `json:"accounting,omitempty"`
+	// Server-reported charge. Divide totalNanoAiu by 1,000,000,000 for AI credits; do not calculate customer cost from token prices.
+	CopilotUsage *AssistantUsageCopilotUsage `json:"copilotUsage,omitempty"`
+	// Total provider-reported input tokens across all modalities.
+	InputTokens *int64 `json:"inputTokens,omitempty"`
+	// Optional input modality breakdown; these counts are already included in inputTokens.
+	InputTokensDetails *ToolExecutionUsageTokenDetails `json:"inputTokensDetails,omitempty"`
+	// Requested model for the tool operation, independent of the conversation model. Not a provider-confirmed serving model.
+	Model string `json:"model"`
+	// Total provider-reported output tokens across all modalities.
+	OutputTokens *int64 `json:"outputTokens,omitempty"`
+	// Optional output modality breakdown; these counts are already included in outputTokens.
+	OutputTokensDetails *ToolExecutionUsageTokenDetails `json:"outputTokensDetails,omitempty"`
+	// Provider responsible for the tool operation, captured independently of the conversation provider.
+	Provider *ModelProviderRef `json:"provider,omitempty"`
+	// Account quota snapshots, not per-operation cost deltas.
+	// Internal: QuotaSnapshots is part of the SDK's internal API surface and is not intended for external use.
+	QuotaSnapshots map[string]any `json:"quotaSnapshots,omitzero"`
+	// Runtime-generated identifier for this metered operation. Deduplicates repeated delivery or replay; not an upstream billing identifier.
+	RequestID string `json:"requestId"`
+	// Provider-reported sum of input and output tokens.
+	TotalTokens *int64 `json:"totalTokens,omitempty"`
+}
+
+// Provider-reported image and text token counts, which are subsets of the corresponding total rather than additional tokens.
+type ToolExecutionUsageTokenDetails struct {
+	// Image tokens included in the corresponding input or output total.
+	ImageTokens int64 `json:"imageTokens"`
+	// Text tokens included in the corresponding input or output total.
+	TextTokens int64 `json:"textTokens"`
 }
 
 // Ordered accounting identity assigned under the source session's emission lock.

@@ -8965,7 +8965,7 @@ impl<'a> SessionRpcAccountsLogin<'a> {
     ///
     /// # Parameters
     ///
-    /// * `params` - Begin an interactive login flow for a provider kind. Dispatch is kind-only.
+    /// * `params` - Begin an interactive login flow for a provider kind, optionally reusing a cached base identity or explicitly requesting provider account selection.
     ///
     /// # Returns
     ///
@@ -8979,6 +8979,41 @@ impl<'a> SessionRpcAccountsLogin<'a> {
     ///
     /// </div>
     pub async fn begin(&self, params: AuthLoginBeginRequest) -> Result<AuthLoginBegun, Error> {
+        let mut wire_params = serde_json::to_value(params)?;
+        wire_params["sessionId"] = serde_json::Value::String(self.session.id().to_string());
+        let _value = self
+            .session
+            .client()
+            .call(rpc_methods::SESSION_ACCOUNTS_LOGIN_BEGIN, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Begin an interactive login flow for a provider kind (dispatch is kind-only) and return its opaque flow id and first step.
+    ///
+    /// Wire method: `session.accounts.login.begin`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Begin an interactive login flow for a provider kind, optionally reusing a cached base identity or explicitly requesting provider account selection.
+    ///
+    /// # Returns
+    ///
+    /// A started login flow: its opaque id and first step.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    ///
+    /// Accepts [`AuthLoginBeginOptions`], including inputs added after [`AuthLoginBeginRequest`].
+    pub async fn begin_with_options(
+        &self,
+        params: AuthLoginBeginOptions,
+    ) -> Result<AuthLoginBegun, Error> {
         let mut wire_params = serde_json::to_value(params)?;
         wire_params["sessionId"] = serde_json::Value::String(self.session.id().to_string());
         let _value = self

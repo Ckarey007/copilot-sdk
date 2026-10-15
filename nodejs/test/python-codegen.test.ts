@@ -464,6 +464,36 @@ describe("Python RPC projection compatibility", () => {
         expect(operation).not.toContain("MCPServerCardURLKind");
     });
 
+    it("preserves concrete account enumeration variants", () => {
+        expect(code).toContain(
+            "AuthEnumerateValue = AuthEnumerateValueAccounts | AuthEnumerateValueProviders | AuthEnumerateValueLoginAccounts"
+        );
+        expect(code).toContain("class AuthEnumerateValueLoginAccounts:");
+        expect(code).toContain("items: list[AuthLoginIdentity]");
+        expect(code).toContain(
+            "kind: ClassVar[AuthEnumerateQueryKind] = AuthEnumerateQueryKind.LOGIN_ACCOUNTS"
+        );
+        expect(code).toContain(
+            'case "loginAccounts": return AuthEnumerateValueLoginAccounts.from_dict(obj)'
+        );
+        expect(code).not.toContain("class ItemElement:");
+    });
+
+    it("keeps the session-limit discriminator independent of image-model availability", () => {
+        expect(code).toContain("class SessionLimitPredictionResultKind(Enum):");
+        expect(code).toContain('"SessionLimitPredictionResultKind",');
+        expect(code).toContain("class ImageToolModelAvailability(Enum):");
+        const prediction = code
+            .split("class SessionLimitPredictionResult:")[1]
+            ?.split("\n\n@dataclass")[0];
+        expect(prediction).toContain("kind: SessionLimitPredictionResultKind");
+        expect(prediction).toContain('kind = SessionLimitPredictionResultKind(obj.get("kind"))');
+        expect(prediction).toContain(
+            'result["kind"] = to_enum(SessionLimitPredictionResultKind, self.kind)'
+        );
+        expect(prediction).not.toContain("ImageToolModelAvailability");
+    });
+
     it("preserves the existing Workflow checkpoint result API", () => {
         const result = "SessionWorkflowPauseAtCheckpointResult";
         expect(code).toContain(`class ${result}:`);

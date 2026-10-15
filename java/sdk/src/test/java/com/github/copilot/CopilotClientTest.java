@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import com.github.copilot.generated.ExternalToolRequestedEvent;
+import com.github.copilot.generated.PermissionRequestedEvent;
 import com.github.copilot.rpc.CloudSessionOptions;
 import com.github.copilot.rpc.CopilotClientOptions;
 import com.github.copilot.rpc.CopilotClientMode;
@@ -17,6 +18,9 @@ import com.github.copilot.rpc.CreateSessionResponse;
 import com.github.copilot.rpc.DeleteSessionResponse;
 import com.github.copilot.rpc.GitHubTokenProviderResult;
 import com.github.copilot.rpc.PermissionHandler;
+import com.github.copilot.rpc.PermissionInvocation;
+import com.github.copilot.rpc.PermissionRequestResult;
+import com.github.copilot.rpc.PermissionRequestResultKind;
 import com.github.copilot.rpc.PingResponse;
 import com.github.copilot.rpc.ResumeSessionConfig;
 import com.github.copilot.rpc.ResumeSessionResponse;
@@ -152,6 +156,40 @@ public class CopilotClientTest {
                 null));
         session.dispatchEvent(lateRequest);
         assertFalse(lateStarted.await(100, TimeUnit.MILLISECONDS));
+    }
+
+    @Test
+    void testPermissionHandlerReceivesDerivedPromptContext() throws Exception {
+        var rpc = mock(JsonRpcClient.class);
+        var session = new CopilotSession("permission-session", rpc);
+        session.setManagedSettingsEnabled(true);
+        var invocation = new AtomicReference<PermissionInvocation>();
+        var invoked = new CountDownLatch(1);
+        session.registerPermissionHandler((request, context) -> {
+            invocation.set(context);
+            invoked.countDown();
+            return CompletableFuture
+                    .completedFuture(new PermissionRequestResult().setKind(PermissionRequestResultKind.NO_RESULT));
+        });
+
+        var event = new PermissionRequestedEvent();
+        event.setData(new PermissionRequestedEvent.PermissionRequestedEventData("permission-1",
+                Map.of("kind", "shell", "managedApprovalRequired", true, "fullCommandText", "ls"),
+                Map.of("kind", "commands", "fullCommandText", "ls", "intention", "List files", "commandIdentifiers",
+                        List.of("ls"), "canOfferSessionApproval", false, "assistedApproval",
+                        Map.of("recommendation", "approve")),
+                null, null, null, null, null, null, null));
+
+        session.dispatchEvent(event);
+
+        assertTrue(invoked.await(1, TimeUnit.SECONDS));
+        var observed = invocation.get();
+        assertTrue(observed.isManagedSettingsEnabled());
+        assertNotNull(observed.getPromptRequest());
+        assertNull(observed.getPromptRequest().getManagedApprovalRequired());
+        assertEquals("commands", observed.getPromptRequest().getKind());
+        assertEquals(Map.of("recommendation", "approve"),
+                observed.getPromptRequest().getExtensionData().get("assistedApproval"));
     }
 
     @Test

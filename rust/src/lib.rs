@@ -2192,7 +2192,7 @@ impl Client {
                             continue;
                         };
                         let event: SessionLifecycleEvent =
-                            match serde_json::from_value(params.clone()) {
+                            match SessionLifecycleEvent::deserialize(params) {
                                 Ok(e) => e,
                                 Err(e) => {
                                     warn!(

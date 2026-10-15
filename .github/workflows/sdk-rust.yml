@@ -32,7 +32,7 @@ jobs:
         os: ${{ fromJSON(inputs.platform == 'linux-x64' && '["ubuntu-26.04-2core-agent-runtime"]' || inputs.platform == 'darwin-arm64' && '["macos-26-xlarge-agent-runtime"]' || inputs.platform == 'win32-x64' && '["windows-2025-4core-agent-runtime"]' || '["ubuntu-26.04-2core-agent-runtime","macos-26-xlarge-agent-runtime","windows-2025-4core-agent-runtime"]') }}
     # Staged runtimes plus multiple Cargo feature builds exhaust the standard
     # Linux runner disk during in-process linking. Keep the existing check names.
-    runs-on: ${{ matrix.os == 'ubuntu-26.04-2core-agent-runtime' && 'ubuntu-26.04-16core-agent-runtime' || matrix.os }}
+    runs-on: ${{ github.event_name == 'merge_group' && fromJSON('{"ubuntu-26.04-2core-agent-runtime":"ubuntu-26.04-16core-ar-mq","macos-26-xlarge-agent-runtime":"macos-26-xlarge-ar-mq","windows-2025-4core-agent-runtime":"windows-2025-4core-ar-mq"}')[matrix.os] || (matrix.os == 'ubuntu-26.04-2core-agent-runtime' && 'ubuntu-26.04-16core-agent-runtime' || matrix.os) }}
     defaults:
       run:
         shell: bash
@@ -137,7 +137,7 @@ jobs:
   rust-musl-x64:
     name: "Rust (Alpine x64)"
     if: inputs.platform == 'all' || inputs.platform == 'linuxmusl-x64'
-    runs-on: ubuntu-26.04-2core-agent-runtime
+    runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-26.04-2core-ar-mq' || 'ubuntu-26.04-2core-agent-runtime' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -162,7 +162,7 @@ jobs:
           command: |
             rustc --print cfg | grep -Fqx "target_arch=\"x86_64\""
             rustc --print cfg | grep -Fqx "target_env=\"musl\""
-            apk add --no-cache build-base pkgconf openssl-dev nodejs npm
+            apk add --no-cache build-base perl pkgconf openssl-dev nodejs npm
             npm --prefix "$COPILOT_SDK_ROOT/nodejs" ci --ignore-scripts
             npm --prefix "$COPILOT_SDK_ROOT/test/harness" ci --ignore-scripts
 

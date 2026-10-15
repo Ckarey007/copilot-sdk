@@ -271,6 +271,69 @@ describe("CopilotClient", () => {
         expect("decisionContext" in params).toBe(false);
     });
 
+    it("forwards derived prompt context so managed judge approval can remain one-shot", async () => {
+        const session = new CopilotSession("session-1", {} as any, undefined, undefined, {
+            managedSettingsEnabled: true,
+        });
+        const permissionRequest = {
+            kind: "shell" as const,
+            fullCommandText: "ls",
+            intention: "List files",
+            commands: [],
+            possiblePaths: [],
+            possibleUrls: [],
+            hasWriteFileRedirection: false,
+            canOfferSessionApproval: false,
+            managedApprovalRequired: true,
+        };
+        const promptRequest = {
+            kind: "commands" as const,
+            fullCommandText: "ls",
+            intention: "List files",
+            commandIdentifiers: ["ls"],
+            canOfferSessionApproval: false,
+            assistedApproval: {
+                recommendation: "approve" as const,
+            },
+        };
+        const handler = vi.fn((_request, invocation) => {
+            if (
+                invocation.promptRequest?.assistedApproval?.recommendation === "approve" &&
+                !(
+                    "managedApprovalRequired" in invocation.promptRequest &&
+                    invocation.promptRequest.managedApprovalRequired === true
+                )
+            ) {
+                return { kind: "approve-once" as const };
+            }
+            return { kind: "no-result" as const };
+        });
+        session.registerPermissionHandler(handler);
+        const spy = vi
+            .spyOn(session.rpc.permissions, "handlePendingPermissionRequest")
+            .mockResolvedValue({ kind: "approve-once" } as any);
+
+        session._dispatchEvent({
+            type: "permission.requested",
+            data: {
+                requestId: "request-managed-assisted",
+                permissionRequest,
+                promptRequest,
+            },
+        } as any);
+
+        await vi.waitFor(() => expect(spy).toHaveBeenCalledOnce());
+        expect(handler).toHaveBeenCalledWith(permissionRequest, {
+            sessionId: "session-1",
+            managedSettingsEnabled: true,
+            promptRequest,
+        });
+        expect(spy).toHaveBeenCalledWith({
+            requestId: "request-managed-assisted",
+            result: { kind: "approve-once" },
+        });
+    });
+
     it("does not respond when a no-result decision is wrapped with a context", async () => {
         const session = new CopilotSession("session-1", {} as any);
         const decisionContext = {

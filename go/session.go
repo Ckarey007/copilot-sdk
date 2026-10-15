@@ -73,7 +73,7 @@ type Session struct {
 	pendingExternalTools        map[string]*pendingExternalTool
 	pendingExternalToolsM       sync.Mutex
 	externalToolsClosed         bool
-	permissionHandler           PermissionHandlerFunc
+	permissionHandler           permissionHandlerFunc
 	permissionMux               sync.RWMutex
 	managedSettings             bool
 	mcpAuthHandler              MCPAuthHandler
@@ -748,6 +748,12 @@ func (s *Session) getToolHandler(name string) (ToolHandler, bool) {
 	return handler, ok
 }
 
+type permissionHandlerFunc func(
+	request PermissionRequest,
+	invocation PermissionInvocation,
+	promptRequest rpc.PermissionPromptRequest,
+) (rpc.PermissionDecision, error)
+
 // registerPermissionHandler registers a permission handler for this session.
 //
 // When the assistant needs permission to perform certain actions (e.g., file
@@ -757,11 +763,39 @@ func (s *Session) getToolHandler(name string) (ToolHandler, bool) {
 func (s *Session) registerPermissionHandler(handler PermissionHandlerFunc) {
 	s.permissionMux.Lock()
 	defer s.permissionMux.Unlock()
-	s.permissionHandler = handler
+	if handler == nil {
+		s.permissionHandler = nil
+		return
+	}
+	s.permissionHandler = func(
+		request PermissionRequest,
+		invocation PermissionInvocation,
+		_ rpc.PermissionPromptRequest,
+	) (rpc.PermissionDecision, error) {
+		return handler(request, invocation)
+	}
+}
+
+func (s *Session) registerPermissionHandlerWithPrompt(handler PermissionHandlerWithPromptFunc) {
+	if handler == nil {
+		return
+	}
+	s.permissionMux.Lock()
+	defer s.permissionMux.Unlock()
+	s.permissionHandler = func(
+		request PermissionRequest,
+		invocation PermissionInvocation,
+		promptRequest rpc.PermissionPromptRequest,
+	) (rpc.PermissionDecision, error) {
+		return handler(request, PermissionHandlerInvocation{
+			PermissionInvocation: invocation,
+			PromptRequest:        promptRequest,
+		})
+	}
 }
 
 // getPermissionHandler returns the currently registered permission handler, or nil.
-func (s *Session) getPermissionHandler() PermissionHandlerFunc {
+func (s *Session) getPermissionHandler() permissionHandlerFunc {
 	s.permissionMux.RLock()
 	defer s.permissionMux.RUnlock()
 	return s.permissionHandler
@@ -1718,7 +1752,7 @@ func (s *Session) handleBroadcastEvent(event SessionEvent) {
 		if handler == nil {
 			return
 		}
-		s.executePermissionAndRespond(d.RequestID, d.PermissionRequest, handler)
+		s.executePermissionAndRespond(d.RequestID, d.PermissionRequest, d.PromptRequest, handler)
 
 	case *MCPOauthRequiredData:
 		handler := s.getMCPAuthHandler()
@@ -1967,7 +2001,12 @@ func (s *Session) executeToolAndRespond(requestID, toolName, toolCallID, agentID
 }
 
 // executePermissionAndRespond executes a permission handler and sends the result back via RPC.
-func (s *Session) executePermissionAndRespond(requestID string, permissionRequest PermissionRequest, handler PermissionHandlerFunc) {
+func (s *Session) executePermissionAndRespond(
+	requestID string,
+	permissionRequest PermissionRequest,
+	promptRequest rpc.PermissionPromptRequest,
+	handler permissionHandlerFunc,
+) {
 	defer func() {
 		if r := recover(); r != nil {
 			s.RPC.Permissions.HandlePendingPermissionRequest(context.Background(), &rpc.PermissionDecisionRequest{
@@ -1982,7 +2021,7 @@ func (s *Session) executePermissionAndRespond(requestID string, permissionReques
 		ManagedSettingsEnabled: s.managedSettings,
 	}
 
-	decision, err := handler(permissionRequest, invocation)
+	decision, err := handler(permissionRequest, invocation, promptRequest)
 	if err != nil {
 		log.Printf("permission handler failed: session_id=%s request_id=%s error=%v", s.SessionID, requestID, err)
 		s.RPC.Permissions.HandlePendingPermissionRequest(context.Background(), &rpc.PermissionDecisionRequest{

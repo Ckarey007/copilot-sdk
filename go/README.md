@@ -405,6 +405,7 @@ Event types: `SessionLifecycleCreated`, `SessionLifecycleDeleted`, `SessionLifec
 - `EnableGitHubCacheStore` (\*bool): Requests the read-only GitHub cache store (`github-cache-store` capability) on create or resume. The runtime registers the `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is also on. Defaults to disabled in every mode.
 - `GitHubTokenProvider` (GitHubTokenProvider): Acquires session-scoped GitHub tokens on demand. Return `GitHubTokenResult` with a positive `ExpiresIn` value (production GitHub tokens typically use `8 * 60 * 60` seconds), or `GitHubTokenCancelled`. Cannot be combined with `GitHubToken`.
 - `OnPermissionRequest` (PermissionHandlerFunc): Optional handler called before each tool execution to approve or deny it. When nil, permission requests are emitted as events and left pending for manual resolution. `copilot.PermissionHandler.ApproveAll` approves requests when managed settings are disabled and returns an error when `EnableManagedSettings` is true. Custom handlers can inspect `RequiresManagedApproval()` for human-facing confirmation logic. See [Permission Handling](#permission-handling) section.
+- `OnPermissionRequestWithPrompt` (PermissionHandlerWithPromptFunc): Optional compatibility-preserving alternative that also receives the derived user-facing prompt. Takes precedence when both permission handlers are set. See [Permission Handling](#permission-handling) section.
 - `OnUserInputRequest` (UserInputHandler): Handler for legacy question-and-answer requests from the agent. Enables the legacy `ask_user` tool. See [User Input Requests](#user-input-requests) section.
 - `AskUserVariant` (AskUserVariant): Selects the model-facing shape of the `ask_user` tool. The zero value preserves legacy behavior; use `AskUserVariantElicitation` with `OnElicitationRequest`.
 - `InteractiveUser` (\*bool): Declares that a person types this session's messages, as in an editor chat panel. Enables the runtime's user-message analysis telemetry for user-authored messages; automated messages stay excluded. Nil or false keeps the SDK default of off. Ignored for cloud sessions.
@@ -415,6 +416,7 @@ Event types: `SessionLifecycleCreated`, `SessionLifecycleDeleted`, `SessionLifec
 **ResumeSessionConfig:**
 
 - `OnPermissionRequest` (PermissionHandlerFunc): Optional handler called before each tool execution to approve or deny it. See [Permission Handling](#permission-handling) section.
+- `OnPermissionRequestWithPrompt` (PermissionHandlerWithPromptFunc): Optional alternative that also receives the derived user-facing prompt. Takes precedence when both permission handlers are set.
 - `Tools` ([]Tool): Tools to expose when resuming
 - `ReasoningEffort` (string): Reasoning effort level for models that support it
 - `Provider` (\*ProviderConfig): Custom API provider configuration (BYOK). See [Custom Providers](#custom-providers) section.
@@ -990,7 +992,9 @@ Dependency: `go.opentelemetry.io/otel`
 
 ## Permission Handling
 
-An `OnPermissionRequest` handler is optional when you create or resume a session. When provided, it is called before the agent executes each tool (file writes, shell commands, custom tools, etc.) and returns a decision. When nil, permission requests are emitted as events and left pending for the consumer to resolve with the pending permission RPC.
+Permission handlers are optional when you create or resume a session. When provided, the selected handler is called before the agent executes each tool (file writes, shell commands, custom tools, etc.) and returns a decision. When both handlers are nil, permission requests are emitted as events and left pending for the consumer to resolve with the pending permission RPC.
+
+Use `OnPermissionRequestWithPrompt` when the callback needs optional derived prompt context as `invocation.PromptRequest`, matching `PermissionRequestedData.PromptRequest`. The existing `OnPermissionRequest` callback remains available with its original two-field `PermissionInvocation` for source compatibility. The raw request's managed-approval marker remains managed-policy provenance and enforces one-shot restrictions. Only derived `commands`, `read`, `write`, `url`, and `workflow` prompts can clear the human requirement after Assisted approval; for missing or other prompt kinds, keep the raw marker authoritative.
 
 ### Approve All (simplest)
 
@@ -1007,7 +1011,7 @@ When `EnableManagedSettings` is true for the session, `ApproveAll` returns an er
 
 ### Custom Permission Handler
 
-Provide your own `PermissionHandlerFunc` to inspect each request and apply custom logic. Check `RequiresManagedApproval()` before any automatic approval:
+Provide your own `PermissionHandlerWithPromptFunc` to inspect each request and the optional derived prompt. Check the raw managed requirement before any automatic approval, and clear it only from a supported derived prompt:
 
 ```go
 import (
@@ -1019,8 +1023,21 @@ import (
 
 session, err := client.CreateSession(context.Background(), &copilot.SessionConfig{
     Model: "gpt-5",
-    OnPermissionRequest: func(request copilot.PermissionRequest, invocation copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
-        if request.RequiresManagedApproval() {
+    OnPermissionRequestWithPrompt: func(request copilot.PermissionRequest, invocation copilot.PermissionHandlerInvocation) (rpc.PermissionDecision, error) {
+        assistedApprovalClearsManagedRequirement := false
+        switch prompt := invocation.PromptRequest.(type) {
+        case *rpc.PermissionPromptRequestCommands:
+            assistedApprovalClearsManagedRequirement = prompt.ManagedApprovalRequired == nil || !*prompt.ManagedApprovalRequired
+        case *rpc.PermissionPromptRequestRead:
+            assistedApprovalClearsManagedRequirement = prompt.ManagedApprovalRequired == nil || !*prompt.ManagedApprovalRequired
+        case *rpc.PermissionPromptRequestWrite:
+            assistedApprovalClearsManagedRequirement = prompt.ManagedApprovalRequired == nil || !*prompt.ManagedApprovalRequired
+        case *rpc.PermissionPromptRequestURL:
+            assistedApprovalClearsManagedRequirement = prompt.ManagedApprovalRequired == nil || !*prompt.ManagedApprovalRequired
+        case *rpc.PermissionPromptRequestWorkflow:
+            assistedApprovalClearsManagedRequirement = prompt.ManagedApprovalRequired == nil || !*prompt.ManagedApprovalRequired
+        }
+        if request.RequiresManagedApproval() && !assistedApprovalClearsManagedRequirement {
             return &rpc.PermissionDecisionNoResult{}, nil
         }
 
@@ -1050,7 +1067,7 @@ Richer decisions (`PermissionDecisionApproveForSession`, `PermissionDecisionAppr
 
 ### Resuming Sessions
 
-You may pass `OnPermissionRequest` when resuming a session too:
+You may pass either permission handler when resuming a session too:
 
 ```go
 session, err := client.ResumeSession(context.Background(), sessionID, &copilot.ResumeSessionConfig{

@@ -43,6 +43,9 @@ public final class ToolExecutionCompleteEvent extends SessionEvent {
         @JsonProperty("success") Boolean success,
         /** Model identifier that generated this tool call */
         @JsonProperty("model") String model,
+        /** Provider-reported usage of a separately metered runtime-owned tool operation, independent of the conversation model. Present on success or failure when usage is known. Experimental. */
+        @CopilotExperimental
+        @JsonProperty("toolUsage") ToolExecutionUsage toolUsage,
         /** FIDES IFC label projected from tool ingress metadata (MCP `CallToolResult._meta` or synthesized built-in ingress labels). Persisted as `{ ifc: ... }` so the label survives session resume, including model-visible failure results. Experimental. */
         @CopilotExperimental
         @JsonProperty("mcpMeta") Object mcpMeta,

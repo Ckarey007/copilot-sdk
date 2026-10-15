@@ -45,6 +45,36 @@ const shellState = {
     publications_closed: "boolean",
 };
 const records = {
+    "sdk telemetry auth": {
+        source: ["session", "manager"],
+        changed: "boolean",
+        user_present: "boolean",
+    },
+    "sdk telemetry route": {
+        kind: ["sandbox_session_state", "session_start", "session_model_change", "other"],
+        host_only: "boolean",
+        credential_resolved: "boolean",
+        endpoint_present: "boolean",
+        buffering: "boolean",
+        service_present: "boolean",
+        event_count: "count",
+    },
+    "sdk telemetry enqueue": {
+        phase: ["disposed", "logged_out", "queue", "pending_auth"],
+        restricted: "boolean",
+        pending_count: "count",
+    },
+    "sdk telemetry queue": {
+        phase: ["worker_failed", "client", "flush", "gzip_failed", "accepted", "rejected"],
+        client_present: "boolean",
+        event_count: "count",
+        http_status: "count",
+        status_present: "boolean",
+        is_connect: "boolean",
+        is_timeout: "boolean",
+        is_body: "boolean",
+        is_request: "boolean",
+    },
     "workflow availability decision": { available: "boolean" },
     "sdk transport teardown": {
         connection: "count",
@@ -396,8 +426,86 @@ const records = {
     },
 };
 
+function sanitizeTelemetryLine(line) {
+    const match =
+        /^\S+ \[(?:DEBUG|WARN|WARNING)\] \[rust:github_telemetry::(service|queue_worker|router)\] (.*?)(?: (\{.*\}))?$/.exec(
+            line
+        );
+    if (!match) return undefined;
+    const [, target, message, fields] = match;
+    if (target === "service") {
+        const enqueue =
+            /^Sending telemetry event: cli\.(telemetry|restricted_telemetry) \(kind: (sandbox_session_state|session_start|session_model_change|copilot_user_info|memory_usage|tgrep_startup|session_shutdown|subagent_parallelism_triggered)\)$/.exec(
+                message
+            );
+        if (enqueue) {
+            return `github telemetry enqueue ${JSON.stringify({
+                kind: enqueue[2],
+                restricted: enqueue[1] === "restricted_telemetry",
+            })}`;
+        }
+    }
+    if (target === "queue_worker") {
+        const flush =
+            /^\[telemetry-queue\] Flushing (\d+) events \((\d+) B \u2192 (\d+) B gzipped\)$/.exec(
+                message
+            );
+        if (flush) {
+            const counts = flush.slice(1).map(Number);
+            if (!counts.every((count) => Number.isSafeInteger(count) && count >= 0)) {
+                return undefined;
+            }
+            return `github telemetry flush ${JSON.stringify({
+                event_count: counts[0],
+                bytes: counts[1],
+                compressed_bytes: counts[2],
+            })}`;
+        }
+    }
+    const phases = {
+        service: {
+            "[telemetry] failed to create telemetry queue": "queue_creation_failed",
+        },
+        queue_worker: {
+            "[telemetry-queue] failed to start worker runtime": "worker_runtime_failed",
+            "[telemetry-queue] invalid proxy URL; telemetry POSTs disabled": "invalid_proxy",
+            "[telemetry-queue] failed to assemble explicit root certificates; telemetry POSTs disabled":
+                "root_certificates_failed",
+            "[telemetry-queue] invalid extra CA certificate; telemetry POSTs disabled":
+                "invalid_extra_certificate",
+            "[telemetry-queue] failed to build HTTP client; telemetry POSTs disabled":
+                "http_client_failed",
+            "[telemetry-queue] POST accepted": "post_accepted",
+            "[telemetry-queue] POST was not accepted; events dropped": "post_rejected",
+        },
+        router: {
+            "Unable to enqueue native startup telemetry": "startup_enqueue_failed",
+            "Native startup telemetry buffer full; dropping oldest event": "startup_buffer_full",
+        },
+    };
+    if (!Object.hasOwn(phases[target], message)) return undefined;
+    const output = { phase: phases[target][message] };
+    if (fields) {
+        let input;
+        try {
+            input = JSON.parse(fields);
+        } catch {
+            return undefined;
+        }
+        if (!input || Array.isArray(input) || typeof input !== "object") return undefined;
+        for (const key of ["event_count", "status"]) {
+            if (!Object.hasOwn(input, key) || input[key] === null) continue;
+            if (!Number.isSafeInteger(input[key]) || input[key] < 0) return undefined;
+            output[key] = input[key];
+        }
+    }
+    return `github telemetry transport ${JSON.stringify(output)}`;
+}
+
 export function sanitizeDiagnosticLine(line) {
     if (line.length > 16384) return undefined;
+    const telemetry = sanitizeTelemetryLine(line);
+    if (telemetry !== undefined) return telemetry;
     const match = /^\S+ \[DEBUG\] \[rust:sdk_diagnostics\] ([a-z ]+) (\{.*\})$/.exec(line);
     if (!match || !Object.hasOwn(records, match[1])) return undefined;
     let input;

@@ -8,6 +8,7 @@
     "include": [
         "src/**/*",
         "test/dependency-policy.test.ts",
+        "test/eslint-file-cache.test.ts",
         "test/copilot-request-handler.test.ts",
         "test/connectors.test.ts",
         "test/ffiRuntimeHost.test.ts",

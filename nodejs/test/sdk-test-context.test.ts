@@ -59,7 +59,7 @@ describe("SDK test context ownership", () => {
         });
         const report = join(root, "report.json");
         const config = join(root, "vitest.config.mjs");
-        const consumers = [
+        const consumerPatterns = [
             "accounts_login.e2e.test.ts",
             "commands.e2e.test.ts",
             "connection_token.test.ts",
@@ -70,7 +70,7 @@ describe("SDK test context ownership", () => {
             "ui_elicitation.e2e.test.ts",
             "websocket_http_fallback.e2e.test.ts",
             "websocket_terminals.e2e.test.ts",
-        ].map((file) => join(sdkRoot, "test/e2e", file).replaceAll("\\", "/"));
+        ].map((file) => `test/e2e/${file}`);
         await writeFile(
             config,
             `import base from ${JSON.stringify(join(sdkRoot, "vitest.config.ts"))};
@@ -79,7 +79,7 @@ export default {
     cacheDir: ${JSON.stringify(join(root, "vite-cache"))},
     test: {
         ...base.test,
-        include: ${JSON.stringify(consumers)},
+        include: ${JSON.stringify(consumerPatterns)},
         globalSetup: [],
     },
 };
@@ -116,8 +116,8 @@ export default {
         const testReport = JSON.parse(await readFile(report, "utf8"));
         task.expect(result.code, `${result.stdout}\n${result.stderr}`).toBe(0);
         task.expect(
-            testReport.testResults.map((suite: { name: string }) => suite.name).sort()
-        ).toEqual([...consumers].sort());
+            testReport.testResults.map((suite: { name: string }) => resolve(suite.name)).sort()
+        ).toEqual(consumerPatterns.map((pattern) => resolve(sdkRoot, pattern)).sort());
         task.expect(testReport.numFailedTestSuites).toBe(0);
         task.expect(testReport.numTotalTests).toBeGreaterThan(0);
         task.expect(testReport.numPendingTests).toBe(testReport.numTotalTests);
@@ -155,7 +155,7 @@ export default {
     cacheDir: ${JSON.stringify(join(root, "vite-cache"))},
     test: {
         ...base.test,
-        include: [${JSON.stringify(fixture.replaceAll("\\", "/"))}],
+        include: ["ownership.test.ts"],
         globalSetup: [],
     },
 };
@@ -285,6 +285,7 @@ describe("parent", async () => {
                 })
             );
             const result = (await execution) as { code?: number; stdout: string; stderr: string };
+            task.expect(existsSync(ledger), `${result.stdout}\n${result.stderr}`).toBe(true);
             const events = (await readFile(ledger, "utf8"))
                 .trim()
                 .split("\n")

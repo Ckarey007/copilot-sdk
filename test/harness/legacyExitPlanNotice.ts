@@ -3,12 +3,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 export function isLegacyExitPlanNotice(body: string): boolean {
+  const delta =
+    /^(?:New tools available|Tools no longer available): exit_plan_mode$/;
   const parts = body
     .trim()
     .split(/\r?\n\s*\r?\n/)
     .map((part) => part.trim());
-  const delta =
-    /^(?:New tools available|Tools no longer available): exit_plan_mode$/;
   return (
     parts.some((part) => delta.test(part)) &&
     parts.every(
