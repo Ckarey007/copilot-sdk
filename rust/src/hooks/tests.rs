@@ -326,6 +326,69 @@ async fn dispatch_user_prompt_submitted() {
 }
 
 #[tokio::test]
+async fn dispatch_user_prompt_submitted_block() {
+    struct BlockHook;
+    #[async_trait]
+    impl SessionHooks for BlockHook {
+        async fn on_user_prompt_submitted(
+            &self,
+            _input: UserPromptSubmittedInput,
+            _ctx: HookContext,
+        ) -> Option<UserPromptSubmittedOutput> {
+            Some(UserPromptSubmittedOutput {
+                decision: Some("block".to_string()),
+                reason: Some("contains a credential".to_string()),
+                ..Default::default()
+            })
+        }
+    }
+
+    let input = serde_json::json!({
+        "sessionId": "sess-1",
+        "timestamp": 1234567890,
+        "cwd": "/tmp",
+        "prompt": "hello"
+    });
+    let result = dispatch_hook(
+        &BlockHook,
+        &SessionId::new("sess-1"),
+        "userPromptSubmitted",
+        input,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        result,
+        serde_json::json!({
+            "output": { "decision": "block", "reason": "contains a credential" }
+        })
+    );
+}
+
+/// An answer that does not block leaves both fields off the wire.
+#[tokio::test]
+async fn dispatch_user_prompt_submitted_omits_unset_block_fields() {
+    let input = serde_json::json!({
+        "sessionId": "sess-1",
+        "timestamp": 1234567890,
+        "cwd": "/tmp",
+        "prompt": "hello world"
+    });
+    let result = dispatch_hook(
+        &TestHooks,
+        &SessionId::new("sess-1"),
+        "userPromptSubmitted",
+        input,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        result,
+        serde_json::json!({ "output": { "modifiedPrompt": "[prefixed] hello world" } })
+    );
+}
+
+#[tokio::test]
 async fn dispatch_user_prompt_transformed() {
     let hooks = TestHooks;
     let input = serde_json::json!({

@@ -3,6 +3,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 #if NET8_0_OR_GREATER
+using System.Text.Json;
 using GitHub.Copilot.Rpc;
 using Xunit;
 
@@ -10,6 +11,87 @@ namespace GitHub.Copilot.Test.Unit;
 
 public sealed partial class ClientSessionLifetimeTests
 {
+    [Fact]
+    public void Model_Price_Units_Keep_Public_Request_And_Cancellation_Overloads()
+    {
+        var legacy = typeof(ServerModelsApi).GetMethod("ListTokenPriceUnitsAsync", [typeof(CancellationToken)]);
+        var request = typeof(ServerModelsApi).GetMethod("ListTokenPriceUnitsAsync",
+            [typeof(ModelsListTokenPriceUnitsRequest), typeof(CancellationToken)]);
+        Assert.NotNull(legacy);
+        Assert.NotNull(request);
+        Assert.True(Assert.Single(legacy.GetParameters()).IsOptional);
+        Assert.False(request.GetParameters()[0].IsOptional);
+        Assert.True(request.GetParameters()[1].IsOptional);
+        Assert.True(typeof(ModelsListTokenPriceUnitsRequest).IsPublic);
+        Assert.Null(typeof(ModelsListTokenPriceUnitsRequest).GetProperty("SessionId"));
+    }
+
+    [Fact]
+    public async Task Model_Price_Units_Preserve_Default_And_Selected_Account_Calls()
+    {
+        await using var server = await FakeCopilotServer.StartAsync();
+        using var response = JsonDocument.Parse("""
+            {"units":[{"modelId":"from-server","unit":"nano_aiu"}]}
+            """);
+        server.ResponseFactory = request => request.Method == "models.listTokenPriceUnits"
+            ? response.RootElement
+            : throw new InvalidOperationException($"Unexpected price-unit request '{request.Method}'.");
+        await using var client = new CopilotClient(new CopilotClientOptions
+        {
+            Connection = RuntimeConnection.ForUri(server.Url)
+        });
+        await client.StartAsync();
+        server.ClearRequests();
+        using var cancellation = new CancellationTokenSource();
+        var models = client.Rpc.Models;
+        Func<CancellationToken, Task<ModelTokenPriceUnitList>> legacyCall = models.ListTokenPriceUnitsAsync;
+        Func<ModelsListTokenPriceUnitsRequest, CancellationToken, Task<ModelTokenPriceUnitList>> requestCall =
+            models.ListTokenPriceUnitsAsync;
+        var selection = new ModelsListTokenPriceUnitsRequest { SelectionId = "selected-account" };
+        var token = new ModelsListTokenPriceUnitsRequest { GitHubToken = "selected-test-token" };
+
+        ModelTokenPriceUnitList[] results =
+        [
+            await models.ListTokenPriceUnitsAsync(),
+            await models.ListTokenPriceUnitsAsync(cancellation.Token),
+            await models.ListTokenPriceUnitsAsync(cancellationToken: cancellation.Token),
+            await legacyCall(cancellation.Token),
+            await models.ListTokenPriceUnitsAsync(selection),
+            await models.ListTokenPriceUnitsAsync(token, cancellation.Token),
+            await requestCall(selection, cancellation.Token),
+            await models.ListTokenPriceUnitsAsync(new ModelsListTokenPriceUnitsRequest()),
+        ];
+        Assert.All(results, result =>
+        {
+            var unit = Assert.Single(result.Units);
+            Assert.Equal("from-server", unit.ModelId);
+            Assert.Equal(TokenPriceUnit.NanoAiu, unit.Unit);
+        });
+        string[] expectedParams =
+        [
+            "{}", "{}", "{}", "{}",
+            """{"selectionId":"selected-account"}""",
+            """{"gitHubToken":"selected-test-token"}""",
+            """{"selectionId":"selected-account"}""",
+            "{}",
+        ];
+        var requests = server.Requests.ToArray();
+        Assert.Equal(expectedParams.Length, requests.Length);
+        for (var index = 0; index < requests.Length; index++)
+        {
+            Assert.Equal("models.listTokenPriceUnits", requests[index].Method);
+            Assert.Equal(JsonValueKind.Object, requests[index].Params.ValueKind);
+            using var expected = JsonDocument.Parse(expectedParams[index]);
+            Assert.Equal(
+                expected.RootElement.EnumerateObject().Select(property => (property.Name, property.Value.GetString())),
+                requests[index].Params.EnumerateObject().Select(property => (property.Name, property.Value.GetString())));
+        }
+        Assert.Equal("selected-account", selection.SelectionId);
+        Assert.Null(selection.GitHubToken);
+        Assert.Equal("selected-test-token", token.GitHubToken);
+        Assert.Null(token.SelectionId);
+    }
+
     [Fact]
     public void Existing_Model_Switch_Signature_And_Defaults_Are_Preserved()
     {

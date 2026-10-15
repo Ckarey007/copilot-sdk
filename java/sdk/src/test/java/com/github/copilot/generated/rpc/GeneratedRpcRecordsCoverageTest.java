@@ -1096,8 +1096,9 @@ class GeneratedRpcRecordsCoverageTest {
         var billing = new ModelBilling(1.0, null, null, promo);
         var modelItem = new Model("gpt-5", "GPT-5", capabilities, null, null, policy, billing, null, null, null, null,
                 null, null, null, null, null);
-        var result = new ModelsListResult(List.of(modelItem));
+        var result = new ModelsListResult(List.of(modelItem), null);
 
+        assertNull(result.auto());
         assertEquals(1, result.models().size());
         assertEquals("gpt-5", result.models().get(0).id());
         assertEquals("GPT-5", result.models().get(0).name());
@@ -1112,6 +1113,33 @@ class GeneratedRpcRecordsCoverageTest {
         assertEquals("2026-08-01T00:00:00Z", result.models().get(0).billing().promo().endsAt());
         assertEquals("Summer discount", result.models().get(0).billing().promo().message());
         assertTrue(result.models().get(0).billing().promo().showBanner());
+    }
+
+    @Test
+    void modelsListResult_deserializesAutoTierMetadata() throws Exception {
+        var result = new ObjectMapper().readValue("""
+                {
+                  "models": [],
+                  "auto": {
+                    "defaultTier": "balance",
+                    "tiers": [
+                      {"id": "balance", "displayName": "Balance", "description": "Balanced", "type": "auto",
+                       "status": {"enabled": true}},
+                      {"id": "hydrafusion", "displayName": "High", "description": "Fusion", "type": "fusion",
+                       "status": {"enabled": false, "reason": "policy", "message": "Contact admin"}}
+                    ]
+                  }
+                }
+                """, ModelsListResult.class);
+
+        assertEquals("balance", result.auto().defaultTier());
+        assertNull(result.auto().providerId());
+        assertEquals(List.of("balance", "hydrafusion"),
+                result.auto().tiers().stream().map(AutoTierDescriptor::id).toList());
+        var fusion = result.auto().tiers().get(1);
+        assertEquals("High", fusion.displayName());
+        assertEquals("fusion", fusion.type());
+        assertEquals(new AutoTierStatus(false, "policy", "Contact admin"), fusion.status());
     }
 
     @Test

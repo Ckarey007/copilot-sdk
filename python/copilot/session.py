@@ -1146,11 +1146,18 @@ class UserPromptSubmittedHookInput(TypedDict):
 
 
 class UserPromptSubmittedHookOutput(TypedDict, total=False):
-    """Output for user-prompt-submitted hook"""
+    """Output for user-prompt-submitted hook.
+
+    A ``decision`` of ``"block"`` refuses the prompt: no model turn runs, no
+    user message is recorded, and the session emits an ephemeral
+    ``session.warning`` (``warningType: "policy_blocked"``) carrying ``reason``.
+    """
 
     modifiedPrompt: str
     additionalContext: str
     suppressOutput: bool
+    decision: Literal["block"]
+    reason: str
 
 
 UserPromptSubmittedHandler = Callable[

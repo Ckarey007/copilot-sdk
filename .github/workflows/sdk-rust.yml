@@ -30,7 +30,9 @@ jobs:
       fail-fast: false
       matrix:
         os: ${{ fromJSON(inputs.platform == 'linux-x64' && '["ubuntu-26.04-2core-agent-runtime"]' || inputs.platform == 'darwin-arm64' && '["macos-26-xlarge-agent-runtime"]' || inputs.platform == 'win32-x64' && '["windows-2025-4core-agent-runtime"]' || '["ubuntu-26.04-2core-agent-runtime","macos-26-xlarge-agent-runtime","windows-2025-4core-agent-runtime"]') }}
-    runs-on: ${{ matrix.os }}
+    # Staged runtimes plus multiple Cargo feature builds exhaust the standard
+    # Linux runner disk during in-process linking. Keep the existing check names.
+    runs-on: ${{ matrix.os == 'ubuntu-26.04-2core-agent-runtime' && 'ubuntu-26.04-16core-agent-runtime' || matrix.os }}
     defaults:
       run:
         shell: bash
@@ -45,6 +47,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Report initial Linux disk capacity
+        if: runner.os == 'Linux'
+        working-directory: .
+        run: |
+          df -h . "$RUNNER_TEMP"
+          df -i . "$RUNNER_TEMP"
       - uses: ./.github/actions/download-sdk-runtime
         with:
           artifact-name: ${{ runner.os == 'Linux' && format('executable-sdk-{0}-{1}-gnu', runner.os, runner.arch) || format('executable-sdk-{0}-{1}', runner.os, runner.arch) }}
@@ -92,18 +100,6 @@ jobs:
           COPILOT_HMAC_KEY: ${{ secrets.COPILOT_DEVELOPER_CLI_INTEGRATION_HMAC_KEY }}
           RUST_E2E_CONCURRENCY: 4
         run: cargo test --no-default-features --features runtime,test-support,derive -- --test-threads=4 --nocapture
-      - name: Report Linux Rust build resources
-        if: failure() && runner.os == 'Linux'
-        run: |
-          echo "::group::Rust SDK build resources"
-          df -h . "$RUNNER_TEMP"
-          df -i . "$RUNNER_TEMP"
-          free -h
-          if [ -d target ]; then
-            du -sh target
-          fi
-          echo "::endgroup::"
-
       - name: Test in-process smoke
         id: inprocess
         if: ${{ !cancelled() && (steps.subprocess.outcome == 'success' || steps.subprocess.outcome == 'failure') }}
@@ -123,6 +119,20 @@ jobs:
           cargo test --no-default-features --features test-support,local-runtime,derive
           --test e2e client::should_use_configured_github_host_for_authentication
           -- --exact --test-threads=1 --nocapture
+      - name: Report Linux Rust build resources
+        if: always() && runner.os == 'Linux'
+        working-directory: .
+        run: |
+          echo "::group::Rust SDK build resources"
+          df -h . "$RUNNER_TEMP"
+          df -i . "$RUNNER_TEMP"
+          free -h
+          for directory in "$SDK_HOME/rust/target" "$RUNNER_TEMP/copilot-sdk-runtime" dist-cli dist-bin; do
+            if [ -d "$directory" ]; then
+              du -sh "$directory"
+            fi
+          done
+          echo "::endgroup::"
 
   rust-musl-x64:
     name: "Rust (Alpine x64)"

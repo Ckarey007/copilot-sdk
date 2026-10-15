@@ -1985,6 +1985,45 @@ func TestSession_PostToolUseFailureHook(t *testing.T) {
 	})
 }
 
+func TestSession_UserPromptSubmittedHookBlocks(t *testing.T) {
+	cases := []struct {
+		name   string
+		output *UserPromptSubmittedHookOutput
+		want   string
+	}{
+		{
+			"block with a reason",
+			&UserPromptSubmittedHookOutput{Decision: "block", Reason: "Prompts may not mention launch codes."},
+			`{"decision":"block","reason":"Prompts may not mention launch codes."}`,
+		},
+		{"no decision", &UserPromptSubmittedHookOutput{AdditionalContext: "Be brief."}, `{"additionalContext":"Be brief."}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			session, cleanup := newTestSession()
+			defer cleanup()
+			session.registerHooks(&SessionHooks{
+				OnUserPromptSubmitted: func(UserPromptSubmittedHookInput, HookInvocation) (*UserPromptSubmittedHookOutput, error) {
+					return tc.output, nil
+				},
+			})
+
+			raw := json.RawMessage(`{"sessionId": "sess-1", "timestamp": 1700000000, "cwd": "/work", "prompt": "Hi"}`)
+			output, err := session.handleHooksInvoke("userPromptSubmitted", raw)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			encoded, err := json.Marshal(output)
+			if err != nil {
+				t.Fatalf("marshal output: %v", err)
+			}
+			if string(encoded) != tc.want {
+				t.Errorf("expected output %s, got %s", tc.want, encoded)
+			}
+		})
+	}
+}
+
 func TestSession_ErrorHooksDecodeCliErrorObject(t *testing.T) {
 	cases := []struct {
 		name  string

@@ -2434,6 +2434,8 @@ class SessionFusionResolvedData:
     rule_index: int | None = None
     rule_name: str | None = None
     scores: FusionScores | None = None
+    # Experimental: this field is part of an experimental API and may change or be removed.
+    selected_rule_id: str | None = None
 
     @staticmethod
     def from_dict(obj: Any) -> "SessionFusionResolvedData":
@@ -2463,6 +2465,7 @@ class SessionFusionResolvedData:
         rule_index = from_union([from_none, from_int], obj.get("ruleIndex"))
         rule_name = from_union([from_none, from_str], obj.get("ruleName"))
         scores = from_union([from_none, FusionScores.from_dict], obj.get("scores"))
+        selected_rule_id = from_union([from_none, from_str], obj.get("selectedRuleId"))
         return SessionFusionResolvedData(
             contract_version=contract_version,
             fallback_model=fallback_model,
@@ -2489,6 +2492,7 @@ class SessionFusionResolvedData:
             rule_index=rule_index,
             rule_name=rule_name,
             scores=scores,
+            selected_rule_id=selected_rule_id,
         )
 
     def to_dict(self) -> dict:
@@ -2533,6 +2537,8 @@ class SessionFusionResolvedData:
             result["ruleName"] = from_union([from_none, from_str], self.rule_name)
         if self.scores is not None:
             result["scores"] = from_union([from_none, lambda x: to_class(FusionScores, x)], self.scores)
+        if self.selected_rule_id is not None:
+            result["selectedRuleId"] = from_union([from_none, from_str], self.selected_rule_id)
         return result
 
 

@@ -1158,6 +1158,39 @@ public class SerializationTests
     }
 
     [Fact]
+    public void HooksInvokeResponse_SerializesUserPromptSubmittedBlock_WithSdkOptions()
+    {
+        var options = GetSerializerOptions();
+        var hookOutput = new UserPromptSubmittedHookOutput
+        {
+            Decision = "block",
+            Reason = "Prompts may not mention launch codes."
+        };
+
+        // The exact path SendResultResponseAsync takes: the internal HooksInvokeResponse wraps the output.
+        var responseType = GetNestedType(typeof(CopilotClient), "HooksInvokeResponse");
+        var response = CreateInternalRequest(responseType, ("Output", hookOutput));
+        var json = JsonSerializer.SerializeToElement(response, options.GetTypeInfo(response.GetType()));
+
+        var output = json.GetProperty("output");
+        Assert.Equal("block", output.GetProperty("decision").GetString());
+        Assert.Equal("Prompts may not mention launch codes.", output.GetProperty("reason").GetString());
+        Assert.False(output.TryGetProperty("modifiedPrompt", out _));
+    }
+
+    [Fact]
+    public void UserPromptSubmittedHookOutput_OmitsUnsetBlockFields_WithSdkOptions()
+    {
+        var options = GetSerializerOptions();
+        var output = new UserPromptSubmittedHookOutput { AdditionalContext = "Be brief." };
+        var json = JsonSerializer.SerializeToElement(output, options);
+
+        Assert.Equal("Be brief.", json.GetProperty("additionalContext").GetString());
+        Assert.False(json.TryGetProperty("decision", out _));
+        Assert.False(json.TryGetProperty("reason", out _));
+    }
+
+    [Fact]
     public void HooksInvokeResponse_SerializesPreMcpToolCallHookOutput_WithMetaToUse()
     {
         var options = GetSerializerOptions();

@@ -145,6 +145,8 @@ pub struct CopilotRequestContext {
     pub session_id: Option<String>,
     /// Stable per-agent-instance id for the agent trajectory that issued this request.
     pub agent_id: Option<String>,
+    /// Runtime-provided logical invocation identity, unchanged across physical retries.
+    pub agent_invocation_id: Option<String>,
     /// Id of the parent agent when this request was issued by a subagent.
     pub parent_agent_id: Option<String>,
     /// Runtime classification for the interaction that produced this request.
@@ -286,6 +288,17 @@ pub trait CopilotWebSocketHandler: Send + Sync {
         &self,
         message: CopilotWebSocketMessage,
     ) -> Result<(), CopilotRequestError>;
+
+    /// Forward a message with its own invocation identity, which may differ
+    /// from the identity that opened a reused connection. The default delegates
+    /// to the existing message hook so existing implementations remain valid.
+    async fn send_request_message_with_context(
+        &self,
+        message: CopilotWebSocketMessage,
+        _ctx: &CopilotRequestContext,
+    ) -> Result<(), CopilotRequestError> {
+        self.send_request_message(message).await
+    }
 
     /// Tear down the upstream connection.
     async fn close(&self) -> Result<(), CopilotRequestError>;
@@ -438,11 +451,20 @@ type UpstreamWrite =
 pub type WebSocketTransform =
     Arc<dyn Fn(CopilotWebSocketMessage) -> Option<CopilotWebSocketMessage> + Send + Sync>;
 
+/// Transform applied to a runtime request message with its per-message context;
+/// return `None` to drop it.
+pub type WebSocketContextTransform = Arc<
+    dyn Fn(CopilotWebSocketMessage, &CopilotRequestContext) -> Option<CopilotWebSocketMessage>
+        + Send
+        + Sync,
+>;
+
 /// Builder for a [`CopilotWebSocketForwarder`].
 pub struct CopilotWebSocketForwarderBuilder {
     url: String,
     headers: HeaderMap,
     on_send_request_message: Option<WebSocketTransform>,
+    on_send_request_message_with_context: Option<WebSocketContextTransform>,
     on_send_response_message: Option<WebSocketTransform>,
 }
 
@@ -450,6 +472,16 @@ impl CopilotWebSocketForwarderBuilder {
     /// Hook runtime→upstream messages (mutate or drop before forwarding).
     pub fn on_send_request_message(mut self, transform: WebSocketTransform) -> Self {
         self.on_send_request_message = Some(transform);
+        self
+    }
+
+    /// Hook runtime→upstream messages with their per-message invocation context.
+    /// When present, this runs before the existing request-message transform.
+    pub fn on_send_request_message_with_context(
+        mut self,
+        transform: WebSocketContextTransform,
+    ) -> Self {
+        self.on_send_request_message_with_context = Some(transform);
         self
     }
 
@@ -516,6 +548,7 @@ impl CopilotWebSocketForwarderBuilder {
         Ok(CopilotWebSocketForwarder {
             write: AsyncMutex::new(Some(write)),
             on_send_request_message: self.on_send_request_message,
+            on_send_request_message_with_context: self.on_send_request_message_with_context,
             cancel,
         })
     }
@@ -527,6 +560,7 @@ impl CopilotWebSocketForwarderBuilder {
 pub struct CopilotWebSocketForwarder {
     write: AsyncMutex<Option<UpstreamWrite>>,
     on_send_request_message: Option<WebSocketTransform>,
+    on_send_request_message_with_context: Option<WebSocketContextTransform>,
     cancel: CancellationToken,
 }
 
@@ -538,6 +572,7 @@ impl CopilotWebSocketForwarder {
             url,
             headers,
             on_send_request_message: None,
+            on_send_request_message_with_context: None,
             on_send_response_message: None,
         }
     }
@@ -545,6 +580,21 @@ impl CopilotWebSocketForwarder {
 
 #[async_trait]
 impl CopilotWebSocketHandler for CopilotWebSocketForwarder {
+    async fn send_request_message_with_context(
+        &self,
+        message: CopilotWebSocketMessage,
+        ctx: &CopilotRequestContext,
+    ) -> Result<(), CopilotRequestError> {
+        let message = match &self.on_send_request_message_with_context {
+            Some(transform) => transform(message, ctx),
+            None => Some(message),
+        };
+        if let Some(message) = message {
+            self.send_request_message(message).await?;
+        }
+        Ok(())
+    }
+
     async fn send_request_message(
         &self,
         message: CopilotWebSocketMessage,
@@ -612,12 +662,18 @@ struct ResponseState {
 struct RequestMeta {
     session_id: Option<String>,
     agent_id: Option<String>,
+    agent_invocation_id: Option<String>,
     parent_agent_id: Option<String>,
     interaction_type: Option<String>,
     method: String,
     url: String,
     headers: HeaderMap,
     transport: CopilotRequestTransport,
+}
+
+struct RequestBodyFrame {
+    data: Vec<u8>,
+    agent_invocation_id: Option<String>,
 }
 
 struct CopilotRequestExchange {
@@ -627,8 +683,8 @@ struct CopilotRequestExchange {
     client: Weak<ClientInner>,
     /// Sender feeding the request body stream. Dropped (set to `None`) on `end`
     /// or `cancel` to close the stream.
-    body_tx: Mutex<Option<mpsc::UnboundedSender<Vec<u8>>>>,
-    body_rx: AsyncMutex<mpsc::UnboundedReceiver<Vec<u8>>>,
+    body_tx: Mutex<Option<mpsc::UnboundedSender<RequestBodyFrame>>>,
+    body_rx: AsyncMutex<mpsc::UnboundedReceiver<RequestBodyFrame>>,
     state: Mutex<ResponseState>,
 }
 
@@ -651,6 +707,7 @@ impl CopilotRequestExchange {
         let _ = self.meta.set(RequestMeta {
             session_id: params.session_id.map(SessionId::into_inner),
             agent_id: params.agent_id,
+            agent_invocation_id: params.agent_invocation_id,
             parent_agent_id: params.parent_agent_id,
             interaction_type: params.interaction_type,
             method: params.method,
@@ -673,6 +730,7 @@ impl CopilotRequestExchange {
             request_id: self.request_id.clone(),
             session_id: meta.session_id.clone(),
             agent_id: meta.agent_id.clone(),
+            agent_invocation_id: meta.agent_invocation_id.clone(),
             parent_agent_id: meta.parent_agent_id.clone(),
             interaction_type: meta.interaction_type.clone(),
             transport: meta.transport,
@@ -695,9 +753,12 @@ impl CopilotRequestExchange {
 
     // --- Request body feed (driven by the dispatcher as frames arrive) ---
 
-    fn push_chunk(&self, data: Vec<u8>) {
+    fn push_chunk(&self, data: Vec<u8>, agent_invocation_id: Option<String>) {
         if let Some(tx) = self.body_tx.lock().as_ref() {
-            let _ = tx.send(data);
+            let _ = tx.send(RequestBodyFrame {
+                data,
+                agent_invocation_id,
+            });
         }
     }
 
@@ -710,7 +771,7 @@ impl CopilotRequestExchange {
         *self.body_tx.lock() = None;
     }
 
-    async fn recv_body(&self) -> Option<Vec<u8>> {
+    async fn recv_body(&self) -> Option<RequestBodyFrame> {
         self.body_rx.lock().await.recv().await
     }
 
@@ -721,9 +782,9 @@ impl CopilotRequestExchange {
             // The first frame becomes the buffer, so a body sent as one chunk (the runtime sends
             // every HTTP request body so) reaches the handler without a copy.
             if buf.is_empty() {
-                buf = frame;
+                buf = frame.data;
             } else {
-                buf.extend_from_slice(&frame);
+                buf.extend_from_slice(&frame.data);
             }
         }
         buf
@@ -999,9 +1060,14 @@ async fn pump_websocket_requests(
                 return Err(CopilotRequestError::message("Request cancelled by runtime"));
             }
             frame = exchange.recv_body() => match frame {
-                Some(data) => {
+                Some(frame) => {
+                    let mut ctx = exchange.context();
+                    ctx.agent_invocation_id = frame.agent_invocation_id;
                     handler
-                        .send_request_message(CopilotWebSocketMessage { data, binary: false })
+                        .send_request_message_with_context(
+                            CopilotWebSocketMessage { data: frame.data, binary: false },
+                            &ctx,
+                        )
                         .await?;
                 }
                 None => return Ok(()),
@@ -1219,7 +1285,7 @@ fn apply_chunk(exchange: &CopilotRequestExchange, params: LlmInferenceHttpReques
         } else {
             params.data.into_bytes()
         };
-        exchange.push_chunk(decoded);
+        exchange.push_chunk(decoded, params.agent_invocation_id);
     }
 
     if params.end == Some(true) {

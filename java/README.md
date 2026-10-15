@@ -121,6 +121,18 @@ CopilotClient client = new CopilotClient(options);
 client.start().get();
 ```
 
+For the native standalone runtime, include
+`"COPILOT_GITHUB_TELEMETRY_DISABLED", "true"` in the environment map passed to
+`CopilotClientOptions.setEnvironment(...)` before startup to disable direct
+GitHub telemetry uploads for the entire host, including sessionless events.
+Authentication, `setOnGitHubTelemetry(...)` forwarding, and user-configured
+OpenTelemetry export remain unchanged. This is separate from
+`SessionConfig.setEnableSessionTelemetry(false)`, which disables only a session's
+pipeline. The value must be exactly `"true"`; changing it requires a runtime
+restart. The Node CLI host does not use this variable. In-process connections
+reject per-client environment maps; set the variable in the host process
+environment before starting the runtime instead.
+
 ## Quick Start
 
 For experimental in-process AHP hosting, select a transport explicitly:

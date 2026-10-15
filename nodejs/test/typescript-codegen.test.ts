@@ -5,11 +5,261 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
     assertNoPublicInternalReferences,
     filterPublicSessionEventVariants,
+    generateRpcCode,
+    generateSessionEventsCode,
     normalizeSchemaForTypeScript,
     tsNullableResultTypeName,
 } from "../../scripts/codegen/typescript.ts";
 import type { AssistantMessageReasoningBlocks } from "../src/generated/session-events.ts";
 import { isCodegenEntrypoint, type DefinitionCollections } from "../../scripts/codegen/utils.ts";
+import {
+    callbackFixture,
+    eventFixture,
+    metadataFixture,
+    optionalRequestFixture,
+    rpcFixture,
+    unionFixture,
+    booleanUnionFixture,
+    eventMatrixFixture,
+    jsonShapesFixture,
+    namingFixture,
+    nestedUnionFixture,
+    presenceFixture,
+    referenceFixture,
+    sharedReferenceFixture,
+    visibilityFixture,
+} from "./codegen-fixtures.ts";
+
+describe("TypeScript shared schema baseline", () => {
+    it("renders types, server/session calls, and nested namespaces", async () => {
+        const code = await generateRpcCode(rpcFixture());
+        for (const field of [
+            "id: string;",
+            "count: number;",
+            "active: boolean;",
+            "score: number;",
+            "tags: string[];",
+            "[k: string]: string | undefined;",
+            "displayName?: string;",
+            "note?: string | null;",
+            "items: SampleItem[];",
+        ])
+            expect(code).toContain(field);
+        expect(code.match(/export interface SampleItem \{/g)).toHaveLength(1);
+        expect(code).toContain('connection.sendRequest("sample.get", params)');
+        expect(code).toContain('connection.sendRequest("sample.nested.list", {})');
+        expect(code).toContain("ping: async (): Promise<void>");
+        expect(code).toContain(
+            'connection.sendRequest("session.sample.get", { ...params, sessionId })'
+        );
+        expect(code).toContain("export interface SessionSampleGetRequest {\n  id: string;\n}");
+        expect(code).toMatchSnapshot();
+    });
+
+    it("renders optional requests without requiring a params argument", async () => {
+        const code = await generateRpcCode(optionalRequestFixture());
+        expect(code).toContain("configure: async (params?: SampleConfigureRequest): Promise<void>");
+        expect(code).toContain("enabled?: boolean;");
+    });
+
+    it.each(["anyOf", "oneOf"] as const)(
+        "renders referenced %s unions and enums",
+        async (keyword) => {
+            const code = await generateRpcCode(unionFixture(keyword));
+            expect(code).toContain('kind: "text";');
+            expect(code).toContain('kind: "count";');
+            expect(code).toContain('export type SampleMode = "fast" | "thorough";');
+            expect(code).toContain("choice: SampleChoice;");
+            expect(code).toContain("choices: SampleChoice[];");
+        }
+    );
+
+    it("preserves method documentation and exposure annotations", async () => {
+        const code = await generateRpcCode(metadataFixture());
+        expect(code).toContain("Preview an item.");
+        expect(code).toMatch(/\* @experimental\n\s+\*\/\n\s+preview: async/);
+        expect(code).toMatch(/\* @deprecated\n\s+\*\/\n\s+retired: async/);
+        expect(code).toMatch(/\* @internal\n \*\/\nexport function createInternalServerRpc/);
+    });
+
+    it.each(["clientSession", "clientGlobal"] as const)(
+        "renders %s callback registration",
+        async (scope) => {
+            const code = await generateRpcCode(callbackFixture(scope));
+            expect(code).toContain("SampleConfirmRequest");
+            expect(code).toContain("Promise<SampleConfirmResult>");
+            expect(code).toContain('connection.onRequest("sample.confirm"');
+            if (scope === "clientSession") {
+                expect(code).toContain("getHandlers(params.sessionId)");
+                expect(code).not.toContain('"sample.hidden"');
+            } else {
+                expect(code).toContain('connection.onNotification("sample.changed"');
+            }
+        }
+    );
+
+    it("renders event payload and envelope types", async () => {
+        const code = await generateSessionEventsCode(eventFixture());
+        expect(code).toContain('type: "sample.updated";');
+        expect(code).toContain("sequence: number;");
+        expect(code).toContain("note?: string | null;");
+        expect(code).toContain("parentId?: string | null;");
+        expect(code).toMatchSnapshot();
+    });
+
+    it("keeps existing signatures when a response gains an optional field", async () => {
+        const before = await generateRpcCode(rpcFixture());
+        const after = await generateRpcCode(rpcFixture({ extra: { type: "string" } }));
+        const signature = "get: async (params: SampleGetRequest): Promise<SampleItem>";
+        expect(before).toContain(signature);
+        expect(after).toContain(signature);
+        expect(before).not.toContain("extra?:");
+        expect(after).toContain("extra?: string;");
+    });
+});
+
+describe("TypeScript schema contract matrix", () => {
+    it.each([
+        ["scalar", "string"],
+        ["object", "PresenceValue"],
+        ["array", "PresenceValue[]"],
+        ["map", "{\n    [k: string]: PresenceValue;\n  }"],
+    ] as const)("preserves requiredness and nullability for %s values", async (shape, type) => {
+        const code = await generateRpcCode(presenceFixture(shape));
+        for (const name of ["Presence", "SamplePresenceResult"]) {
+            const declaration = code.match(
+                new RegExp(`export interface ${name} \\{[\\s\\S]*?^\\}`, "m")
+            )?.[0];
+            expect(declaration).toContain(`requiredValue: ${type};`);
+            expect(declaration).toContain(`optionalValue?: ${type};`);
+            expect(declaration).toContain(`requiredNullable: ${type} | null;`);
+            expect(declaration).toContain(`optionalNullable?: ${type} | null;`);
+        }
+    });
+
+    it("reuses multi-hop references in requests, results, arrays, and maps", async () => {
+        const code = await generateRpcCode(referenceFixture());
+        expect(code.match(/^export interface ReferenceNode \{/gm)).toHaveLength(1);
+        expect(code.match(/^export interface ReferenceLeaf \{/gm)).toHaveLength(1);
+        expect(code).toContain("export interface ReferenceNode {\n  leaf: ReferenceLeaf;\n}");
+        for (const name of ["SampleGraphRequest", "SampleGraphResult"]) {
+            const declaration = code.match(
+                new RegExp(`export interface ${name} \\{[\\s\\S]*?^\\}`, "m")
+            )?.[0];
+            expect(declaration).toContain("first: ReferenceNode;");
+            expect(declaration).toContain("second: ReferenceNode;");
+            expect(declaration).toContain("nodes: ReferenceNode[];");
+            expect(declaration).toContain("lookup: {\n    [k: string]: ReferenceNode;\n  };");
+            expect(declaration).not.toContain("any");
+        }
+    });
+
+    it("distinguishes empty objects, open objects, and opaque JSON", async () => {
+        const code = await generateRpcCode(jsonShapesFixture());
+        const declaration = code.match(/^export interface JsonShapes \{[\s\S]*?^\}/m)?.[0];
+        expect(declaration).toContain("empty: {};");
+        expect(declaration).toContain("open: {\n    [k: string]: unknown | undefined;\n  };");
+        expect(declaration).toContain("opaque: JsonValue;");
+        expect(code).toContain(
+            "export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };"
+        );
+    });
+
+    it.each(["anyOf", "oneOf"] as const)(
+        "keeps nested %s union references stable when a variant is added",
+        async (keyword) => {
+            const before = await generateRpcCode(nestedUnionFixture(keyword));
+            const after = await generateRpcCode(nestedUnionFixture(keyword, true));
+            for (const code of [before, after]) {
+                const result = code.match(
+                    /^export interface SampleDecideResult \{[\s\S]*?^\}/m
+                )?.[0];
+                expect(result).toContain("selected: Verdict | null;");
+                expect(result).toContain("decisions: {\n    [k: string]: Verdict;\n  };");
+                expect(code.match(/^export interface AllowVerdict \{[\s\S]*?^\}/m)?.[0]).toBe(
+                    'export interface AllowVerdict {\n  kind: "allow";\n  message: string;\n}'
+                );
+            }
+            expect(before).toContain("export type Verdict = AllowVerdict | DenyVerdict;");
+            expect(after).toContain(
+                "export type Verdict = AllowVerdict | DenyVerdict | PendingVerdict;"
+            );
+            expect(before).not.toContain("PendingVerdict");
+        }
+    );
+
+    it("preserves boolean discriminator literals rather than widening to boolean", async () => {
+        const code = await generateRpcCode(booleanUnionFixture());
+        expect(code).toContain(
+            "export interface AcceptedEnqueueCommandResult {\n  queued: true;\n  value: string;\n}"
+        );
+        expect(code).toContain(
+            "export interface UnsupportedEnqueueCommandResult {\n  queued: false;\n  reason: string;\n}"
+        );
+        expect(code).not.toContain("queued: boolean;");
+    });
+
+    it("preserves keyword, acronym, and non-identifier wire property names", async () => {
+        const code = await generateRpcCode(namingFixture());
+        const declaration = code.match(/^export interface WireNames \{[\s\S]*?^\}/m)?.[0];
+        expect(declaration).toBe(
+            'export interface WireNames {\n  class: string;\n  default: boolean;\n  type: string;\n  requestId: string;\n  "content-type": string;\n}'
+        );
+    });
+
+    it("separates internal calls while retaining shared referenced types", async () => {
+        const code = await generateRpcCode(visibilityFixture());
+        const publicApi = code.match(/^export function createServerRpc[\s\S]*?^\}/m)?.[0];
+        const internalApi = code.match(/^export function createInternalServerRpc[\s\S]*?^\}/m)?.[0];
+        expect(publicApi).toContain('connection.sendRequest("sample.visible", {})');
+        expect(publicApi).not.toContain("secret");
+        expect(internalApi).toContain('connection.sendRequest("sample.secret", {})');
+        expect(internalApi).not.toContain("visible:");
+        expect(publicApi).toContain('connection.sendRequest("host.visible", {})');
+        expect(internalApi).toContain('connection.sendRequest("host.secret", {})');
+        expect(code.match(/^export interface SharedValue \{/gm)).toHaveLength(1);
+    });
+
+    it("includes every event envelope and its empty, object, or union payload", async () => {
+        const code = await generateSessionEventsCode(eventMatrixFixture());
+        const envelope = code.match(/^export type SessionEvent =[\s\S]*?\};/m)?.[0];
+        expect(envelope?.match(/type: "[^"]+"/g)).toEqual([
+            'type: "matrix.empty"',
+            'type: "matrix.value"',
+            'type: "matrix.union"',
+        ]);
+        expect(code).toContain("export interface MatrixEmptyEvent {}");
+        expect(code).toMatch(/export interface MatrixValueEvent \{[^}]*sequence: number;/);
+        expect(code).toMatch(
+            /export type MatrixUnionEvent =[\s\S]*?kind: "first";[\s\S]*?kind: "second";/
+        );
+        for (const name of ["Empty", "Value", "Union"])
+            expect(envelope).toContain(`data: Matrix${name}Event;`);
+    });
+
+    it("imports shared event types instead of redeclaring their reference graph", async () => {
+        const { api, events } = sharedReferenceFixture();
+        const code = await generateRpcCode(api, events);
+        const eventCode = await generateSessionEventsCode(events);
+        expect(code).toContain('import type { ReferenceGraph } from "./session-events.js";');
+        expect(code).toContain("graph: async (params: ReferenceGraph): Promise<ReferenceGraph>");
+        for (const name of ["ReferenceGraph", "ReferenceNode", "ReferenceLeaf"]) {
+            expect(code).not.toContain(`export interface ${name}`);
+            expect(eventCode.match(new RegExp(`^export interface ${name} \\{`, "gm"))).toHaveLength(
+                1
+            );
+        }
+    });
+
+    it("does not retain type or method state between unrelated schemas", async () => {
+        const before = await generateRpcCode(referenceFixture());
+        const eventsBefore = await generateSessionEventsCode(eventFixture());
+        await generateRpcCode(nestedUnionFixture("oneOf", true));
+        await generateSessionEventsCode(eventMatrixFixture());
+        expect(await generateRpcCode(referenceFixture())).toBe(before);
+        expect(await generateSessionEventsCode(eventFixture())).toBe(eventsBefore);
+    });
+});
 
 describe("typescript schema codegen", () => {
     it("preserves an explicit nullable reference result's named union", () => {

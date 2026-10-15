@@ -4917,6 +4917,12 @@ export interface FusionResolvedData {
    */
   secondaryModel: string | null;
   /**
+   * Identifier of the server policy rule whose workflow the plan's steps describe, when CAPI's sticky root routing replaced the workflow of `ruleId`'s rule to keep the previous turn's root model. Absent when no substitution occurred.
+   *
+   * @experimental
+   */
+  selectedRuleId?: string;
+  /**
    * Synthetic HydraFusion model selected for the session.
    */
   syntheticModel: string;

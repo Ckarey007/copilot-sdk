@@ -15,8 +15,8 @@ the runtime commit, not a separate `github/copilot-sdk` commit. Run SDK commands
 from `src/sdk` unless a command names another working directory.
 
 Both runtime and SDK pin SDK protocol version 3. The standard AHP client is
-pinned to `@microsoft/agent-host-protocol@0.9.0`, matching the host's
-`rust/v0.9.0` source pin (`60706330f2f351b09f150d9a9c3c0eaedfc8e8b9`).
+pinned to `@microsoft/agent-host-protocol@0.9.0`. The host serves AHP 1.0
+and retains AHP 0.9 compatibility; the CLI client still negotiates AHP 0.9.
 The host prototype `d62d982`
 and SDK sample prototype `8fd2498` were inspected as references, not cherry-picked
 as production implementations. Their application-side TCP relay is not the
@@ -458,7 +458,19 @@ lifetime is separate from durable publication.
 `--ahp-host [--listen host:port] [--workspace directory]` serves this same backend
 in the CLI process, using normal SDK session construction, managed policy,
 hooks, authentication and telemetry. The old promotion backend and duplicate
-commands have been removed. Local-owner `/remote on|off|show` retains its independent
+commands have been removed. The CLI defaults to a random required local
+connection token. `--ahp-host-token <value>` supplies a fixed nonempty token
+(`localServer.token`); `--ahp-host-disable-token` sets
+`localServer.requireConnectionToken` to `false`. These options require
+`--ahp-host` and cannot be combined. Explicit tokens are visible in process
+arguments and may be stored in shell history. Startup prints a connectable
+`AHP 1.0 endpoint` URL with the active token URL-encoded in its `tkn` query parameter,
+not a separate token line. Disabling the token leaves the URL without that
+parameter. Treat this stdout URL as a credential; ordinary host logs retain
+the bare endpoint. GitHub authentication and resource authorization remain
+required in both modes, independently of SDK `--auth-token-env` or client-side
+`--ahp-authenticate-with-github`.
+Local-owner `/remote on|off|show` retains its independent
 Mission Control path; the old attached-AHP-client export toggle is intentionally unavailable.
 `COPILOT_AHP_SHARE_BIND` can select a wider listener for sharing;
 the CLI's managed remote-control policy still gates off-machine publication.

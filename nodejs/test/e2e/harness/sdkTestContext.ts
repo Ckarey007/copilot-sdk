@@ -3,13 +3,22 @@
  *--------------------------------------------------------------------------------------------*/
 
 import fs, { realpathSync } from "fs";
-import { readdir, rm } from "fs/promises";
+import { mkdir, readdir, rm } from "fs/promises";
+import { randomUUID } from "node:crypto";
 import os from "os";
 import { basename, dirname, join, resolve } from "path";
 import { rimraf } from "rimraf";
 import { createInterface } from "readline";
 import { fileURLToPath } from "url";
-import { afterAll, afterEach, beforeEach, onTestFailed, onTestFinished, TestContext } from "vitest";
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    beforeEach,
+    onTestFailed,
+    onTestFinished,
+    TestContext,
+} from "vitest";
 import { CopilotClient, CopilotClientOptions, RuntimeConnection } from "../../../src";
 import type { ResumeSessionConfig, SessionConfig } from "../../../src";
 import { CapiProxy } from "./CapiProxy";
@@ -78,36 +87,28 @@ export async function createSdkTestContext({
     /** Pin a provider-specific contract instead of inheriting the CI backend matrix. */
     backend?: ReplayBackend;
 } = {}) {
-    const homeDir = realpathSync(fs.mkdtempSync(join(os.tmpdir(), "copilot-test-config-")));
-    const copilotHomeDir = realpathSync(fs.mkdtempSync(join(os.tmpdir(), "copilot-test-home-")));
-    const workDir = realpathSync(fs.mkdtempSync(join(os.tmpdir(), "copilot-test-work-")));
+    // Keep destructured paths and objects stable without allocating resources
+    // during collection: filtered suites never execute their cleanup hooks.
+    const tempDir = realpathSync(os.tmpdir());
+    const contextId = randomUUID();
+    const homeDir = join(tempDir, `copilot-test-config-${contextId}`);
+    const copilotHomeDir = join(tempDir, `copilot-test-home-${contextId}`);
+    const workDir = join(tempDir, `copilot-test-work-${contextId}`);
 
     const openAiEndpoint = new CapiProxy();
-    const proxyUrl = await openAiEndpoint.start();
-    await openAiEndpoint.setCopilotUserByToken(DEFAULT_GITHUB_TOKEN, {
-        login: "e2e-test-user",
-        id: 12345,
-        copilot_plan: "individual_pro",
-        is_mcp_enabled: true,
-        endpoints: {
-            api: proxyUrl,
-            telemetry: "https://localhost:1/telemetry",
-        },
-        analytics_tracking_id: "e2e-test-tracking-id",
-    });
+    let proxyUrl = "";
     const authTokenToUse = isCI
         ? DEFAULT_GITHUB_TOKEN
         : (process.env.GITHUB_TOKEN ?? DEFAULT_GITHUB_TOKEN);
 
     const env = {
         ...process.env,
-        ...openAiEndpoint.getProxyEnv(),
-        COPILOT_API_URL: proxyUrl,
+        COPILOT_API_URL: "",
         // Route GitHub API calls (e.g. the MCP registry policy check) to the
         // replay proxy so MCP enablement stays hermetic. Without this the CLI
         // reaches the real api.github.com, which is slow/unreachable on macOS
         // CI runners and makes MCP servers time out before reaching connected.
-        COPILOT_DEBUG_GITHUB_API_URL: proxyUrl,
+        COPILOT_DEBUG_GITHUB_API_URL: "",
         COPILOT_HOME: copilotHomeDir,
         // Proxy ports can be reused by later fixtures with different account metadata.
         COPILOT_CACHE_HOME: join(copilotHomeDir, "cache"),
@@ -266,7 +267,47 @@ export async function createSdkTestContext({
     // Holds the process cwd before an in-process test changed it, so afterEach restores it.
     let restoreCwd: string | undefined;
 
+    let initialization: Promise<void> | undefined;
+    const createdDirectories = new Set<string>();
+
     // Wire up to Vitest lifecycle
+    beforeAll(() => {
+        initialization = (async () => {
+            for (const path of [homeDir, copilotHomeDir, workDir]) {
+                await mkdir(path, { mode: 0o700 });
+                createdDirectories.add(path);
+            }
+            proxyUrl = await openAiEndpoint.start();
+            await openAiEndpoint.setCopilotUserByToken(DEFAULT_GITHUB_TOKEN, {
+                login: "e2e-test-user",
+                id: 12345,
+                copilot_plan: "individual_pro",
+                is_mcp_enabled: true,
+                endpoints: {
+                    api: proxyUrl,
+                    telemetry: "https://localhost:1/telemetry",
+                },
+                analytics_tracking_id: "e2e-test-tracking-id",
+            });
+            Object.assign(env, openAiEndpoint.getProxyEnv(), {
+                COPILOT_API_URL: proxyUrl,
+                COPILOT_DEBUG_GITHUB_API_URL: proxyUrl,
+                GH_TOKEN: authTokenToUse,
+                GITHUB_TOKEN: authTokenToUse,
+            });
+            Object.assign(mergedEnv, env, userEnv);
+            if (isInProcess) {
+                Object.assign(inProcessEnv, mergedEnv, {
+                    GH_TOKEN: authTokenToUse,
+                    GITHUB_TOKEN: authTokenToUse,
+                    COPILOT_HMAC_KEY: "",
+                    CAPI_HMAC_KEY: "",
+                });
+            }
+        })();
+        return initialization;
+    });
+
     beforeEach(async (testContext) => {
         // Must be inside beforeEach - vitest requires test context
         onTestFailed(async () => {
@@ -368,19 +409,47 @@ export async function createSdkTestContext({
     });
 
     afterAll(async () => {
-        await copilotClient.stop();
-        await openAiEndpoint.stop(anyTestFailed);
+        if (!initialization) return;
+        // beforeAll reports setup failure; teardown still owns partial acquisitions
+        // and waits for any pending startup before stopping its resources.
+        await initialization.catch(() => {});
+        const errors: unknown[] = [];
         // On Windows, this Vitest worker can retain the in-process runtime's session.db
         // lock until the worker exits. Retrying from its afterAll hook cannot succeed:
         // the hook waits for the lock, while the lock cannot clear until the hook returns
         // and lets the worker exit.
-        await rmDir(
-            "remove e2e test copilotHomeDir",
-            copilotHomeDir,
-            isInProcess && process.platform === "win32" ? 1 : 30
-        );
-        await rmDir("remove e2e test homeDir", homeDir);
-        await rmDir("remove e2e test workDir", workDir);
+        for (const cleanup of [
+            async () => errors.push(...(await copilotClient.stop())),
+            () => openAiEndpoint.stop(anyTestFailed),
+            async () => {
+                if (createdDirectories.has(copilotHomeDir)) {
+                    await rmDir(
+                        "remove e2e test copilotHomeDir",
+                        copilotHomeDir,
+                        isInProcess && process.platform === "win32" ? 1 : 30
+                    );
+                }
+            },
+            async () => {
+                if (createdDirectories.has(homeDir)) {
+                    await rmDir("remove e2e test homeDir", homeDir);
+                }
+            },
+            async () => {
+                if (createdDirectories.has(workDir)) {
+                    await rmDir("remove e2e test workDir", workDir);
+                }
+            },
+        ]) {
+            try {
+                await cleanup();
+            } catch (error) {
+                errors.push(error);
+            }
+        }
+        if (errors.length > 0) {
+            throw new AggregateError(errors, "SDK test context cleanup failed");
+        }
     });
 
     return harness;

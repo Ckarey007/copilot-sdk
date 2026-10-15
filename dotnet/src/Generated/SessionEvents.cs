@@ -4194,6 +4194,12 @@ public sealed partial class SessionFusionResolvedData
     [JsonPropertyName("secondaryModel")]
     public string? SecondaryModel { get; set; }
 
+    /// <summary>Identifier of the server policy rule whose workflow the plan's steps describe, when CAPI's sticky root routing replaced the workflow of `ruleId`'s rule to keep the previous turn's root model. Absent when no substitution occurred.</summary>
+    [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("selectedRuleId")]
+    public string? SelectedRuleId { get; set; }
+
     /// <summary>Synthetic HydraFusion model selected for the session.</summary>
     [JsonPropertyName("syntheticModel")]
     public required string SyntheticModel { get; set; }

@@ -39,6 +39,17 @@ public final class ServerHostApi {
     }
 
     /**
+     * Withdraws a live or dormant application publication from an owned live host and revokes AHP attachments without deleting local session history, worktrees, or ongoing work. Returns false when already absent; rejects nonapplication publications.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    public CompletableFuture<HostUnpublishSessionResult> unpublishSession(HostUnpublishSessionParams params) {
+        return caller.invoke("host.unpublishSession", params, HostUnpublishSessionResult.class);
+    }
+
+    /**
      * Reads the complete advertised live and dormant session catalog of an existing host owned by this connection. Does not start hosting, subscribe to sessions, or guarantee resumability.
      *
      * @apiNote This method is experimental and may change in a future version.

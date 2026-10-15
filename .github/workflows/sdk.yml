@@ -169,7 +169,7 @@ jobs:
     name: "Detect SDK layout"
     needs: detect-sdk-changes
     if: ${{ !cancelled() && (needs.detect-sdk-changes.result != 'success' || needs.detect-sdk-changes.outputs.has_sdk_changes == 'true') }}
-    runs-on: ubuntu-26.04-2core-agent-runtime
+    runs-on: ubuntu-slim
     outputs:
       runtime-source: ${{ steps.detect.outputs.runtime-source }}
       sdk-home: ${{ steps.detect.outputs.sdk-home }}
@@ -574,6 +574,9 @@ jobs:
         working-directory: ${{ needs.detect-layout.outputs.sdk-home }}/nodejs
       - run: npm ci
         working-directory: ${{ needs.detect-layout.outputs.sdk-home }}/scripts/codegen
+      - name: Test all six source generators
+        run: npm run test:codegen
+        working-directory: ${{ needs.detect-layout.outputs.sdk-home }}
       - if: needs.detect-layout.outputs.runtime-source == 'published'
         run: npm ci
         working-directory: ${{ needs.detect-layout.outputs.sdk-home }}/java/scripts/codegen

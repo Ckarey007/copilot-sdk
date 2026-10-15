@@ -1,0 +1,106 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`TypeScript shared schema baseline > renders event payload and envelope types 1`] = `
+"/**
+ * AUTO-GENERATED FILE - DO NOT EDIT
+ * Generated from: session-events.schema.json
+ */
+
+export type SessionEvent = {
+  data: {
+    active: boolean;
+    message: string;
+    note?: string | null;
+    sequence: number;
+    tags: string[];
+  };
+  id: string;
+  parentId?: string | null;
+  timestamp: string;
+  type: "sample.updated";
+};
+"
+`;
+
+exports[`TypeScript shared schema baseline > renders types, server/session calls, and nested namespaces 1`] = `
+"/**
+ * AUTO-GENERATED FILE - DO NOT EDIT
+ * Generated from: api.schema.json
+ */
+
+import type { MessageConnection } from "vscode-jsonrpc/node.js";
+
+/**
+ * An item returned by the sample service.
+ *
+ * This interface was referenced by \`_RpcSchemaRoot\`'s JSON-Schema
+ * via the \`definition\` "SampleItem".
+ */
+export interface SampleItem {
+  id: string;
+  count: number;
+  active: boolean;
+  score: number;
+  tags: string[];
+  labels: {
+    [k: string]: string | undefined;
+  };
+  displayName?: string;
+  note?: string | null;
+}
+
+export interface SampleGetRequest {
+  id: string;
+}
+
+export interface SampleListResult {
+  items: SampleItem[];
+}
+
+export interface SessionSampleGetRequest {
+  id: string;
+}
+
+/** Create typed server-scoped RPC methods (no session required). */
+export function createServerRpc(connection: MessageConnection) {
+    return {
+        sample: {
+            /**
+             * Look up an item.
+             *
+             * @returns An item returned by the sample service.
+             */
+            get: async (params: SampleGetRequest): Promise<SampleItem> =>
+                connection.sendRequest("sample.get", params),
+            /**
+             * Calls \`sample.ping\`.
+             */
+            ping: async (): Promise<void> =>
+                connection.sendRequest("sample.ping", {}),
+            nested: {
+                /**
+                 * Calls \`sample.nested.list\`.
+                 */
+                list: async (): Promise<SampleListResult> =>
+                    connection.sendRequest("sample.nested.list", {}),
+            },
+        },
+    };
+}
+
+/** Create typed session-scoped RPC methods. */
+export function createSessionRpc(connection: MessageConnection, sessionId: string) {
+    return {
+        sample: {
+            /**
+             * Calls \`session.sample.get\`.
+             *
+             * @returns An item returned by the sample service.
+             */
+            get: async (params: SessionSampleGetRequest): Promise<SampleItem> =>
+                connection.sendRequest("session.sample.get", { ...params, sessionId }),
+        },
+    };
+}
+"
+`;

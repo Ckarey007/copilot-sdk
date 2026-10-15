@@ -305,8 +305,9 @@ impl EncodedFrame {
 /// header is then written into that room. A large message, such as a
 /// `sessionFs.readFile` reply carrying a long session's `events.jsonl`, is held
 /// once, escaped, instead of as a serialized body plus a framed copy of it. The
-/// buffer grows by doubling, as `serde_json::to_vec`'s does, so it can be up to
-/// about twice the frame's size.
+/// buffer grows by doubling, as `serde_json::to_vec`'s does. A frame can then
+/// wait in the writer's queue, so spare capacity beyond 4 KiB or a quarter of
+/// the frame, whichever is larger, is given back first.
 pub(crate) fn encode_frame<T: serde::Serialize>(message: &T) -> Result<EncodedFrame, Error> {
     // `serde_json::to_vec` starts at 128 bytes; the body gets the same room here.
     let mut buf = Vec::with_capacity(FRAME_PREFIX + 128);
@@ -319,6 +320,11 @@ pub(crate) fn encode_frame<T: serde::Serialize>(message: &T) -> Result<EncodedFr
     name.copy_from_slice(CONTENT_LENGTH_HEADER.as_bytes());
     length.copy_from_slice(digits.as_bytes());
     blank_line.copy_from_slice(b"\r\n\r\n");
+    // Doubling can leave the buffer up to twice the frame's size: a long string
+    // is written in one piece, and its closing quote then doubles the buffer.
+    if buf.capacity() - buf.len() > (buf.len() / 4).max(4096) {
+        buf.shrink_to_fit();
+    }
     Ok(EncodedFrame { buf, start })
 }
 

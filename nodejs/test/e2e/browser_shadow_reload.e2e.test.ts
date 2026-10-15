@@ -10,7 +10,7 @@ import { approveAll, RuntimeConnection } from "../../src/index.js";
 import { createSdkTestContext } from "./harness/sdkTestContext.js";
 import { waitForCondition } from "./harness/sdkTestHelper.js";
 
-const BROWSER_NAME = "github-copilot-browser";
+const BROWSER_NAME = "browser-use";
 const SHADOW_SERVER = "installed-browser-shadow";
 const TEST_MCP_SERVER = resolve(
     dirname(fileURLToPath(import.meta.url)),
@@ -20,10 +20,10 @@ const TEST_MCP_SERVER = resolve(
 describe("Browser shadow reload", async () => {
     const { createClient, workDir, env } = await createSdkTestContext({ useStdio: true });
 
-    it(
-        "observes another process's install, disable and removal on a warm session",
+    it.each([BROWSER_NAME, "github-copilot-browser"])(
+        "observes another process's %s install, disable and removal on a warm session",
         { timeout: 90_000 },
-        async () => {
+        async (shadowName) => {
             const bundle = join(workDir, "bundle");
             const shadow = join(workDir, "shadow");
             for (const [directory, server] of [
@@ -34,8 +34,8 @@ describe("Browser shadow reload", async () => {
                 writeFileSync(
                     join(directory, ".plugin", "plugin.json"),
                     JSON.stringify({
-                        name: BROWSER_NAME,
-                        version: "0.0.3",
+                        name: directory === bundle ? BROWSER_NAME : shadowName,
+                        version: "0.0.4",
                         mcpServers: "./.mcp.json",
                     })
                 );
@@ -54,7 +54,10 @@ describe("Browser shadow reload", async () => {
             }
             writeFileSync(
                 join(env.COPILOT_HOME, "settings.json"),
-                JSON.stringify({ enabledPlugins: { [BROWSER_NAME]: true }, disableAllHooks: true })
+                JSON.stringify({
+                    enabledPlugins: { "github-copilot-browser": true },
+                    disableAllHooks: true,
+                })
             );
             await using owner = createClient({
                 connection: RuntimeConnection.forStdio(),
@@ -91,7 +94,7 @@ describe("Browser shadow reload", async () => {
                             ({ name, status }) => ({ name, status })
                         );
                         const installed = (await writer.rpc.plugins.list()).plugins.filter(
-                            (plugin) => plugin.name === BROWSER_NAME
+                            (plugin) => plugin.name === shadowName
                         );
                         const discovered = (
                             await owner.rpc.mcp.discover({ workingDirectory: workDir })
@@ -116,21 +119,21 @@ describe("Browser shadow reload", async () => {
                 await connected(BROWSER_NAME);
 
                 const installed = await writer.rpc.plugins.install({ source: shadow });
-                expect(installed.plugin.name).toBe(BROWSER_NAME);
+                expect(installed.plugin.name).toBe(shadowName);
                 expect(installed.plugin.enabled).toBe(true);
                 await session.rpc.mcp.reload();
                 await connected(SHADOW_SERVER);
                 await absent(BROWSER_NAME);
 
-                await writer.rpc.plugins.disable({ names: [BROWSER_NAME] });
+                await writer.rpc.plugins.disable({ names: [shadowName] });
                 await session.rpc.mcp.reload();
                 await absent(SHADOW_SERVER);
                 await absent(BROWSER_NAME);
 
-                await writer.rpc.plugins.uninstall({ name: BROWSER_NAME });
+                await writer.rpc.plugins.uninstall({ name: shadowName });
                 expect(
                     JSON.parse(readFileSync(join(env.COPILOT_HOME, "settings.json"), "utf8"))
-                        .enabledPlugins[BROWSER_NAME]
+                        .enabledPlugins["github-copilot-browser"]
                 ).toBe(true);
                 await session.rpc.mcp.reload();
                 await connected(BROWSER_NAME);

@@ -4,7 +4,7 @@
 
 import { createServer } from "node:http";
 import { text } from "node:stream/consumers";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { beforeAll, describe, expect, it, onTestFinished } from "vitest";
 import type {
     AutoModeSwitchRequest,
     CopilotSession,
@@ -68,15 +68,16 @@ function waitForEvent<T extends SessionEvent>(
 describe("Mode handlers", async () => {
     const { copilotClient: client, openAiEndpoint, env, workDir } = await createSdkTestContext();
 
-    env.COPILOT_DEBUG_GITHUB_API_URL = env.COPILOT_API_URL;
-    await openAiEndpoint.setCopilotUserByToken(MODE_HANDLER_TOKEN, {
-        login: "mode-handler-user",
-        copilot_plan: "individual_pro",
-        endpoints: {
-            api: env.COPILOT_API_URL,
-            telemetry: "https://localhost:1/telemetry",
-        },
-        analytics_tracking_id: "mode-handler-tracking-id",
+    beforeAll(async () => {
+        await openAiEndpoint.setCopilotUserByToken(MODE_HANDLER_TOKEN, {
+            login: "mode-handler-user",
+            copilot_plan: "individual_pro",
+            endpoints: {
+                api: env.COPILOT_API_URL,
+                telemetry: "https://localhost:1/telemetry",
+            },
+            analytics_tracking_id: "mode-handler-tracking-id",
+        });
     });
 
     it("should invoke exit plan mode handler when model uses tool", async () => {

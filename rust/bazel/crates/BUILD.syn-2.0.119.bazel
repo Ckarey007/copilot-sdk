@@ -43,6 +43,7 @@ rust_library(
         "parsing",
         "printing",
         "proc-macro",
+        "visit",
         "visit-mut",
     ],
     crate_root = "src/lib.rs",

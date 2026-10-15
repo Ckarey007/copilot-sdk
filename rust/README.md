@@ -124,11 +124,11 @@ Transport-specific phases are optional. For example, `port_wait_ms` is present
 only for TCP and `process_spawn_ms` is absent for external and in-process
 transports.
 
-On Windows, SDK-spawned CLI processes start suspended and are assigned to a
-private kill-on-close Job Object before their initial thread resumes. Thread
-lookup captures only that child's process snapshot, rather than enumerating
-machine-wide threads. The Job owns the CLI and its descendants until client
-shutdown or final-client drop, including abrupt termination of the SDK host.
+Windows CLI children normally join a private kill-on-close Job before resuming.
+PSS lookup falls back to Toolhelp. Only `OpenThread` access denial permits an
+ordinary-spawn retry after terminating the original. This logged fallback uses
+best-effort Job assignment: early descendants can escape, and assignment failure
+leaves only direct-child cleanup, without crash-safe SDK-host-exit ownership.
 
 **`ClientOptions`:**
 
@@ -143,6 +143,18 @@ shutdown or final-client drop, including abrupt termination of the SDK host.
 | `transport`         | `Transport`                 | `Default`, `Stdio`, `InProcess`, `Tcp`, or `External`             |
 | `extension_launch_provider` | `Option<Arc<dyn ExtensionLaunchProvider>>` | Connection-global extension launch resolver |
 | `installation_confirmation_handler` | `Option<Arc<dyn InstallationConfirmationHandler>>` | Experimental connection-global human installation review |
+
+For the native standalone runtime, include
+`("COPILOT_GITHUB_TELEMETRY_DISABLED".into(), "true".into())` in
+`ClientOptions::env` before startup to disable direct GitHub telemetry uploads for
+the entire host, including sessionless events. Authentication,
+`on_github_telemetry` forwarding, and user-configured OpenTelemetry export remain
+unchanged. This is separate from
+`SessionConfig::with_enable_session_telemetry(false)`, which disables only a
+session's pipeline. The value must be exactly `"true"`; changing it requires a
+runtime restart. The Node CLI host does not use this variable.
+`Transport::InProcess` rejects per-client `env`; set the variable in the host
+process environment before starting the runtime instead.
 
 With the default `CliProgram::Resolve`, managed stdio and TCP transports resolve an explicit `CliProgram::Path(path)`, `COPILOT_CLI_PATH`, then the bundled `copilot-runtime` wrapper and adjacent `runtime.node`. In-process transport loads the native runtime library adjacent to that resolved runtime bundle. There is no PATH scanning.
 
@@ -856,7 +868,7 @@ let session = client
     .await?;
 ```
 
-**Hook events:** `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmitted`, `UserPromptTransformed`, `SessionStart`, `SessionEnd`, `ErrorOccurred`, `AgentStop`, `SubagentStart`, and `SubagentStop`. Each carries typed input/output structs. `PostToolUse` only fires on success; override `on_post_tool_use_failure` to observe failed tool calls. `on_subagent_start` can inject `additional_context` into the child agent's initial prompt; `on_subagent_stop` can return a `decision` of `"block"` with a `reason` to continue the child or a `modified_response` to replace its final answer. Return `HookOutput::None` for events you don't handle.
+**Hook events:** `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmitted`, `UserPromptTransformed`, `SessionStart`, `SessionEnd`, `ErrorOccurred`, `AgentStop`, `SubagentStart`, and `SubagentStop`. Each carries typed input/output structs. `PostToolUse` only fires on success; override `on_post_tool_use_failure` to observe failed tool calls. `on_subagent_start` can inject `additional_context` into the child agent's initial prompt; `on_subagent_stop` can return a `decision` of `"block"` with a `reason` to continue the child or a `modified_response` to replace its final answer. `on_user_prompt_submitted` can return a `decision` of `"block"` with a `reason` to refuse the prompt: no model turn runs, no user message is recorded, and the session emits an ephemeral `session.warning` (`warningType: "policy_blocked"`) carrying the reason. `UserPromptSubmittedOutput` gained the `decision` and `reason` fields for this; a struct literal that names every field must add them or use `..Default::default()`. Return `HookOutput::None` for events you don't handle.
 
 To inspect runtime-provided actor metadata, override `SessionHooks::on_hook_with_actor`.
 Its typed `HookActor` exposes optional `agent_id()`, `agent_type()`, and `parent_agent_id()` getters.

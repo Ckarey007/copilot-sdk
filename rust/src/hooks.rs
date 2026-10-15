@@ -229,6 +229,16 @@ pub struct UserPromptSubmittedOutput {
     /// Suppress the hook's output from the session log.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suppress_output: Option<bool>,
+    /// Set to `"block"` to refuse the prompt. A block needs a `reason`: the
+    /// runtime then runs no model turn, records no user message, and emits an
+    /// ephemeral `session.warning` with `warningType` `"policy_blocked"`
+    /// whose message is the reason. It takes precedence over the other fields.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decision: Option<String>,
+    /// Why the prompt is blocked. Required with a `"block"` decision: without
+    /// it the runtime ignores the decision and the prompt proceeds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// Input for the `userPromptTransformed` hook.
@@ -807,7 +817,8 @@ pub trait SessionHooks: Send + Sync + 'static {
     }
 
     /// Called when the user submits a prompt. Return `Some(output)` to
-    /// rewrite the prompt or inject extra context; `None` (default) passes
+    /// rewrite the prompt or inject extra context, or to block it with a
+    /// `decision` of `"block"` and a `reason`; `None` (default) passes
     /// through unchanged.
     async fn on_user_prompt_submitted(
         &self,

@@ -22,6 +22,7 @@ from .generated.rpc import (
     HostLocalServerOptions,
     HostPublishSessionResult,
     HostStartResult,
+    HostUnpublishSessionResult,
 )
 
 if TYPE_CHECKING:
@@ -82,6 +83,17 @@ class AhpHost:
             "host.publishSession", {"hostId": self.host_id, "sessionId": session_id}
         )
         return HostPublishSessionResult.from_dict(result)
+
+    async def unpublish_session(self, session_id: str) -> HostUnpublishSessionResult:
+        """Withdraw a live or dormant application publication and revoke AHP attachments.
+
+        Preserves local history, worktrees and ongoing work; returns false when absent.
+        Rejects nonapplication publications without stopping the host.
+        """
+        result = await self._rpc.request(
+            "host.unpublishSession", {"hostId": self.host_id, "sessionId": session_id}
+        )
+        return HostUnpublishSessionResult.from_dict(result)
 
     async def list_sessions(self) -> HostListSessionsResult:
         """List all live and dormant catalog sessions advertised by this host."""

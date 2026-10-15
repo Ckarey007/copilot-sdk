@@ -2266,7 +2266,8 @@ function emitServerInstanceMethod(
     const effectiveParams = resolveMethodParamsSchema(method);
     const paramEntries = effectiveParams?.properties ? Object.entries(effectiveParams.properties) : [];
     const requiredSet = new Set(effectiveParams?.required || []);
-    const legacyEntries = legacyParameterEntries(method, effectiveParams, paramEntries);
+    const legacyEntries = legacyParameterEntries(method, effectiveParams, paramEntries)
+        ?? (isOmittableRequest(method.params) && requiredSet.size === 0 ? [] : undefined);
 
     // Sort so required params come before optional (C# requires defaults at end)
     paramEntries.sort((a, b) => {
@@ -3014,6 +3015,15 @@ export function generateRpcCode(
     // types shared *inside* a signature need the upgrade, so drop the wrappers.
     for (const method of allMethods) {
         publicReachableRpcClasses.delete(paramsTypeName(method));
+    }
+    for (const method of collectRpcMethods(schema.server || {})) {
+        if (
+            method.visibility !== "internal" &&
+            isOmittableRequest(method.params) &&
+            (resolveMethodParamsSchema(method)?.required?.length ?? 0) === 0
+        ) {
+            publicReachableRpcClasses.add(paramsTypeName(method));
+        }
     }
     const classes: string[] = [];
 

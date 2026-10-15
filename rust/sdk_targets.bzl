@@ -67,8 +67,8 @@ def sdk_targets():
         crate_features = sdk_features,
         crate_name = "build_script_build",
         crate_root = "build.rs",
-        # crate_universe classifies ureq as dev-only when it is also a build dependency.
-        deps = all_crate_deps(build = True) + crate_deps(["ureq"]),
+        # crate_universe can classify shared build/dev dependencies as dev-only.
+        deps = all_crate_deps(build = True) + crate_deps(["native-tls", "sha2", "ureq"]),
     )
 
     rust_library(

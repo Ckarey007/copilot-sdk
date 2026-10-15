@@ -327,7 +327,12 @@ describe("Generated RPC surface coverage", () => {
             ...collectRuntimeFunctions(session.rpc, "session"),
         ]);
 
-        expect(inventory).toHaveLength(412);
+        expect(inventory).toHaveLength(416);
+        expect(
+            inventory.filter((method) => method.wireMethod === "models.listTokenPriceUnits")
+        ).toEqual([
+            expect.objectContaining({ scope: "server", path: "models.listTokenPriceUnits" }),
+        ]);
         expect(
             inventory.filter((method) => method.wireMethod === "contentExclusion.validatePolicies")
         ).toEqual([
@@ -347,6 +352,20 @@ describe("Generated RPC surface coverage", () => {
         ]);
         expect(inventory.filter((method) => method.wireMethod === "host.listSessions")).toEqual([
             expect.objectContaining({ scope: "server", path: "host.listSessions" }),
+        ]);
+        expect(inventory.filter((method) => method.wireMethod === "host.unpublishSession")).toEqual(
+            [expect.objectContaining({ scope: "server", path: "host.unpublishSession" })]
+        );
+        expect(
+            inventory.filter(
+                (method) => method.wireMethod === "session.sandbox.getCredentialSuggestions"
+            )
+        ).toEqual([
+            expect.objectContaining({
+                scope: "session",
+                path: "sandbox.getCredentialSuggestions",
+                parameterCount: 0,
+            }),
         ]);
         expect(
             inventory.filter(

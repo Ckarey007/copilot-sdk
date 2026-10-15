@@ -26,6 +26,10 @@ import javax.annotation.processing.Generated;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ModelsListResult(
     /** List of available models with full metadata */
-    @JsonProperty("models") List<Model> models
+    @JsonProperty("models") List<Model> models,
+    /** Ordered Auto routing preferences discovered for the resolved account. Present only
+when the runtime runs with `DYNAMIC_AUTO_TIERS` enabled and CAPI returned Auto
+metadata; same shape and semantics as `SessionModelList.auto`. */
+    @JsonProperty("auto") AutoTierMetadata auto
 ) {
 }

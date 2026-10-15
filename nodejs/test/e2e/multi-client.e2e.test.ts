@@ -2,9 +2,9 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { describe, expect, it, afterAll } from "vitest";
+import { describe, expect, it, afterAll, beforeAll } from "vitest";
 import { z } from "zod";
-import { defineTool, approveAll, RuntimeConnection } from "../../src/index.js";
+import { defineTool, approveAll, RuntimeConnection, type CopilotClient } from "../../src/index.js";
 import type { SessionEvent } from "../../src/index.js";
 import { createSdkTestContext, isInProcessTransport } from "./harness/sdkTestContext";
 
@@ -19,20 +19,23 @@ describe("Multi-client broadcast", async () => {
     });
     const client1 = ctx.copilotClient;
 
-    // Trigger connection so we can read the port
-    const initSession = await client1.createSession({ onPermissionRequest: approveAll });
-    await initSession.disconnect();
-
-    const runtimePort = (client1 as unknown as { runtimePort: number }).runtimePort;
-    let client2 = ctx.createClient({
-        connection: RuntimeConnection.forUri(`localhost:${runtimePort}`, {
-            connectionToken: tcpConnectionToken,
-        }),
+    let runtimePort: number;
+    let client2: CopilotClient;
+    beforeAll(async () => {
+        // Trigger connection after the context has created its working directory.
+        const initSession = await client1.createSession({ onPermissionRequest: approveAll });
+        await initSession.disconnect();
+        runtimePort = (client1 as unknown as { runtimePort: number }).runtimePort;
+        client2 = ctx.createClient({
+            connection: RuntimeConnection.forUri(`localhost:${runtimePort}`, {
+                connectionToken: tcpConnectionToken,
+            }),
+        });
     });
     const EVENT_TIMEOUT_MS = 30_000;
 
     afterAll(async () => {
-        await client2.stop();
+        await client2?.stop();
     });
 
     async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {

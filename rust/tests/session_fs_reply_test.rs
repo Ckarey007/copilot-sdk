@@ -4,9 +4,9 @@
 //! a `Content-Length` that states the body's length and the body the published
 //! path wrote, `{"jsonrpc":"2.0","id":N,"result":R}` with `R` the result as a
 //! `serde_json::Value` writes it (keys sorted). And a large `readFile` reply is
-//! allocated once: a counting allocator records every allocation at least as
-//! large as the reply's content, from the request's write until the reply's
-//! last byte is read.
+//! allocated once, then at most shrunk: a counting allocator records every
+//! allocation and reallocation at least as large as the reply's content, from
+//! the request's write until the reply's last byte is read.
 //!
 //! The allocator is process-global and `cargo test` runs a binary's tests on
 //! parallel threads, so the counting case is `#[serial]` and every other case
@@ -44,17 +44,33 @@ const HEADER_ROOM: usize = 40;
 /// reallocation) of at least [`WATCH_FROM`] bytes while it is non-zero.
 struct LargeAllocationRecorder;
 
+// What each recorded event was: a new allocation, or a reallocation that grew
+// or shrank a buffer.
+const ALLOC: usize = 0;
+const GROW: usize = 1;
+const SHRINK: usize = 2;
+
 static WATCH_FROM: AtomicUsize = AtomicUsize::new(0);
 static LARGE_COUNT: AtomicUsize = AtomicUsize::new(0);
 static LARGE: [AtomicUsize; 16] = [const { AtomicUsize::new(0) }; 16];
+static LARGE_KIND: [AtomicUsize; 16] = [const { AtomicUsize::new(0) }; 16];
 
-fn note(size: usize) {
+fn note(size: usize, kind: usize) {
     let from = WATCH_FROM.load(Ordering::SeqCst);
     if from != 0 && size >= from {
         let slot = LARGE_COUNT.fetch_add(1, Ordering::SeqCst);
-        if let Some(entry) = LARGE.get(slot) {
+        if let (Some(entry), Some(entry_kind)) = (LARGE.get(slot), LARGE_KIND.get(slot)) {
             entry.store(size, Ordering::SeqCst);
+            entry_kind.store(kind, Ordering::SeqCst);
         }
+    }
+}
+
+fn kind_name(kind: usize) -> &'static str {
+    match kind {
+        ALLOC => "alloc",
+        GROW => "grow",
+        _ => "shrink",
     }
 }
 
@@ -63,13 +79,13 @@ fn note(size: usize) {
 // touch the memory.
 unsafe impl GlobalAlloc for LargeAllocationRecorder {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        note(layout.size());
+        note(layout.size(), ALLOC);
         // SAFETY: forwarded unchanged (see the impl's SAFETY note).
         unsafe { System.alloc(layout) }
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        note(layout.size());
+        note(layout.size(), ALLOC);
         // SAFETY: forwarded unchanged (see the impl's SAFETY note).
         unsafe { System.alloc_zeroed(layout) }
     }
@@ -80,7 +96,8 @@ unsafe impl GlobalAlloc for LargeAllocationRecorder {
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        note(new_size);
+        let shrinks = new_size < layout.size();
+        note(new_size, if shrinks { SHRINK } else { GROW });
         // SAFETY: forwarded unchanged (see the impl's SAFETY note).
         unsafe { System.realloc(ptr, layout, new_size) }
     }
@@ -403,17 +420,32 @@ async fn a_read_file_reply_is_allocated_once_in_its_frame_buffer() {
     WATCH_FROM.store(0, Ordering::SeqCst);
 
     let count = LARGE_COUNT.load(Ordering::SeqCst);
-    let sizes: Vec<usize> = LARGE
+    let events: Vec<(usize, usize)> = LARGE
         .iter()
+        .zip(&LARGE_KIND)
         .take(count)
-        .map(|size| size.load(Ordering::SeqCst))
+        .map(|(size, kind)| (size.load(Ordering::SeqCst), kind.load(Ordering::SeqCst)))
         .collect();
     let frame = format!("Content-Length: {length}\r\n\r\n").len() + length;
     let most = 2 * (frame + HEADER_ROOM);
+    // The frame's buffer, and at most one shrink of that same buffer:
+    // `encode_frame` gives back large spare capacity before the frame is queued.
+    let once = match events.as_slice() {
+        [(size, _)] => (frame..most).contains(size),
+        [(size, _), (shrunk, SHRINK)] => {
+            (frame..most).contains(size) && (frame..*size).contains(shrunk)
+        }
+        _ => false,
+    };
+    let named: Vec<(usize, &str)> = events
+        .iter()
+        .map(|&(size, kind)| (size, kind_name(kind)))
+        .collect();
     assert!(
-        sizes.len() == 1 && (frame..most).contains(&sizes[0]),
+        once,
         "allocations of at least the content's {CONTENT_BYTES} bytes while the reply was built \
-         and written: {sizes:?}; want only the frame's buffer, of {frame} to {most} bytes"
+         and written: {named:?}; want only the frame's buffer, of {frame} to {most} bytes, and at \
+         most one shrink of it to no less than the frame"
     );
     let reply: Value = serde_json::from_slice(&body[..length]).expect("a JSON reply");
     assert_eq!(reply["id"], 20);

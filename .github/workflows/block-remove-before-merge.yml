@@ -14,7 +14,7 @@ jobs:
   check-paths:
     name: "No remove-before-merge directories"
     if: github.event_name == 'pull_request' && github.base_ref == 'main'
-    runs-on: ubuntu-26.04-2core-agent-runtime
+    runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@v7
         with:

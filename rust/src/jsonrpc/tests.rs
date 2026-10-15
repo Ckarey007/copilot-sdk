@@ -172,6 +172,21 @@ fn encode_frame_writes_the_published_frame() {
 }
 
 #[test]
+fn encode_frame_gives_back_large_spare_capacity() {
+    // A 64 KiB string is written in one piece, and its closing quote then
+    // doubles the buffer to about twice the frame's size.
+    let message = "x".repeat(64 * 1024);
+    let frame = encode_frame(&message).unwrap();
+    assert_eq!(frame.as_bytes(), published_frame(&message));
+    assert!(
+        frame.buf.capacity() <= frame.buf.len() + 4096,
+        "a {}-byte frame keeps {} bytes",
+        frame.buf.len(),
+        frame.buf.capacity()
+    );
+}
+
+#[test]
 fn encode_frame_writes_the_header_into_the_room_before_the_body() {
     // A 100-byte body: a JSON string of 98 characters.
     let message = "x".repeat(98);

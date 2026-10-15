@@ -3954,7 +3954,18 @@ async function generateRpc(schemaPath?: string): Promise<void> {
     console.log("Go: generating RPC types...");
 
     const resolvedPath = schemaPath ?? (await getApiSchemaPath());
-    const schema = propagateInternalVisibility(normalizeExtensibleEnums(fixNullableRequiredRefsInApiSchema(cloneSchemaForCodegen((await loadSchemaJson(resolvedPath)) as ApiSchema))) as JSONSchema7) as unknown as ApiSchema;
+    const { typeCode, encodingCode } = generateGoRpcCode((await loadSchemaJson(resolvedPath)) as ApiSchema);
+    const outPath = await writeGeneratedFile("go/rpc/zrpc.go", typeCode);
+    console.log(`  ✓ ${outPath}`);
+    await formatGoFile(outPath);
+
+    const encodingOutPath = await writeGeneratedFile("go/rpc/zrpc_encoding.go", encodingCode);
+    console.log(`  ✓ ${encodingOutPath}`);
+    await formatGoFile(encodingOutPath);
+}
+
+export function generateGoRpcCode(apiSchema: ApiSchema): { typeCode: string; encodingCode: string } {
+    const schema = propagateInternalVisibility(normalizeExtensibleEnums(fixNullableRequiredRefsInApiSchema(cloneSchemaForCodegen(apiSchema))) as JSONSchema7) as unknown as ApiSchema;
 
     const allMethods = [
         ...collectRpcMethods(schema.server || {}),
@@ -4183,15 +4194,10 @@ async function generateRpc(schemaPath?: string): Promise<void> {
         emitClientGlobalApiRegistration(lines, schema.clientGlobal, resolveType, generatedRpcCode.discriminatedUnions);
     }
 
-    const outPath = await writeGeneratedFile("go/rpc/zrpc.go", wrapGeneratedGoComments(lines.join("\n")));
-    console.log(`  ✓ ${outPath}`);
-
-    await formatGoFile(outPath);
-
-    const encodingOutPath = await writeGeneratedFile("go/rpc/zrpc_encoding.go", goGeneratedEncodingFileCode("api.schema.json", "rpc", generatedEncodingCode, true));
-    console.log(`  ✓ ${encodingOutPath}`);
-
-    await formatGoFile(encodingOutPath);
+    return {
+        typeCode: wrapGeneratedGoComments(lines.join("\n")),
+        encodingCode: goGeneratedEncodingFileCode("api.schema.json", "rpc", generatedEncodingCode, true),
+    };
 }
 
 function emitApiGroup(

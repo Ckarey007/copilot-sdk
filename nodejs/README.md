@@ -272,6 +272,18 @@ new CopilotClient(options?: CopilotClientOptions)
 - `installationConfirmationHandler?: InstallationConfirmationHandler` - Experimental connection-global human review for `installations.confirm`. Receives the typed request and independent request/connection cancellation signals, and returns an explicit decision. Does not enable installation capabilities.
 - `logLevel?: "none" | "error" | "warning" | "info" | "debug" | "all"` - Log level. When omitted, the runtime uses its own default (currently `"info"`).
 - `env?: Record<string, string | undefined>` - Environment variables for the runtime process. When omitted, inherits `process.env`.
+
+    For the native standalone runtime, set `COPILOT_GITHUB_TELEMETRY_DISABLED=true`
+    before startup to disable direct GitHub telemetry uploads for the entire host,
+    including session and sessionless events. Authentication, SDK
+    `onGitHubTelemetry` forwarding, and user-configured OpenTelemetry export remain
+    unchanged. The value must be exactly `"true"` and is read at startup; changing
+    it requires a runtime restart. With `RuntimeConnection.forInProcess()`, set it
+    in the host process environment; per-client `env` is rejected for that
+    transport. This is separate from `enableSessionTelemetry: false`, which
+    disables only a session's telemetry pipeline. The Node CLI host does not use
+    this environment variable.
+
 - `gitHubToken?: string` - GitHub token for authentication. When provided, takes priority over other auth methods.
 - `useLoggedInUser?: boolean` - Whether to use logged-in user for authentication (default: true, but false when `gitHubToken` is provided). Cannot be used with `RuntimeConnection.forUri`.
 - `onListModels?: () => Promise<ModelInfo[]> | ModelInfo[]` - Optional model-list provider, useful when using a custom provider.
@@ -1620,7 +1632,7 @@ const session = await client.createSession({
 - `onPreToolUse` - Intercept tool calls before execution. Can allow/deny or modify arguments.
 - `onPostToolUse` - Process tool results after **successful** execution. Can modify results or add context.
 - `onPostToolUseFailure` - Observe and append hidden guidance to the model after tool executions whose result was `"failure"`. Register this in addition to `onPostToolUse` to see failed tool calls.
-- `onUserPromptSubmitted` - Intercept user prompts. Can modify the prompt before processing.
+- `onUserPromptSubmitted` - Intercept user prompts. Can modify the prompt before processing, or return `{ decision: "block", reason }` to refuse it: no model turn runs, no user message is recorded, and the session emits an ephemeral `session.warning` (`warningType: "policy_blocked"`) carrying the reason.
 - `onSessionStart` - Run logic when a session starts or resumes.
 - `onSessionEnd` - Cleanup or logging when session ends.
 - `onErrorOccurred` - Handle errors with retry/skip/abort strategies.

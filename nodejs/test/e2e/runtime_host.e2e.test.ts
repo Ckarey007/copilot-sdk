@@ -4,7 +4,7 @@
 
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -792,6 +792,200 @@ describe.skipIf(!enabled)("Runtime-supervised AHP host", async () => {
             await expect(original.getEvents()).resolves.toEqual(expect.any(Array));
         } finally {
             await ahp.client.shutdown();
+        }
+    });
+
+    it("unpublishes live and dormant application sessions without stopping the host or deleting local state", async () => {
+        await using session = await owner.createSession({
+            workingDirectory: ctx.workDir,
+            onPermissionRequest: approveAll,
+        });
+        const markerPath = join(ctx.workDir, `unpublish-${randomUUID()}.txt`);
+        await writeFile(markerPath, "local work survives unpublication");
+        await session.rpc.mode.set({ mode: "plan" });
+        const events = await session.getEvents();
+        expect(events.length).toBeGreaterThan(0);
+        const onExit = vi.fn();
+        await using host = await owner.startAhpHost({
+            computeId: randomUUID(),
+            localServer: {},
+            onExit,
+        });
+        const runtimePid = runtimeDetails(owner).pid;
+        const ahp = await connectAhp(host);
+        try {
+            const publication = await host.publishSession(session.sessionId);
+            await authenticateAhp(ahp, ctx.env.GITHUB_TOKEN);
+            const { result } = await ahp.client.subscribe(publication.sessionUri);
+            expect((result.snapshot?.state as SessionState).lifecycle).toBe("ready");
+            expect((await host.listSessions()).sessions.map((entry) => entry.resource)).toContain(
+                publication.sessionUri
+            );
+
+            await expect(host.unpublishSession(session.sessionId)).resolves.toEqual({
+                unpublished: true,
+            });
+            expect((await host.listSessions()).sessions).toEqual([]);
+            await expect(ahp.client.subscribe(publication.sessionUri)).rejects.toThrow();
+            await expect(host.unpublishSession(session.sessionId)).resolves.toEqual({
+                unpublished: false,
+            });
+            expect(await session.getEvents()).toEqual(expect.arrayContaining(events));
+            expect(await session.rpc.mode.get()).toBe("plan");
+            expect(await readFile(markerPath, "utf8")).toBe("local work survives unpublication");
+
+            // Republishing on the same host proves unpublication did not stop its listener.
+            await host.publishSession(session.sessionId);
+            await session.disconnect();
+            expect((await host.listSessions()).sessions.map((entry) => entry.resource)).toContain(
+                publication.sessionUri
+            );
+            await expect(host.unpublishSession(session.sessionId)).resolves.toEqual({
+                unpublished: true,
+            });
+            expect((await host.listSessions()).sessions).toEqual([]);
+            await using resumed = await owner.resumeSession(session.sessionId, {
+                onPermissionRequest: approveAll,
+            });
+            expect(await resumed.getEvents()).toEqual(expect.arrayContaining(events));
+            expect(await readFile(markerPath, "utf8")).toBe("local work survives unpublication");
+            expect(runtimeDetails(owner).pid).toBe(runtimePid);
+            expect(onExit).not.toHaveBeenCalled();
+        } finally {
+            await ahp.client.shutdown();
+        }
+    });
+
+    it("detaches the real AHP participant without aborting an active application turn", async () => {
+        await configureReplay("multi_client/both_clients_see_tool_request_and_completion_events");
+        let signalToolEntered!: () => void;
+        let releaseTool!: () => void;
+        const toolEntered = new Promise<void>((resolve) => {
+            signalToolEntered = resolve;
+        });
+        const toolGate = new Promise<void>((resolve) => {
+            releaseTool = resolve;
+        });
+        const toolFinished = vi.fn();
+        const tool = vi.fn(async ({ seed }: { seed: string }) => {
+            signalToolEntered();
+            await toolGate;
+            toolFinished();
+            return `MAGIC_${seed}_42`;
+        });
+        await using session = await owner.createSession({
+            model: "claude-sonnet-5",
+            onPermissionRequest: approveAll,
+            tools: [
+                defineTool("magic_number", {
+                    description: "Returns a magic number",
+                    parameters: z.object({ seed: z.string().describe("A seed value") }),
+                    handler: tool,
+                }),
+            ],
+        });
+        const onExit = vi.fn();
+        await using host = await owner.startAhpHost({
+            computeId: randomUUID(),
+            localServer: {},
+            onExit,
+        });
+        const ahp = await connectAhp(host);
+        try {
+            const publication = await host.publishSession(session.sessionId);
+            await authenticateAhp(ahp, ctx.env.GITHUB_TOKEN);
+            const { result } = await ahp.client.subscribe(publication.sessionUri);
+            expect((result.snapshot?.state as SessionState).lifecycle).toBe("ready");
+
+            const completion = session
+                .sendAndWait({
+                    prompt: "Use the magic_number tool with seed 'hello' and tell me the result",
+                })
+                .then(
+                    (value) => ({ value, error: undefined }),
+                    (error: unknown) => ({ value: undefined, error })
+                );
+            await withDeadline(toolEntered, "application tool entered its controlled gate");
+            expect(tool).toHaveBeenCalledExactlyOnceWith(
+                { seed: "hello" },
+                expect.objectContaining({ sessionId: session.sessionId, toolName: "magic_number" })
+            );
+            await expect(host.unpublishSession(session.sessionId)).resolves.toEqual({
+                unpublished: true,
+            });
+            expect(toolFinished).not.toHaveBeenCalled();
+            expect((await host.listSessions()).sessions).toEqual([]);
+            await expect(ahp.client.subscribe(publication.sessionUri)).rejects.toThrow();
+
+            releaseTool();
+            const completed = await withDeadline(
+                completion,
+                "same local application turn completed"
+            );
+            expect(completed.error).toBeUndefined();
+            expect(completed.value?.data.content).toContain("MAGIC_hello_42");
+            expect(toolFinished).toHaveBeenCalledOnce();
+            expect(onExit).not.toHaveBeenCalled();
+        } finally {
+            releaseTool();
+            await ahp.client.shutdown();
+        }
+    });
+
+    it("keeps publications withdrawn across runtime restart and resumes local work", async () => {
+        await configureReplay();
+        const firstOwner = ctx.createClient();
+        const restartedOwner = ctx.createClient();
+        const computeId = randomUUID();
+        const markerPath = join(ctx.workDir, `unpublished-restart-${randomUUID()}.txt`);
+        await writeFile(markerPath, "durable local work");
+        let sessionId = "";
+        try {
+            {
+                await using session = await firstOwner.createSession({
+                    model: "claude-sonnet-5",
+                    workingDirectory: ctx.workDir,
+                    onPermissionRequest: approveAll,
+                });
+                sessionId = session.sessionId;
+                await using host = await firstOwner.startAhpHost({
+                    computeId,
+                    localServer: {},
+                });
+                const publication = await host.publishSession(sessionId);
+                expect(
+                    (await host.listSessions()).sessions.map((entry) => entry.resource)
+                ).toContain(publication.sessionUri);
+                await expect(host.unpublishSession(sessionId)).resolves.toEqual({
+                    unpublished: true,
+                });
+                expect((await host.listSessions()).sessions).toEqual([]);
+            }
+            const firstPid = runtimeDetails(firstOwner).pid;
+            await firstOwner.stop();
+            await assertProcessStopped(firstPid, "first publication runtime");
+
+            await using restartedHost = await restartedOwner.startAhpHost({
+                computeId,
+                localServer: {},
+            });
+            expect((await restartedHost.listSessions()).sessions).toEqual([]);
+            await expect(restartedHost.unpublishSession(sessionId)).resolves.toEqual({
+                unpublished: false,
+            });
+            await using resumed = await restartedOwner.resumeSession(sessionId, {
+                model: "claude-sonnet-5",
+                onPermissionRequest: approveAll,
+            });
+            expect(resumed.sessionId).toBe(sessionId);
+            expect((await resumed.sendAndWait({ prompt: "What is 2+2?" }))?.data.content).toContain(
+                "4"
+            );
+            expect(await readFile(markerPath, "utf8")).toBe("durable local work");
+            expect((await restartedHost.listSessions()).sessions).toEqual([]);
+        } finally {
+            await firstOwner.stop();
+            await restartedOwner.stop();
         }
     });
 

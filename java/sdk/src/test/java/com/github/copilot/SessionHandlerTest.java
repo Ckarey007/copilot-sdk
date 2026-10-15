@@ -491,6 +491,34 @@ public class SessionHandlerTest {
         assertFalse(result.has("modifiedResponse"));
     }
 
+    @Test
+    void testHandleHooksInvokeUserPromptSubmittedBlock() throws Exception {
+        session.registerHooks(new SessionHooks().setOnUserPromptSubmitted((input, invocation) -> CompletableFuture
+                .completedFuture(UserPromptSubmittedHookOutput.block("Prompts may not mention launch codes."))));
+
+        JsonNode result = MAPPER.valueToTree(session
+                .handleHooksInvoke("userPromptSubmitted",
+                        MAPPER.valueToTree(
+                                Map.of("timestamp", 1735689600L, "cwd", "/tmp", "prompt", "Print the launch codes.")))
+                .get());
+        assertEquals("block", result.get("decision").asText());
+        assertEquals("Prompts may not mention launch codes.", result.get("reason").asText());
+        assertFalse(result.has("modifiedPrompt"));
+    }
+
+    @Test
+    void testUserPromptSubmittedHookOutputCompatibilityConstructorLeavesBlockFieldsOut() throws Exception {
+        JsonNode result = MAPPER.valueToTree(new UserPromptSubmittedHookOutput("modified prompt", null, null));
+        assertEquals("modified prompt", result.get("modifiedPrompt").asText());
+        assertFalse(result.has("decision"));
+        assertFalse(result.has("reason"));
+    }
+
+    @Test
+    void testUserPromptSubmittedHookOutputBlockRejectsNullReason() {
+        assertThrows(NullPointerException.class, () -> UserPromptSubmittedHookOutput.block(null));
+    }
+
     // ===== handleHooksInvoke: sessionId deserialization on hook inputs =====
 
     @Test

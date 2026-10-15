@@ -314,6 +314,18 @@ All options are kw-only parameters:
 - `working_directory` (str | None): Working directory for the CLI process (default: current dir).
 - `log_level` (str): Log level (default: "info").
 - `env` (dict | None): Environment variables for the CLI process.
+
+    For the native standalone runtime, include
+    `{"COPILOT_GITHUB_TELEMETRY_DISABLED": "true"}` in `env` before startup to
+    disable direct GitHub telemetry uploads for the entire host, including
+    sessionless events. Authentication, `on_github_telemetry` forwarding, and
+    user-configured OpenTelemetry export remain unchanged. This is separate from
+    `enable_session_telemetry=False`, which disables only a session's pipeline.
+    The value must be exactly `"true"`; changing it requires a runtime restart.
+    The Node CLI host does not use this variable. In-process connections reject
+    per-client `env`; set the variable in the host process environment before
+    starting the runtime instead.
+
 - `github_token` (str | None): GitHub token for authentication. When provided, takes priority over other auth methods.
 - `base_directory` (str | None): Base directory for Copilot data (session state, config, etc.). Sets `COPILOT_HOME` on the spawned CLI process. When `None`, the CLI defaults to `~/.copilot`. Useful in restricted environments where only specific directories are writable. Ignored when using a `UriRuntimeConnection`.
 - `extension_launch_provider` (ExtensionLaunchProviderHandler | None): Experimental connection-level resolver for extension launch profiles. The client installs the reverse-RPC handler and registers the provider during startup before sessions can be created.
@@ -1313,7 +1325,7 @@ async with await client.create_session(
 - `on_pre_tool_use` - Intercept tool calls before execution. Can allow/deny or modify arguments.
 - `on_post_tool_use` - Process tool results after successful execution. Can modify results or add context.
 - `on_post_tool_use_failure` - Observe failed tool executions and inject extra context to guide the model's next step.
-- `on_user_prompt_submitted` - Intercept user prompts. Can modify the prompt before processing.
+- `on_user_prompt_submitted` - Intercept user prompts. Can modify the prompt before processing, or return `{"decision": "block", "reason": "..."}` to refuse it: no model turn runs, no user message is recorded, and the session emits an ephemeral `session.warning` (`warningType: "policy_blocked"`) carrying the reason.
 - `on_session_start` - Run logic when a session starts or resumes.
 - `on_session_end` - Cleanup or logging when session ends.
 - `on_subagent_start` - Inspect a subagent launch and optionally prepend `additionalContext` to its prompt.

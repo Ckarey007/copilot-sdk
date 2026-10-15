@@ -369,6 +369,18 @@ Event types: `SessionLifecycleCreated`, `SessionLifecycleDeleted`, `SessionLifec
 - `InstallationConfirmationHandler` (InstallationConfirmationHandler): Experimental connection-global human review for `installations.confirm`. Receives the typed request, a per-request cancellation context and a separate connection-closed signal, then returns an explicit decision. Does not enable installation capabilities.
 - `LogLevel` (string): Log level. When empty (default), the runtime uses its own default level (the SDK does not pass `--log-level`).
 - `Env` ([]string): Environment variables for the runtime process (default: inherits from current process)
+
+  For the native standalone runtime, include
+  `"COPILOT_GITHUB_TELEMETRY_DISABLED=true"` in `Env` before startup to disable
+  direct GitHub telemetry uploads for the entire host, including sessionless
+  events. Authentication, `OnGitHubTelemetry` forwarding, and user-configured
+  OpenTelemetry export remain unchanged. This is separate from
+  `EnableSessionTelemetry: copilot.Bool(false)`, which disables only a session's
+  pipeline. The value must be exactly `"true"`; changing it requires a runtime
+  restart. The Node CLI host does not use this variable. In-process connections
+  reject per-client `Env`; set the variable in the host process environment
+  before starting the runtime instead.
+
 - `GitHubToken` (string): GitHub token for authentication. When provided, takes priority over other auth methods.
 - `UseLoggedInUser` (\*bool): Whether to use logged-in user for authentication (default: true, but false when `GitHubToken` is provided). Cannot be used with `URIConnection`.
 - `EnableRemoteSessions` (bool): Enable remote session support (Mission Control integration). Ignored with `URIConnection`.
@@ -1179,7 +1191,7 @@ session, err := client.CreateSession(context.Background(), &copilot.SessionConfi
 - `OnPreToolUse` - Intercept tool calls before execution. Can allow/deny or modify arguments.
 - `OnPostToolUse` - Process tool results after successful execution. Can modify results or add context.
 - `OnPostToolUseFailure` - Observe failed tool executions and inject extra context to guide the model's next step.
-- `OnUserPromptSubmitted` - Intercept user prompts. Can modify the prompt before processing.
+- `OnUserPromptSubmitted` - Intercept user prompts. Can modify the prompt before processing, or return `Decision: "block"` with a non-empty `Reason` to refuse it: no model turn runs, no user message is recorded, and the session emits an ephemeral `session.warning` (`warningType: "policy_blocked"`) carrying the reason.
 - `OnSessionStart` - Run logic when a session starts or resumes.
 - `OnSessionEnd` - Cleanup or logging when session ends.
 - `OnSubagentStart` - Observe a subagent before its first turn and optionally prepend `AdditionalContext` to its prompt.

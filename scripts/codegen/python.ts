@@ -3414,10 +3414,16 @@ function preserveUnknownPythonEnumValues(code: string, name: string): string {
 
 async function generateRpc(schemaPath?: string, sessionEventsSchema?: JSONSchema7): Promise<void> {
     console.log("Python: generating RPC types...");
-    const { FetchingJSONSchemaStore, InputData, JSONSchemaInput, quicktype } = await import("quicktype-core");
 
     const resolvedPath = schemaPath ?? (await getApiSchemaPath());
-    const sourceSchema = fixNullableRequiredRefsInApiSchema(cloneSchemaForCodegen((await loadSchemaJson(resolvedPath)) as ApiSchema));
+    const code = await generateRpcCode((await loadSchemaJson(resolvedPath)) as ApiSchema, sessionEventsSchema);
+    const outPath = await writeGeneratedFile("python/copilot/generated/rpc.py", code);
+    console.log(`  ✓ ${outPath}`);
+}
+
+export async function generateRpcCode(apiSchema: ApiSchema, sessionEventsSchema?: JSONSchema7): Promise<string> {
+    const { FetchingJSONSchemaStore, InputData, JSONSchemaInput, quicktype } = await import("quicktype-core");
+    const sourceSchema = fixNullableRequiredRefsInApiSchema(cloneSchemaForCodegen(apiSchema));
     let schema = sourceSchema;
     if (sessionEventsSchema) {
         const sharedDefinitions = findSharedSchemaDefinitions(
@@ -3973,8 +3979,7 @@ def _patch_model_capabilities(data: dict) -> dict:
     finalCode = appendPythonCompatibilityAliases(finalCode);
     finalCode = appendPythonRpcAllList(finalCode, rpcDefinitions);
 
-    const outPath = await writeGeneratedFile("python/copilot/generated/rpc.py", finalCode);
-    console.log(`  ✓ ${outPath}`);
+    return finalCode;
 }
 
 /**

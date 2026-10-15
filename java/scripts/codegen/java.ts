@@ -260,7 +260,7 @@ const generatedSessionEventTypeNames = new Set<string>();
 let publicRpcDefinitionNames = new Set<string>();
 
 // Cross-schema definitions: keyed by schema filename (e.g. "session-events.schema.json"),
-// value is the definitions map from that schema. Populated by generateRpcTypes so that
+// value is the definitions map from that schema. Populated by renderRpcTypes so that
 // cross-schema $ref values like "session-events.schema.json#/definitions/Foo" can be resolved.
 const crossSchemaDefinitions = new Map<string, Record<string, JSONSchema7>>();
 
@@ -1585,7 +1585,28 @@ async function generateSessionEvents(schemaPath: string): Promise<void> {
     console.log("\n📋 Generating session event classes...");
     const schemaContent = await fs.readFile(schemaPath, "utf-8");
     const schema = normalizeSchemaBrandCasing(JSON.parse(schemaContent) as JSONSchema7);
+    const variantCount = await emitSessionEvents(schema);
+    console.log(`✅ Generated ${variantCount + 1} session event files`);
+}
 
+/**
+ * Render all session event classes, registrations, and referenced types in memory.
+ * Calls must be awaited sequentially with other Java renderers, which share module state.
+ * Normalizes brand casing in the supplied schema in place.
+ */
+export async function renderSessionEvents(schema: JSONSchema7): Promise<Map<string, string>> {
+    if (pendingOutput) throw new Error("Concurrent Java session event generation is not supported.");
+    const files = new Map<string, string>();
+    pendingOutput = files;
+    try {
+        await emitSessionEvents(normalizeSchemaBrandCasing(schema));
+        return files;
+    } finally {
+        pendingOutput = undefined;
+    }
+}
+
+async function emitSessionEvents(schema: JSONSchema7): Promise<number> {
     // Set module-level definitions for $ref resolution
     currentDefinitions = (schema.definitions ?? {}) as Record<string, JSONSchema7>;
     pendingStandaloneTypes.clear();
@@ -1631,7 +1652,7 @@ async function generateSessionEvents(schemaPath: string): Promise<void> {
         }
     }
 
-    console.log(`✅ Generated ${variants.length + 1} session event files`);
+    return variants.length;
 }
 
 async function generateSessionEventBaseClass(
@@ -2720,32 +2741,40 @@ async function generateRpcTypes(schemaPath: string): Promise<void> {
     console.log("\n🔌 Generating RPC types...");
     const schemaContent = await fs.readFile(schemaPath, "utf-8");
     const schema = normalizeRpcSchema(JSON.parse(schemaContent) as RpcSchema);
-    crossSchemaDefinitions.clear();
+    let sessionEventsSchema: JSONSchema7 | undefined;
 
     // Load cross-schema definitions (session-events) so that cross-schema $ref values
     // like "session-events.schema.json#/definitions/Foo" can be resolved.
     try {
         const sessionEventsSchemaPath = await getSessionEventsSchemaPath();
         const sessionEventsContent = await fs.readFile(sessionEventsSchemaPath, "utf-8");
-        const sessionEventsSchema = normalizeSchemaBrandCasing(JSON.parse(sessionEventsContent) as JSONSchema7);
-        crossSchemaDefinitions.set("session-events.schema.json",
-            (sessionEventsSchema.definitions ?? {}) as Record<string, JSONSchema7>);
+        sessionEventsSchema = JSON.parse(sessionEventsContent) as JSONSchema7;
     } catch (e) {
         console.warn(`[codegen] Could not load session-events schema for cross-ref resolution: ${e}`);
     }
 
-    const files = await renderRpcTypes(schema);
+    const files = await renderRpcTypes(schema, RPC_VARIANT_OWNERS, sessionEventsSchema);
     for (const [file, content] of files) await writeGeneratedFile(file, content);
     console.log(`✅ Generated ${files.size} RPC type files`);
 }
 
-/** Plan and render all RPC types in memory, rejecting ABI/name conflicts before file writes. */
+/**
+ * Plan and render all RPC types in memory, rejecting ABI/name conflicts before file writes.
+ * Shared event types require their schema and a preceding session-event render.
+ */
 export async function renderRpcTypes(
     schema: RpcSchema,
-    historicalOwners: Readonly<Record<string, string>> = RPC_VARIANT_OWNERS
+    historicalOwners: Readonly<Record<string, string>> = RPC_VARIANT_OWNERS,
+    sessionEventsSchema?: JSONSchema7
 ): Promise<Map<string, string>> {
     if (rpcGeneration) throw new Error("Concurrent Java RPC generation is not supported.");
     schema = normalizeRpcSchema(schema);
+    crossSchemaDefinitions.clear();
+    if (sessionEventsSchema) {
+        const normalized = normalizeSchemaBrandCasing(structuredClone(sessionEventsSchema));
+        crossSchemaDefinitions.set("session-events.schema.json",
+            (normalized.definitions ?? {}) as Record<string, JSONSchema7>);
+    }
     const generation: RpcGeneration = { files: new Map(), unions: new Map() };
     rpcGeneration = generation;
     try {

@@ -60,6 +60,9 @@ public final class SessionFusionResolvedEvent extends SessionEvent {
         @JsonProperty("modelUniverseVersion") String modelUniverseVersion,
         /** Identifier of the local policy rule that matched. */
         @JsonProperty("ruleId") String ruleId,
+        /** Identifier of the server policy rule whose workflow the plan's steps describe, when CAPI's sticky root routing replaced the workflow of `ruleId`'s rule to keep the previous turn's root model. Absent when no substitution occurred. */
+        @CopilotExperimental
+        @JsonProperty("selectedRuleId") String selectedRuleId,
         /** Zero-based index of the local policy rule that matched. */
         @JsonProperty("ruleIndex") Long ruleIndex,
         /** Human-readable name of the local policy rule that matched. */

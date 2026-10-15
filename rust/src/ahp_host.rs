@@ -20,7 +20,7 @@ pub use crate::generated::api_types::HostExitedNotification as AhpHostExit;
 use crate::generated::api_types::{
     HostDisposeRequest, HostListSessionsRequest, HostListSessionsResult, HostPublishSessionRequest,
     HostPublishSessionResult, HostSessionCreateCallback, HostSessionReleasedNotification,
-    HostStartOptions, HostStartResult,
+    HostStartOptions, HostStartResult, HostUnpublishSessionRequest, HostUnpublishSessionResult,
 };
 use crate::session::Session;
 use crate::{
@@ -323,6 +323,27 @@ impl AhpHost {
             .rpc()
             .host()
             .publish_session(HostPublishSessionRequest {
+                host_id: self.host_id.clone(),
+                session_id: session_id.into(),
+            })
+            .await
+    }
+
+    /// Withdraw a live or dormant application publication and revoke AHP attachments.
+    ///
+    /// Preserves local history, worktrees and ongoing work; returns false when absent.
+    /// Rejects nonapplication publications without stopping the host.
+    pub async fn unpublish_session(
+        &self,
+        session_id: impl Into<crate::SessionId>,
+    ) -> Result<HostUnpublishSessionResult, Error> {
+        let client = Client::from_inner(self.client.upgrade().ok_or_else(|| {
+            Error::from(ErrorKind::Protocol(ProtocolErrorKind::RequestCancelled))
+        })?);
+        client
+            .rpc()
+            .host()
+            .unpublish_session(HostUnpublishSessionRequest {
                 host_id: self.host_id.clone(),
                 session_id: session_id.into(),
             })

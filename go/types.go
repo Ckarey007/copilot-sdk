@@ -823,11 +823,19 @@ func (h *UserPromptSubmittedHookInput) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// UserPromptSubmittedHookOutput is the output for a user-prompt-submitted hook
+// UserPromptSubmittedHookOutput is the output for a user-prompt-submitted hook.
+//
+// A Decision of "block" refuses the prompt: no model turn runs, no user message
+// is recorded, and the session emits an ephemeral session.warning
+// (warningType "policy_blocked") carrying Reason. The runtime blocks only when
+// a reason is present, and an empty Reason is omitted from the output, so a
+// block needs a non-empty Reason.
 type UserPromptSubmittedHookOutput struct {
 	ModifiedPrompt    string `json:"modifiedPrompt,omitempty"`
 	AdditionalContext string `json:"additionalContext,omitempty"`
 	SuppressOutput    bool   `json:"suppressOutput,omitempty"`
+	Decision          string `json:"decision,omitempty"`
+	Reason            string `json:"reason,omitempty"`
 }
 
 // UserPromptSubmittedHandler handles user-prompt-submitted hook invocations

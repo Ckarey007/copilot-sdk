@@ -39,6 +39,31 @@ public sealed partial class ClientSessionLifetimeTests
         Assert.Empty(server.Requests);
     }
 
+    [Fact]
+    public async Task Ahp_Unpublish_Session_Forwards_Owning_Host_And_Each_Result()
+    {
+        await using var server = await FakeCopilotServer.StartAsync();
+        await using var client = new CopilotClient(new() { Connection = RuntimeConnection.ForUri(server.Url) });
+        await using var host = await client.StartAhpHostAsync(new() { LocalServer = new() });
+        var calls = 0;
+        server.ResponseFactory = request =>
+        {
+            Assert.Equal("host.unpublishSession", request.Method);
+            return new Dictionary<string, object?> { ["unpublished"] = ++calls == 1 };
+        };
+
+        Assert.True((await host.UnpublishSessionAsync("dormant")).Unpublished);
+        Assert.False((await host.UnpublishSessionAsync("dormant")).Unpublished);
+        Assert.Equal(2, calls);
+        var requests = server.Requests.Where(request => request.Method == "host.unpublishSession").ToArray();
+        Assert.Equal(2, requests.Length);
+        foreach (var request in requests)
+        {
+            Assert.Equal(host.HostId, request.Params.GetProperty("hostId").GetString());
+            Assert.Equal("dormant", request.Params.GetProperty("sessionId").GetString());
+        }
+    }
+
     [Theory]
     [InlineData("", "compute")]
     [InlineData(" ", "compute")]

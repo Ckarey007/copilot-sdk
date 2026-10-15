@@ -1678,6 +1678,14 @@ export interface UserPromptSubmittedHookOutput {
     modifiedPrompt?: string;
     additionalContext?: string;
     suppressOutput?: boolean;
+    /**
+     * `"block"` refuses the prompt: no model turn runs, no user message is
+     * recorded, and the session emits an ephemeral `session.warning`
+     * (`warningType: "policy_blocked"`) carrying {@link reason}.
+     */
+    decision?: "block";
+    /** Why the prompt was blocked, carried by the `session.warning`. */
+    reason?: string;
 }
 
 /**

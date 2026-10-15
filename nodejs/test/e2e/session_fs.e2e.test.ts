@@ -434,6 +434,48 @@ describe("Session Fs", async () => {
     });
 });
 
+describe("Session Fs immediate event persistence", async () => {
+    const { copilotClient: client } = await createSdkTestContext({
+        copilotClientOptions: {
+            env: { COPILOT_SESSIONFS_FLUSH_DEBOUNCE_MS: "0" },
+            sessionFs: sessionFsConfig,
+        },
+    });
+
+    it("persists events through the provider while created and resumed sessions remain open", async () => {
+        const provider = new MemoryProvider();
+        const config = {
+            onPermissionRequest: approveAll,
+            availableTools: [],
+            createSessionFsProvider: (session: CopilotSession) =>
+                createTestSessionFsHandler(session, provider),
+        };
+        let session = await client.createSession({ ...config, name: "immediate provider events" });
+        const eventsPath = `/${session.sessionId}${sessionStatePath}/events.jsonl`;
+        const persistedModes = async () => {
+            if (!(await provider.exists(eventsPath))) {
+                return [];
+            }
+            const content = await provider.readFile(eventsPath, "utf8");
+            return content
+                .toString()
+                .trim()
+                .split("\n")
+                .filter(Boolean)
+                .map((line) => JSON.parse(line) as SessionEvent)
+                .filter((event) => event.type === "session.mode_changed")
+                .map((event) => event.data.newMode);
+        };
+
+        await session.rpc.mode.set({ mode: "plan" });
+        await expect.poll(persistedModes).toEqual(["plan"]);
+        await session.disconnect();
+        session = await client.resumeSession(session.sessionId, config);
+        await session.rpc.mode.set({ mode: "interactive" });
+        await expect.poll(persistedModes).toEqual(["plan", "interactive"]);
+    });
+});
+
 describe("Session Fs native plan edits", async () => {
     const { createClient, workDir } = await createSdkTestContext();
 

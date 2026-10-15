@@ -82,6 +82,13 @@ func (h *AhpHost) PublishSession(ctx context.Context, sessionID string) (*rpc.Ho
 	return h.rpc.PublishSession(ctx, &rpc.HostPublishSessionRequest{HostID: h.HostID, SessionID: sessionID})
 }
 
+// UnpublishSession withdraws a live or dormant application publication and revokes AHP attachments.
+// It preserves local history, worktrees and ongoing work, returns false when absent,
+// and rejects nonapplication publications without stopping the host.
+func (h *AhpHost) UnpublishSession(ctx context.Context, sessionID string) (*rpc.HostUnpublishSessionResult, error) {
+	return h.rpc.UnpublishSession(ctx, &rpc.HostUnpublishSessionRequest{HostID: h.HostID, SessionID: sessionID})
+}
+
 // ListSessions returns all live and dormant catalog sessions advertised by this host.
 func (h *AhpHost) ListSessions(ctx context.Context) (*rpc.HostListSessionsResult, error) {
 	return h.rpc.ListSessions(ctx, &rpc.HostListSessionsRequest{HostID: &h.HostID})

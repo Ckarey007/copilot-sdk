@@ -208,6 +208,67 @@ matrices. Their remaining E2E tests should exercise handwritten SDK behavior
 such as connection lifecycle, session orchestration, callbacks, custom tools,
 configuration, and language-specific integrations.
 
+### Testing source generators
+
+All six SDK generators have direct schema-to-source tests in
+`nodejs/test/*-codegen.test.ts`, alongside shared schema and legacy-parameter
+tests. From the **SDK root**, install only the Node dependencies and run:
+
+```bash
+npm --prefix nodejs ci
+npm --prefix scripts/codegen ci
+npm run test:codegen
+```
+
+This command bypasses runtime preparation and SDK generation. It excludes E2E
+files during discovery so the shared Vitest setup doesn't build the replay
+harness. The tests call
+the production in-memory renderers, including Python's Quicktype pipeline;
+they need no running CLI, network schema downloads, or target-language
+compilers or formatters. They also run with the Node unit suite and in the
+SDK freshness job. Java's schema-fetch tooling tests remain separate in
+`java/scripts/codegen`; compiler-dependent regressions such as
+`scripts/codegen/csharp-dictionary-roundtrip.test.ts` also run separately.
+
+Use fresh schemas from `nodejs/test/codegen-fixtures.ts` for the common baseline
+and contract matrix. Coverage includes required/optional and nullable fields
+across scalars, objects, arrays, and maps; multi-hop references shared by
+requests and results; nested unions and additive variants; wire-name escaping;
+RPC scopes, metadata, and internal methods; and multiple event payload shapes.
+All six exercise complete event rendering, including discovery and registration
+where the language emits them. Each language also checks `A -> B -> A` rendering
+for both RPC and event output to catch leaked generator state.
+Keep assertions scoped to the affected declaration, method, or codec, and
+check absence where widening or duplication would be a regression.
+
+Keep language-specific expectations and historical regressions in each language's
+test file rather than forcing identical output policies. Callback registration
+is covered for TypeScript, C#, Go, and Python; Java and Rust don't emit that
+surface. Java uses boxed record components across presence/nullability
+combinations and JSON-compatible fallbacks for some nested unions. Internal
+methods and internal-only types and namespaces are package-private; definitions
+also used by public methods remain public. The shared boolean-union
+fixture uses the published `EnqueueCommandResult` names supported by Rust's
+allowlist. Python tests exercise union postprocessing and legacy keyword-only
+parameters through Quicktype; RPC fixtures include the MCP and filesystem capability types
+required by its production postprocessor.
+
+Java's known boolean-wire defect has five separate `it.fails` assertions.
+Rendering and file lookup run in ordinary setup, outside expected-failure checks.
+Fixing any assertion makes its test fail until `fails` is removed.
+
+Each language has a small RPC and event source snapshot under
+`nodejs/test/__snapshots__/`. Pair snapshots with explicit contract assertions,
+and review generated source against the schema before accepting an update:
+
+```bash
+npm run test:codegen -- --update
+```
+
+These tests check emission correctness. Generation-freshness checks only detect
+stale committed output; generated-artifact tests and runtime E2Es check different
+boundaries and are not substitutes for generator tests.
+
 ### Testing an unreleased runtime API
 
 In `github/copilot-agent-runtime`, Rust contracts under

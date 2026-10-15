@@ -145,6 +145,30 @@ async def test_handle_uses_original_transport_and_forwards_every_disposal():
     assert exited.call_args.args[0].reason.value == "disposed"
 
 
+async def test_unpublication_forwards_results_and_errors_over_original_transport():
+    client, rpc = client_fixture()
+    host = await client.start_ahp_host(AhpHostOptions(local_server=HostLocalServerOptions()))
+    replacement = Mock(request=AsyncMock())
+    client._client = replacement
+    rpc.request.reset_mock()
+    rpc.request.side_effect = [
+        {"unpublished": True},
+        {"unpublished": False},
+        RuntimeError("nonapplication publication"),
+    ]
+    assert (await host.unpublish_session("dormant")).unpublished is True
+    assert (await host.unpublish_session("dormant")).unpublished is False
+    with pytest.raises(RuntimeError, match="nonapplication publication"):
+        await host.unpublish_session("dormant")
+    assert len(rpc.request.call_args_list) == 3
+    for call in rpc.request.call_args_list:
+        assert call.args == (
+            "host.unpublishSession",
+            {"hostId": host.host_id, "sessionId": "dormant"},
+        )
+    replacement.request.assert_not_called()
+
+
 @pytest.mark.parametrize("resume", [False, True])
 async def test_factories_preserve_configuration_and_release_exact_original_once(resume):
     client, _ = client_fixture()

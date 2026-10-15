@@ -2690,6 +2690,28 @@ internal sealed class HostPublishSessionRequest
     public string SessionId { get; set; } = string.Empty;
 }
 
+/// <summary>Publication withdrawal outcome; local history, worktrees and ongoing work are preserved.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class HostUnpublishSessionResult
+{
+    /// <summary>True when a publication was removed; false when it was already absent.</summary>
+    [JsonPropertyName("unpublished")]
+    public bool Unpublished { get; set; }
+}
+
+/// <summary>Withdraws an application publication without deleting its underlying local session.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class HostUnpublishSessionRequest
+{
+    /// <summary>Listener UUID returned by host.start; the caller must own the live listener.</summary>
+    [JsonPropertyName("hostId")]
+    public string HostId { get; set; } = string.Empty;
+
+    /// <summary>Canonical session ID in the durable catalog, whether resident or dormant.</summary>
+    [JsonPropertyName("sessionId")]
+    public string SessionId { get; set; } = string.Empty;
+}
+
 /// <summary>Metadata advertised by the AHP host, not a guarantee that history can be resumed.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public sealed class HostSessionSummary
@@ -3048,6 +3070,65 @@ public sealed class HooksDiscoverRequest
     public IList<string>? ProjectPaths { get; set; }
 }
 
+/// <summary>Availability of a server-advertised routing preference.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AutoTierStatus
+{
+    /// <summary>Whether the provider permits selecting this preference.</summary>
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; }
+
+    /// <summary>Human-readable explanation of availability.</summary>
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
+
+    /// <summary>Extensible machine-readable unavailability reason.</summary>
+    [JsonPropertyName("reason")]
+    public string? Reason { get; set; }
+}
+
+/// <summary>A server-advertised routing preference. Identifiers and execution types are extensible.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AutoTierDescriptor
+{
+    /// <summary>Description displayed beside the preference.</summary>
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = string.Empty;
+
+    /// <summary>Human-readable label, not a routing identifier.</summary>
+    [JsonPropertyName("displayName")]
+    public string DisplayName { get; set; } = string.Empty;
+
+    /// <summary>Opaque routing identifier transmitted unchanged to the provider.</summary>
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    /// <summary>Current account-specific availability.</summary>
+    [JsonPropertyName("status")]
+    public AutoTierStatus Status { get => field ??= new(); set; }
+
+    /// <summary>Execution kind; this client supports `auto` preferences on the Auto model.</summary>
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = string.Empty;
+}
+
+/// <summary>Account-bound discovery metadata for the virtual `auto` model.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AutoTierMetadata
+{
+    /// <summary>Provider-default preference, used only when no explicit preference exists.</summary>
+    [JsonPropertyName("defaultTier")]
+    public string DefaultTier { get; set; } = string.Empty;
+
+    /// <summary>Provider that supplied this metadata, when the catalog is provider-attributed.</summary>
+    [JsonPropertyName("providerId")]
+    public string? ProviderId { get; set; }
+
+    /// <summary>Routing preferences in the server's presentation order.</summary>
+    [JsonPropertyName("tiers")]
+    public IList<AutoTierDescriptor> Tiers { get => field ??= []; set; }
+}
+
 /// <summary>Active server-driven promotion for a model, including its discount and optional expiry.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public sealed class ModelBillingPromo
@@ -3130,7 +3211,7 @@ public sealed class ModelBillingTokenPrices
     [JsonPropertyName("batchSize")]
     public long? BatchSize { get; set; }
 
-    /// <summary>Use cacheReadPrice instead. AI Credits cost per billing batch of cached tokens.</summary>
+    /// <summary>Use cacheReadPrice when available. Cost per billing batch of cached tokens in the unit reported by models.listTokenPriceUnits.</summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
 #if NET5_0_OR_GREATER
     [Obsolete("This member is deprecated and will be removed in a future version.", DiagnosticId = "GHCP001")]
@@ -3162,7 +3243,7 @@ public sealed class ModelBillingTokenPrices
     [JsonPropertyName("contextMax")]
     public long? ContextMax { get; set; }
 
-    /// <summary>AI Credits cost per billing batch of input tokens.</summary>
+    /// <summary>Cost per billing batch of input tokens. The unit is reported by models.listTokenPriceUnits.</summary>
     [JsonPropertyName("inputPrice")]
     public double? InputPrice { get; set; }
 
@@ -3174,7 +3255,7 @@ public sealed class ModelBillingTokenPrices
     [JsonPropertyName("maxPromptTokens")]
     public long? MaxPromptTokens { get; set; }
 
-    /// <summary>AI Credits cost per billing batch of output tokens.</summary>
+    /// <summary>Cost per billing batch of output tokens. The unit is reported by models.listTokenPriceUnits.</summary>
     [JsonPropertyName("outputPrice")]
     public double? OutputPrice { get; set; }
 }
@@ -3384,6 +3465,14 @@ public sealed class Model
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public sealed class ModelList
 {
+    /// <summary>
+    /// Ordered Auto routing preferences discovered for the resolved account. Present only
+    /// when the runtime runs with `DYNAMIC_AUTO_TIERS` enabled and CAPI returned Auto
+    /// metadata; same shape and semantics as `SessionModelList.auto`.
+    /// </summary>
+    [JsonPropertyName("auto")]
+    public AutoTierMetadata? Auto { get; set; }
+
     /// <summary>List of available models with full metadata.</summary>
     [JsonPropertyName("models")]
     public IList<Model> Models { get => field ??= []; set; }
@@ -3418,6 +3507,41 @@ public sealed class BuiltInModelCatalog
     /// <summary>Built-in model entries.</summary>
     [JsonPropertyName("models")]
     public IList<BuiltInModelCatalogEntry> Models { get => field ??= []; set; }
+}
+
+/// <summary>The unit one model's published token prices are quoted in.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class ModelTokenPriceUnit
+{
+    /// <summary>Model ID the unit applies to, matching the id of a models.list entry.</summary>
+    [JsonPropertyName("modelId")]
+    public string ModelId { get; set; } = string.Empty;
+
+    /// <summary>Unit this model's token prices are quoted in.</summary>
+    [JsonPropertyName("unit")]
+    public TokenPriceUnit Unit { get; set; }
+}
+
+/// <summary>Price units for every catalog model that publishes token prices.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class ModelTokenPriceUnitList
+{
+    /// <summary>One entry per model that publishes token prices, in catalog order. A model with no published prices is omitted.</summary>
+    [JsonPropertyName("units")]
+    public IList<ModelTokenPriceUnit> Units { get => field ??= []; set; }
+}
+
+/// <summary>RPC data type for ModelsListTokenPriceUnits operations.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class ModelsListTokenPriceUnitsRequest
+{
+    /// <summary>GitHub token accepted for compatibility with existing SDK clients. When provided, resolves this token instead of using the current account.</summary>
+    [JsonPropertyName("gitHubToken")]
+    public string? GitHubToken { get; set; }
+
+    /// <summary>Opaque account identifier returned by `account.getAllUsers`. When omitted, the current account is used.</summary>
+    [JsonPropertyName("selectionId")]
+    public string? SelectionId { get; set; }
 }
 
 /// <summary>The accepted policies, parsed and normalized. A rejected input is reported as an error rather than in this result.</summary>
@@ -6520,6 +6644,143 @@ internal sealed class McpRegistryCancelRequest
     public long RequestId { get; set; }
 }
 
+/// <summary>An OAuth client a server configuration pins, without its secret.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class McpOauthStaticClientConfig
+{
+    /// <summary>Configured OAuth client identifier.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [JsonPropertyName("clientId")]
+    public string ClientId { get; set; } = string.Empty;
+
+    /// <summary>Grant type, carried only when the configuration pins the headless `client_credentials` flow. Absent for the default interactive authorization-code flow.</summary>
+    [JsonPropertyName("grantType")]
+    public McpServerConfigHttpOauthGrantType? GrantType { get; set; }
+
+    /// <summary>Whether the configuration declares a public client. Absent when the configuration does not say, which the flow reads as a public client.</summary>
+    [JsonPropertyName("publicClient")]
+    public bool? PublicClient { get; set; }
+
+    /// <summary>Configured OAuth scopes joined into one space-delimited scope value. Absent when the configuration specifies no scopes.</summary>
+    [JsonPropertyName("scope")]
+    public string? Scope { get; set; }
+}
+
+/// <summary>The OAuth client the configuration pins, when it pins one.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class McpOauthStaticClientConfigResult
+{
+    /// <summary>The pinned client. Absent when the configuration pins no non-empty client id, so the flow should register one dynamically.</summary>
+    [JsonPropertyName("clientConfig")]
+    public McpOauthStaticClientConfig? ClientConfig { get; set; }
+}
+
+/// <summary>A remote MCP server configuration whose pinned OAuth client should be read.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class McpOauthStaticClientConfigRequest
+{
+    /// <summary>The server configuration to read. A configuration that pins no client answers nothing.</summary>
+    [JsonPropertyName("config")]
+    public JsonElement Config { get; set; }
+}
+
+/// <summary>Raw protected-resource metadata from the explicit metadata URL or conventional discovery.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class McpOauthFetchProtectedResourceMetadataResult
+{
+    /// <summary>Metadata document exactly as the server returned it, unparsed. Absent when no document could be read from the explicit metadata URL or, when omitted, the conventional metadata endpoints.</summary>
+    [JsonPropertyName("metadataText")]
+    public string? MetadataText { get; set; }
+}
+
+/// <summary>An OAuth challenge from a remote MCP server whose protected-resource metadata should be read.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class McpOauthFetchProtectedResourceMetadataRequest
+{
+    /// <summary>Request headers the configured server sends, as a serialized JSON object. Omit to send none.</summary>
+    [JsonPropertyName("headersJson")]
+    public string? HeadersJson { get; set; }
+
+    /// <summary>URL of the remote MCP server that answered 401.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [JsonPropertyName("requestUrl")]
+    public string RequestUrl { get; set; } = string.Empty;
+
+    /// <summary>Metadata URL named in the server's `WWW-Authenticate` challenge. Omit to try conventional metadata endpoints derived from the request URL. It is server-controlled, so it passes the same egress policy check as the request URL.</summary>
+    [JsonPropertyName("resourceMetadataUrl")]
+    public string? ResourceMetadataUrl { get; set; }
+
+    /// <summary>Proxy the request must travel through. Omit to use the session's own egress settings.</summary>
+    [JsonPropertyName("sandboxProxy")]
+    public string? SandboxProxy { get; set; }
+
+    /// <summary>Locally owned session whose egress policy and sandbox proxy constrain the request. Omitted or nonlocal session IDs provide no local session egress state.</summary>
+    [JsonPropertyName("sessionId")]
+    public string? SessionId { get; set; }
+
+    /// <summary>User agent to send. Omit to use the runtime's own.</summary>
+    [JsonPropertyName("userAgent")]
+    public string? UserAgent { get; set; }
+}
+
+/// <summary>Whether the server's authorization server registers clients dynamically.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class McpOauthCheckDcrSupportResult
+{
+    /// <summary>Authorization server the metadata pointed at. Absent when none could be discovered.</summary>
+    [JsonPropertyName("authorizationServerUrl")]
+    public string? AuthorizationServerUrl { get; set; }
+
+    /// <summary>Whether the authorization server advertises a client registration endpoint.</summary>
+    [JsonPropertyName("supportsDcr")]
+    public bool SupportsDcr { get; set; }
+}
+
+/// <summary>A remote MCP server whose authorization server should be asked about Dynamic Client Registration.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class McpOauthCheckDcrSupportRequest
+{
+    /// <summary>Raw protected-resource metadata text from the server's `WWW-Authenticate` challenge. Omit to discover the authorization server from the server URL instead.</summary>
+    [JsonPropertyName("resourceMetadataText")]
+    public string? ResourceMetadataText { get; set; }
+
+    /// <summary>Proxy the request must travel through. Omit to use the session's own egress settings.</summary>
+    [JsonPropertyName("sandboxProxy")]
+    public string? SandboxProxy { get; set; }
+
+    /// <summary>URL of the remote MCP server that answered 401.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [JsonPropertyName("serverUrl")]
+    public string ServerUrl { get; set; } = string.Empty;
+
+    /// <summary>Locally owned session whose egress policy and sandbox proxy constrain the request. Omitted or nonlocal session IDs provide no local session egress state.</summary>
+    [JsonPropertyName("sessionId")]
+    public string? SessionId { get; set; }
+}
+
+/// <summary>Whether the URL is a Microsoft Entra ID authorization server.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class McpOauthIsMicrosoftAuthorizationServerResult
+{
+    /// <summary>Whether the host is one Microsoft Entra ID serves authorization from.</summary>
+    [JsonPropertyName("isMicrosoftAuthorizationServer")]
+    public bool IsMicrosoftAuthorizationServer { get; set; }
+}
+
+/// <summary>An authorization server URL to classify.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class McpOauthIsMicrosoftAuthorizationServerRequest
+{
+    /// <summary>Authorization server URL, typically the one `mcp.oauth.checkDcrSupport` discovered.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [JsonPropertyName("authorizationServerUrl")]
+    public string AuthorizationServerUrl { get; set; } = string.Empty;
+}
+
 /// <summary>New-work inventory or recovery request under an explicitly selected existing session.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 internal sealed class McpInstallationsRequest
@@ -7573,54 +7834,6 @@ internal sealed class SkillPlanInstallRequest
     public string PolicySessionId { get; set; } = string.Empty;
 }
 
-/// <summary>
-/// An Agent Finder materialisation reference pinning one exact resource revision.
-/// 
-/// It carries no origin or URL: the runtime always builds the descriptor URL on its fixed Agent
-/// Finder authority. It carries no display data either; every reviewed field comes from the
-/// verified descriptor and Skill files.
-/// </summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class CatalogMaterializationReference
-{
-    /// <summary>Expected `sha256:&lt;lowercase hex&gt;` digest of the descriptor's bundle manifest.</summary>
-    [JsonPropertyName("bundleDigest")]
-    public string BundleDigest { get; set; } = string.Empty;
-
-    /// <summary>Expected `sha256:&lt;lowercase hex&gt;` digest of the canonical descriptor.</summary>
-    [JsonPropertyName("descriptorDigest")]
-    public string DescriptorDigest { get; set; } = string.Empty;
-
-    /// <summary>Agent Finder resource identifier, a positive decimal integer.</summary>
-    [JsonPropertyName("resourceId")]
-    public string ResourceId { get; set; } = string.Empty;
-
-    /// <summary>Agent Finder materialisation revision identifier, a positive decimal integer. This is not a Git commit.</summary>
-    [JsonPropertyName("revisionId")]
-    public string RevisionId { get; set; } = string.Empty;
-
-    /// <summary>Materialisation descriptor schema version, currently `1.0.0`.</summary>
-    [JsonPropertyName("schemaVersion")]
-    public string SchemaVersion { get; set; } = string.Empty;
-}
-
-/// <summary>Side-effect-free planning of one Skill from a materialisation reference rather than a search candidate.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-internal sealed class SkillPlanInstallFromReferenceRequest
-{
-    /// <summary>Required authenticated bound catalogue, skill-confirmed-installation and skill-reference-installation capabilities.</summary>
-    [JsonPropertyName("contract")]
-    public CatalogClientContract Contract { get => field ??= new(); set; }
-
-    /// <summary>Existing local session attached to this connection.</summary>
-    [JsonPropertyName("policySessionId")]
-    public string PolicySessionId { get; set; } = string.Empty;
-
-    /// <summary>Materialisation reference to verify and plan.</summary>
-    [JsonPropertyName("reference")]
-    public CatalogMaterializationReference Reference { get => field ??= new(); set; }
-}
-
 /// <summary>Skill installation result with the honoured contract, or a typed request/negotiation refusal.</summary>
 /// <remarks>Polymorphic base type discriminated by <c>kind</c>.</remarks>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
@@ -7957,6 +8170,902 @@ internal sealed class SkillsConfigSetSkillDisabledRequest
     public string Name { get; set; } = string.Empty;
 }
 
+/// <summary>Agent Plugin installation planning result with the honoured contract, or a typed refusal.</summary>
+/// <remarks>Polymorphic base type discriminated by <c>kind</c>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonPolymorphic(
+    TypeDiscriminatorPropertyName = "kind",
+    UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FallBackToBaseType)]
+[JsonDerivedType(typeof(PluginInstallationManagementResultOutcome), "outcome")]
+[JsonDerivedType(typeof(PluginInstallationManagementResultNegotiationRefused), "negotiation-refused")]
+[JsonDerivedType(typeof(PluginInstallationManagementResultInvalidRequest), "invalid-request")]
+public partial class PluginInstallationManagementResult
+{
+    /// <summary>The type discriminator.</summary>
+    [JsonPropertyName("kind")]
+    public virtual string Kind { get; set; } = string.Empty;
+}
+
+
+/// <summary>Management outcome for verified Agent Plugin installation planning.</summary>
+/// <remarks>Polymorphic base type discriminated by <c>kind</c>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonPolymorphic(
+    TypeDiscriminatorPropertyName = "kind",
+    UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FallBackToBaseType)]
+[JsonDerivedType(typeof(PluginInstallationManagementOutcomeInstallPlanned), "install-planned")]
+[JsonDerivedType(typeof(PluginInstallationManagementOutcomeRefused), "refused")]
+public partial class PluginInstallationManagementOutcome
+{
+    /// <summary>The type discriminator.</summary>
+    [JsonPropertyName("kind")]
+    public virtual string Kind { get; set; } = string.Empty;
+}
+
+
+/// <summary>Safe verified Agent Plugin review fields. No raw credential, candidate handle or plan handle.</summary>
+/// <remarks>Polymorphic base type discriminated by <c>action</c>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonPolymorphic(
+    TypeDiscriminatorPropertyName = "action",
+    UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FallBackToBaseType)]
+[JsonDerivedType(typeof(PluginInstallationReviewInstall), "install")]
+public partial class PluginInstallationReview
+{
+    /// <summary>The type discriminator.</summary>
+    [JsonPropertyName("action")]
+    public virtual string Action { get; set; } = string.Empty;
+}
+
+
+/// <summary>One reviewed plugin file.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class PluginInstallationFileReview
+{
+    /// <summary>SHA-256 digest of the exact file bytes.</summary>
+    [JsonPropertyName("digest")]
+    public string Digest { get; set; } = string.Empty;
+
+    /// <summary>Whether the file is installed with executable permissions.</summary>
+    [JsonPropertyName("executable")]
+    public bool Executable { get; set; }
+
+    /// <summary>Declared media type for the file.</summary>
+    [JsonPropertyName("mediaType")]
+    public string MediaType { get; set; } = string.Empty;
+
+    /// <summary>Relative file path within the plugin root.</summary>
+    [JsonPropertyName("path")]
+    public string Path { get; set; } = string.Empty;
+
+    /// <summary>Exact reviewed file size in bytes.</summary>
+    [JsonPropertyName("sizeBytes")]
+    public long SizeBytes { get; set; }
+}
+
+/// <summary>Source identity retained from Agent Finder and the pinned GitHub descriptor.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class PluginInstallationSource
+{
+    /// <summary>Digest of the descriptor's bundle manifest.</summary>
+    [JsonPropertyName("bundleDigest")]
+    public string BundleDigest { get; set; } = string.Empty;
+
+    /// <summary>Agent Finder materialisation revision identifier.</summary>
+    [JsonPropertyName("catalogRevisionId")]
+    public string CatalogRevisionId { get; set; } = string.Empty;
+
+    /// <summary>Digest of the canonical materialisation descriptor.</summary>
+    [JsonPropertyName("descriptorDigest")]
+    public string DescriptorDigest { get; set; } = string.Empty;
+
+    /// <summary>Repository full name, for example owner/name.</summary>
+    [JsonPropertyName("repository")]
+    public string Repository { get; set; } = string.Empty;
+
+    /// <summary>GitHub repository database identifier.</summary>
+    [JsonPropertyName("repositoryId")]
+    public string RepositoryId { get; set; } = string.Empty;
+
+    /// <summary>Agent Finder resource identifier.</summary>
+    [JsonPropertyName("resourceId")]
+    public string ResourceId { get; set; } = string.Empty;
+
+    /// <summary>Pinned Git commit revision.</summary>
+    [JsonPropertyName("revision")]
+    public string Revision { get; set; } = string.Empty;
+
+    /// <summary>Plugin root within the pinned repository. Empty for the repository root.</summary>
+    [JsonPropertyName("root")]
+    public string Root { get; set; } = string.Empty;
+}
+
+/// <summary>Where a plugin is installed, without an absolute host path.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class PluginInstallationLocation
+{
+    /// <summary>Safe display label, for example ~/.copilot/installed-plugins/_direct/owner--repo--plugins-work-hub.</summary>
+    [JsonPropertyName("displayLabel")]
+    public string DisplayLabel { get; set; } = string.Empty;
+
+    /// <summary>Path relative to the Copilot home, under installed-plugins/_direct like any direct plugin install.</summary>
+    [JsonPropertyName("relativePath")]
+    public string RelativePath { get; set; } = string.Empty;
+}
+
+/// <summary>Review for installing a verified Agent Plugin.</summary>
+/// <remarks>The <c>install</c> variant of <see cref="PluginInstallationReview"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class PluginInstallationReviewInstall : PluginInstallationReview
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Action => "install";
+
+    /// <summary>Catalogue identity retained from the bound candidate, or verified data for a reference.</summary>
+    [JsonPropertyName("catalogue")]
+    public required InstallationCatalogueIdentity Catalogue { get; set; }
+
+    /// <summary>Manifest description when present.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    /// <summary>Reviewed files and digests.</summary>
+    [JsonPropertyName("files")]
+    public required IList<PluginInstallationFileReview> Files { get; set; }
+
+    /// <summary>Installing never grants immediate use; the plugin is registered disabled.</summary>
+    [JsonPropertyName("installsDisabled")]
+    public required bool InstallsDisabled { get; set; }
+
+    /// <summary>
+    /// Complete verified manifest content. Planning refuses with review-too-large
+    /// when this exceeds 262144 UTF-8 bytes; it is never truncated.
+    /// </summary>
+    [JsonPropertyName("manifestContent")]
+    public required string ManifestContent { get; set; }
+
+    /// <summary>Relative path of the verified plugin manifest.</summary>
+    [JsonPropertyName("manifestPath")]
+    public required string ManifestPath { get; set; }
+
+    /// <summary>Installed plugin name, derived from the verified manifest exactly as a direct install derives it.</summary>
+    [JsonPropertyName("name")]
+    public required string Name { get; set; }
+
+    /// <summary>Exact verified source identity.</summary>
+    [JsonPropertyName("source")]
+    public required PluginInstallationSource Source { get; set; }
+
+    /// <summary>Exact install location without an absolute host path.</summary>
+    [JsonPropertyName("target")]
+    public required PluginInstallationLocation Target { get; set; }
+
+    /// <summary>Total reviewed payload size in bytes.</summary>
+    [JsonPropertyName("totalBytes")]
+    public required long TotalBytes { get; set; }
+
+    /// <summary>Manifest version when present.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("version")]
+    public string? Version { get; set; }
+}
+
+/// <summary>A computed Agent Plugin install plan. Nothing has been applied.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class PluginInstallPlan
+{
+    /// <summary>Original wall-clock expiry as an ISO 8601 timestamp.</summary>
+    [JsonPropertyName("expiresAt")]
+    public string ExpiresAt { get; set; } = string.Empty;
+
+    /// <summary>Original operation identifier returned before confirmation.</summary>
+    [JsonPropertyName("operationId")]
+    public string OperationId { get; set; } = string.Empty;
+
+    /// <summary>One-use plan handle, bound to the original authority.</summary>
+    [JsonPropertyName("planHandle")]
+    public string PlanHandle { get; set; } = string.Empty;
+
+    /// <summary>Safe review to present before applying the plan.</summary>
+    [JsonPropertyName("review")]
+    public PluginInstallationReview Review { get => field ??= new(); set; }
+}
+
+/// <summary>A verified Agent Plugin installation plan was prepared.</summary>
+/// <remarks>The <c>install-planned</c> variant of <see cref="PluginInstallationManagementOutcome"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class PluginInstallationManagementOutcomeInstallPlanned : PluginInstallationManagementOutcome
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "install-planned";
+
+    /// <summary>Prepared install plan.</summary>
+    [JsonPropertyName("plan")]
+    public required PluginInstallPlan Plan { get; set; }
+}
+
+/// <summary>The request was refused without preparing a plan.</summary>
+/// <remarks>The <c>refused</c> variant of <see cref="PluginInstallationManagementOutcome"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class PluginInstallationManagementOutcomeRefused : PluginInstallationManagementOutcome
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "refused";
+
+    /// <summary>Bounded refusal reason.</summary>
+    [JsonPropertyName("reason")]
+    public required PluginInstallationFailureReason Reason { get; set; }
+}
+
+/// <summary>The <c>outcome</c> variant of <see cref="PluginInstallationManagementResult"/>.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class PluginInstallationManagementResultOutcome : PluginInstallationManagementResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "outcome";
+
+    /// <summary>Capabilities honoured for this request.</summary>
+    [JsonPropertyName("negotiated")]
+    public required CatalogNegotiatedContract Negotiated { get; set; }
+
+    /// <summary>Observed management outcome.</summary>
+    [JsonPropertyName("outcome")]
+    public required PluginInstallationManagementOutcome Outcome { get; set; }
+}
+
+/// <summary>The caller's protocol version or required capabilities cannot be honoured. Returned instead of a partial or ambiguous success.</summary>
+/// <remarks>The <c>negotiation-refused</c> variant of <see cref="PluginInstallationManagementResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class PluginInstallationManagementResultNegotiationRefused : PluginInstallationManagementResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "negotiation-refused";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Lowest caller protocol version this runtime will serve.</summary>
+    [JsonPropertyName("minimumSupportedProtocolVersion")]
+    public required long MinimumSupportedProtocolVersion { get; set; }
+
+    /// <summary>Whether the version or the capability set was the problem.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogNegotiationRefusedReason Reason { get; set; }
+
+    /// <summary>Protocol version of the runtime that refused the request.</summary>
+    [JsonPropertyName("runtimeProtocolVersion")]
+    public required long RuntimeProtocolVersion { get; set; }
+
+    /// <summary>Capabilities this runtime can safely advertise to this caller. The complete five-capability protocol-3 legacy set is always present; every capability added after that baseline appears only when the caller required it, so an older closed-enum decoder can still consume a refusal. This list does not imply that every deployment has enabled every operation.</summary>
+    [JsonPropertyName("supportedCapabilities")]
+    public required IList<string> SupportedCapabilities { get; set; }
+
+    /// <summary>The subset of the caller's bounded extensible capability identifiers this runtime cannot honour.</summary>
+    [JsonPropertyName("unsupportedCapabilities")]
+    public required IList<string> UnsupportedCapabilities { get; set; }
+}
+
+/// <summary>The request was rejected because a bounded field fell outside its permitted range or a required field was unusable. Pagination may also be rejected by the authority after a continuation request; repeat the search without page.</summary>
+/// <remarks>The <c>invalid-request</c> variant of <see cref="PluginInstallationManagementResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class PluginInstallationManagementResultInvalidRequest : PluginInstallationManagementResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "invalid-request";
+
+    /// <summary>Which request field was rejected.</summary>
+    [JsonPropertyName("field")]
+    public required CatalogInvalidRequestField Field { get; set; }
+
+    /// <summary>Human-readable explanation, safe to surface. Never echoes the offending value, nor a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+}
+
+/// <summary>Side-effect-free planning of one Agent Plugin search candidate through its Agent Finder materialisation.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class PluginPlanInstallRequest
+{
+    /// <summary>Fresh single-use Agent Plugin candidate handle returned by a bound catalogue search.</summary>
+    [JsonPropertyName("candidateHandle")]
+    public string CandidateHandle { get; set; } = string.Empty;
+
+    /// <summary>Required authenticated bound catalogue and agent-plugin-confirmed-installation capabilities.</summary>
+    [JsonPropertyName("contract")]
+    public CatalogClientContract Contract { get => field ??= new(); set; }
+
+    /// <summary>Existing local session attached to this connection.</summary>
+    [JsonPropertyName("policySessionId")]
+    public string PolicySessionId { get; set; } = string.Empty;
+}
+
+/// <summary>Agent Plugin installation result with the honoured contract, or a typed request/negotiation refusal.</summary>
+/// <remarks>Polymorphic base type discriminated by <c>kind</c>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonPolymorphic(
+    TypeDiscriminatorPropertyName = "kind",
+    UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FallBackToBaseType)]
+[JsonDerivedType(typeof(PluginInstallationResultOutcome), "outcome")]
+[JsonDerivedType(typeof(PluginInstallationResultNegotiationRefused), "negotiation-refused")]
+[JsonDerivedType(typeof(PluginInstallationResultInvalidRequest), "invalid-request")]
+public partial class PluginInstallationResult
+{
+    /// <summary>The type discriminator.</summary>
+    [JsonPropertyName("kind")]
+    public virtual string Kind { get; set; } = string.Empty;
+}
+
+
+/// <summary>Terminal verified Agent Plugin installation result.</summary>
+/// <remarks>Polymorphic base type discriminated by <c>kind</c>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonPolymorphic(
+    TypeDiscriminatorPropertyName = "kind",
+    UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FallBackToBaseType)]
+[JsonDerivedType(typeof(PluginInstallationOutcomeInstalled), "installed")]
+[JsonDerivedType(typeof(PluginInstallationOutcomeDeclined), "declined")]
+[JsonDerivedType(typeof(PluginInstallationOutcomeCancelled), "cancelled")]
+[JsonDerivedType(typeof(PluginInstallationOutcomeRefused), "refused")]
+public partial class PluginInstallationOutcome
+{
+    /// <summary>The type discriminator.</summary>
+    [JsonPropertyName("kind")]
+    public virtual string Kind { get; set; } = string.Empty;
+}
+
+
+/// <summary>A plugin registered from a verified materialisation.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class PluginInstallationSummary
+{
+    /// <summary>Catalogue identity retained at install time.</summary>
+    [JsonPropertyName("catalogue")]
+    public InstallationCatalogueIdentity Catalogue { get => field ??= new(); set; }
+
+    /// <summary>Whether the plugin is enabled for new sessions. Always false after installation.</summary>
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; }
+
+    /// <summary>ISO 8601 wall-clock installation time.</summary>
+    [JsonPropertyName("installedAt")]
+    public string InstalledAt { get; set; } = string.Empty;
+
+    /// <summary>Installed plugin name, as plugins.list, plugins.enable and plugins.uninstall identify it.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Operation that installed the plugin.</summary>
+    [JsonPropertyName("operationId")]
+    public string OperationId { get; set; } = string.Empty;
+
+    /// <summary>Exact retained verified source identity.</summary>
+    [JsonPropertyName("source")]
+    public PluginInstallationSource Source { get => field ??= new(); set; }
+
+    /// <summary>Install location without an absolute host path.</summary>
+    [JsonPropertyName("target")]
+    public PluginInstallationLocation Target { get => field ??= new(); set; }
+}
+
+/// <summary>The verified plugin was registered disabled.</summary>
+/// <remarks>The <c>installed</c> variant of <see cref="PluginInstallationOutcome"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class PluginInstallationOutcomeInstalled : PluginInstallationOutcome
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "installed";
+
+    /// <summary>Installed plugin summary.</summary>
+    [JsonPropertyName("installation")]
+    public required PluginInstallationSummary Installation { get; set; }
+}
+
+/// <summary>The user declined the confirmation request.</summary>
+/// <remarks>The <c>declined</c> variant of <see cref="PluginInstallationOutcome"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class PluginInstallationOutcomeDeclined : PluginInstallationOutcome
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "declined";
+
+    /// <summary>Original operation identity.</summary>
+    [JsonPropertyName("operationId")]
+    public required string OperationId { get; set; }
+}
+
+/// <summary>The confirmation was cancelled before any change.</summary>
+/// <remarks>The <c>cancelled</c> variant of <see cref="PluginInstallationOutcome"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class PluginInstallationOutcomeCancelled : PluginInstallationOutcome
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "cancelled";
+
+    /// <summary>Original operation identity.</summary>
+    [JsonPropertyName("operationId")]
+    public required string OperationId { get; set; }
+}
+
+/// <summary>The operation was refused and nothing was installed.</summary>
+/// <remarks>The <c>refused</c> variant of <see cref="PluginInstallationOutcome"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class PluginInstallationOutcomeRefused : PluginInstallationOutcome
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "refused";
+
+    /// <summary>Present once an operation has been allocated.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("operationId")]
+    public string? OperationId { get; set; }
+
+    /// <summary>Bounded refusal reason.</summary>
+    [JsonPropertyName("reason")]
+    public required PluginInstallationFailureReason Reason { get; set; }
+}
+
+/// <summary>The <c>outcome</c> variant of <see cref="PluginInstallationResult"/>.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class PluginInstallationResultOutcome : PluginInstallationResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "outcome";
+
+    /// <summary>Capabilities honoured for this request.</summary>
+    [JsonPropertyName("negotiated")]
+    public required CatalogNegotiatedContract Negotiated { get; set; }
+
+    /// <summary>Terminal operation outcome.</summary>
+    [JsonPropertyName("outcome")]
+    public required PluginInstallationOutcome Outcome { get; set; }
+}
+
+/// <summary>The caller's protocol version or required capabilities cannot be honoured. Returned instead of a partial or ambiguous success.</summary>
+/// <remarks>The <c>negotiation-refused</c> variant of <see cref="PluginInstallationResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class PluginInstallationResultNegotiationRefused : PluginInstallationResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "negotiation-refused";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Lowest caller protocol version this runtime will serve.</summary>
+    [JsonPropertyName("minimumSupportedProtocolVersion")]
+    public required long MinimumSupportedProtocolVersion { get; set; }
+
+    /// <summary>Whether the version or the capability set was the problem.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogNegotiationRefusedReason Reason { get; set; }
+
+    /// <summary>Protocol version of the runtime that refused the request.</summary>
+    [JsonPropertyName("runtimeProtocolVersion")]
+    public required long RuntimeProtocolVersion { get; set; }
+
+    /// <summary>Capabilities this runtime can safely advertise to this caller. The complete five-capability protocol-3 legacy set is always present; every capability added after that baseline appears only when the caller required it, so an older closed-enum decoder can still consume a refusal. This list does not imply that every deployment has enabled every operation.</summary>
+    [JsonPropertyName("supportedCapabilities")]
+    public required IList<string> SupportedCapabilities { get; set; }
+
+    /// <summary>The subset of the caller's bounded extensible capability identifiers this runtime cannot honour.</summary>
+    [JsonPropertyName("unsupportedCapabilities")]
+    public required IList<string> UnsupportedCapabilities { get; set; }
+}
+
+/// <summary>The request was rejected because a bounded field fell outside its permitted range or a required field was unusable. Pagination may also be rejected by the authority after a continuation request; repeat the search without page.</summary>
+/// <remarks>The <c>invalid-request</c> variant of <see cref="PluginInstallationResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class PluginInstallationResultInvalidRequest : PluginInstallationResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "invalid-request";
+
+    /// <summary>Which request field was rejected.</summary>
+    [JsonPropertyName("field")]
+    public required CatalogInvalidRequestField Field { get; set; }
+
+    /// <summary>Human-readable explanation, safe to surface. Never echoes the offending value, nor a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+}
+
+/// <summary>Applies exactly one retained verified Agent Plugin installation plan.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class PluginApplyInstallRequest
+{
+    /// <summary>Required authenticated bound catalogue and agent-plugin-confirmed-installation capabilities.</summary>
+    [JsonPropertyName("contract")]
+    public CatalogClientContract Contract { get => field ??= new(); set; }
+
+    /// <summary>Opaque original plan, consumed once.</summary>
+    [JsonPropertyName("planHandle")]
+    public string PlanHandle { get; set; } = string.Empty;
+
+    /// <summary>Same existing selected session as planning.</summary>
+    [JsonPropertyName("policySessionId")]
+    public string PolicySessionId { get; set; } = string.Empty;
+}
+
+/// <summary>Information about an installed plugin tracked in global state.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class InstalledPluginInfo
+{
+    /// <summary>Opaque, stable hash identifying a direct (non-marketplace) install source. Present only for direct repo / URL / local installs; absent for marketplace plugins. Same source yields the same id; distinct sources never collide.</summary>
+    [JsonPropertyName("directSourceId")]
+    public string? DirectSourceId { get; set; }
+
+    /// <summary>Whether the plugin is currently enabled for new sessions.</summary>
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; }
+
+    /// <summary>Whether the managed desired plugin currently has an installed or live record. Set to false for a managed desired entry retained in the listing after installation or reconciliation failed.</summary>
+    [JsonPropertyName("installed")]
+    public bool? Installed { get; set; }
+
+    /// <summary>Absolute path of the marketplace directory a live plugin was resolved from. Present only on live, never-persisted records — a plugin belonging to a directory/local marketplace, which is loaded from its real directory on every pass instead of a copy under the installed-plugins cache. Its presence is what marks a listed plugin as live: such a plugin is always present on disk, so `enabled` is its only meaningful state and it is never "not installed".</summary>
+    [JsonPropertyName("installedFrom")]
+    public string? InstalledFrom { get; set; }
+
+    /// <summary>Whether enterprise managed settings control this plugin's enabled state.</summary>
+    [JsonPropertyName("managed")]
+    public bool? Managed { get; set; }
+
+    /// <summary>The enabled state required by enterprise managed settings, when this plugin spec is managed.</summary>
+    [JsonPropertyName("managedDesiredEnabled")]
+    public bool? ManagedDesiredEnabled { get; set; }
+
+    /// <summary>Marketplace the plugin came from. Empty string ("") for direct repo / URL / local installs.</summary>
+    [JsonPropertyName("marketplace")]
+    public string Marketplace { get; set; } = string.Empty;
+
+    /// <summary>Plugin name.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Runtime-reported plugin provenance. Currently set to "builtin" only for plugins registered through the trusted host built-in boundary; absent for installed, marketplace, direct, and live plugins.</summary>
+    [JsonPropertyName("source")]
+    public string? Source { get; set; }
+
+    /// <summary>Installed version (when reported by the plugin manifest).</summary>
+    [JsonPropertyName("version")]
+    public string? Version { get; set; }
+}
+
+/// <summary>Plugins installed in user/global state.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class PluginListResult
+{
+    /// <summary>Installed plugins.</summary>
+    [JsonPropertyName("plugins")]
+    public IList<InstalledPluginInfo> Plugins { get => field ??= []; set; }
+}
+
+/// <summary>Result of installing a plugin.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class PluginInstallResult
+{
+    /// <summary>Set when the install path is deprecated (e.g. direct repo / URL / local installs). Callers should surface this to end users.</summary>
+    [JsonPropertyName("deprecationWarning")]
+    public string? DeprecationWarning { get; set; }
+
+    /// <summary>The newly installed plugin's metadata.</summary>
+    [JsonPropertyName("plugin")]
+    public InstalledPluginInfo Plugin { get => field ??= new(); set; }
+
+    /// <summary>Optional post-install message provided by the plugin (e.g. setup instructions).</summary>
+    [JsonPropertyName("postInstallMessage")]
+    public string? PostInstallMessage { get; set; }
+
+    /// <summary>Number of skills discovered and installed from the plugin.</summary>
+    [JsonPropertyName("skillsInstalled")]
+    public long SkillsInstalled { get; set; }
+
+    /// <summary>Where the completed plugin tree was staged before atomic promotion.</summary>
+    [JsonPropertyName("stagingMode")]
+    public PluginInstallStagingMode? StagingMode { get; set; }
+}
+
+/// <summary>Plugin source and optional working directory for relative-path resolution.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class PluginsInstallRequest
+{
+    /// <summary>Plugin install spec. Accepts the same forms as the CLI: "plugin@marketplace" (marketplace install), "owner/repo" or "owner/repo:subpath" (GitHub direct), an http/https/ssh URL, or a local path. Direct (non-marketplace) installs are deprecated and will produce a deprecationWarning in the result.</summary>
+    [JsonPropertyName("source")]
+    public string Source { get; set; } = string.Empty;
+
+    /// <summary>Working directory used to resolve relative local paths in `source`. Defaults to the server's current working directory.</summary>
+    [JsonPropertyName("workingDirectory")]
+    public string? WorkingDirectory { get; set; }
+}
+
+/// <summary>Name (or spec) of the plugin to uninstall.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class PluginsUninstallRequest
+{
+    /// <summary>Stable source identity for a direct (non-marketplace) install. Disambiguates uninstall when multiple installed plugins share the same name.</summary>
+    [JsonPropertyName("directSourceId")]
+    public string? DirectSourceId { get; set; }
+
+    /// <summary>Plugin name or "plugin@marketplace" spec to uninstall. When ambiguous, prefer the fully-qualified spec.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+}
+
+/// <summary>Result of updating a single plugin.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class PluginUpdateResult
+{
+    /// <summary>Version after the update, when reported by the plugin manifest.</summary>
+    [JsonPropertyName("newVersion")]
+    public string? NewVersion { get; set; }
+
+    /// <summary>Version that was previously installed, when available.</summary>
+    [JsonPropertyName("previousVersion")]
+    public string? PreviousVersion { get; set; }
+
+    /// <summary>Number of skills discovered and installed after the update.</summary>
+    [JsonPropertyName("skillsInstalled")]
+    public long SkillsInstalled { get; set; }
+}
+
+/// <summary>Name (or spec) of the plugin to update.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class PluginsUpdateRequest
+{
+    /// <summary>Plugin name or "plugin@marketplace" spec to update.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+}
+
+/// <summary>Per-plugin result from updating all plugins, with versions, skills installed, success flag, and optional error.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class PluginUpdateAllEntry
+{
+    /// <summary>Error message (failure only).</summary>
+    [JsonPropertyName("error")]
+    public string? Error { get; set; }
+
+    /// <summary>Marketplace the plugin came from. Empty string ("") for direct installs.</summary>
+    [JsonPropertyName("marketplace")]
+    public string Marketplace { get; set; } = string.Empty;
+
+    /// <summary>Plugin name that was updated.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Version after the update, when available.</summary>
+    [JsonPropertyName("newVersion")]
+    public string? NewVersion { get; set; }
+
+    /// <summary>Previously installed version, when available.</summary>
+    [JsonPropertyName("previousVersion")]
+    public string? PreviousVersion { get; set; }
+
+    /// <summary>Number of skills installed after the update (success only).</summary>
+    [JsonPropertyName("skillsInstalled")]
+    public long? SkillsInstalled { get; set; }
+
+    /// <summary>Whether the update succeeded for this plugin.</summary>
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+}
+
+/// <summary>Result of updating all installed plugins.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class PluginUpdateAllResult
+{
+    /// <summary>Per-plugin update results in deterministic order.</summary>
+    [JsonPropertyName("results")]
+    public IList<PluginUpdateAllEntry> Results { get => field ??= []; set; }
+}
+
+/// <summary>Plugin names (or specs) to enable, plus the optional working directory the repository-controlled guard is evaluated against.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class PluginsEnableRequest
+{
+    /// <summary>Plugin names or "plugin@marketplace" specs to enable. Unknown names are ignored. Non-marketplace direct installs are always enabled and cannot be toggled via this API.</summary>
+    [JsonPropertyName("names")]
+    public IList<string> Names { get => field ??= []; set; }
+
+    /// <summary>Working directory whose repository `enabledPlugins` overlay decides whether this mutation is repository-controlled. Hosts that serve sessions across several repositories (the SDK server) should pass the session's directory; otherwise the guard is evaluated against the server process's own working directory, which may belong to a different repository. Defaults to the server's current working directory.</summary>
+    [JsonPropertyName("workingDirectory")]
+    public string? WorkingDirectory { get; set; }
+}
+
+/// <summary>Plugin names (or specs) to disable, plus the optional working directory the repository-controlled guard is evaluated against.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class PluginsDisableRequest
+{
+    /// <summary>Plugin names or "plugin@marketplace" specs to disable. Unknown names are ignored. Non-marketplace direct installs cannot be disabled via this API; uninstall them instead. Plugin-owned MCP servers are stopped in active sessions immediately; other plugin contributions remain available until each session reloads plugins.</summary>
+    [JsonPropertyName("names")]
+    public IList<string> Names { get => field ??= []; set; }
+
+    /// <summary>Working directory whose repository `enabledPlugins` overlay decides whether this mutation is repository-controlled. Hosts that serve sessions across several repositories (the SDK server) should pass the session's directory; otherwise the guard is evaluated against the server process's own working directory, which may belong to a different repository. Defaults to the server's current working directory.</summary>
+    [JsonPropertyName("workingDirectory")]
+    public string? WorkingDirectory { get; set; }
+}
+
+/// <summary>Trusted built-in plugin directories to use for this runtime process.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class PluginsBuiltinSetRequest
+{
+    /// <summary>Complete replacement set of trusted built-in plugin directories. Every entry must be an absolute local filesystem path no longer than 4096 characters.</summary>
+    [JsonPropertyName("paths")]
+    public IList<string> Paths { get => field ??= []; set; }
+}
+
+/// <summary>Registered marketplace summary.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class MarketplaceInfo
+{
+    /// <summary>Whether the managed marketplace currently resolved into the runtime marketplace registry. Set to false when the desired managed entry is retained for governance visibility after loading or reconciliation failed.</summary>
+    [JsonPropertyName("available")]
+    public bool? Available { get; set; }
+
+    /// <summary>True when this is a default marketplace shipped with the runtime. Defaults are not removable.</summary>
+    [JsonPropertyName("isDefault")]
+    public bool? IsDefault { get; set; }
+
+    /// <summary>Whether enterprise managed settings provide and control this marketplace entry.</summary>
+    [JsonPropertyName("managed")]
+    public bool? Managed { get; set; }
+
+    /// <summary>Marketplace name (matches the @marketplace suffix in plugin specs).</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Human-readable description of where the marketplace data is fetched from (e.g. "GitHub: owner/repo").</summary>
+    [JsonPropertyName("source")]
+    public string Source { get; set; } = string.Empty;
+}
+
+/// <summary>All registered marketplaces, including built-in defaults.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class MarketplaceListResult
+{
+    /// <summary>Registered marketplaces.</summary>
+    [JsonPropertyName("marketplaces")]
+    public IList<MarketplaceInfo> Marketplaces { get => field ??= []; set; }
+}
+
+/// <summary>Result of registering a new marketplace.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class MarketplaceAddResult
+{
+    /// <summary>Final name of the marketplace as resolved from its manifest.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+}
+
+/// <summary>Marketplace source and optional working directory for relative-path resolution.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class PluginsMarketplacesAddRequest
+{
+    /// <summary>Marketplace source. Accepts the same forms as the CLI: "owner/repo" or "owner/repo#ref" (GitHub), an http/https/ssh URL (optionally with #ref), a git scp-style URL (user@host:path), or a local path. The marketplace's own name (from its manifest) is used as the registration key.</summary>
+    [JsonPropertyName("source")]
+    public string Source { get; set; } = string.Empty;
+
+    /// <summary>Working directory used to resolve relative local paths in `source`. Defaults to the server's current working directory.</summary>
+    [JsonPropertyName("workingDirectory")]
+    public string? WorkingDirectory { get; set; }
+}
+
+/// <summary>Outcome of the remove attempt, including dependent-plugin info when applicable.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class MarketplaceRemoveResult
+{
+    /// <summary>Names of installed plugins that prevented removal. Populated only when `removed=false`.</summary>
+    [JsonPropertyName("dependentPlugins")]
+    public IList<string>? DependentPlugins { get; set; }
+
+    /// <summary>True when the marketplace was actually removed. False when removal was skipped because the marketplace has dependent plugins and `force` was not set.</summary>
+    [JsonPropertyName("removed")]
+    public bool Removed { get; set; }
+}
+
+/// <summary>Name of the marketplace to remove and an optional force flag.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class PluginsMarketplacesRemoveRequest
+{
+    /// <summary>When true, also uninstall every plugin sourced from this marketplace. When false (default), removal is a no-op if any plugin from this marketplace is installed and the dependent plugin names are returned in the result.</summary>
+    [JsonPropertyName("force")]
+    public bool? Force { get; set; }
+
+    /// <summary>Marketplace name to remove.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+}
+
+/// <summary>Plugin entry advertised by a marketplace.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class MarketplacePluginInfo
+{
+    /// <summary>Short description from the marketplace catalog, when present.</summary>
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    /// <summary>Plugin name as listed in the marketplace catalog.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+}
+
+/// <summary>Plugins advertised by the marketplace.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class MarketplaceBrowseResult
+{
+    /// <summary>Plugins advertised by the marketplace.</summary>
+    [JsonPropertyName("plugins")]
+    public IList<MarketplacePluginInfo> Plugins { get => field ??= []; set; }
+}
+
+/// <summary>Name of the marketplace whose plugin catalog to fetch.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class PluginsMarketplacesBrowseRequest
+{
+    /// <summary>Marketplace name to browse.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+}
+
+/// <summary>Per-marketplace refresh result, including marketplace name, success flag, and optional failure error.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class MarketplaceRefreshEntry
+{
+    /// <summary>Error message (failure only).</summary>
+    [JsonPropertyName("error")]
+    public string? Error { get; set; }
+
+    /// <summary>Marketplace name that was refreshed.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Whether the refresh succeeded.</summary>
+    [JsonPropertyName("success")]
+    public bool Success { get; set; }
+}
+
+/// <summary>Result of refreshing one or more marketplace catalogs.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class MarketplaceRefreshResult
+{
+    /// <summary>Per-marketplace refresh results in deterministic order.</summary>
+    [JsonPropertyName("results")]
+    public IList<MarketplaceRefreshEntry> Results { get => field ??= []; set; }
+}
+
+/// <summary>RPC data type for PluginsMarketplacesRefresh operations.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class PluginsMarketplacesRefreshRequest
+{
+    /// <summary>Marketplace name to refresh. When omitted, every registered marketplace is refreshed.</summary>
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+}
+
 /// <summary>Outcome of a catalog.search call: either bounded inert candidates, or one typed refusal. Never a partial success.</summary>
 /// <remarks>Polymorphic base type discriminated by <c>kind</c>.</remarks>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
@@ -8069,6 +9178,16 @@ public partial class CatalogCandidateMcpServer : CatalogCandidate
     [JsonIgnore]
     public override string Kind => "mcp-server";
 
+    /// <summary>Category slugs reported by the feed, such as `build` or `review`, without repeats. Values are passed through, so clients must tolerate slugs they do not recognise. Inert untrusted text. Omitted when the feed reports none.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("categories")]
+    public IList<string>? Categories { get; set; }
+
+    /// <summary>Identifiers of the connectors the resource works with, as reported by the feed, without repeats. Inert untrusted text. Omitted when the feed reports none.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("connectorIds")]
+    public IList<string>? ConnectorIds { get; set; }
+
     /// <summary>Description taken verbatim from the card. Inert untrusted text.</summary>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
     [MaxLength(1000)]
@@ -8092,9 +9211,23 @@ public partial class CatalogCandidateMcpServer : CatalogCandidate
     [JsonPropertyName("handleExpiresAt")]
     public required string HandleExpiresAt { get; set; }
 
+    /// <summary>HTTPS URL of the resource's icon on raw.githubusercontent.com, as reported by the feed. Untrusted external content: load it without credentials. Omitted when absent or outside the feed's icon host policy.</summary>
+    [Url]
+    [StringSyntax(StringSyntaxAttribute.Uri)]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(2048)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("iconUrl")]
+    public string? IconUrl { get; set; }
+
     /// <summary>Whether this MCP server can be planned for installation, and if policy prevents it.</summary>
     [JsonPropertyName("installability")]
     public required CatalogMcpServerInstallability Installability { get; set; }
+
+    /// <summary>How many times the resource has been installed, as reported by the feed. Omitted when the feed reports no count or an invalid one.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("installCount")]
+    public long? InstallCount { get; set; }
 
     /// <summary>JSON MCP media type of the underlying card.</summary>
     [JsonPropertyName("mediaType")]
@@ -8149,6 +9282,16 @@ public partial class CatalogCandidateAiSkill : CatalogCandidate
     [JsonIgnore]
     public override string Kind => "ai-skill";
 
+    /// <summary>Category slugs reported by the feed, such as `build` or `review`, without repeats. Values are passed through, so clients must tolerate slugs they do not recognise. Inert untrusted text. Omitted when the feed reports none.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("categories")]
+    public IList<string>? Categories { get; set; }
+
+    /// <summary>Identifiers of the connectors the resource works with, as reported by the feed, without repeats. Inert untrusted text. Omitted when the feed reports none.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("connectorIds")]
+    public IList<string>? ConnectorIds { get; set; }
+
     /// <summary>Description taken verbatim from the card. Inert untrusted text.</summary>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
     [MaxLength(1000)]
@@ -8172,9 +9315,23 @@ public partial class CatalogCandidateAiSkill : CatalogCandidate
     [JsonPropertyName("handleExpiresAt")]
     public required string HandleExpiresAt { get; set; }
 
+    /// <summary>HTTPS URL of the resource's icon on raw.githubusercontent.com, as reported by the feed. Untrusted external content: load it without credentials. Omitted when absent or outside the feed's icon host policy.</summary>
+    [Url]
+    [StringSyntax(StringSyntaxAttribute.Uri)]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(2048)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("iconUrl")]
+    public string? IconUrl { get; set; }
+
     /// <summary>Whether this AI skill candidate can be planned for verified installation in the selected session.</summary>
     [JsonPropertyName("installability")]
     public required CatalogAiSkillInstallability Installability { get; set; }
+
+    /// <summary>How many times the resource has been installed, as reported by the feed. Omitted when the feed reports no count or an invalid one.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("installCount")]
+    public long? InstallCount { get; set; }
 
     /// <summary>Media type of the underlying AI skill card.</summary>
     [JsonPropertyName("mediaType")]
@@ -8365,7 +9522,7 @@ public sealed class CatalogPluginRepositorySource
     public string Repository { get; set; } = string.Empty;
 }
 
-/// <summary>An inert Agent Plugin catalog result. Its canonical catalog identity, declared version, repository source claim, and explicit compatibility tags are safe to correlate, while its descriptor, URL, raw data, and installed-plugin state remain runtime-private. This contract-only variant does not mint or expose a candidate handle.</summary>
+/// <summary>An inert Agent Plugin catalog result. Its canonical catalog identity, declared version, repository source claim, and explicit compatibility tags are safe to correlate, while its descriptor, URL, raw data, materialisation reference, and installed-plugin state remain runtime-private. A handle is minted only under agent-plugin-confirmed-installation, for a candidate with a complete materialisation reference.</summary>
 /// <remarks>The <c>plugin</c> variant of <see cref="CatalogCandidate"/>.</remarks>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public partial class CatalogCandidatePlugin : CatalogCandidate
@@ -8374,9 +9531,19 @@ public partial class CatalogCandidatePlugin : CatalogCandidate
     [JsonIgnore]
     public override string Kind => "plugin";
 
+    /// <summary>Category slugs reported by the feed, such as `build` or `review`, without repeats. Values are passed through, so clients must tolerate slugs they do not recognise. Inert untrusted text. Omitted when the feed reports none.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("categories")]
+    public IList<string>? Categories { get; set; }
+
     /// <summary>Explicit validated compatibility tags, in canonical order. An empty list means the source declared no recognised compatibility; clients must not infer compatibility from other fields. `canvas-only` requires both `canvas` and `github-copilot`.</summary>
     [JsonPropertyName("compatibilityTags")]
     public required IList<CatalogAgentPluginCompatibilityTag> CompatibilityTags { get; set; }
+
+    /// <summary>Identifiers of the connectors the resource works with, as reported by the feed, without repeats. Inert untrusted text. Omitted when the feed reports none.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("connectorIds")]
+    public IList<string>? ConnectorIds { get; set; }
 
     /// <summary>Description taken verbatim from the card. Inert untrusted text.</summary>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
@@ -8391,6 +9558,27 @@ public partial class CatalogCandidatePlugin : CatalogCandidate
     [JsonPropertyName("displayName")]
     public required string DisplayName { get; set; }
 
+    /// <summary>Opaque, runtime-instance scoped, TTL-bound, single-use handle for planning this plugin's installation through plugins.planInstall. Present only when the caller requires the agent-plugin-confirmed-installation capability and the candidate carries a complete Agent Finder materialisation reference, which stays runtime-private. Never logged.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("handle")]
+    public string? Handle { get; set; }
+
+    /// <summary>ISO 8601 timestamp after which the handle is stale and will be rejected. Present exactly when handle is present.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("handleExpiresAt")]
+    public string? HandleExpiresAt { get; set; }
+
+    /// <summary>HTTPS URL of the resource's icon on raw.githubusercontent.com, as reported by the feed. Untrusted external content: load it without credentials. Omitted when absent or outside the feed's icon host policy.</summary>
+    [Url]
+    [StringSyntax(StringSyntaxAttribute.Uri)]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(2048)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("iconUrl")]
+    public string? IconUrl { get; set; }
+
     /// <summary>Validated, normalised catalogue resource URN. This identity comes only from the catalog identifier and is never inferred from display text or installed-plugin state.</summary>
     [JsonPropertyName("identity")]
     public required string Identity { get; set; }
@@ -8399,6 +9587,11 @@ public partial class CatalogCandidatePlugin : CatalogCandidate
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("installability")]
     public CatalogAgentPluginInstallability? Installability { get; set; }
+
+    /// <summary>How many times the resource has been installed, as reported by the feed. Omitted when the feed reports no count or an invalid one.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("installCount")]
+    public long? InstallCount { get; set; }
 
     /// <summary>Reviewable install plan built only from verified catalogue install data. Present exactly when installability is `installable`; the runtime never derives it from the repository source, display text, or identity.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -9083,360 +10276,201 @@ internal sealed class CatalogSelectionRequest
     public string SessionId { get; set; } = string.Empty;
 }
 
-/// <summary>Information about an installed plugin tracked in global state.</summary>
+/// <summary>Planning result for a materialisation reference with the honoured contract, or a typed refusal.</summary>
+/// <remarks>Polymorphic base type discriminated by <c>kind</c>.</remarks>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class InstalledPluginInfo
+[JsonPolymorphic(
+    TypeDiscriminatorPropertyName = "kind",
+    UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FallBackToBaseType)]
+[JsonDerivedType(typeof(CatalogReferenceInstallationResultOutcome), "outcome")]
+[JsonDerivedType(typeof(CatalogReferenceInstallationResultNegotiationRefused), "negotiation-refused")]
+[JsonDerivedType(typeof(CatalogReferenceInstallationResultInvalidRequest), "invalid-request")]
+public partial class CatalogReferenceInstallationResult
 {
-    /// <summary>Opaque, stable hash identifying a direct (non-marketplace) install source. Present only for direct repo / URL / local installs; absent for marketplace plugins. Same source yields the same id; distinct sources never collide.</summary>
-    [JsonPropertyName("directSourceId")]
-    public string? DirectSourceId { get; set; }
-
-    /// <summary>Whether the plugin is currently enabled for new sessions.</summary>
-    [JsonPropertyName("enabled")]
-    public bool Enabled { get; set; }
-
-    /// <summary>Whether the managed desired plugin currently has an installed or live record. Set to false for a managed desired entry retained in the listing after installation or reconciliation failed.</summary>
-    [JsonPropertyName("installed")]
-    public bool? Installed { get; set; }
-
-    /// <summary>Absolute path of the marketplace directory a live plugin was resolved from. Present only on live, never-persisted records — a plugin belonging to a directory/local marketplace, which is loaded from its real directory on every pass instead of a copy under the installed-plugins cache. Its presence is what marks a listed plugin as live: such a plugin is always present on disk, so `enabled` is its only meaningful state and it is never "not installed".</summary>
-    [JsonPropertyName("installedFrom")]
-    public string? InstalledFrom { get; set; }
-
-    /// <summary>Whether enterprise managed settings control this plugin's enabled state.</summary>
-    [JsonPropertyName("managed")]
-    public bool? Managed { get; set; }
-
-    /// <summary>The enabled state required by enterprise managed settings, when this plugin spec is managed.</summary>
-    [JsonPropertyName("managedDesiredEnabled")]
-    public bool? ManagedDesiredEnabled { get; set; }
-
-    /// <summary>Marketplace the plugin came from. Empty string ("") for direct repo / URL / local installs.</summary>
-    [JsonPropertyName("marketplace")]
-    public string Marketplace { get; set; } = string.Empty;
-
-    /// <summary>Plugin name.</summary>
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
-
-    /// <summary>Runtime-reported plugin provenance. Currently set to "builtin" only for plugins registered through the trusted host built-in boundary; absent for installed, marketplace, direct, and live plugins.</summary>
-    [JsonPropertyName("source")]
-    public string? Source { get; set; }
-
-    /// <summary>Installed version (when reported by the plugin manifest).</summary>
-    [JsonPropertyName("version")]
-    public string? Version { get; set; }
+    /// <summary>The type discriminator.</summary>
+    [JsonPropertyName("kind")]
+    public virtual string Kind { get; set; } = string.Empty;
 }
 
-/// <summary>Plugins installed in user/global state.</summary>
+
+/// <summary>Planning outcome for a materialisation reference. A plan names its kind, so the caller applies it with that kind's apply method.</summary>
+/// <remarks>Polymorphic base type discriminated by <c>kind</c>.</remarks>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class PluginListResult
+[JsonPolymorphic(
+    TypeDiscriminatorPropertyName = "kind",
+    UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FallBackToBaseType)]
+[JsonDerivedType(typeof(CatalogReferenceInstallationOutcomeSkillInstallPlanned), "skill-install-planned")]
+[JsonDerivedType(typeof(CatalogReferenceInstallationOutcomePluginInstallPlanned), "plugin-install-planned")]
+[JsonDerivedType(typeof(CatalogReferenceInstallationOutcomeRefused), "refused")]
+public partial class CatalogReferenceInstallationOutcome
 {
-    /// <summary>Installed plugins.</summary>
-    [JsonPropertyName("plugins")]
-    public IList<InstalledPluginInfo> Plugins { get => field ??= []; set; }
+    /// <summary>The type discriminator.</summary>
+    [JsonPropertyName("kind")]
+    public virtual string Kind { get; set; } = string.Empty;
 }
 
-/// <summary>Result of installing a plugin.</summary>
+
+/// <summary>The reference pins a Skill. Apply the plan with skills.applyInstall.</summary>
+/// <remarks>The <c>skill-install-planned</c> variant of <see cref="CatalogReferenceInstallationOutcome"/>.</remarks>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class PluginInstallResult
+public partial class CatalogReferenceInstallationOutcomeSkillInstallPlanned : CatalogReferenceInstallationOutcome
 {
-    /// <summary>Set when the install path is deprecated (e.g. direct repo / URL / local installs). Callers should surface this to end users.</summary>
-    [JsonPropertyName("deprecationWarning")]
-    public string? DeprecationWarning { get; set; }
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "skill-install-planned";
 
-    /// <summary>The newly installed plugin's metadata.</summary>
-    [JsonPropertyName("plugin")]
-    public InstalledPluginInfo Plugin { get => field ??= new(); set; }
-
-    /// <summary>Optional post-install message provided by the plugin (e.g. setup instructions).</summary>
-    [JsonPropertyName("postInstallMessage")]
-    public string? PostInstallMessage { get; set; }
-
-    /// <summary>Number of skills discovered and installed from the plugin.</summary>
-    [JsonPropertyName("skillsInstalled")]
-    public long SkillsInstalled { get; set; }
-
-    /// <summary>Where the completed plugin tree was staged before atomic promotion.</summary>
-    [JsonPropertyName("stagingMode")]
-    public PluginInstallStagingMode? StagingMode { get; set; }
+    /// <summary>Prepared Skill install plan.</summary>
+    [JsonPropertyName("plan")]
+    public required SkillInstallPlan Plan { get; set; }
 }
 
-/// <summary>Plugin source and optional working directory for relative-path resolution.</summary>
+/// <summary>The reference pins an Agent Plugin. Apply the plan with plugins.applyInstall.</summary>
+/// <remarks>The <c>plugin-install-planned</c> variant of <see cref="CatalogReferenceInstallationOutcome"/>.</remarks>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-internal sealed class PluginsInstallRequest
+public partial class CatalogReferenceInstallationOutcomePluginInstallPlanned : CatalogReferenceInstallationOutcome
 {
-    /// <summary>Plugin install spec. Accepts the same forms as the CLI: "plugin@marketplace" (marketplace install), "owner/repo" or "owner/repo:subpath" (GitHub direct), an http/https/ssh URL, or a local path. Direct (non-marketplace) installs are deprecated and will produce a deprecationWarning in the result.</summary>
-    [JsonPropertyName("source")]
-    public string Source { get; set; } = string.Empty;
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "plugin-install-planned";
 
-    /// <summary>Working directory used to resolve relative local paths in `source`. Defaults to the server's current working directory.</summary>
-    [JsonPropertyName("workingDirectory")]
-    public string? WorkingDirectory { get; set; }
+    /// <summary>Prepared Agent Plugin install plan.</summary>
+    [JsonPropertyName("plan")]
+    public required PluginInstallPlan Plan { get; set; }
 }
 
-/// <summary>Name (or spec) of the plugin to uninstall.</summary>
+/// <summary>Nothing was planned.</summary>
+/// <remarks>The <c>refused</c> variant of <see cref="CatalogReferenceInstallationOutcome"/>.</remarks>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-internal sealed class PluginsUninstallRequest
+public partial class CatalogReferenceInstallationOutcomeRefused : CatalogReferenceInstallationOutcome
 {
-    /// <summary>Stable source identity for a direct (non-marketplace) install. Disambiguates uninstall when multiple installed plugins share the same name.</summary>
-    [JsonPropertyName("directSourceId")]
-    public string? DirectSourceId { get; set; }
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "refused";
 
-    /// <summary>Plugin name or "plugin@marketplace" spec to uninstall. When ambiguous, prefer the fully-qualified spec.</summary>
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
+    /// <summary>Bounded refusal reason.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogReferenceInstallationFailureReason Reason { get; set; }
 }
 
-/// <summary>Result of updating a single plugin.</summary>
+/// <summary>The <c>outcome</c> variant of <see cref="CatalogReferenceInstallationResult"/>.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class PluginUpdateResult
+public partial class CatalogReferenceInstallationResultOutcome : CatalogReferenceInstallationResult
 {
-    /// <summary>Version after the update, when reported by the plugin manifest.</summary>
-    [JsonPropertyName("newVersion")]
-    public string? NewVersion { get; set; }
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "outcome";
 
-    /// <summary>Version that was previously installed, when available.</summary>
-    [JsonPropertyName("previousVersion")]
-    public string? PreviousVersion { get; set; }
+    /// <summary>Capabilities honoured for this request.</summary>
+    [JsonPropertyName("negotiated")]
+    public required CatalogNegotiatedContract Negotiated { get; set; }
 
-    /// <summary>Number of skills discovered and installed after the update.</summary>
-    [JsonPropertyName("skillsInstalled")]
-    public long SkillsInstalled { get; set; }
+    /// <summary>Planning outcome.</summary>
+    [JsonPropertyName("outcome")]
+    public required CatalogReferenceInstallationOutcome Outcome { get; set; }
 }
 
-/// <summary>Name (or spec) of the plugin to update.</summary>
+/// <summary>The caller's protocol version or required capabilities cannot be honoured. Returned instead of a partial or ambiguous success.</summary>
+/// <remarks>The <c>negotiation-refused</c> variant of <see cref="CatalogReferenceInstallationResult"/>.</remarks>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-internal sealed class PluginsUpdateRequest
+public partial class CatalogReferenceInstallationResultNegotiationRefused : CatalogReferenceInstallationResult
 {
-    /// <summary>Plugin name or "plugin@marketplace" spec to update.</summary>
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "negotiation-refused";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Lowest caller protocol version this runtime will serve.</summary>
+    [JsonPropertyName("minimumSupportedProtocolVersion")]
+    public required long MinimumSupportedProtocolVersion { get; set; }
+
+    /// <summary>Whether the version or the capability set was the problem.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogNegotiationRefusedReason Reason { get; set; }
+
+    /// <summary>Protocol version of the runtime that refused the request.</summary>
+    [JsonPropertyName("runtimeProtocolVersion")]
+    public required long RuntimeProtocolVersion { get; set; }
+
+    /// <summary>Capabilities this runtime can safely advertise to this caller. The complete five-capability protocol-3 legacy set is always present; every capability added after that baseline appears only when the caller required it, so an older closed-enum decoder can still consume a refusal. This list does not imply that every deployment has enabled every operation.</summary>
+    [JsonPropertyName("supportedCapabilities")]
+    public required IList<string> SupportedCapabilities { get; set; }
+
+    /// <summary>The subset of the caller's bounded extensible capability identifiers this runtime cannot honour.</summary>
+    [JsonPropertyName("unsupportedCapabilities")]
+    public required IList<string> UnsupportedCapabilities { get; set; }
 }
 
-/// <summary>Per-plugin result from updating all plugins, with versions, skills installed, success flag, and optional error.</summary>
+/// <summary>The request was rejected because a bounded field fell outside its permitted range or a required field was unusable. Pagination may also be rejected by the authority after a continuation request; repeat the search without page.</summary>
+/// <remarks>The <c>invalid-request</c> variant of <see cref="CatalogReferenceInstallationResult"/>.</remarks>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class PluginUpdateAllEntry
+public partial class CatalogReferenceInstallationResultInvalidRequest : CatalogReferenceInstallationResult
 {
-    /// <summary>Error message (failure only).</summary>
-    [JsonPropertyName("error")]
-    public string? Error { get; set; }
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "invalid-request";
 
-    /// <summary>Marketplace the plugin came from. Empty string ("") for direct installs.</summary>
-    [JsonPropertyName("marketplace")]
-    public string Marketplace { get; set; } = string.Empty;
+    /// <summary>Which request field was rejected.</summary>
+    [JsonPropertyName("field")]
+    public required CatalogInvalidRequestField Field { get; set; }
 
-    /// <summary>Plugin name that was updated.</summary>
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
-
-    /// <summary>Version after the update, when available.</summary>
-    [JsonPropertyName("newVersion")]
-    public string? NewVersion { get; set; }
-
-    /// <summary>Previously installed version, when available.</summary>
-    [JsonPropertyName("previousVersion")]
-    public string? PreviousVersion { get; set; }
-
-    /// <summary>Number of skills installed after the update (success only).</summary>
-    [JsonPropertyName("skillsInstalled")]
-    public long? SkillsInstalled { get; set; }
-
-    /// <summary>Whether the update succeeded for this plugin.</summary>
-    [JsonPropertyName("success")]
-    public bool Success { get; set; }
+    /// <summary>Human-readable explanation, safe to surface. Never echoes the offending value, nor a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
 }
 
-/// <summary>Result of updating all installed plugins.</summary>
+/// <summary>
+/// An Agent Finder materialisation reference pinning one exact resource revision.
+/// 
+/// It carries no origin or URL: the runtime always builds the descriptor URL on its fixed Agent
+/// Finder authority. It carries no display data either; every reviewed field comes from the
+/// verified descriptor and Skill files.
+/// </summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class PluginUpdateAllResult
+public sealed class CatalogMaterializationReference
 {
-    /// <summary>Per-plugin update results in deterministic order.</summary>
-    [JsonPropertyName("results")]
-    public IList<PluginUpdateAllEntry> Results { get => field ??= []; set; }
+    /// <summary>Expected `sha256:&lt;lowercase hex&gt;` digest of the descriptor's bundle manifest.</summary>
+    [JsonPropertyName("bundleDigest")]
+    public string BundleDigest { get; set; } = string.Empty;
+
+    /// <summary>Expected `sha256:&lt;lowercase hex&gt;` digest of the canonical descriptor.</summary>
+    [JsonPropertyName("descriptorDigest")]
+    public string DescriptorDigest { get; set; } = string.Empty;
+
+    /// <summary>Agent Finder resource identifier, a positive decimal integer.</summary>
+    [JsonPropertyName("resourceId")]
+    public string ResourceId { get; set; } = string.Empty;
+
+    /// <summary>Agent Finder materialisation revision identifier, a positive decimal integer. This is not a Git commit.</summary>
+    [JsonPropertyName("revisionId")]
+    public string RevisionId { get; set; } = string.Empty;
+
+    /// <summary>Materialisation descriptor schema version, currently `1.0.0`.</summary>
+    [JsonPropertyName("schemaVersion")]
+    public string SchemaVersion { get; set; } = string.Empty;
 }
 
-/// <summary>Plugin names (or specs) to enable, plus the optional working directory the repository-controlled guard is evaluated against.</summary>
+/// <summary>Side-effect-free planning of whatever resource a materialisation reference pins, rather than a search candidate.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-internal sealed class PluginsEnableRequest
+internal sealed class CatalogPlanInstallFromReferenceRequest
 {
-    /// <summary>Plugin names or "plugin@marketplace" specs to enable. Unknown names are ignored. Non-marketplace direct installs are always enabled and cannot be toggled via this API.</summary>
-    [JsonPropertyName("names")]
-    public IList<string> Names { get => field ??= []; set; }
+    /// <summary>Required authenticated bound catalogue and catalog-reference-installation capabilities, plus the installation capability of each kind the caller can apply.</summary>
+    [JsonPropertyName("contract")]
+    public CatalogClientContract Contract { get => field ??= new(); set; }
 
-    /// <summary>Working directory whose repository `enabledPlugins` overlay decides whether this mutation is repository-controlled. Hosts that serve sessions across several repositories (the SDK server) should pass the session's directory; otherwise the guard is evaluated against the server process's own working directory, which may belong to a different repository. Defaults to the server's current working directory.</summary>
-    [JsonPropertyName("workingDirectory")]
-    public string? WorkingDirectory { get; set; }
-}
+    /// <summary>Existing local session attached to this connection.</summary>
+    [JsonPropertyName("policySessionId")]
+    public string PolicySessionId { get; set; } = string.Empty;
 
-/// <summary>Plugin names (or specs) to disable, plus the optional working directory the repository-controlled guard is evaluated against.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-internal sealed class PluginsDisableRequest
-{
-    /// <summary>Plugin names or "plugin@marketplace" specs to disable. Unknown names are ignored. Non-marketplace direct installs cannot be disabled via this API; uninstall them instead. Plugin-owned MCP servers are stopped in active sessions immediately; other plugin contributions remain available until each session reloads plugins.</summary>
-    [JsonPropertyName("names")]
-    public IList<string> Names { get => field ??= []; set; }
-
-    /// <summary>Working directory whose repository `enabledPlugins` overlay decides whether this mutation is repository-controlled. Hosts that serve sessions across several repositories (the SDK server) should pass the session's directory; otherwise the guard is evaluated against the server process's own working directory, which may belong to a different repository. Defaults to the server's current working directory.</summary>
-    [JsonPropertyName("workingDirectory")]
-    public string? WorkingDirectory { get; set; }
-}
-
-/// <summary>Trusted built-in plugin directories to use for this runtime process.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-internal sealed class PluginsBuiltinSetRequest
-{
-    /// <summary>Complete replacement set of trusted built-in plugin directories. Every entry must be an absolute local filesystem path no longer than 4096 characters.</summary>
-    [JsonPropertyName("paths")]
-    public IList<string> Paths { get => field ??= []; set; }
-}
-
-/// <summary>Registered marketplace summary.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class MarketplaceInfo
-{
-    /// <summary>Whether the managed marketplace currently resolved into the runtime marketplace registry. Set to false when the desired managed entry is retained for governance visibility after loading or reconciliation failed.</summary>
-    [JsonPropertyName("available")]
-    public bool? Available { get; set; }
-
-    /// <summary>True when this is a default marketplace shipped with the runtime. Defaults are not removable.</summary>
-    [JsonPropertyName("isDefault")]
-    public bool? IsDefault { get; set; }
-
-    /// <summary>Whether enterprise managed settings provide and control this marketplace entry.</summary>
-    [JsonPropertyName("managed")]
-    public bool? Managed { get; set; }
-
-    /// <summary>Marketplace name (matches the @marketplace suffix in plugin specs).</summary>
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
-
-    /// <summary>Human-readable description of where the marketplace data is fetched from (e.g. "GitHub: owner/repo").</summary>
-    [JsonPropertyName("source")]
-    public string Source { get; set; } = string.Empty;
-}
-
-/// <summary>All registered marketplaces, including built-in defaults.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class MarketplaceListResult
-{
-    /// <summary>Registered marketplaces.</summary>
-    [JsonPropertyName("marketplaces")]
-    public IList<MarketplaceInfo> Marketplaces { get => field ??= []; set; }
-}
-
-/// <summary>Result of registering a new marketplace.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class MarketplaceAddResult
-{
-    /// <summary>Final name of the marketplace as resolved from its manifest.</summary>
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
-}
-
-/// <summary>Marketplace source and optional working directory for relative-path resolution.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-internal sealed class PluginsMarketplacesAddRequest
-{
-    /// <summary>Marketplace source. Accepts the same forms as the CLI: "owner/repo" or "owner/repo#ref" (GitHub), an http/https/ssh URL (optionally with #ref), a git scp-style URL (user@host:path), or a local path. The marketplace's own name (from its manifest) is used as the registration key.</summary>
-    [JsonPropertyName("source")]
-    public string Source { get; set; } = string.Empty;
-
-    /// <summary>Working directory used to resolve relative local paths in `source`. Defaults to the server's current working directory.</summary>
-    [JsonPropertyName("workingDirectory")]
-    public string? WorkingDirectory { get; set; }
-}
-
-/// <summary>Outcome of the remove attempt, including dependent-plugin info when applicable.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class MarketplaceRemoveResult
-{
-    /// <summary>Names of installed plugins that prevented removal. Populated only when `removed=false`.</summary>
-    [JsonPropertyName("dependentPlugins")]
-    public IList<string>? DependentPlugins { get; set; }
-
-    /// <summary>True when the marketplace was actually removed. False when removal was skipped because the marketplace has dependent plugins and `force` was not set.</summary>
-    [JsonPropertyName("removed")]
-    public bool Removed { get; set; }
-}
-
-/// <summary>Name of the marketplace to remove and an optional force flag.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-internal sealed class PluginsMarketplacesRemoveRequest
-{
-    /// <summary>When true, also uninstall every plugin sourced from this marketplace. When false (default), removal is a no-op if any plugin from this marketplace is installed and the dependent plugin names are returned in the result.</summary>
-    [JsonPropertyName("force")]
-    public bool? Force { get; set; }
-
-    /// <summary>Marketplace name to remove.</summary>
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
-}
-
-/// <summary>Plugin entry advertised by a marketplace.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class MarketplacePluginInfo
-{
-    /// <summary>Short description from the marketplace catalog, when present.</summary>
-    [JsonPropertyName("description")]
-    public string? Description { get; set; }
-
-    /// <summary>Plugin name as listed in the marketplace catalog.</summary>
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
-}
-
-/// <summary>Plugins advertised by the marketplace.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class MarketplaceBrowseResult
-{
-    /// <summary>Plugins advertised by the marketplace.</summary>
-    [JsonPropertyName("plugins")]
-    public IList<MarketplacePluginInfo> Plugins { get => field ??= []; set; }
-}
-
-/// <summary>Name of the marketplace whose plugin catalog to fetch.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-internal sealed class PluginsMarketplacesBrowseRequest
-{
-    /// <summary>Marketplace name to browse.</summary>
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
-}
-
-/// <summary>Per-marketplace refresh result, including marketplace name, success flag, and optional failure error.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class MarketplaceRefreshEntry
-{
-    /// <summary>Error message (failure only).</summary>
-    [JsonPropertyName("error")]
-    public string? Error { get; set; }
-
-    /// <summary>Marketplace name that was refreshed.</summary>
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
-
-    /// <summary>Whether the refresh succeeded.</summary>
-    [JsonPropertyName("success")]
-    public bool Success { get; set; }
-}
-
-/// <summary>Result of refreshing one or more marketplace catalogs.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class MarketplaceRefreshResult
-{
-    /// <summary>Per-marketplace refresh results in deterministic order.</summary>
-    [JsonPropertyName("results")]
-    public IList<MarketplaceRefreshEntry> Results { get => field ??= []; set; }
-}
-
-/// <summary>RPC data type for PluginsMarketplacesRefresh operations.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-internal sealed class PluginsMarketplacesRefreshRequest
-{
-    /// <summary>Marketplace name to refresh. When omitted, every registered marketplace is refreshed.</summary>
-    [JsonPropertyName("name")]
-    public string? Name { get; set; }
+    /// <summary>Materialisation reference to verify and plan.</summary>
+    [JsonPropertyName("reference")]
+    public CatalogMaterializationReference Reference { get => field ??= new(); set; }
 }
 
 /// <summary>Agent metadata, including identifiers, display details, source, tools, model, models, reasoning effort, MCP servers, skills, and file path.</summary>
@@ -16388,65 +17422,6 @@ internal sealed class ModelGetReasoningSummariesRequest
     /// <summary>Whether the host is currently showing reasoning summaries. Defaults to false.</summary>
     [JsonPropertyName("summariesVisible")]
     public bool? SummariesVisible { get; set; }
-}
-
-/// <summary>Availability of a server-advertised routing preference.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class AutoTierStatus
-{
-    /// <summary>Whether the provider permits selecting this preference.</summary>
-    [JsonPropertyName("enabled")]
-    public bool Enabled { get; set; }
-
-    /// <summary>Human-readable explanation of availability.</summary>
-    [JsonPropertyName("message")]
-    public string? Message { get; set; }
-
-    /// <summary>Extensible machine-readable unavailability reason.</summary>
-    [JsonPropertyName("reason")]
-    public string? Reason { get; set; }
-}
-
-/// <summary>A server-advertised routing preference. Identifiers and execution types are extensible.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class AutoTierDescriptor
-{
-    /// <summary>Description displayed beside the preference.</summary>
-    [JsonPropertyName("description")]
-    public string Description { get; set; } = string.Empty;
-
-    /// <summary>Human-readable label, not a routing identifier.</summary>
-    [JsonPropertyName("displayName")]
-    public string DisplayName { get; set; } = string.Empty;
-
-    /// <summary>Opaque routing identifier transmitted unchanged to the provider.</summary>
-    [JsonPropertyName("id")]
-    public string Id { get; set; } = string.Empty;
-
-    /// <summary>Current account-specific availability.</summary>
-    [JsonPropertyName("status")]
-    public AutoTierStatus Status { get => field ??= new(); set; }
-
-    /// <summary>Execution kind; this client supports `auto` preferences on the Auto model.</summary>
-    [JsonPropertyName("type")]
-    public string Type { get; set; } = string.Empty;
-}
-
-/// <summary>Account-bound discovery metadata for the virtual `auto` model.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class AutoTierMetadata
-{
-    /// <summary>Provider-default preference, used only when no explicit preference exists.</summary>
-    [JsonPropertyName("defaultTier")]
-    public string DefaultTier { get; set; } = string.Empty;
-
-    /// <summary>Provider that supplied this metadata, when the catalog is provider-attributed.</summary>
-    [JsonPropertyName("providerId")]
-    public string? ProviderId { get; set; }
-
-    /// <summary>Routing preferences in the server's presentation order.</summary>
-    [JsonPropertyName("tiers")]
-    public IList<AutoTierDescriptor> Tiers { get => field ??= []; set; }
 }
 
 /// <summary>Cost-category metadata for a CAPI model.</summary>
@@ -30086,6 +31061,7 @@ public sealed class InstallationsConfirmResult
     UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FallBackToBaseType)]
 [JsonDerivedType(typeof(InstallationReviewMcp), "mcp")]
 [JsonDerivedType(typeof(InstallationReviewSkill), "skill")]
+[JsonDerivedType(typeof(InstallationReviewPlugin), "plugin")]
 public partial class InstallationReview
 {
     /// <summary>The type discriminator.</summary>
@@ -30268,6 +31244,19 @@ public partial class InstallationReviewSkill : InstallationReview
     /// <summary>The exact verified Skill action and its reviewed files.</summary>
     [JsonPropertyName("review")]
     public required SkillInstallationReview Review { get; set; }
+}
+
+/// <summary>The <c>plugin</c> variant of <see cref="InstallationReview"/>.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class InstallationReviewPlugin : InstallationReview
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Resource => "plugin";
+
+    /// <summary>The exact verified Agent Plugin action and its reviewed files.</summary>
+    [JsonPropertyName("review")]
+    public required PluginInstallationReview Review { get; set; }
 }
 
 /// <summary>One connection-owned, expiring request for a trusted host's explicit user decision.</summary>
@@ -32116,6 +33105,69 @@ public readonly struct ModelPolicyState : IEquatable<ModelPolicyState>
 }
 
 
+/// <summary>Unit the catalog publishes a model's token prices in. The numeric fields of ModelBillingTokenPrices carry no unit of their own, so a client that renders a price needs this to scale it.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct TokenPriceUnit : IEquatable<TokenPriceUnit>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="TokenPriceUnit"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="TokenPriceUnit"/>.</param>
+    [JsonConstructor]
+    public TokenPriceUnit(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="TokenPriceUnit"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>Prices are already quoted in AI Credits and need no conversion.</summary>
+    public static TokenPriceUnit AiCredits { get; } = new("ai_credits");
+
+    /// <summary>Prices are quoted in nano-AIU; divide by 1,000,000,000 to get AI Credits.</summary>
+    public static TokenPriceUnit NanoAiu { get; } = new("nano_aiu");
+
+    /// <summary>Returns a value indicating whether two <see cref="TokenPriceUnit"/> instances are equivalent.</summary>
+    public static bool operator ==(TokenPriceUnit left, TokenPriceUnit right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="TokenPriceUnit"/> instances are not equivalent.</summary>
+    public static bool operator !=(TokenPriceUnit left, TokenPriceUnit right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is TokenPriceUnit other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(TokenPriceUnit other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{TokenPriceUnit}"/> for serializing <see cref="TokenPriceUnit"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<TokenPriceUnit>
+    {
+        /// <inheritdoc />
+        public override TokenPriceUnit Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, TokenPriceUnit value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(TokenPriceUnit));
+        }
+    }
+}
+
+
 /// <summary>Authentication type.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 [JsonConverter(typeof(Converter))]
@@ -32397,11 +33449,11 @@ public readonly struct CatalogCapability : IEquatable<CatalogCapability>
     /// <summary>Understands verified Agent Finder Skill install, uninstall, recovery and installation-scoped enablement APIs. Advertised only by runtimes with the Skill installation engine linked; acquisition may still be refused as feature-disabled per selected session.</summary>
     public static CatalogCapability SkillConfirmedInstallation { get; } = new("skill-confirmed-installation");
 
-    /// <summary>Understands `installability` and the reviewable `installPlan` on Agent Plugin candidates. Requires agent-plugin-discovery; without it, plugin candidates are unchanged. A plugin is installable only with complete, verified catalogue install data, and may still be reported as feature-disabled per selected session.</summary>
+    /// <summary>Understands `installability`, the reviewable `installPlan` and the optional materialisation `handle` on Agent Plugin candidates, and the verified Agent Plugin installation APIs plugins.planInstall and plugins.applyInstall, and Agent Plugin plans from catalog.planInstallFromReference. Requires agent-plugin-discovery; without it, plugin candidates are unchanged. Advertised only by runtimes with the plugin installer linked; acquisition may still be refused as feature-disabled per selected session.</summary>
     public static CatalogCapability AgentPluginConfirmedInstallation { get; } = new("agent-plugin-confirmed-installation");
 
-    /// <summary>Extends skill-confirmed-installation to planning from an Agent Finder materialisation reference through skills.planInstallFromReference, and to its distinct reference failure reasons. Requires skill-confirmed-installation. Advertised only by runtimes with the Skill installation engine linked.</summary>
-    public static CatalogCapability SkillReferenceInstallation { get; } = new("skill-reference-installation");
+    /// <summary>Understands catalog.planInstallFromReference, which plans installing whatever resource an Agent Finder materialisation reference pins. It plans only kinds whose installation capability the caller also requires: skill-confirmed-installation for Skills, agent-plugin-confirmed-installation for Agent Plugins. Advertised only by runtimes with the Skill installation engine linked.</summary>
+    public static CatalogCapability CatalogReferenceInstallation { get; } = new("catalog-reference-installation");
 
     /// <summary>Returns a value indicating whether two <see cref="CatalogCapability"/> instances are equivalent.</summary>
     public static bool operator ==(CatalogCapability left, CatalogCapability right) => left.Equals(right);
@@ -34612,6 +35664,69 @@ public readonly struct McpInstallationSecretStorage : IEquatable<McpInstallation
 }
 
 
+/// <summary>OAuth grant type to use when authenticating to the remote MCP server.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct McpServerConfigHttpOauthGrantType : IEquatable<McpServerConfigHttpOauthGrantType>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="McpServerConfigHttpOauthGrantType"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="McpServerConfigHttpOauthGrantType"/>.</param>
+    [JsonConstructor]
+    public McpServerConfigHttpOauthGrantType(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="McpServerConfigHttpOauthGrantType"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>Interactive browser-based authorization code flow with PKCE.</summary>
+    public static McpServerConfigHttpOauthGrantType AuthorizationCode { get; } = new("authorization_code");
+
+    /// <summary>Headless client credentials flow using the configured OAuth client.</summary>
+    public static McpServerConfigHttpOauthGrantType ClientCredentials { get; } = new("client_credentials");
+
+    /// <summary>Returns a value indicating whether two <see cref="McpServerConfigHttpOauthGrantType"/> instances are equivalent.</summary>
+    public static bool operator ==(McpServerConfigHttpOauthGrantType left, McpServerConfigHttpOauthGrantType right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="McpServerConfigHttpOauthGrantType"/> instances are not equivalent.</summary>
+    public static bool operator !=(McpServerConfigHttpOauthGrantType left, McpServerConfigHttpOauthGrantType right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is McpServerConfigHttpOauthGrantType other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(McpServerConfigHttpOauthGrantType other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{McpServerConfigHttpOauthGrantType}"/> for serializing <see cref="McpServerConfigHttpOauthGrantType"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<McpServerConfigHttpOauthGrantType>
+    {
+        /// <inheritdoc />
+        public override McpServerConfigHttpOauthGrantType Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, McpServerConfigHttpOauthGrantType value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(McpServerConfigHttpOauthGrantType));
+        }
+    }
+}
+
+
 /// <summary>Persisted extension discovery source.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 [JsonConverter(typeof(Converter))]
@@ -35325,21 +36440,6 @@ public readonly struct SkillInstallationFailureReason : IEquatable<SkillInstalla
     /// <summary>A storage operation failed; inspect durable state before retrying.</summary>
     public static SkillInstallationFailureReason WriteFailed { get; } = new("write-failed");
 
-    /// <summary>The materialisation reference is malformed or uses an unsupported schema version. Returned only to callers that require skill-reference-installation.</summary>
-    public static SkillInstallationFailureReason InvalidReference { get; } = new("invalid-reference");
-
-    /// <summary>Agent Finder has no materialisation for the referenced resource revision (HTTP 404). Returned only to callers that require skill-reference-installation.</summary>
-    public static SkillInstallationFailureReason DescriptorNotFound { get; } = new("descriptor-not-found");
-
-    /// <summary>Agent Finder withdrew the referenced resource revision (HTTP 410). Returned only to callers that require skill-reference-installation.</summary>
-    public static SkillInstallationFailureReason DescriptorWithdrawn { get; } = new("descriptor-withdrawn");
-
-    /// <summary>The retrieved descriptor does not match the referenced descriptor or bundle digest. Returned only to callers that require skill-reference-installation.</summary>
-    public static SkillInstallationFailureReason DigestMismatch { get; } = new("digest-mismatch");
-
-    /// <summary>The referenced resource is not a Skill. Returned only to callers that require skill-reference-installation.</summary>
-    public static SkillInstallationFailureReason UnsupportedResource { get; } = new("unsupported-resource");
-
     /// <summary>Returns a value indicating whether two <see cref="SkillInstallationFailureReason"/> instances are equivalent.</summary>
     public static bool operator ==(SkillInstallationFailureReason left, SkillInstallationFailureReason right) => left.Equals(right);
 
@@ -35441,6 +36541,210 @@ public readonly struct SkillDiscoveryScope : IEquatable<SkillDiscoveryScope>
         public override void Write(Utf8JsonWriter writer, SkillDiscoveryScope value, JsonSerializerOptions options)
         {
             GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(SkillDiscoveryScope));
+        }
+    }
+}
+
+
+/// <summary>Bounded refusal categories for verified Agent Plugin installation.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct PluginInstallationFailureReason : IEquatable<PluginInstallationFailureReason>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="PluginInstallationFailureReason"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="PluginInstallationFailureReason"/>.</param>
+    [JsonConstructor]
+    public PluginInstallationFailureReason(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="PluginInstallationFailureReason"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>The selected session does not have the Agent Finder plugin installation feature flag enabled.</summary>
+    public static PluginInstallationFailureReason FeatureDisabled { get; } = new("feature-disabled");
+
+    /// <summary>The request is unsupported or malformed.</summary>
+    public static PluginInstallationFailureReason InvalidRequest { get; } = new("invalid-request");
+
+    /// <summary>The original host cannot receive human confirmation.</summary>
+    public static PluginInstallationFailureReason ConfirmationUnavailable { get; } = new("confirmation-unavailable");
+
+    /// <summary>The confirmation response is malformed or mismatched.</summary>
+    public static PluginInstallationFailureReason ConfirmationInvalid { get; } = new("confirmation-invalid");
+
+    /// <summary>Existing authenticated session and host authority is unavailable.</summary>
+    public static PluginInstallationFailureReason PolicyContextUnavailable { get; } = new("policy-context-unavailable");
+
+    /// <summary>The original authority or policy changed.</summary>
+    public static PluginInstallationFailureReason PolicyChanged { get; } = new("policy-changed");
+
+    /// <summary>Managed policy only allows plugins from known marketplaces, which excludes direct installs.</summary>
+    public static PluginInstallationFailureReason PolicyBlocked { get; } = new("policy-blocked");
+
+    /// <summary>The original plan deadline elapsed.</summary>
+    public static PluginInstallationFailureReason PlanExpired { get; } = new("plan-expired");
+
+    /// <summary>The one-use plan was already consumed.</summary>
+    public static PluginInstallationFailureReason PlanReplayed { get; } = new("plan-replayed");
+
+    /// <summary>The handle belongs to a different runtime, session or connection.</summary>
+    public static PluginInstallationFailureReason ForeignRuntime { get; } = new("foreign-runtime");
+
+    /// <summary>The handle is not the expected handle kind.</summary>
+    public static PluginInstallationFailureReason WrongKind { get; } = new("wrong-kind");
+
+    /// <summary>The handle was minted for a different search result or authority.</summary>
+    public static PluginInstallationFailureReason SearchMismatch { get; } = new("search-mismatch");
+
+    /// <summary>The handle or operation expired.</summary>
+    public static PluginInstallationFailureReason Expired { get; } = new("expired");
+
+    /// <summary>The candidate handle does not belong to an Agent Plugin with a complete materialisation reference.</summary>
+    public static PluginInstallationFailureReason InvalidCandidate { get; } = new("invalid-candidate");
+
+    /// <summary>The materialisation descriptor could not be retrieved safely.</summary>
+    public static PluginInstallationFailureReason DescriptorUnavailable { get; } = new("descriptor-unavailable");
+
+    /// <summary>Agent Finder has no materialisation for the referenced resource revision (HTTP 404).</summary>
+    public static PluginInstallationFailureReason DescriptorNotFound { get; } = new("descriptor-not-found");
+
+    /// <summary>Agent Finder withdrew the referenced resource revision (HTTP 410).</summary>
+    public static PluginInstallationFailureReason DescriptorWithdrawn { get; } = new("descriptor-withdrawn");
+
+    /// <summary>The materialisation descriptor failed validation.</summary>
+    public static PluginInstallationFailureReason DescriptorInvalid { get; } = new("descriptor-invalid");
+
+    /// <summary>The retrieved descriptor does not match the referenced descriptor or bundle digest.</summary>
+    public static PluginInstallationFailureReason DigestMismatch { get; } = new("digest-mismatch");
+
+    /// <summary>The candidate's materialisation is not an Agent Plugin.</summary>
+    public static PluginInstallationFailureReason UnsupportedResource { get; } = new("unsupported-resource");
+
+    /// <summary>The plugin manifest could not be retrieved or verified.</summary>
+    public static PluginInstallationFailureReason EntrypointUnavailable { get; } = new("entrypoint-unavailable");
+
+    /// <summary>The plugin manifest is not a valid plugin manifest, or the bundle has another manifest that would take precedence over the reviewed one.</summary>
+    public static PluginInstallationFailureReason InvalidPlugin { get; } = new("invalid-plugin");
+
+    /// <summary>The plugin manifest exceeds the bounded complete review size.</summary>
+    public static PluginInstallationFailureReason ReviewTooLarge { get; } = new("review-too-large");
+
+    /// <summary>The reviewed plugin files could not be acquired.</summary>
+    public static PluginInstallationFailureReason PayloadUnavailable { get; } = new("payload-unavailable");
+
+    /// <summary>The acquired files no longer match the reviewed descriptor.</summary>
+    public static PluginInstallationFailureReason PayloadMismatch { get; } = new("payload-mismatch");
+
+    /// <summary>Plugin installation storage or admission is busy.</summary>
+    public static PluginInstallationFailureReason Busy { get; } = new("busy");
+
+    /// <summary>A plugin with the same name or install location already exists.</summary>
+    public static PluginInstallationFailureReason AlreadyInstalled { get; } = new("already-installed");
+
+    /// <summary>A storage operation failed; nothing was registered.</summary>
+    public static PluginInstallationFailureReason WriteFailed { get; } = new("write-failed");
+
+    /// <summary>Returns a value indicating whether two <see cref="PluginInstallationFailureReason"/> instances are equivalent.</summary>
+    public static bool operator ==(PluginInstallationFailureReason left, PluginInstallationFailureReason right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="PluginInstallationFailureReason"/> instances are not equivalent.</summary>
+    public static bool operator !=(PluginInstallationFailureReason left, PluginInstallationFailureReason right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is PluginInstallationFailureReason other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(PluginInstallationFailureReason other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{PluginInstallationFailureReason}"/> for serializing <see cref="PluginInstallationFailureReason"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<PluginInstallationFailureReason>
+    {
+        /// <inheritdoc />
+        public override PluginInstallationFailureReason Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, PluginInstallationFailureReason value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(PluginInstallationFailureReason));
+        }
+    }
+}
+
+
+/// <summary>Where completed plugin content was staged before atomic promotion.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct PluginInstallStagingMode : IEquatable<PluginInstallStagingMode>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="PluginInstallStagingMode"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="PluginInstallStagingMode"/>.</param>
+    [JsonConstructor]
+    public PluginInstallStagingMode(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="PluginInstallStagingMode"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>A sibling of the installed-plugins root, outside the recursively watched tree.</summary>
+    public static PluginInstallStagingMode External { get; } = new("external");
+
+    /// <summary>A sibling of the destination plugin directory, used when external staging is unavailable.</summary>
+    public static PluginInstallStagingMode DestinationSibling { get; } = new("destination_sibling");
+
+    /// <summary>Returns a value indicating whether two <see cref="PluginInstallStagingMode"/> instances are equivalent.</summary>
+    public static bool operator ==(PluginInstallStagingMode left, PluginInstallStagingMode right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="PluginInstallStagingMode"/> instances are not equivalent.</summary>
+    public static bool operator !=(PluginInstallStagingMode left, PluginInstallStagingMode right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is PluginInstallStagingMode other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(PluginInstallStagingMode other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{PluginInstallStagingMode}"/> for serializing <see cref="PluginInstallStagingMode"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<PluginInstallStagingMode>
+    {
+        /// <inheritdoc />
+        public override PluginInstallStagingMode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, PluginInstallStagingMode value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(PluginInstallStagingMode));
         }
     }
 }
@@ -36118,43 +37422,97 @@ public readonly struct CatalogSelectionDecision : IEquatable<CatalogSelectionDec
 }
 
 
-/// <summary>Where completed plugin content was staged before atomic promotion.</summary>
+/// <summary>Bounded refusal categories for planning from a materialisation reference.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 [JsonConverter(typeof(Converter))]
 [DebuggerDisplay("{Value,nq}")]
-public readonly struct PluginInstallStagingMode : IEquatable<PluginInstallStagingMode>
+public readonly struct CatalogReferenceInstallationFailureReason : IEquatable<CatalogReferenceInstallationFailureReason>
 {
     private readonly string? _value;
 
-    /// <summary>Initializes a new instance of the <see cref="PluginInstallStagingMode"/> struct.</summary>
-    /// <param name="value">The value to associate with this <see cref="PluginInstallStagingMode"/>.</param>
+    /// <summary>Initializes a new instance of the <see cref="CatalogReferenceInstallationFailureReason"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="CatalogReferenceInstallationFailureReason"/>.</param>
     [JsonConstructor]
-    public PluginInstallStagingMode(string value)
+    public CatalogReferenceInstallationFailureReason(string value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value);
         _value = value;
     }
 
-    /// <summary>Gets the value associated with this <see cref="PluginInstallStagingMode"/>.</summary>
+    /// <summary>Gets the value associated with this <see cref="CatalogReferenceInstallationFailureReason"/>.</summary>
     public string Value => _value ?? string.Empty;
 
-    /// <summary>A sibling of the installed-plugins root, outside the recursively watched tree.</summary>
-    public static PluginInstallStagingMode External { get; } = new("external");
+    /// <summary>The selected session does not have the installation feature flag for the referenced kind enabled.</summary>
+    public static CatalogReferenceInstallationFailureReason FeatureDisabled { get; } = new("feature-disabled");
 
-    /// <summary>A sibling of the destination plugin directory, used when external staging is unavailable.</summary>
-    public static PluginInstallStagingMode DestinationSibling { get; } = new("destination_sibling");
+    /// <summary>The request is unsupported or malformed.</summary>
+    public static CatalogReferenceInstallationFailureReason InvalidRequest { get; } = new("invalid-request");
 
-    /// <summary>Returns a value indicating whether two <see cref="PluginInstallStagingMode"/> instances are equivalent.</summary>
-    public static bool operator ==(PluginInstallStagingMode left, PluginInstallStagingMode right) => left.Equals(right);
+    /// <summary>The bounded operation limit was reached.</summary>
+    public static CatalogReferenceInstallationFailureReason OperationLimit { get; } = new("operation-limit");
 
-    /// <summary>Returns a value indicating whether two <see cref="PluginInstallStagingMode"/> instances are not equivalent.</summary>
-    public static bool operator !=(PluginInstallStagingMode left, PluginInstallStagingMode right) => !(left == right);
+    /// <summary>Installation storage or admission is busy.</summary>
+    public static CatalogReferenceInstallationFailureReason Busy { get; } = new("busy");
+
+    /// <summary>The original host cannot receive human confirmation.</summary>
+    public static CatalogReferenceInstallationFailureReason ConfirmationUnavailable { get; } = new("confirmation-unavailable");
+
+    /// <summary>Existing authenticated session and host authority is unavailable.</summary>
+    public static CatalogReferenceInstallationFailureReason PolicyContextUnavailable { get; } = new("policy-context-unavailable");
+
+    /// <summary>Managed policy forbids installing this resource.</summary>
+    public static CatalogReferenceInstallationFailureReason PolicyBlocked { get; } = new("policy-blocked");
+
+    /// <summary>The materialisation reference is malformed or uses an unsupported schema version.</summary>
+    public static CatalogReferenceInstallationFailureReason InvalidReference { get; } = new("invalid-reference");
+
+    /// <summary>The materialisation descriptor could not be retrieved safely.</summary>
+    public static CatalogReferenceInstallationFailureReason DescriptorUnavailable { get; } = new("descriptor-unavailable");
+
+    /// <summary>Agent Finder has no materialisation for the referenced resource revision (HTTP 404).</summary>
+    public static CatalogReferenceInstallationFailureReason DescriptorNotFound { get; } = new("descriptor-not-found");
+
+    /// <summary>Agent Finder withdrew the referenced resource revision (HTTP 410).</summary>
+    public static CatalogReferenceInstallationFailureReason DescriptorWithdrawn { get; } = new("descriptor-withdrawn");
+
+    /// <summary>The materialisation descriptor failed validation.</summary>
+    public static CatalogReferenceInstallationFailureReason DescriptorInvalid { get; } = new("descriptor-invalid");
+
+    /// <summary>The retrieved descriptor does not match the referenced descriptor or bundle digest.</summary>
+    public static CatalogReferenceInstallationFailureReason DigestMismatch { get; } = new("digest-mismatch");
+
+    /// <summary>The referenced resource is a kind this runtime cannot install, or one whose installation capability the caller did not require.</summary>
+    public static CatalogReferenceInstallationFailureReason UnsupportedResource { get; } = new("unsupported-resource");
+
+    /// <summary>The resource's entrypoint could not be retrieved or verified.</summary>
+    public static CatalogReferenceInstallationFailureReason EntrypointUnavailable { get; } = new("entrypoint-unavailable");
+
+    /// <summary>The Skill entrypoint is not a valid Skill.</summary>
+    public static CatalogReferenceInstallationFailureReason InvalidSkill { get; } = new("invalid-skill");
+
+    /// <summary>The plugin manifest is not a valid plugin manifest, or the bundle has another manifest that would take precedence over the reviewed one.</summary>
+    public static CatalogReferenceInstallationFailureReason InvalidPlugin { get; } = new("invalid-plugin");
+
+    /// <summary>The entrypoint exceeds the bounded complete review size.</summary>
+    public static CatalogReferenceInstallationFailureReason ReviewTooLarge { get; } = new("review-too-large");
+
+    /// <summary>A resource with the same identity or install location already exists.</summary>
+    public static CatalogReferenceInstallationFailureReason AlreadyInstalled { get; } = new("already-installed");
+
+    /// <summary>A storage operation failed; nothing was installed.</summary>
+    public static CatalogReferenceInstallationFailureReason WriteFailed { get; } = new("write-failed");
+
+    /// <summary>Returns a value indicating whether two <see cref="CatalogReferenceInstallationFailureReason"/> instances are equivalent.</summary>
+    public static bool operator ==(CatalogReferenceInstallationFailureReason left, CatalogReferenceInstallationFailureReason right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="CatalogReferenceInstallationFailureReason"/> instances are not equivalent.</summary>
+    public static bool operator !=(CatalogReferenceInstallationFailureReason left, CatalogReferenceInstallationFailureReason right) => !(left == right);
 
     /// <inheritdoc />
-    public override bool Equals(object? obj) => obj is PluginInstallStagingMode other && Equals(other);
+    public override bool Equals(object? obj) => obj is CatalogReferenceInstallationFailureReason other && Equals(other);
 
     /// <inheritdoc />
-    public bool Equals(PluginInstallStagingMode other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+    public bool Equals(CatalogReferenceInstallationFailureReason other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
 
     /// <inheritdoc />
     public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
@@ -36162,20 +37520,20 @@ public readonly struct PluginInstallStagingMode : IEquatable<PluginInstallStagin
     /// <inheritdoc />
     public override string ToString() => Value;
 
-    /// <summary>Provides a <see cref="JsonConverter{PluginInstallStagingMode}"/> for serializing <see cref="PluginInstallStagingMode"/> instances.</summary>
+    /// <summary>Provides a <see cref="JsonConverter{CatalogReferenceInstallationFailureReason}"/> for serializing <see cref="CatalogReferenceInstallationFailureReason"/> instances.</summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public sealed class Converter : JsonConverter<PluginInstallStagingMode>
+    public sealed class Converter : JsonConverter<CatalogReferenceInstallationFailureReason>
     {
         /// <inheritdoc />
-        public override PluginInstallStagingMode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        public override CatalogReferenceInstallationFailureReason Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
             return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
         }
 
         /// <inheritdoc />
-        public override void Write(Utf8JsonWriter writer, PluginInstallStagingMode value, JsonSerializerOptions options)
+        public override void Write(Utf8JsonWriter writer, CatalogReferenceInstallationFailureReason value, JsonSerializerOptions options)
         {
-            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(PluginInstallStagingMode));
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(CatalogReferenceInstallationFailureReason));
         }
     }
 }
@@ -44256,10 +45614,10 @@ public readonly struct SandboxSessionChange : IEquatable<SandboxSessionChange>
     /// <summary>Gets the value associated with this <see cref="SandboxSessionChange"/>.</summary>
     public string Value => _value ?? string.Empty;
 
-    /// <summary>The sandbox is off for the rest of this session; nothing was persisted and a new session starts from managed policy.</summary>
+    /// <summary>The sandbox is off for the rest of this session; nothing was persisted and a new session starts from saved and managed policy.</summary>
     public static SandboxSessionChange Disabled { get; } = new("disabled");
 
-    /// <summary>A previous session-scoped opt-out was cleared and the sandbox is enforced again.</summary>
+    /// <summary>The sandbox is enabled for this session; nothing was persisted.</summary>
     public static SandboxSessionChange Restored { get; } = new("restored");
 
     /// <summary>Returns a value indicating whether two <see cref="SandboxSessionChange"/> instances are equivalent.</summary>
@@ -47134,14 +48492,14 @@ public sealed class ServerRpc
         Interlocked.CompareExchange(ref field, new(_rpc), null) ??
         field;
 
-    /// <summary>Catalog APIs.</summary>
-    public ServerCatalogApi Catalog =>
+    /// <summary>Plugins APIs.</summary>
+    public ServerPluginsApi Plugins =>
         field ??
         Interlocked.CompareExchange(ref field, new(_rpc), null) ??
         field;
 
-    /// <summary>Plugins APIs.</summary>
-    public ServerPluginsApi Plugins =>
+    /// <summary>Catalog APIs.</summary>
+    public ServerCatalogApi Catalog =>
         field ??
         Interlocked.CompareExchange(ref field, new(_rpc), null) ??
         field;
@@ -48468,6 +49826,20 @@ public sealed class ServerHostApi
         return await CopilotClient.InvokeRpcAsync<HostPublishSessionResult>(_rpc, "host.publishSession", [request], cancellationToken);
     }
 
+    /// <summary>Withdraws a live or dormant application publication from an owned live host and revokes AHP attachments without deleting local session history, worktrees, or ongoing work. Returns false when already absent; rejects nonapplication publications.</summary>
+    /// <param name="hostId">Listener UUID returned by host.start; the caller must own the live listener.</param>
+    /// <param name="sessionId">Canonical session ID in the durable catalog, whether resident or dormant.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Publication withdrawal outcome; local history, worktrees and ongoing work are preserved.</returns>
+    public async Task<HostUnpublishSessionResult> UnpublishSessionAsync(string hostId, string sessionId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(hostId);
+        ArgumentNullException.ThrowIfNull(sessionId);
+
+        var request = new HostUnpublishSessionRequest { HostId = hostId, SessionId = sessionId };
+        return await CopilotClient.InvokeRpcAsync<HostUnpublishSessionResult>(_rpc, "host.unpublishSession", [request], cancellationToken);
+    }
+
     /// <summary>Reads the complete advertised live and dormant session catalog of an existing host owned by this connection. Does not start hosting, subscribe to sessions, or guarantee resumability.</summary>
     /// <param name="hostId">
     /// Listener UUID returned by host.start; the caller must own it. Omit to read
@@ -48641,6 +50013,24 @@ public sealed class ServerModelsApi
     public async Task<BuiltInModelCatalog> GetBuiltInCatalogAsync(CancellationToken cancellationToken = default)
     {
         return await CopilotClient.InvokeRpcAsync<BuiltInModelCatalog>(_rpc, "models.getBuiltInCatalog", [], cancellationToken);
+    }
+
+    /// <summary>Reports the unit of each model's published token prices: AI Credits or nano-AIU. Pair these units with models.list prices by model ID and use identical account-selection options for both calls. When options are omitted, the current account and its model providers are used.</summary>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Price units for every catalog model that publishes token prices.</returns>
+    public async Task<ModelTokenPriceUnitList> ListTokenPriceUnitsAsync(CancellationToken cancellationToken = default)
+    {
+        return await CopilotClient.InvokeRpcAsync<ModelTokenPriceUnitList>(_rpc, "models.listTokenPriceUnits", [], cancellationToken);
+    }
+
+    /// <summary>Reports the unit of each model's published token prices: AI Credits or nano-AIU. Pair these units with models.list prices by model ID and use identical account-selection options for both calls. When options are omitted, the current account and its model providers are used.</summary>
+    /// <param name="request">Optional opaque account selection or compatibility GitHub token used to list models.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Price units for every catalog model that publishes token prices.</returns>
+    public async Task<ModelTokenPriceUnitList> ListTokenPriceUnitsAsync(ModelsListTokenPriceUnitsRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        return await CopilotClient.InvokeRpcAsync<ModelTokenPriceUnitList>(_rpc, "models.listTokenPriceUnits", [request], cancellationToken);
     }
 }
 
@@ -48984,6 +50374,12 @@ public sealed class ServerMcpApi
         Interlocked.CompareExchange(ref field, new(_rpc), null) ??
         field;
 
+    /// <summary>Oauth APIs.</summary>
+    public ServerMcpOauthApi Oauth =>
+        field ??
+        Interlocked.CompareExchange(ref field, new(_rpc), null) ??
+        field;
+
     /// <summary>Installations APIs.</summary>
     public ServerMcpInstallationsApi Installations =>
         field ??
@@ -49117,6 +50513,72 @@ public sealed class ServerMcpRegistryApi
     {
         var request = new McpRegistryCancelRequest { RequestId = requestId };
         return await CopilotClient.InvokeRpcAsync<McpRegistryCancelResult>(_rpc, "mcp.registry.cancel", [request], cancellationToken);
+    }
+}
+
+/// <summary>Provides server-scoped McpOauth APIs.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class ServerMcpOauthApi
+{
+    private readonly JsonRpc _rpc;
+
+    internal ServerMcpOauthApi(JsonRpc rpc)
+    {
+        _rpc = rpc;
+    }
+
+    /// <summary>Reads the static OAuth client a remote MCP server configuration pins, so a host can decide whether to register a client dynamically or reuse the configured one. Omits `clientConfig` when no non-empty `oauthClientId` is configured. The client secret is deliberately never carried here: the runtime loads it from the OAuth secret store at flow time.</summary>
+    /// <param name="config">The server configuration to read. A configuration that pins no client answers nothing.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>The OAuth client the configuration pins, when it pins one.</returns>
+    internal async Task<McpOauthStaticClientConfigResult> StaticClientConfigAsync(object? config, CancellationToken cancellationToken = default)
+    {
+        var request = new McpOauthStaticClientConfigRequest { Config = CopilotClient.ToJsonElementForWire(config) ?? JsonElement.Parse("null") };
+        return await CopilotClient.InvokeRpcAsync<McpOauthStaticClientConfigResult>(_rpc, "mcp.oauth.staticClientConfig", [request], cancellationToken);
+    }
+
+    /// <summary>Reads raw protected-resource metadata after a 401 establishes that OAuth is required. Uses the metadata URL from the server's `WWW-Authenticate` challenge when provided; otherwise, tries conventional metadata endpoints derived from the request URL. A host configuring a remote server interactively needs the unparsed document to classify the challenge before it starts OAuth. The request URL and each metadata URL pass through the named session's egress policy and sandbox proxy. The runtime refuses URLs that the session may not reach.</summary>
+    /// <param name="requestUrl">URL of the remote MCP server that answered 401.</param>
+    /// <param name="headersJson">Request headers the configured server sends, as a serialized JSON object. Omit to send none.</param>
+    /// <param name="resourceMetadataUrl">Metadata URL named in the server's `WWW-Authenticate` challenge. Omit to try conventional metadata endpoints derived from the request URL. It is server-controlled, so it passes the same egress policy check as the request URL.</param>
+    /// <param name="userAgent">User agent to send. Omit to use the runtime's own.</param>
+    /// <param name="sandboxProxy">Proxy the request must travel through. Omit to use the session's own egress settings.</param>
+    /// <param name="sessionId">Locally owned session whose egress policy and sandbox proxy constrain the request. Omitted or nonlocal session IDs provide no local session egress state.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Raw protected-resource metadata from the explicit metadata URL or conventional discovery.</returns>
+    internal async Task<McpOauthFetchProtectedResourceMetadataResult> FetchProtectedResourceMetadataAsync(string requestUrl, string? headersJson = null, string? resourceMetadataUrl = null, string? userAgent = null, string? sandboxProxy = null, string? sessionId = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(requestUrl);
+
+        var request = new McpOauthFetchProtectedResourceMetadataRequest { RequestUrl = requestUrl, HeadersJson = headersJson, ResourceMetadataUrl = resourceMetadataUrl, UserAgent = userAgent, SandboxProxy = sandboxProxy, SessionId = sessionId };
+        return await CopilotClient.InvokeRpcAsync<McpOauthFetchProtectedResourceMetadataResult>(_rpc, "mcp.oauth.fetchProtectedResourceMetadata", [request], cancellationToken);
+    }
+
+    /// <summary>Asks a remote MCP server's authorization server whether it supports Dynamic Client Registration, after a 401 has already established that OAuth is required. A host configuring a remote server interactively needs this to choose between registering a client automatically and asking the user for client credentials. The request travels through the named session's egress policy and sandbox proxy, so a server that session may not reach is refused rather than contacted.</summary>
+    /// <param name="serverUrl">URL of the remote MCP server that answered 401.</param>
+    /// <param name="resourceMetadataText">Raw protected-resource metadata text from the server's `WWW-Authenticate` challenge. Omit to discover the authorization server from the server URL instead.</param>
+    /// <param name="sandboxProxy">Proxy the request must travel through. Omit to use the session's own egress settings.</param>
+    /// <param name="sessionId">Locally owned session whose egress policy and sandbox proxy constrain the request. Omitted or nonlocal session IDs provide no local session egress state.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Whether the server's authorization server registers clients dynamically.</returns>
+    internal async Task<McpOauthCheckDcrSupportResult> CheckDcrSupportAsync(string serverUrl, string? resourceMetadataText = null, string? sandboxProxy = null, string? sessionId = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(serverUrl);
+
+        var request = new McpOauthCheckDcrSupportRequest { ServerUrl = serverUrl, ResourceMetadataText = resourceMetadataText, SandboxProxy = sandboxProxy, SessionId = sessionId };
+        return await CopilotClient.InvokeRpcAsync<McpOauthCheckDcrSupportResult>(_rpc, "mcp.oauth.checkDcrSupport", [request], cancellationToken);
+    }
+
+    /// <summary>Reports whether an authorization server URL belongs to Microsoft Entra ID. Entra does not support Dynamic Client Registration, so a host that finds no DCR support can still authorize against it with a pre-registered client instead of asking the user for client credentials.</summary>
+    /// <param name="authorizationServerUrl">Authorization server URL, typically the one `mcp.oauth.checkDcrSupport` discovered.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Whether the URL is a Microsoft Entra ID authorization server.</returns>
+    internal async Task<McpOauthIsMicrosoftAuthorizationServerResult> IsMicrosoftAuthorizationServerAsync(string authorizationServerUrl, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(authorizationServerUrl);
+
+        var request = new McpOauthIsMicrosoftAuthorizationServerRequest { AuthorizationServerUrl = authorizationServerUrl };
+        return await CopilotClient.InvokeRpcAsync<McpOauthIsMicrosoftAuthorizationServerResult>(_rpc, "mcp.oauth.isMicrosoftAuthorizationServer", [request], cancellationToken);
     }
 }
 
@@ -49343,22 +50805,6 @@ public sealed class ServerSkillsApi
         return await CopilotClient.InvokeRpcAsync<SkillInstallationManagementResult>(_rpc, "skills.planInstall", [request], cancellationToken);
     }
 
-    /// <summary>Plans installation of the Skill pinned by an Agent Finder materialisation reference without writing files. The runtime retrieves the descriptor only from its fixed Agent Finder authority and applies the same verification as skills.planInstall; the review shows only verified data. Apply the returned plan with skills.applyInstall.</summary>
-    /// <param name="contract">Required authenticated bound catalogue, skill-confirmed-installation and skill-reference-installation capabilities.</param>
-    /// <param name="reference">Materialisation reference to verify and plan.</param>
-    /// <param name="policySessionId">Existing local session attached to this connection.</param>
-    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
-    /// <returns>Skill installation management result with the honoured contract, or a typed refusal.</returns>
-    public async Task<SkillInstallationManagementResult> PlanInstallFromReferenceAsync(CatalogClientContract contract, CatalogMaterializationReference reference, string policySessionId, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(contract);
-        ArgumentNullException.ThrowIfNull(reference);
-        ArgumentNullException.ThrowIfNull(policySessionId);
-
-        var request = new SkillPlanInstallFromReferenceRequest { Contract = contract, Reference = reference, PolicySessionId = policySessionId };
-        return await CopilotClient.InvokeRpcAsync<SkillInstallationManagementResult>(_rpc, "skills.planInstallFromReference", [request], cancellationToken);
-    }
-
     /// <summary>Consumes one verified Skill installation plan, requests explicit human consent through installations.confirm on the original connection, then revalidates and installs the Skill disabled.</summary>
     /// <param name="contract">Required authenticated bound catalogue and Skill installation capabilities.</param>
     /// <param name="planHandle">Opaque original plan, consumed once.</param>
@@ -49575,64 +51021,6 @@ public sealed class ServerSkillsConfigApi
     }
 }
 
-/// <summary>Provides server-scoped Catalog APIs.</summary>
-[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
-public sealed class ServerCatalogApi
-{
-    private readonly JsonRpc _rpc;
-
-    internal ServerCatalogApi(JsonRpc rpc)
-    {
-        _rpc = rpc;
-    }
-
-    /// <summary>Requests a bounded catalog search. This host-implemented server method is available through SDK/TUI hosts; standalone and C-ABI runtimes whose host does not implement server-method dispatch return JSON-RPC MethodNotFound. A runtime with search available returns inert candidate summaries, each with an opaque single-use handle scoped to this runtime instance; a runtime without it returns the typed search-unavailable result. Public authorities may be searched anonymously, while an authority that requires credentials yields the typed authentication-required result. All returned text, URLs, and package metadata are untrusted external data and can never trigger instructions, tools, or installation. Read-only: nothing is installed, configured, or persisted.</summary>
-    /// <param name="contract">Protocol version and capabilities the caller requires.</param>
-    /// <param name="query">Free-text search query. Persisted as tool input for session continuity, but omitted from telemetry.</param>
-    /// <param name="limit">Maximum number of candidates to return. Defaults to 10 when omitted.</param>
-    /// <param name="kinds">Restrict results to these candidate kinds. Agent Plugins are opt-in and require the `agent-plugin-discovery` capability so protocol-v3 clients generated before that variant cannot receive an unknown result; when omitted, the backwards-compatible MCP server and AI skill kinds are searched.</param>
-    /// <param name="page">Numbered navigation using metadata from an earlier response. Requires catalog-search-pagination and the same query, kinds and effective limit. Omit for a fresh first-page search.</param>
-    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
-    /// <returns>Outcome of a catalog.search call: either bounded inert candidates, or one typed refusal. Never a partial success.</returns>
-    public async Task<CatalogSearchResult> SearchAsync(CatalogClientContract contract, string query, int? limit = null, IList<CatalogCandidateKind>? kinds = null, CatalogSearchPage? page = null, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(contract);
-        ArgumentNullException.ThrowIfNull(query);
-
-        var request = new CatalogSearchRequest { Contract = contract, Query = query, Limit = limit, Kinds = kinds, Page = page };
-        return await CopilotClient.InvokeRpcAsync<CatalogSearchResult>(_rpc, "catalog.search", [request], cancellationToken);
-    }
-
-    /// <summary>Requests a bounded catalog search. This host-implemented server method is available through SDK/TUI hosts; standalone and C-ABI runtimes whose host does not implement server-method dispatch return JSON-RPC MethodNotFound. A runtime with search available returns inert candidate summaries, each with an opaque single-use handle scoped to this runtime instance; a runtime without it returns the typed search-unavailable result. Public authorities may be searched anonymously, while an authority that requires credentials yields the typed authentication-required result. All returned text, URLs, and package metadata are untrusted external data and can never trigger instructions, tools, or installation. Read-only: nothing is installed, configured, or persisted.</summary>
-    /// <param name="request">A bounded catalog search. Both the query length and the result count are capped by the schema so a caller cannot request an unbounded scan.</param>
-    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
-    /// <returns>Outcome of a catalog.search call: either bounded inert candidates, or one typed refusal. Never a partial success.</returns>
-    public async Task<CatalogSearchResult> SearchAsync(CatalogSearchRequest request, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(request.Contract);
-        ArgumentNullException.ThrowIfNull(request.Query);
-        return await CopilotClient.InvokeRpcAsync<CatalogSearchResult>(_rpc, "catalog.search", [request], cancellationToken);
-    }
-
-    /// <summary>Terminates one retained catalog selection group. A selected outcome returns the native host a fresh single-use candidate handle plus the original searchId for a later explicit mcp.planInstall call; non-selected outcomes release the group without producing a planning input. Candidate state, cards, URLs, credentials and private identifiers remain inside the runtime. The model-facing catalog_select tool projects the result separately and never exposes the candidate handle or searchId.</summary>
-    /// <param name="contract">Protocol version and capabilities the caller requires.</param>
-    /// <param name="sessionId">Locally owned root session whose retained search state is being resolved.</param>
-    /// <param name="selectionRef">Opaque runtime-instance scoped reference to one visible candidate. For a non-selected outcome, any candidate reference from the same search closes that search's retained group.</param>
-    /// <param name="outcome">The terminal outcome declared by the caller. Timed-out means the host's live interaction deadline elapsed; a reference whose runtime TTL elapsed is rejected separately as stale.</param>
-    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
-    /// <returns>Typed outcome of catalog.select. Only the selected host result carries a fresh candidate handle; the model-facing projection removes both that handle and searchId.</returns>
-    public async Task<CatalogSelectionResult> SelectAsync(CatalogClientContract contract, string sessionId, string selectionRef, CatalogSelectionDecision outcome, CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(contract);
-        ArgumentNullException.ThrowIfNull(sessionId);
-        ArgumentNullException.ThrowIfNull(selectionRef);
-
-        var request = new CatalogSelectionRequest { Contract = contract, SessionId = sessionId, SelectionRef = selectionRef, Outcome = outcome };
-        return await CopilotClient.InvokeRpcAsync<CatalogSelectionResult>(_rpc, "catalog.select", [request], cancellationToken);
-    }
-}
-
 /// <summary>Provides server-scoped Plugins APIs.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public sealed class ServerPluginsApi
@@ -49642,6 +51030,38 @@ public sealed class ServerPluginsApi
     internal ServerPluginsApi(JsonRpc rpc)
     {
         _rpc = rpc;
+    }
+
+    /// <summary>Plans installation of an Agent Plugin search candidate from its verified Agent Finder materialisation without writing files. Only candidates that carry a handle can be planned. The review shows only verified data, and installing leaves the plugin disabled until it is enabled through plugins.enable.</summary>
+    /// <param name="contract">Required authenticated bound catalogue and agent-plugin-confirmed-installation capabilities.</param>
+    /// <param name="candidateHandle">Fresh single-use Agent Plugin candidate handle returned by a bound catalogue search.</param>
+    /// <param name="policySessionId">Existing local session attached to this connection.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Agent Plugin installation planning result with the honoured contract, or a typed refusal.</returns>
+    public async Task<PluginInstallationManagementResult> PlanInstallAsync(CatalogClientContract contract, string candidateHandle, string policySessionId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+        ArgumentNullException.ThrowIfNull(candidateHandle);
+        ArgumentNullException.ThrowIfNull(policySessionId);
+
+        var request = new PluginPlanInstallRequest { Contract = contract, CandidateHandle = candidateHandle, PolicySessionId = policySessionId };
+        return await CopilotClient.InvokeRpcAsync<PluginInstallationManagementResult>(_rpc, "plugins.planInstall", [request], cancellationToken);
+    }
+
+    /// <summary>Consumes one verified Agent Plugin installation plan, requests explicit human consent through installations.confirm on the original connection, then reacquires and verifies every file and registers the plugin, disabled, exactly as a direct plugin install. The installed plugin is listed, enabled and uninstalled through the existing plugins methods.</summary>
+    /// <param name="contract">Required authenticated bound catalogue and agent-plugin-confirmed-installation capabilities.</param>
+    /// <param name="planHandle">Opaque original plan, consumed once.</param>
+    /// <param name="policySessionId">Same existing selected session as planning.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Agent Plugin installation result with the honoured contract, or a typed request/negotiation refusal.</returns>
+    public async Task<PluginInstallationResult> ApplyInstallAsync(CatalogClientContract contract, string planHandle, string policySessionId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+        ArgumentNullException.ThrowIfNull(planHandle);
+        ArgumentNullException.ThrowIfNull(policySessionId);
+
+        var request = new PluginApplyInstallRequest { Contract = contract, PlanHandle = planHandle, PolicySessionId = policySessionId };
+        return await CopilotClient.InvokeRpcAsync<PluginInstallationResult>(_rpc, "plugins.applyInstall", [request], cancellationToken);
     }
 
     /// <summary>Lists plugins installed in user/global state.</summary>
@@ -49822,6 +51242,80 @@ public sealed class ServerPluginsMarketplacesApi
     {
         var request = new PluginsMarketplacesRefreshRequest { Name = name };
         return await CopilotClient.InvokeRpcAsync<MarketplaceRefreshResult>(_rpc, "plugins.marketplaces.refresh", [request], cancellationToken);
+    }
+}
+
+/// <summary>Provides server-scoped Catalog APIs.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class ServerCatalogApi
+{
+    private readonly JsonRpc _rpc;
+
+    internal ServerCatalogApi(JsonRpc rpc)
+    {
+        _rpc = rpc;
+    }
+
+    /// <summary>Requests a bounded catalog search. This host-implemented server method is available through SDK/TUI hosts; standalone and C-ABI runtimes whose host does not implement server-method dispatch return JSON-RPC MethodNotFound. A runtime with search available returns inert candidate summaries, each with an opaque single-use handle scoped to this runtime instance; a runtime without it returns the typed search-unavailable result. Public authorities may be searched anonymously, while an authority that requires credentials yields the typed authentication-required result. All returned text, URLs, and package metadata are untrusted external data and can never trigger instructions, tools, or installation. Read-only: nothing is installed, configured, or persisted.</summary>
+    /// <param name="contract">Protocol version and capabilities the caller requires.</param>
+    /// <param name="query">Free-text search query. Persisted as tool input for session continuity, but omitted from telemetry.</param>
+    /// <param name="limit">Maximum number of candidates to return. Defaults to 10 when omitted.</param>
+    /// <param name="kinds">Restrict results to these candidate kinds. Agent Plugins are opt-in and require the `agent-plugin-discovery` capability so protocol-v3 clients generated before that variant cannot receive an unknown result; when omitted, the backwards-compatible MCP server and AI skill kinds are searched.</param>
+    /// <param name="page">Numbered navigation using metadata from an earlier response. Requires catalog-search-pagination and the same query, kinds and effective limit. Omit for a fresh first-page search.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Outcome of a catalog.search call: either bounded inert candidates, or one typed refusal. Never a partial success.</returns>
+    public async Task<CatalogSearchResult> SearchAsync(CatalogClientContract contract, string query, int? limit = null, IList<CatalogCandidateKind>? kinds = null, CatalogSearchPage? page = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+        ArgumentNullException.ThrowIfNull(query);
+
+        var request = new CatalogSearchRequest { Contract = contract, Query = query, Limit = limit, Kinds = kinds, Page = page };
+        return await CopilotClient.InvokeRpcAsync<CatalogSearchResult>(_rpc, "catalog.search", [request], cancellationToken);
+    }
+
+    /// <summary>Requests a bounded catalog search. This host-implemented server method is available through SDK/TUI hosts; standalone and C-ABI runtimes whose host does not implement server-method dispatch return JSON-RPC MethodNotFound. A runtime with search available returns inert candidate summaries, each with an opaque single-use handle scoped to this runtime instance; a runtime without it returns the typed search-unavailable result. Public authorities may be searched anonymously, while an authority that requires credentials yields the typed authentication-required result. All returned text, URLs, and package metadata are untrusted external data and can never trigger instructions, tools, or installation. Read-only: nothing is installed, configured, or persisted.</summary>
+    /// <param name="request">A bounded catalog search. Both the query length and the result count are capped by the schema so a caller cannot request an unbounded scan.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Outcome of a catalog.search call: either bounded inert candidates, or one typed refusal. Never a partial success.</returns>
+    public async Task<CatalogSearchResult> SearchAsync(CatalogSearchRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.Contract);
+        ArgumentNullException.ThrowIfNull(request.Query);
+        return await CopilotClient.InvokeRpcAsync<CatalogSearchResult>(_rpc, "catalog.search", [request], cancellationToken);
+    }
+
+    /// <summary>Terminates one retained catalog selection group. A selected outcome returns the native host a fresh single-use candidate handle plus the original searchId for a later explicit mcp.planInstall call; non-selected outcomes release the group without producing a planning input. Candidate state, cards, URLs, credentials and private identifiers remain inside the runtime. The model-facing catalog_select tool projects the result separately and never exposes the candidate handle or searchId.</summary>
+    /// <param name="contract">Protocol version and capabilities the caller requires.</param>
+    /// <param name="sessionId">Locally owned root session whose retained search state is being resolved.</param>
+    /// <param name="selectionRef">Opaque runtime-instance scoped reference to one visible candidate. For a non-selected outcome, any candidate reference from the same search closes that search's retained group.</param>
+    /// <param name="outcome">The terminal outcome declared by the caller. Timed-out means the host's live interaction deadline elapsed; a reference whose runtime TTL elapsed is rejected separately as stale.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Typed outcome of catalog.select. Only the selected host result carries a fresh candidate handle; the model-facing projection removes both that handle and searchId.</returns>
+    public async Task<CatalogSelectionResult> SelectAsync(CatalogClientContract contract, string sessionId, string selectionRef, CatalogSelectionDecision outcome, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+        ArgumentNullException.ThrowIfNull(sessionId);
+        ArgumentNullException.ThrowIfNull(selectionRef);
+
+        var request = new CatalogSelectionRequest { Contract = contract, SessionId = sessionId, SelectionRef = selectionRef, Outcome = outcome };
+        return await CopilotClient.InvokeRpcAsync<CatalogSelectionResult>(_rpc, "catalog.select", [request], cancellationToken);
+    }
+
+    /// <summary>Plans installing the resource an Agent Finder materialisation reference pins, without writing files and whatever its kind. The runtime retrieves the descriptor once, only from its fixed Agent Finder authority, verifies it, and plans by its resolution policy: a Skill (`agent-skill@1.0.0`) when the caller requires skill-confirmed-installation, an Agent Plugin (`plugin@1.0.0`) when it requires agent-plugin-confirmed-installation. Any other kind is refused as unsupported-resource. The outcome names the kind; apply a Skill plan with skills.applyInstall and an Agent Plugin plan with plugins.applyInstall. The review shows only verified data.</summary>
+    /// <param name="contract">Required authenticated bound catalogue and catalog-reference-installation capabilities, plus the installation capability of each kind the caller can apply.</param>
+    /// <param name="reference">Materialisation reference to verify and plan.</param>
+    /// <param name="policySessionId">Existing local session attached to this connection.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Planning result for a materialisation reference with the honoured contract, or a typed refusal.</returns>
+    public async Task<CatalogReferenceInstallationResult> PlanInstallFromReferenceAsync(CatalogClientContract contract, CatalogMaterializationReference reference, string policySessionId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(policySessionId);
+
+        var request = new CatalogPlanInstallFromReferenceRequest { Contract = contract, Reference = reference, PolicySessionId = policySessionId };
+        return await CopilotClient.InvokeRpcAsync<CatalogReferenceInstallationResult>(_rpc, "catalog.planInstallFromReference", [request], cancellationToken);
     }
 }
 
@@ -57462,7 +58956,10 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(CatalogMaterializationReference))]
 [JsonSerializable(typeof(CatalogMcpServerCandidateProvenance))]
 [JsonSerializable(typeof(CatalogNegotiatedContract))]
+[JsonSerializable(typeof(CatalogPlanInstallFromReferenceRequest))]
 [JsonSerializable(typeof(CatalogPluginRepositorySource))]
+[JsonSerializable(typeof(CatalogReferenceInstallationOutcome))]
+[JsonSerializable(typeof(CatalogReferenceInstallationResult))]
 [JsonSerializable(typeof(CatalogSearchPage))]
 [JsonSerializable(typeof(CatalogSearchPagination))]
 [JsonSerializable(typeof(CatalogSearchRequest))]
@@ -57654,6 +59151,8 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(HostSessionSummary))]
 [JsonSerializable(typeof(HostStartRequest))]
 [JsonSerializable(typeof(HostStartResult))]
+[JsonSerializable(typeof(HostUnpublishSessionRequest))]
+[JsonSerializable(typeof(HostUnpublishSessionResult))]
 [JsonSerializable(typeof(IDictionary<string, JsonElement>))]
 [JsonSerializable(typeof(IDictionary<string, bool>))]
 [JsonSerializable(typeof(IDictionary<string, string>))]
@@ -57805,9 +59304,15 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(McpListToolsRequest))]
 [JsonSerializable(typeof(McpListToolsResult))]
 [JsonSerializable(typeof(McpOauthAuthenticationStateChangedRequest))]
+[JsonSerializable(typeof(McpOauthCheckDcrSupportRequest))]
+[JsonSerializable(typeof(McpOauthCheckDcrSupportResult))]
 [JsonSerializable(typeof(McpOauthCompleteRequest))]
+[JsonSerializable(typeof(McpOauthFetchProtectedResourceMetadataRequest))]
+[JsonSerializable(typeof(McpOauthFetchProtectedResourceMetadataResult))]
 [JsonSerializable(typeof(McpOauthHandlePendingRequest))]
 [JsonSerializable(typeof(McpOauthHandlePendingResult))]
+[JsonSerializable(typeof(McpOauthIsMicrosoftAuthorizationServerRequest))]
+[JsonSerializable(typeof(McpOauthIsMicrosoftAuthorizationServerResult))]
 [JsonSerializable(typeof(McpOauthLoginRequest))]
 [JsonSerializable(typeof(McpOauthLoginRequestWithSession))]
 [JsonSerializable(typeof(McpOauthLoginResult))]
@@ -57817,6 +59322,9 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(McpOauthProbeResult))]
 [JsonSerializable(typeof(McpOauthRespondRequest))]
 [JsonSerializable(typeof(McpOauthRespondResult))]
+[JsonSerializable(typeof(McpOauthStaticClientConfig))]
+[JsonSerializable(typeof(McpOauthStaticClientConfigRequest))]
+[JsonSerializable(typeof(McpOauthStaticClientConfigResult))]
 [JsonSerializable(typeof(McpPlanConfigurationChange))]
 [JsonSerializable(typeof(McpPlanInstallRequest))]
 [JsonSerializable(typeof(McpPlanInstallResult))]
@@ -57956,8 +59464,11 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(ModelSwitchToRequest))]
 [JsonSerializable(typeof(ModelSwitchToRequestWithSession))]
 [JsonSerializable(typeof(ModelSwitchToResult))]
+[JsonSerializable(typeof(ModelTokenPriceUnit))]
+[JsonSerializable(typeof(ModelTokenPriceUnitList))]
 [JsonSerializable(typeof(ModelWarningText))]
 [JsonSerializable(typeof(ModelsListRequest))]
+[JsonSerializable(typeof(ModelsListTokenPriceUnitsRequest))]
 [JsonSerializable(typeof(MoveMcpLoadingToBackgroundResult))]
 [JsonSerializable(typeof(NameGetResult))]
 [JsonSerializable(typeof(NameSetAutoRequest))]
@@ -58034,9 +59545,21 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(PlanSqlTodosRow))]
 [JsonSerializable(typeof(PlanUpdateRequest))]
 [JsonSerializable(typeof(Plugin))]
+[JsonSerializable(typeof(PluginApplyInstallRequest))]
+[JsonSerializable(typeof(PluginInstallPlan))]
 [JsonSerializable(typeof(PluginInstallResult))]
+[JsonSerializable(typeof(PluginInstallationFileReview))]
+[JsonSerializable(typeof(PluginInstallationLocation))]
+[JsonSerializable(typeof(PluginInstallationManagementOutcome))]
+[JsonSerializable(typeof(PluginInstallationManagementResult))]
+[JsonSerializable(typeof(PluginInstallationOutcome))]
+[JsonSerializable(typeof(PluginInstallationResult))]
+[JsonSerializable(typeof(PluginInstallationReview))]
+[JsonSerializable(typeof(PluginInstallationSource))]
+[JsonSerializable(typeof(PluginInstallationSummary))]
 [JsonSerializable(typeof(PluginList))]
 [JsonSerializable(typeof(PluginListResult))]
+[JsonSerializable(typeof(PluginPlanInstallRequest))]
 [JsonSerializable(typeof(PluginUpdateAllEntry))]
 [JsonSerializable(typeof(PluginUpdateAllResult))]
 [JsonSerializable(typeof(PluginUpdateResult))]
@@ -58482,7 +60005,6 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(SkillInstallationSummary))]
 [JsonSerializable(typeof(SkillInstallationsRequest))]
 [JsonSerializable(typeof(SkillList))]
-[JsonSerializable(typeof(SkillPlanInstallFromReferenceRequest))]
 [JsonSerializable(typeof(SkillPlanInstallRequest))]
 [JsonSerializable(typeof(SkillPlanUninstallRequest))]
 [JsonSerializable(typeof(SkillSetEnabledRequest))]

@@ -2,7 +2,7 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { describe, expect, it, onTestFinished } from "vitest";
+import { beforeAll, describe, expect, it, onTestFinished } from "vitest";
 import { approveAll, CopilotClient, RuntimeConnection } from "../../src/index.js";
 import { createSdkTestContext } from "./harness/sdkTestContext.js";
 
@@ -10,26 +10,29 @@ const { openAiEndpoint, env, workDir } = await createSdkTestContext({
     useStdio: true,
     copilotClientOptions: { gitHubToken: undefined, useLoggedInUser: false },
 });
-const loginEnv = {
-    ...env,
-    GH_TOKEN: "",
-    GITHUB_TOKEN: "",
-    COPILOT_GITHUB_TOKEN: "",
-    COPILOT_SDK_AUTH_TOKEN: "",
-    GITHUB_COPILOT_API_TOKEN: "",
-    COPILOT_HMAC_KEY: "",
-    CAPI_HMAC_KEY: "",
-    COPILOT_DISABLE_KEYTAR: "1",
-    COPILOT_DEBUG_ENTRA_BROKER_URL: `${env.COPILOT_API_URL}/entra-broker`,
-};
+let loginEnv: NodeJS.ProcessEnv;
 const githubToken = "ghu_sdk_entra_login";
-await openAiEndpoint.setEntraLogin("sdk-entra-subject", githubToken);
-await openAiEndpoint.setCopilotUserByToken(githubToken, {
-    login: "sdk_entra_user",
-    copilot_plan: "business",
-    is_staff: false,
-    is_mcp_enabled: true,
-    endpoints: { api: env.COPILOT_API_URL, telemetry: "https://localhost:1/telemetry" },
+beforeAll(async () => {
+    loginEnv = {
+        ...env,
+        GH_TOKEN: "",
+        GITHUB_TOKEN: "",
+        COPILOT_GITHUB_TOKEN: "",
+        COPILOT_SDK_AUTH_TOKEN: "",
+        GITHUB_COPILOT_API_TOKEN: "",
+        COPILOT_HMAC_KEY: "",
+        CAPI_HMAC_KEY: "",
+        COPILOT_DISABLE_KEYTAR: "1",
+        COPILOT_DEBUG_ENTRA_BROKER_URL: `${env.COPILOT_API_URL}/entra-broker`,
+    };
+    await openAiEndpoint.setEntraLogin("sdk-entra-subject", githubToken);
+    await openAiEndpoint.setCopilotUserByToken(githubToken, {
+        login: "sdk_entra_user",
+        copilot_plan: "business",
+        is_staff: false,
+        is_mcp_enabled: true,
+        endpoints: { api: env.COPILOT_API_URL, telemetry: "https://localhost:1/telemetry" },
+    });
 });
 
 function clientForTest(): CopilotClient {

@@ -195,6 +195,8 @@ pub mod rpc_methods {
     pub const ENVIRONMENTS_DELETE: &str = "environments.delete";
     /// `host.publishSession`
     pub const HOST_PUBLISHSESSION: &str = "host.publishSession";
+    /// `host.unpublishSession`
+    pub const HOST_UNPUBLISHSESSION: &str = "host.unpublishSession";
     /// `host.listSessions`
     pub const HOST_LISTSESSIONS: &str = "host.listSessions";
     /// `host.createSession`
@@ -221,6 +223,8 @@ pub mod rpc_methods {
     pub const MODELS_LIST: &str = "models.list";
     /// `models.getBuiltInCatalog`
     pub const MODELS_GETBUILTINCATALOG: &str = "models.getBuiltInCatalog";
+    /// `models.listTokenPriceUnits`
+    pub const MODELS_LISTTOKENPRICEUNITS: &str = "models.listTokenPriceUnits";
     /// `contentExclusion.validatePolicies`
     pub const CONTENTEXCLUSION_VALIDATEPOLICIES: &str = "contentExclusion.validatePolicies";
     /// `tools.list`
@@ -273,6 +277,16 @@ pub mod rpc_methods {
     pub const MCP_SHOULDEXCLUDEGITHUBTOOLS: &str = "mcp.shouldExcludeGitHubTools";
     /// `mcp.planInstall`
     pub const MCP_PLANINSTALL: &str = "mcp.planInstall";
+    /// `mcp.oauth.staticClientConfig`
+    pub const MCP_OAUTH_STATICCLIENTCONFIG: &str = "mcp.oauth.staticClientConfig";
+    /// `mcp.oauth.fetchProtectedResourceMetadata`
+    pub const MCP_OAUTH_FETCHPROTECTEDRESOURCEMETADATA: &str =
+        "mcp.oauth.fetchProtectedResourceMetadata";
+    /// `mcp.oauth.checkDcrSupport`
+    pub const MCP_OAUTH_CHECKDCRSUPPORT: &str = "mcp.oauth.checkDcrSupport";
+    /// `mcp.oauth.isMicrosoftAuthorizationServer`
+    pub const MCP_OAUTH_ISMICROSOFTAUTHORIZATIONSERVER: &str =
+        "mcp.oauth.isMicrosoftAuthorizationServer";
     /// `mcp.prepareInstall`
     pub const MCP_PREPAREINSTALL: &str = "mcp.prepareInstall";
     /// `mcp.applyInstall`
@@ -307,8 +321,6 @@ pub mod rpc_methods {
     pub const INSTRUCTIONS_CLEARCACHE: &str = "instructions.clearCache";
     /// `skills.planInstall`
     pub const SKILLS_PLANINSTALL: &str = "skills.planInstall";
-    /// `skills.planInstallFromReference`
-    pub const SKILLS_PLANINSTALLFROMREFERENCE: &str = "skills.planInstallFromReference";
     /// `skills.applyInstall`
     pub const SKILLS_APPLYINSTALL: &str = "skills.applyInstall";
     /// `skills.installations.list`
@@ -333,12 +345,10 @@ pub mod rpc_methods {
     pub const SKILLS_DISCOVER: &str = "skills.discover";
     /// `skills.getDiscoveryPaths`
     pub const SKILLS_GETDISCOVERYPATHS: &str = "skills.getDiscoveryPaths";
-    /// `registerExtensionLaunchProvider`
-    pub const REGISTEREXTENSIONLAUNCHPROVIDER: &str = "registerExtensionLaunchProvider";
-    /// `catalog.search`
-    pub const CATALOG_SEARCH: &str = "catalog.search";
-    /// `catalog.select`
-    pub const CATALOG_SELECT: &str = "catalog.select";
+    /// `plugins.planInstall`
+    pub const PLUGINS_PLANINSTALL: &str = "plugins.planInstall";
+    /// `plugins.applyInstall`
+    pub const PLUGINS_APPLYINSTALL: &str = "plugins.applyInstall";
     /// `plugins.list`
     pub const PLUGINS_LIST: &str = "plugins.list";
     /// `plugins.install`
@@ -365,6 +375,14 @@ pub mod rpc_methods {
     pub const PLUGINS_MARKETPLACES_BROWSE: &str = "plugins.marketplaces.browse";
     /// `plugins.marketplaces.refresh`
     pub const PLUGINS_MARKETPLACES_REFRESH: &str = "plugins.marketplaces.refresh";
+    /// `registerExtensionLaunchProvider`
+    pub const REGISTEREXTENSIONLAUNCHPROVIDER: &str = "registerExtensionLaunchProvider";
+    /// `catalog.search`
+    pub const CATALOG_SEARCH: &str = "catalog.search";
+    /// `catalog.select`
+    pub const CATALOG_SELECT: &str = "catalog.select";
+    /// `catalog.planInstallFromReference`
+    pub const CATALOG_PLANINSTALLFROMREFERENCE: &str = "catalog.planInstallFromReference";
     /// `agents.discover`
     pub const AGENTS_DISCOVER: &str = "agents.discover";
     /// `agents.getDiscoveryPaths`
@@ -4873,7 +4891,7 @@ pub struct CatalogPluginRepositorySource {
     pub repository: String,
 }
 
-/// An inert Agent Plugin catalog result. Its canonical catalog identity, declared version, repository source claim, and explicit compatibility tags are safe to correlate, while its descriptor, URL, raw data, and installed-plugin state remain runtime-private. This contract-only variant does not mint or expose a candidate handle.
+/// An inert Agent Plugin catalog result. Its canonical catalog identity, declared version, repository source claim, and explicit compatibility tags are safe to correlate, while its descriptor, URL, raw data, materialisation reference, and installed-plugin state remain runtime-private. A handle is minted only under agent-plugin-confirmed-installation, for a candidate with a complete materialisation reference.
 ///
 /// <div class="warning">
 ///
@@ -4884,18 +4902,36 @@ pub struct CatalogPluginRepositorySource {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogAgentPluginCandidate {
+    /// Category slugs reported by the feed, such as `build` or `review`, without repeats. Values are passed through, so clients must tolerate slugs they do not recognise. Inert untrusted text. Omitted when the feed reports none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub categories: Option<Vec<String>>,
     /// Explicit validated compatibility tags, in canonical order. An empty list means the source declared no recognised compatibility; clients must not infer compatibility from other fields. `canvas-only` requires both `canvas` and `github-copilot`.
     pub compatibility_tags: Vec<CatalogAgentPluginCompatibilityTag>,
+    /// Identifiers of the connectors the resource works with, as reported by the feed, without repeats. Inert untrusted text. Omitted when the feed reports none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connector_ids: Option<Vec<String>>,
     /// Description taken verbatim from the card. Inert untrusted text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Display name taken verbatim from the card. Inert untrusted text.
     pub display_name: String,
+    /// Opaque, runtime-instance scoped, TTL-bound, single-use handle for planning this plugin's installation through plugins.planInstall. Present only when the caller requires the agent-plugin-confirmed-installation capability and the candidate carries a complete Agent Finder materialisation reference, which stays runtime-private. Never logged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
+    /// ISO 8601 timestamp after which the handle is stale and will be rejected. Present exactly when handle is present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle_expires_at: Option<String>,
+    /// HTTPS URL of the resource's icon on raw.githubusercontent.com, as reported by the feed. Untrusted external content: load it without credentials. Omitted when absent or outside the feed's icon host policy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
     /// Validated, normalised catalogue resource URN. This identity comes only from the catalog identifier and is never inferred from display text or installed-plugin state.
     pub identity: String,
     /// Whether this plugin can be installed in the selected session. Present only when the caller requires the agent-plugin-confirmed-installation capability.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub installability: Option<CatalogAgentPluginInstallability>,
+    /// How many times the resource has been installed, as reported by the feed. Omitted when the feed reports no count or an invalid one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub install_count: Option<i64>,
     /// Reviewable install plan built only from verified catalogue install data. Present exactly when installability is `installable`; the runtime never derives it from the repository source, display text, or identity.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub install_plan: Option<CatalogAgentPluginInstallPlan>,
@@ -5017,6 +5053,12 @@ pub struct CatalogCandidateSourceEmbedded {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogAiSkillCandidate {
+    /// Category slugs reported by the feed, such as `build` or `review`, without repeats. Values are passed through, so clients must tolerate slugs they do not recognise. Inert untrusted text. Omitted when the feed reports none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub categories: Option<Vec<String>>,
+    /// Identifiers of the connectors the resource works with, as reported by the feed, without repeats. Inert untrusted text. Omitted when the feed reports none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connector_ids: Option<Vec<String>>,
     /// Description taken verbatim from the card. Inert untrusted text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -5026,8 +5068,14 @@ pub struct CatalogAiSkillCandidate {
     pub handle: String,
     /// ISO 8601 timestamp after which the handle is stale and will be rejected.
     pub handle_expires_at: String,
+    /// HTTPS URL of the resource's icon on raw.githubusercontent.com, as reported by the feed. Untrusted external content: load it without credentials. Omitted when absent or outside the feed's icon host policy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
     /// Whether this AI skill candidate can be planned for verified installation in the selected session.
     pub installability: CatalogAiSkillInstallability,
+    /// How many times the resource has been installed, as reported by the feed. Omitted when the feed reports no count or an invalid one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub install_count: Option<i64>,
     /// Discriminator: this candidate describes an AI skill
     #[serde(deserialize_with = "CatalogAiSkillCandidate::deserialize_kind")]
     pub kind: CatalogAiSkillCandidateKind,
@@ -5126,6 +5174,12 @@ pub struct CatalogMcpServerCandidateProvenance {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogMcpServerCandidate {
+    /// Category slugs reported by the feed, such as `build` or `review`, without repeats. Values are passed through, so clients must tolerate slugs they do not recognise. Inert untrusted text. Omitted when the feed reports none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub categories: Option<Vec<String>>,
+    /// Identifiers of the connectors the resource works with, as reported by the feed, without repeats. Inert untrusted text. Omitted when the feed reports none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connector_ids: Option<Vec<String>>,
     /// Description taken verbatim from the card. Inert untrusted text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -5135,8 +5189,14 @@ pub struct CatalogMcpServerCandidate {
     pub handle: String,
     /// ISO 8601 timestamp after which the handle is stale and will be rejected.
     pub handle_expires_at: String,
+    /// HTTPS URL of the resource's icon on raw.githubusercontent.com, as reported by the feed. Untrusted external content: load it without credentials. Omitted when absent or outside the feed's icon host policy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
     /// Whether this MCP server can be planned for installation, and if policy prevents it.
     pub installability: CatalogMcpServerInstallability,
+    /// How many times the resource has been installed, as reported by the feed. Omitted when the feed reports no count or an invalid one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub install_count: Option<i64>,
     /// Discriminator: this candidate describes an MCP server
     #[serde(deserialize_with = "CatalogMcpServerCandidate::deserialize_kind")]
     pub kind: CatalogMcpServerCandidateKind,
@@ -5382,6 +5442,25 @@ pub struct CatalogNotInstallableError {
     pub reason: CatalogNotInstallableReason,
 }
 
+/// Side-effect-free planning of whatever resource a materialisation reference pins, rather than a search candidate.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogPlanInstallFromReferenceRequest {
+    /// Required authenticated bound catalogue and catalog-reference-installation capabilities, plus the installation capability of each kind the caller can apply.
+    pub contract: CatalogClientContract,
+    /// Existing local session attached to this connection.
+    pub policy_session_id: String,
+    /// Materialisation reference to verify and plan.
+    pub reference: CatalogMaterializationReference,
+}
+
 /// Registry or enterprise policy refused the operation.
 ///
 /// <div class="warning">
@@ -5399,6 +5478,381 @@ pub struct CatalogPolicyRejectedError {
     pub message: String,
     /// Which authority produced the decision.
     pub source: McpPlanPolicySource,
+}
+
+/// Catalogue identity retained from a bound candidate or plan at installation time.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallationCatalogueIdentity {
+    /// Catalogue description retained at install planning time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Human display name retained from the catalogue candidate.
+    pub display_name: String,
+    /// Catalogue item URL when supplied by the authority.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item_url: Option<String>,
+    /// Catalogue publisher retained at install planning time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
+    /// Authority resource identifier when supplied by the catalogue.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource_id: Option<String>,
+    /// Catalogue authority/source string that supplied the candidate.
+    pub source: String,
+    /// Catalogue trust observation retained at install planning time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trust_at_install: Option<serde_json::Value>,
+    /// Catalogue version retained at install planning time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+/// One reviewed Skill file.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInstallationFileReview {
+    /// SHA-256 digest of the exact file bytes.
+    pub digest: String,
+    /// Whether the file is installed with executable permissions.
+    pub executable: bool,
+    /// Declared media type for the file.
+    pub media_type: String,
+    /// Relative file path within the Skill root.
+    pub path: String,
+    /// Exact reviewed file size in bytes.
+    pub size_bytes: i64,
+}
+
+/// Source identity retained from Agent Finder and the pinned GitHub descriptor.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInstallationSource {
+    /// Digest of the descriptor's bundle manifest.
+    pub bundle_digest: String,
+    /// Agent Finder materialisation revision identifier.
+    pub catalog_revision_id: String,
+    /// Digest of the canonical materialisation descriptor.
+    pub descriptor_digest: String,
+    /// Repository full name, for example owner/name.
+    pub repository: String,
+    /// GitHub repository database identifier.
+    pub repository_id: String,
+    /// Agent Finder resource identifier.
+    pub resource_id: String,
+    /// Pinned Git commit revision.
+    pub revision: String,
+    /// Root path within the pinned repository.
+    pub root: String,
+}
+
+/// A user-facing personal Skill installation location without absolute host paths.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInstallationLocation {
+    /// Diagnostics-only absolute host path. Hosts must not display it by default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostics_absolute_path: Option<String>,
+    /// Safe display label, for example ~/.copilot/skills/run-checks.
+    pub display_label: String,
+    /// Path relative to the Copilot home.
+    pub relative_path: String,
+    /// Installation scope. Agent Finder Skills are installed in the user's personal Copilot home.
+    pub scope: SkillInstallationScope,
+}
+
+/// Review for installing a verified Skill.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInstallationReviewInstall {
+    /// Exact reviewed Skill installation action.
+    pub action: SkillInstallationReviewInstallAction,
+    /// Catalogue identity retained from the bound candidate before consent.
+    pub catalogue: InstallationCatalogueIdentity,
+    /// Skill description from SKILL.md when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Complete verified SKILL.md content. Planning refuses with review-too-large
+    /// when this exceeds 262144 UTF-8 bytes; it is never truncated.
+    pub entrypoint_content: String,
+    /// Relative path of the verified Skill entrypoint.
+    pub entrypoint_path: String,
+    /// Reviewed files and digests.
+    pub files: Vec<SkillInstallationFileReview>,
+    /// Installing never grants immediate use; the Skill is written disabled.
+    pub installs_disabled: bool,
+    /// Skill invocation name from SKILL.md.
+    pub name: String,
+    /// Exact verified source identity.
+    pub source: SkillInstallationSource,
+    /// Exact user-scope target location without an absolute host path.
+    pub target: SkillInstallationLocation,
+    /// Total reviewed payload size in bytes.
+    pub total_bytes: i64,
+}
+
+/// Durable verified Skill ownership summary.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInstallationSummary {
+    /// Catalogue identity retained at install time.
+    pub catalogue: InstallationCatalogueIdentity,
+    /// Persisted enablement requested for this installation.
+    pub configured_enabled: bool,
+    /// Exact durable installation receipt identity.
+    pub installation_id: String,
+    /// ISO 8601 wall-clock installation time.
+    pub installed_at: String,
+    /// Skill invocation name.
+    pub name: String,
+    /// Operation that installed this Skill.
+    pub operation_id: String,
+    /// Ownership state observed from files and receipts.
+    pub ownership_state: SkillInstallationOwnershipState,
+    /// Bound-session load observation.
+    pub session_state: SkillInstallationSessionState,
+    /// Exact retained verified source identity.
+    pub source: SkillInstallationSource,
+    /// User-facing installation location without an absolute host path.
+    pub target: SkillInstallationLocation,
+}
+
+/// Review for uninstalling an owned verified Skill.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInstallationReviewUninstall {
+    /// Exact reviewed Skill installation action.
+    pub action: SkillInstallationReviewUninstallAction,
+    /// Catalogue identity retained at install time.
+    pub catalogue: InstallationCatalogueIdentity,
+    /// Files recorded by the installation receipt.
+    pub files: Vec<SkillInstallationFileReview>,
+    /// Whether current files differ from the receipt. Apply refuses drift.
+    pub files_modified: bool,
+    /// Owned installation being removed.
+    pub installation: SkillInstallationSummary,
+    /// Total receipt-owned payload size in bytes.
+    pub total_bytes: i64,
+}
+
+/// A computed Skill install plan. Nothing has been applied.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInstallPlan {
+    /// Original wall-clock expiry as an ISO 8601 timestamp.
+    pub expires_at: String,
+    /// Original operation identifier returned before confirmation.
+    pub operation_id: String,
+    /// One-use plan handle, bound to the original candidate authority.
+    pub plan_handle: String,
+    /// Safe review to present before applying the plan.
+    pub review: SkillInstallationReview,
+}
+
+/// The reference pins a Skill. Apply the plan with skills.applyInstall.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogReferenceInstallationOutcomeSkillInstallPlanned {
+    /// Reference planning outcome discriminator naming the planned kind.
+    pub kind: CatalogReferenceInstallationOutcomeSkillInstallPlannedKind,
+    /// Prepared Skill install plan.
+    pub plan: SkillInstallPlan,
+}
+
+/// One reviewed plugin file.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallationFileReview {
+    /// SHA-256 digest of the exact file bytes.
+    pub digest: String,
+    /// Whether the file is installed with executable permissions.
+    pub executable: bool,
+    /// Declared media type for the file.
+    pub media_type: String,
+    /// Relative file path within the plugin root.
+    pub path: String,
+    /// Exact reviewed file size in bytes.
+    pub size_bytes: i64,
+}
+
+/// Source identity retained from Agent Finder and the pinned GitHub descriptor.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallationSource {
+    /// Digest of the descriptor's bundle manifest.
+    pub bundle_digest: String,
+    /// Agent Finder materialisation revision identifier.
+    pub catalog_revision_id: String,
+    /// Digest of the canonical materialisation descriptor.
+    pub descriptor_digest: String,
+    /// Repository full name, for example owner/name.
+    pub repository: String,
+    /// GitHub repository database identifier.
+    pub repository_id: String,
+    /// Agent Finder resource identifier.
+    pub resource_id: String,
+    /// Pinned Git commit revision.
+    pub revision: String,
+    /// Plugin root within the pinned repository. Empty for the repository root.
+    pub root: String,
+}
+
+/// Where a plugin is installed, without an absolute host path.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallationLocation {
+    /// Safe display label, for example ~/.copilot/installed-plugins/_direct/owner--repo--plugins-work-hub.
+    pub display_label: String,
+    /// Path relative to the Copilot home, under installed-plugins/_direct like any direct plugin install.
+    pub relative_path: String,
+}
+
+/// Review for installing a verified Agent Plugin.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallPlanReview {
+    /// Exact reviewed Agent Plugin installation action.
+    pub action: PluginInstallPlanReviewAction,
+    /// Catalogue identity retained from the bound candidate, or verified data for a reference.
+    pub catalogue: InstallationCatalogueIdentity,
+    /// Manifest description when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Reviewed files and digests.
+    pub files: Vec<PluginInstallationFileReview>,
+    /// Installing never grants immediate use; the plugin is registered disabled.
+    pub installs_disabled: bool,
+    /// Complete verified manifest content. Planning refuses with review-too-large
+    /// when this exceeds 262144 UTF-8 bytes; it is never truncated.
+    pub manifest_content: String,
+    /// Relative path of the verified plugin manifest.
+    pub manifest_path: String,
+    /// Installed plugin name, derived from the verified manifest exactly as a direct install derives it.
+    pub name: String,
+    /// Exact verified source identity.
+    pub source: PluginInstallationSource,
+    /// Exact install location without an absolute host path.
+    pub target: PluginInstallationLocation,
+    /// Total reviewed payload size in bytes.
+    pub total_bytes: i64,
+    /// Manifest version when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+/// A computed Agent Plugin install plan. Nothing has been applied.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallPlan {
+    /// Original wall-clock expiry as an ISO 8601 timestamp.
+    pub expires_at: String,
+    /// Original operation identifier returned before confirmation.
+    pub operation_id: String,
+    /// One-use plan handle, bound to the original authority.
+    pub plan_handle: String,
+    /// Safe review to present before applying the plan.
+    pub review: PluginInstallPlanReview,
+}
+
+/// The reference pins an Agent Plugin. Apply the plan with plugins.applyInstall.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogReferenceInstallationOutcomePluginInstallPlanned {
+    /// Reference planning outcome discriminator naming the planned kind.
+    pub kind: CatalogReferenceInstallationOutcomePluginInstallPlannedKind,
+    /// Prepared Agent Plugin install plan.
+    pub plan: PluginInstallPlan,
+}
+
+/// Nothing was planned.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogReferenceInstallationOutcomeRefused {
+    /// Reference planning outcome discriminator naming the planned kind.
+    pub kind: CatalogReferenceInstallationOutcomeRefusedKind,
+    /// Bounded refusal reason.
+    pub reason: CatalogReferenceInstallationFailureReason,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogReferenceInstallationResultOutcome {
+    /// Discriminator: handled planning outcome.
+    pub kind: CatalogReferenceInstallationResultOutcomeKind,
+    /// Capabilities honoured for this request.
+    pub negotiated: CatalogNegotiatedContract,
+    /// Planning outcome.
+    pub outcome: CatalogReferenceInstallationOutcome,
 }
 
 /// An explicit numbered-page request. SDK consumers treat the token as opaque. For bound search, the runtime unwraps an expiring owner-bound reference to the private authority token; only the runtime changes the authority token's targetPage. Legacy unbound navigation keeps its authority-issued token semantics. No snapshot stability is promised.
@@ -10655,7 +11109,7 @@ pub struct HostStartResult {
     pub url: Option<String>,
 }
 
-/// Catalogue identity retained from a bound candidate or plan at installation time.
+/// Withdraws an application publication without deleting its underlying local session.
 ///
 /// <div class="warning">
 ///
@@ -10665,29 +11119,41 @@ pub struct HostStartResult {
 /// </div>
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct InstallationCatalogueIdentity {
-    /// Catalogue description retained at install planning time.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    /// Human display name retained from the catalogue candidate.
-    pub display_name: String,
-    /// Catalogue item URL when supplied by the authority.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub item_url: Option<String>,
-    /// Catalogue publisher retained at install planning time.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub publisher: Option<String>,
-    /// Authority resource identifier when supplied by the catalogue.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resource_id: Option<String>,
-    /// Catalogue authority/source string that supplied the candidate.
-    pub source: String,
-    /// Catalogue trust observation retained at install planning time.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub trust_at_install: Option<serde_json::Value>,
-    /// Catalogue version retained at install planning time.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
+pub struct HostUnpublishSessionRequest {
+    /// Listener UUID returned by host.start; the caller must own the live listener.
+    pub host_id: String,
+    /// Canonical session ID in the durable catalog, whether resident or dormant.
+    pub session_id: SessionId,
+}
+
+/// Publication withdrawal outcome; local history, worktrees and ongoing work are preserved.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostUnpublishSessionResult {
+    /// True when a publication was removed; false when it was already absent.
+    pub unpublished: bool,
+}
+
+/// Removes a durable application publication and revokes its AHP attachments.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostUnregisterSessionRequest {
+    /// Canonical ID of the application publication to withdraw.
+    pub session_id: SessionId,
 }
 
 /// The configuration-change alternative for the transportChoices entry at the same index. Only the selected alternative is applied; entries are not cumulative. The payload stays behind the runtime boundary.
@@ -11123,161 +11589,6 @@ pub struct InstallationReviewMcp {
     pub review: McpInstallationReview,
 }
 
-/// One reviewed Skill file.
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillInstallationFileReview {
-    /// SHA-256 digest of the exact file bytes.
-    pub digest: String,
-    /// Whether the file is installed with executable permissions.
-    pub executable: bool,
-    /// Declared media type for the file.
-    pub media_type: String,
-    /// Relative file path within the Skill root.
-    pub path: String,
-    /// Exact reviewed file size in bytes.
-    pub size_bytes: i64,
-}
-
-/// Source identity retained from Agent Finder and the pinned GitHub descriptor.
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillInstallationSource {
-    /// Digest of the descriptor's bundle manifest.
-    pub bundle_digest: String,
-    /// Agent Finder materialisation revision identifier.
-    pub catalog_revision_id: String,
-    /// Digest of the canonical materialisation descriptor.
-    pub descriptor_digest: String,
-    /// Repository full name, for example owner/name.
-    pub repository: String,
-    /// GitHub repository database identifier.
-    pub repository_id: String,
-    /// Agent Finder resource identifier.
-    pub resource_id: String,
-    /// Pinned Git commit revision.
-    pub revision: String,
-    /// Root path within the pinned repository.
-    pub root: String,
-}
-
-/// A user-facing personal Skill installation location without absolute host paths.
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillInstallationLocation {
-    /// Diagnostics-only absolute host path. Hosts must not display it by default.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub diagnostics_absolute_path: Option<String>,
-    /// Safe display label, for example ~/.copilot/skills/run-checks.
-    pub display_label: String,
-    /// Path relative to the Copilot home.
-    pub relative_path: String,
-    /// Installation scope. Agent Finder Skills are installed in the user's personal Copilot home.
-    pub scope: SkillInstallationScope,
-}
-
-/// Review for installing a verified Skill.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillInstallationReviewInstall {
-    /// Exact reviewed Skill installation action.
-    pub action: SkillInstallationReviewInstallAction,
-    /// Catalogue identity retained from the bound candidate before consent.
-    pub catalogue: InstallationCatalogueIdentity,
-    /// Skill description from SKILL.md when present.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    /// Complete verified SKILL.md content. Planning refuses with review-too-large
-    /// when this exceeds 262144 UTF-8 bytes; it is never truncated.
-    pub entrypoint_content: String,
-    /// Relative path of the verified Skill entrypoint.
-    pub entrypoint_path: String,
-    /// Reviewed files and digests.
-    pub files: Vec<SkillInstallationFileReview>,
-    /// Installing never grants immediate use; the Skill is written disabled.
-    pub installs_disabled: bool,
-    /// Skill invocation name from SKILL.md.
-    pub name: String,
-    /// Exact verified source identity.
-    pub source: SkillInstallationSource,
-    /// Exact user-scope target location without an absolute host path.
-    pub target: SkillInstallationLocation,
-    /// Total reviewed payload size in bytes.
-    pub total_bytes: i64,
-}
-
-/// Durable verified Skill ownership summary.
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillInstallationSummary {
-    /// Catalogue identity retained at install time.
-    pub catalogue: InstallationCatalogueIdentity,
-    /// Persisted enablement requested for this installation.
-    pub configured_enabled: bool,
-    /// Exact durable installation receipt identity.
-    pub installation_id: String,
-    /// ISO 8601 wall-clock installation time.
-    pub installed_at: String,
-    /// Skill invocation name.
-    pub name: String,
-    /// Operation that installed this Skill.
-    pub operation_id: String,
-    /// Ownership state observed from files and receipts.
-    pub ownership_state: SkillInstallationOwnershipState,
-    /// Bound-session load observation.
-    pub session_state: SkillInstallationSessionState,
-    /// Exact retained verified source identity.
-    pub source: SkillInstallationSource,
-    /// User-facing installation location without an absolute host path.
-    pub target: SkillInstallationLocation,
-}
-
-/// Review for uninstalling an owned verified Skill.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillInstallationReviewUninstall {
-    /// Exact reviewed Skill installation action.
-    pub action: SkillInstallationReviewUninstallAction,
-    /// Catalogue identity retained at install time.
-    pub catalogue: InstallationCatalogueIdentity,
-    /// Files recorded by the installation receipt.
-    pub files: Vec<SkillInstallationFileReview>,
-    /// Whether current files differ from the receipt. Apply refuses drift.
-    pub files_modified: bool,
-    /// Owned installation being removed.
-    pub installation: SkillInstallationSummary,
-    /// Total receipt-owned payload size in bytes.
-    pub total_bytes: i64,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstallationReviewSkill {
@@ -11285,6 +11596,48 @@ pub struct InstallationReviewSkill {
     pub resource: InstallationReviewSkillResource,
     /// The exact verified Skill action and its reviewed files.
     pub review: SkillInstallationReview,
+}
+
+/// Review for installing a verified Agent Plugin.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallationReviewPluginReview {
+    /// Exact reviewed Agent Plugin installation action.
+    pub action: InstallationReviewPluginReviewAction,
+    /// Catalogue identity retained from the bound candidate, or verified data for a reference.
+    pub catalogue: InstallationCatalogueIdentity,
+    /// Manifest description when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Reviewed files and digests.
+    pub files: Vec<PluginInstallationFileReview>,
+    /// Installing never grants immediate use; the plugin is registered disabled.
+    pub installs_disabled: bool,
+    /// Complete verified manifest content. Planning refuses with review-too-large
+    /// when this exceeds 262144 UTF-8 bytes; it is never truncated.
+    pub manifest_content: String,
+    /// Relative path of the verified plugin manifest.
+    pub manifest_path: String,
+    /// Installed plugin name, derived from the verified manifest exactly as a direct install derives it.
+    pub name: String,
+    /// Exact verified source identity.
+    pub source: PluginInstallationSource,
+    /// Exact install location without an absolute host path.
+    pub target: PluginInstallationLocation,
+    /// Total reviewed payload size in bytes.
+    pub total_bytes: i64,
+    /// Manifest version when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallationReviewPlugin {
+    /// Reviewed resource discriminator.
+    pub resource: InstallationReviewPluginResource,
+    /// The exact verified Agent Plugin action and its reviewed files.
+    pub review: InstallationReviewPluginReview,
 }
 
 /// One connection-owned, expiring request for a trusted host's explicit user decision.
@@ -14718,6 +15071,48 @@ pub struct McpOauthCancelLoginResult {
     pub cancelled: bool,
 }
 
+/// A remote MCP server whose authorization server should be asked about Dynamic Client Registration.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct McpOauthCheckDcrSupportRequest {
+    /// Raw protected-resource metadata text from the server's `WWW-Authenticate` challenge. Omit to discover the authorization server from the server URL instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource_metadata_text: Option<String>,
+    /// Proxy the request must travel through. Omit to use the session's own egress settings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_proxy: Option<String>,
+    /// URL of the remote MCP server that answered 401.
+    pub server_url: String,
+    /// Locally owned session whose egress policy and sandbox proxy constrain the request. Omitted or nonlocal session IDs provide no local session egress state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<SessionId>,
+}
+
+/// Whether the server's authorization server registers clients dynamically.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct McpOauthCheckDcrSupportResult {
+    /// Authorization server the metadata pointed at. Absent when none could be discovered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authorization_server_url: Option<String>,
+    /// Whether the authorization server advertises a client registration endpoint.
+    pub supports_dcr: bool,
+}
+
 /// Host-delivered callback for a runtime-managed MCP OAuth login.
 ///
 /// <div class="warning">
@@ -14733,6 +15128,52 @@ pub struct McpOauthCompleteRequest {
     pub authorization_id: String,
     /// Full externally visible HTTPS callback URL received by the host, including the authorization response query parameters. Applications behind a reverse proxy must reconstruct the public URL rather than passing an internal proxy URL.
     pub callback_url: String,
+}
+
+/// An OAuth challenge from a remote MCP server whose protected-resource metadata should be read.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct McpOauthFetchProtectedResourceMetadataRequest {
+    /// Request headers the configured server sends, as a serialized JSON object. Omit to send none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers_json: Option<String>,
+    /// URL of the remote MCP server that answered 401.
+    pub request_url: String,
+    /// Metadata URL named in the server's `WWW-Authenticate` challenge. Omit to try conventional metadata endpoints derived from the request URL. It is server-controlled, so it passes the same egress policy check as the request URL.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resource_metadata_url: Option<String>,
+    /// Proxy the request must travel through. Omit to use the session's own egress settings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_proxy: Option<String>,
+    /// Locally owned session whose egress policy and sandbox proxy constrain the request. Omitted or nonlocal session IDs provide no local session egress state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<SessionId>,
+    /// User agent to send. Omit to use the runtime's own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_agent: Option<String>,
+}
+
+/// Raw protected-resource metadata from the explicit metadata URL or conventional discovery.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct McpOauthFetchProtectedResourceMetadataResult {
+    /// Metadata document exactly as the server returned it, unparsed. Absent when no document could be read from the explicit metadata URL or, when omitted, the conventional metadata endpoints.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -14787,6 +15228,36 @@ pub struct McpOauthHandlePendingRequest {
 pub struct McpOauthHandlePendingResult {
     /// Whether the response was accepted. False if the request was unknown, timed out, or already resolved.
     pub success: bool,
+}
+
+/// An authorization server URL to classify.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct McpOauthIsMicrosoftAuthorizationServerRequest {
+    /// Authorization server URL, typically the one `mcp.oauth.checkDcrSupport` discovered.
+    pub authorization_server_url: String,
+}
+
+/// Whether the URL is a Microsoft Entra ID authorization server.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct McpOauthIsMicrosoftAuthorizationServerResult {
+    /// Whether the host is one Microsoft Entra ID serves authorization from.
+    pub is_microsoft_authorization_server: bool,
 }
 
 /// Remote MCP server name and optional overrides controlling reauthentication, OAuth client display name, callback handling, and static OAuth client selection.
@@ -15124,6 +15595,62 @@ pub struct McpOauthRespondRequest {
 pub struct McpOauthRespondResult {
     /// Whether the response was accepted. False if the request was unknown, timed out, or already resolved.
     pub success: bool,
+}
+
+/// An OAuth client a server configuration pins, without its secret.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct McpOauthStaticClientConfig {
+    /// Configured OAuth client identifier.
+    pub client_id: String,
+    /// Grant type, carried only when the configuration pins the headless `client_credentials` flow. Absent for the default interactive authorization-code flow.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grant_type: Option<McpServerConfigHttpOauthGrantType>,
+    /// Whether the configuration declares a public client. Absent when the configuration does not say, which the flow reads as a public client.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_client: Option<bool>,
+    /// Configured OAuth scopes joined into one space-delimited scope value. Absent when the configuration specifies no scopes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+}
+
+/// A remote MCP server configuration whose pinned OAuth client should be read.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct McpOauthStaticClientConfigRequest {
+    /// The server configuration to read. A configuration that pins no client answers nothing.
+    pub config: serde_json::Value,
+}
+
+/// The OAuth client the configuration pins, when it pins one.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct McpOauthStaticClientConfigResult {
+    /// The pinned client. Absent when the configuration pins no non-empty client id, so the flow should register one dynamically.
+    #[doc(hidden)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) client_config: Option<McpOauthStaticClientConfig>,
 }
 
 /// A computed MCP install plan. Nothing has been applied: the plan describes what installing would change, and the plan handle is what a later apply operation would consume.
@@ -15724,6 +16251,9 @@ pub(crate) struct McpReloadConfig {
     pub cli_enabled_servers: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config_filter: Option<serde_json::Value>,
+    /// Caller-resolved settings disables, below CLI enables and explicit session disables.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub configured_disabled_servers: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disabled_servers: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -17227,7 +17757,7 @@ pub struct ModelBillingTokenPrices {
     /// Number of tokens per standard billing batch
     #[serde(skip_serializing_if = "Option::is_none")]
     pub batch_size: Option<i64>,
-    /// Use cacheReadPrice instead. AI Credits cost per billing batch of cached tokens
+    /// Use cacheReadPrice when available. Cost per billing batch of cached tokens in the unit reported by models.listTokenPriceUnits.
     #[doc(hidden)]
     #[deprecated]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -17246,7 +17776,7 @@ pub struct ModelBillingTokenPrices {
     #[deprecated]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_max: Option<i64>,
-    /// AI Credits cost per billing batch of input tokens
+    /// Cost per billing batch of input tokens. The unit is reported by models.listTokenPriceUnits.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_price: Option<f64>,
     /// Long context tier pricing (available for models with extended context windows)
@@ -17255,7 +17785,7 @@ pub struct ModelBillingTokenPrices {
     /// Prompt token budget for the default tier. The total context window is this value plus the model's max_output_tokens.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_prompt_tokens: Option<i64>,
-    /// AI Credits cost per billing batch of output tokens
+    /// Cost per billing batch of output tokens. The unit is reported by models.listTokenPriceUnits.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_price: Option<f64>,
 }
@@ -17635,6 +18165,11 @@ pub struct ModelGetReasoningSummariesResult {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelList {
+    /// Ordered Auto routing preferences discovered for the resolved account. Present only
+    /// when the runtime runs with `DYNAMIC_AUTO_TIERS` enabled and CAPI returned Auto
+    /// metadata; same shape and semantics as `SessionModelList.auto`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto: Option<AutoTierMetadata>,
     /// List of available models with full metadata
     pub models: Vec<Model>,
 }
@@ -18488,6 +19023,38 @@ pub struct ModelSwitchToResult {
     /// User-facing warning produced while applying the model switch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+}
+
+/// The unit one model's published token prices are quoted in.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelTokenPriceUnit {
+    /// Model ID the unit applies to, matching the id of a models.list entry.
+    pub model_id: String,
+    /// Unit this model's token prices are quoted in.
+    pub unit: TokenPriceUnit,
+}
+
+/// Price units for every catalog model that publishes token prices.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelTokenPriceUnitList {
+    /// One entry per model that publishes token prices, in catalog order. A model with no published prices is omitted.
+    pub units: Vec<ModelTokenPriceUnit>,
 }
 
 /// Agent interaction mode to apply to the session.
@@ -20665,6 +21232,177 @@ pub struct Plugin {
     pub version: Option<String>,
 }
 
+/// Applies exactly one retained verified Agent Plugin installation plan.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginApplyInstallRequest {
+    /// Required authenticated bound catalogue and agent-plugin-confirmed-installation capabilities.
+    pub contract: CatalogClientContract,
+    /// Opaque original plan, consumed once.
+    pub plan_handle: String,
+    /// Same existing selected session as planning.
+    pub policy_session_id: String,
+}
+
+/// A verified Agent Plugin installation plan was prepared.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallationManagementOutcomeInstallPlanned {
+    /// Agent Plugin installation management outcome discriminator.
+    pub kind: PluginInstallationManagementOutcomeInstallPlannedKind,
+    /// Prepared install plan.
+    pub plan: PluginInstallPlan,
+}
+
+/// The request was refused without preparing a plan.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallationManagementOutcomeRefused {
+    /// Agent Plugin installation management outcome discriminator.
+    pub kind: PluginInstallationManagementOutcomeRefusedKind,
+    /// Bounded refusal reason.
+    pub reason: PluginInstallationFailureReason,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallationManagementResultOutcome {
+    /// Discriminator: handled management outcome.
+    pub kind: PluginInstallationManagementResultOutcomeKind,
+    /// Capabilities honoured for this request.
+    pub negotiated: CatalogNegotiatedContract,
+    /// Observed management outcome.
+    pub outcome: PluginInstallationManagementOutcome,
+}
+
+/// A plugin registered from a verified materialisation.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallationSummary {
+    /// Catalogue identity retained at install time.
+    pub catalogue: InstallationCatalogueIdentity,
+    /// Whether the plugin is enabled for new sessions. Always false after installation.
+    pub enabled: bool,
+    /// ISO 8601 wall-clock installation time.
+    pub installed_at: String,
+    /// Installed plugin name, as plugins.list, plugins.enable and plugins.uninstall identify it.
+    pub name: String,
+    /// Operation that installed the plugin.
+    pub operation_id: String,
+    /// Exact retained verified source identity.
+    pub source: PluginInstallationSource,
+    /// Install location without an absolute host path.
+    pub target: PluginInstallationLocation,
+}
+
+/// The verified plugin was registered disabled.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallationOutcomeInstalled {
+    /// Installed plugin summary.
+    pub installation: PluginInstallationSummary,
+    /// Terminal Agent Plugin installation outcome discriminator.
+    pub kind: PluginInstallationOutcomeInstalledKind,
+}
+
+/// The user declined the confirmation request.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallationOutcomeDeclined {
+    /// Terminal Agent Plugin installation outcome discriminator.
+    pub kind: PluginInstallationOutcomeDeclinedKind,
+    /// Original operation identity.
+    pub operation_id: String,
+}
+
+/// The confirmation was cancelled before any change.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallationOutcomeCancelled {
+    /// Terminal Agent Plugin installation outcome discriminator.
+    pub kind: PluginInstallationOutcomeCancelledKind,
+    /// Original operation identity.
+    pub operation_id: String,
+}
+
+/// The operation was refused and nothing was installed.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallationOutcomeRefused {
+    /// Terminal Agent Plugin installation outcome discriminator.
+    pub kind: PluginInstallationOutcomeRefusedKind,
+    /// Present once an operation has been allocated.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+    /// Bounded refusal reason.
+    pub reason: PluginInstallationFailureReason,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallationResultOutcome {
+    /// Discriminator: handled operation outcome.
+    pub kind: PluginInstallationResultOutcomeKind,
+    /// Capabilities honoured for this request.
+    pub negotiated: CatalogNegotiatedContract,
+    /// Terminal operation outcome.
+    pub outcome: PluginInstallationOutcome,
+}
+
+/// Safe verified Agent Plugin review fields. No raw credential, candidate handle or plan handle.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallationReview {
+    /// Exact reviewed Agent Plugin installation action.
+    pub action: PluginInstallationReviewAction,
+    /// Catalogue identity retained from the bound candidate, or verified data for a reference.
+    pub catalogue: InstallationCatalogueIdentity,
+    /// Manifest description when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Reviewed files and digests.
+    pub files: Vec<PluginInstallationFileReview>,
+    /// Installing never grants immediate use; the plugin is registered disabled.
+    pub installs_disabled: bool,
+    /// Complete verified manifest content. Planning refuses with review-too-large
+    /// when this exceeds 262144 UTF-8 bytes; it is never truncated.
+    pub manifest_content: String,
+    /// Relative path of the verified plugin manifest.
+    pub manifest_path: String,
+    /// Installed plugin name, derived from the verified manifest exactly as a direct install derives it.
+    pub name: String,
+    /// Exact verified source identity.
+    pub source: PluginInstallationSource,
+    /// Exact install location without an absolute host path.
+    pub target: PluginInstallationLocation,
+    /// Total reviewed payload size in bytes.
+    pub total_bytes: i64,
+    /// Manifest version when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
 /// Result of installing a plugin.
 ///
 /// <div class="warning">
@@ -20719,6 +21457,25 @@ pub struct PluginList {
 pub struct PluginListResult {
     /// Installed plugins
     pub plugins: Vec<InstalledPluginInfo>,
+}
+
+/// Side-effect-free planning of one Agent Plugin search candidate through its Agent Finder materialisation.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginPlanInstallRequest {
+    /// Fresh single-use Agent Plugin candidate handle returned by a bound catalogue search.
+    pub candidate_handle: String,
+    /// Required authenticated bound catalogue and agent-plugin-confirmed-installation capabilities.
+    pub contract: CatalogClientContract,
+    /// Existing local session attached to this connection.
+    pub policy_session_id: String,
 }
 
 /// Trusted built-in plugin directories to use for this runtime process.
@@ -28072,27 +28829,6 @@ pub struct SkillInstallationManagementOutcomeRecoveryRequired {
     pub kind: SkillInstallationManagementOutcomeRecoveryRequiredKind,
 }
 
-/// A computed Skill install plan. Nothing has been applied.
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillInstallPlan {
-    /// Original wall-clock expiry as an ISO 8601 timestamp.
-    pub expires_at: String,
-    /// Original operation identifier returned before confirmation.
-    pub operation_id: String,
-    /// One-use plan handle, bound to the original candidate authority.
-    pub plan_handle: String,
-    /// Safe review to present before applying the plan.
-    pub review: SkillInstallationReview,
-}
-
 /// A verified Skill installation plan was prepared.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -28415,25 +29151,6 @@ pub struct SkillInstallationsRequest {
 pub struct SkillList {
     /// Available skills
     pub skills: Vec<Skill>,
-}
-
-/// Side-effect-free planning of one Skill from a materialisation reference rather than a search candidate.
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillPlanInstallFromReferenceRequest {
-    /// Required authenticated bound catalogue, skill-confirmed-installation and skill-reference-installation capabilities.
-    pub contract: CatalogClientContract,
-    /// Existing local session attached to this connection.
-    pub policy_session_id: String,
-    /// Materialisation reference to verify and plan.
-    pub reference: CatalogMaterializationReference,
 }
 
 /// Side-effect-free planning of one verified Agent Finder Skill candidate.
@@ -33996,6 +34713,11 @@ pub struct HostReadyResult {}
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelsListResult {
+    /// Ordered Auto routing preferences discovered for the resolved account. Present only
+    /// when the runtime runs with `DYNAMIC_AUTO_TIERS` enabled and CAPI returned Auto
+    /// metadata; same shape and semantics as `SessionModelList.auto`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto: Option<AutoTierMetadata>,
     /// List of available models with full metadata
     pub models: Vec<Model>,
 }
@@ -34013,6 +34735,21 @@ pub struct ModelsListResult {
 pub struct ModelsGetBuiltInCatalogResult {
     /// Built-in model entries.
     pub models: Vec<BuiltInModelCatalogEntry>,
+}
+
+/// Price units for every catalog model that publishes token prices.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelsListTokenPriceUnitsResult {
+    /// One entry per model that publishes token prices, in catalog order. A model with no published prices is omitted.
+    pub units: Vec<ModelTokenPriceUnit>,
 }
 
 /// Built-in tools available for the requested model, with their parameters and instructions.
@@ -43434,12 +44171,12 @@ pub enum CatalogCapability {
     /// Understands verified Agent Finder Skill install, uninstall, recovery and installation-scoped enablement APIs. Advertised only by runtimes with the Skill installation engine linked; acquisition may still be refused as feature-disabled per selected session.
     #[serde(rename = "skill-confirmed-installation")]
     SkillConfirmedInstallation,
-    /// Understands `installability` and the reviewable `installPlan` on Agent Plugin candidates. Requires agent-plugin-discovery; without it, plugin candidates are unchanged. A plugin is installable only with complete, verified catalogue install data, and may still be reported as feature-disabled per selected session.
+    /// Understands `installability`, the reviewable `installPlan` and the optional materialisation `handle` on Agent Plugin candidates, and the verified Agent Plugin installation APIs plugins.planInstall and plugins.applyInstall, and Agent Plugin plans from catalog.planInstallFromReference. Requires agent-plugin-discovery; without it, plugin candidates are unchanged. Advertised only by runtimes with the plugin installer linked; acquisition may still be refused as feature-disabled per selected session.
     #[serde(rename = "agent-plugin-confirmed-installation")]
     AgentPluginConfirmedInstallation,
-    /// Extends skill-confirmed-installation to planning from an Agent Finder materialisation reference through skills.planInstallFromReference, and to its distinct reference failure reasons. Requires skill-confirmed-installation. Advertised only by runtimes with the Skill installation engine linked.
-    #[serde(rename = "skill-reference-installation")]
-    SkillReferenceInstallation,
+    /// Understands catalog.planInstallFromReference, which plans installing whatever resource an Agent Finder materialisation reference pins. It plans only kinds whose installation capability the caller also requires: skill-confirmed-installation for Skills, agent-plugin-confirmed-installation for Agent Plugins. Advertised only by runtimes with the Skill installation engine linked.
+    #[serde(rename = "catalog-reference-installation")]
+    CatalogReferenceInstallation,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]
@@ -43836,6 +44573,256 @@ pub enum McpPlanPolicySource {
     #[default]
     #[serde(other)]
     Unknown,
+}
+
+/// Bounded refusal categories for planning from a materialisation reference.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogReferenceInstallationFailureReason {
+    /// The selected session does not have the installation feature flag for the referenced kind enabled.
+    #[serde(rename = "feature-disabled")]
+    FeatureDisabled,
+    /// The request is unsupported or malformed.
+    #[serde(rename = "invalid-request")]
+    InvalidRequest,
+    /// The bounded operation limit was reached.
+    #[serde(rename = "operation-limit")]
+    OperationLimit,
+    /// Installation storage or admission is busy.
+    #[serde(rename = "busy")]
+    Busy,
+    /// The original host cannot receive human confirmation.
+    #[serde(rename = "confirmation-unavailable")]
+    ConfirmationUnavailable,
+    /// Existing authenticated session and host authority is unavailable.
+    #[serde(rename = "policy-context-unavailable")]
+    PolicyContextUnavailable,
+    /// Managed policy forbids installing this resource.
+    #[serde(rename = "policy-blocked")]
+    PolicyBlocked,
+    /// The materialisation reference is malformed or uses an unsupported schema version.
+    #[serde(rename = "invalid-reference")]
+    InvalidReference,
+    /// The materialisation descriptor could not be retrieved safely.
+    #[serde(rename = "descriptor-unavailable")]
+    DescriptorUnavailable,
+    /// Agent Finder has no materialisation for the referenced resource revision (HTTP 404).
+    #[serde(rename = "descriptor-not-found")]
+    DescriptorNotFound,
+    /// Agent Finder withdrew the referenced resource revision (HTTP 410).
+    #[serde(rename = "descriptor-withdrawn")]
+    DescriptorWithdrawn,
+    /// The materialisation descriptor failed validation.
+    #[serde(rename = "descriptor-invalid")]
+    DescriptorInvalid,
+    /// The retrieved descriptor does not match the referenced descriptor or bundle digest.
+    #[serde(rename = "digest-mismatch")]
+    DigestMismatch,
+    /// The referenced resource is a kind this runtime cannot install, or one whose installation capability the caller did not require.
+    #[serde(rename = "unsupported-resource")]
+    UnsupportedResource,
+    /// The resource's entrypoint could not be retrieved or verified.
+    #[serde(rename = "entrypoint-unavailable")]
+    EntrypointUnavailable,
+    /// The Skill entrypoint is not a valid Skill.
+    #[serde(rename = "invalid-skill")]
+    InvalidSkill,
+    /// The plugin manifest is not a valid plugin manifest, or the bundle has another manifest that would take precedence over the reviewed one.
+    #[serde(rename = "invalid-plugin")]
+    InvalidPlugin,
+    /// The entrypoint exceeds the bounded complete review size.
+    #[serde(rename = "review-too-large")]
+    ReviewTooLarge,
+    /// A resource with the same identity or install location already exists.
+    #[serde(rename = "already-installed")]
+    AlreadyInstalled,
+    /// A storage operation failed; nothing was installed.
+    #[serde(rename = "write-failed")]
+    WriteFailed,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Reference planning outcome discriminator naming the planned kind.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogReferenceInstallationOutcomeSkillInstallPlannedKind {
+    #[serde(rename = "skill-install-planned")]
+    #[default]
+    SkillInstallPlanned,
+}
+
+/// Exact reviewed Skill installation action.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SkillInstallationReviewInstallAction {
+    #[serde(rename = "install")]
+    #[default]
+    Install,
+}
+
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SkillInstallationScope {
+    /// The user's personal Copilot home.
+    #[serde(rename = "personal")]
+    Personal,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Exact reviewed Skill installation action.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SkillInstallationReviewUninstallAction {
+    #[serde(rename = "uninstall")]
+    #[default]
+    Uninstall,
+}
+
+/// Owned Skill state observed from files and receipts.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SkillInstallationOwnershipState {
+    /// Owned files and receipt evidence match.
+    #[serde(rename = "intact")]
+    Intact,
+    /// Owned files no longer match the receipt.
+    #[serde(rename = "modified")]
+    Modified,
+    /// Ownership evidence requires recovery before mutation.
+    #[serde(rename = "recovery-required")]
+    RecoveryRequired,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Bound-session observation after reconciling persisted enablement.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SkillInstallationSessionState {
+    /// The selected session has loaded this Skill and it is enabled.
+    #[serde(rename = "loaded-enabled")]
+    LoadedEnabled,
+    /// The selected session has loaded this Skill or settings and it is disabled.
+    #[serde(rename = "loaded-disabled")]
+    LoadedDisabled,
+    /// The selected session has not loaded Skills after the latest change.
+    #[serde(rename = "not-loaded")]
+    NotLoaded,
+    /// The selected session could not be inspected.
+    #[serde(rename = "unknown")]
+    UnknownValue,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Safe verified Skill review fields. No raw credential, candidate handle or plan handle.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SkillInstallationReview {
+    Install(SkillInstallationReviewInstall),
+    Uninstall(SkillInstallationReviewUninstall),
+}
+
+/// Reference planning outcome discriminator naming the planned kind.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogReferenceInstallationOutcomePluginInstallPlannedKind {
+    #[serde(rename = "plugin-install-planned")]
+    #[default]
+    PluginInstallPlanned,
+}
+
+/// Exact reviewed Agent Plugin installation action.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PluginInstallPlanReviewAction {
+    #[serde(rename = "install")]
+    #[default]
+    Install,
+}
+
+/// Reference planning outcome discriminator naming the planned kind.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogReferenceInstallationOutcomeRefusedKind {
+    #[serde(rename = "refused")]
+    #[default]
+    Refused,
+}
+
+/// Planning outcome for a materialisation reference. A plan names its kind, so the caller applies it with that kind's apply method.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CatalogReferenceInstallationOutcome {
+    SkillInstallPlanned(CatalogReferenceInstallationOutcomeSkillInstallPlanned),
+    PluginInstallPlanned(CatalogReferenceInstallationOutcomePluginInstallPlanned),
+    Refused(CatalogReferenceInstallationOutcomeRefused),
+}
+
+/// Discriminator: handled planning outcome.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogReferenceInstallationResultOutcomeKind {
+    #[serde(rename = "outcome")]
+    #[default]
+    Outcome,
+}
+
+/// Planning result for a materialisation reference with the honoured contract, or a typed refusal.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CatalogReferenceInstallationResult {
+    Outcome(CatalogReferenceInstallationResultOutcome),
+    NegotiationRefused(CatalogNegotiationRefusedError),
+    InvalidRequest(CatalogInvalidRequestError),
 }
 
 /// Relationship of the backend-reported count to the complete query result set.
@@ -46237,106 +47224,20 @@ pub enum InstallationReviewSkillResource {
     Skill,
 }
 
-/// Exact reviewed Skill installation action.
+/// Reviewed resource discriminator.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SkillInstallationReviewInstallAction {
+pub enum InstallationReviewPluginResource {
+    #[serde(rename = "plugin")]
+    #[default]
+    Plugin,
+}
+
+/// Exact reviewed Agent Plugin installation action.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InstallationReviewPluginReviewAction {
     #[serde(rename = "install")]
     #[default]
     Install,
-}
-
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SkillInstallationScope {
-    /// The user's personal Copilot home.
-    #[serde(rename = "personal")]
-    Personal,
-    /// Unknown variant for forward compatibility.
-    #[default]
-    #[serde(other)]
-    Unknown,
-}
-
-/// Exact reviewed Skill installation action.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SkillInstallationReviewUninstallAction {
-    #[serde(rename = "uninstall")]
-    #[default]
-    Uninstall,
-}
-
-/// Owned Skill state observed from files and receipts.
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SkillInstallationOwnershipState {
-    /// Owned files and receipt evidence match.
-    #[serde(rename = "intact")]
-    Intact,
-    /// Owned files no longer match the receipt.
-    #[serde(rename = "modified")]
-    Modified,
-    /// Ownership evidence requires recovery before mutation.
-    #[serde(rename = "recovery-required")]
-    RecoveryRequired,
-    /// Unknown variant for forward compatibility.
-    #[default]
-    #[serde(other)]
-    Unknown,
-}
-
-/// Bound-session observation after reconciling persisted enablement.
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SkillInstallationSessionState {
-    /// The selected session has loaded this Skill and it is enabled.
-    #[serde(rename = "loaded-enabled")]
-    LoadedEnabled,
-    /// The selected session has loaded this Skill or settings and it is disabled.
-    #[serde(rename = "loaded-disabled")]
-    LoadedDisabled,
-    /// The selected session has not loaded Skills after the latest change.
-    #[serde(rename = "not-loaded")]
-    NotLoaded,
-    /// The selected session could not be inspected.
-    #[serde(rename = "unknown")]
-    UnknownValue,
-    /// Unknown variant for forward compatibility.
-    #[default]
-    #[serde(other)]
-    Unknown,
-}
-
-/// Safe verified Skill review fields. No raw credential, candidate handle or plan handle.
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum SkillInstallationReview {
-    Install(SkillInstallationReviewInstall),
-    Uninstall(SkillInstallationReviewUninstall),
 }
 
 /// Only resource kinds with an implemented installation engine have a review variant.
@@ -46345,6 +47246,7 @@ pub enum SkillInstallationReview {
 pub enum InstallationReview {
     Mcp(InstallationReviewMcp),
     Skill(InstallationReviewSkill),
+    Plugin(InstallationReviewPlugin),
 }
 
 /// Explicit user decisions, never inferred from a permission grant or model response.
@@ -47679,6 +48581,28 @@ pub enum McpOauthProbeResult {
     Failed(McpOauthProbeResultFailed),
 }
 
+/// OAuth grant type to use when authenticating to the remote MCP server.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum McpServerConfigHttpOauthGrantType {
+    /// Interactive browser-based authorization code flow with PKCE.
+    #[serde(rename = "authorization_code")]
+    AuthorizationCode,
+    /// Headless client credentials flow using the configured OAuth client.
+    #[serde(rename = "client_credentials")]
+    ClientCredentials,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
 /// Discriminator: a plan was computed and nothing was changed
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum McpPlanInstallPlannedKind {
@@ -47882,28 +48806,6 @@ pub enum McpServerConfigDeferTools {
     /// Tools are always included in the initial tool list, even when tool search is enabled.
     #[serde(rename = "never")]
     Never,
-    /// Unknown variant for forward compatibility.
-    #[default]
-    #[serde(other)]
-    Unknown,
-}
-
-/// OAuth grant type to use when authenticating to the remote MCP server.
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum McpServerConfigHttpOauthGrantType {
-    /// Interactive browser-based authorization code flow with PKCE.
-    #[serde(rename = "authorization_code")]
-    AuthorizationCode,
-    /// Headless client credentials flow using the configured OAuth client.
-    #[serde(rename = "client_credentials")]
-    ClientCredentials,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]
@@ -48432,6 +49334,28 @@ pub enum ModelSwitchAutoTierStatus {
     /// The request was accepted but has not committed. A later user turn using the `auto` model must mint and validate the replacement before it becomes effective.
     #[serde(rename = "pending")]
     Pending,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Unit the catalog publishes a model's token prices in. The numeric fields of ModelBillingTokenPrices carry no unit of their own, so a client that renders a price needs this to scale it.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TokenPriceUnit {
+    /// Prices are already quoted in AI Credits and need no conversion.
+    #[serde(rename = "ai_credits")]
+    AiCredits,
+    /// Prices are quoted in nano-AIU; divide by 1,000,000,000 to get AI Credits.
+    #[serde(rename = "nano_aiu")]
+    NanoAiu,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]
@@ -49238,6 +50162,242 @@ pub enum PermissionsSetApproveAllSource {
     Unknown,
 }
 
+/// Bounded refusal categories for verified Agent Plugin installation.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PluginInstallationFailureReason {
+    /// The selected session does not have the Agent Finder plugin installation feature flag enabled.
+    #[serde(rename = "feature-disabled")]
+    FeatureDisabled,
+    /// The request is unsupported or malformed.
+    #[serde(rename = "invalid-request")]
+    InvalidRequest,
+    /// The original host cannot receive human confirmation.
+    #[serde(rename = "confirmation-unavailable")]
+    ConfirmationUnavailable,
+    /// The confirmation response is malformed or mismatched.
+    #[serde(rename = "confirmation-invalid")]
+    ConfirmationInvalid,
+    /// Existing authenticated session and host authority is unavailable.
+    #[serde(rename = "policy-context-unavailable")]
+    PolicyContextUnavailable,
+    /// The original authority or policy changed.
+    #[serde(rename = "policy-changed")]
+    PolicyChanged,
+    /// Managed policy only allows plugins from known marketplaces, which excludes direct installs.
+    #[serde(rename = "policy-blocked")]
+    PolicyBlocked,
+    /// The original plan deadline elapsed.
+    #[serde(rename = "plan-expired")]
+    PlanExpired,
+    /// The one-use plan was already consumed.
+    #[serde(rename = "plan-replayed")]
+    PlanReplayed,
+    /// The handle belongs to a different runtime, session or connection.
+    #[serde(rename = "foreign-runtime")]
+    ForeignRuntime,
+    /// The handle is not the expected handle kind.
+    #[serde(rename = "wrong-kind")]
+    WrongKind,
+    /// The handle was minted for a different search result or authority.
+    #[serde(rename = "search-mismatch")]
+    SearchMismatch,
+    /// The handle or operation expired.
+    #[serde(rename = "expired")]
+    Expired,
+    /// The candidate handle does not belong to an Agent Plugin with a complete materialisation reference.
+    #[serde(rename = "invalid-candidate")]
+    InvalidCandidate,
+    /// The materialisation descriptor could not be retrieved safely.
+    #[serde(rename = "descriptor-unavailable")]
+    DescriptorUnavailable,
+    /// Agent Finder has no materialisation for the referenced resource revision (HTTP 404).
+    #[serde(rename = "descriptor-not-found")]
+    DescriptorNotFound,
+    /// Agent Finder withdrew the referenced resource revision (HTTP 410).
+    #[serde(rename = "descriptor-withdrawn")]
+    DescriptorWithdrawn,
+    /// The materialisation descriptor failed validation.
+    #[serde(rename = "descriptor-invalid")]
+    DescriptorInvalid,
+    /// The retrieved descriptor does not match the referenced descriptor or bundle digest.
+    #[serde(rename = "digest-mismatch")]
+    DigestMismatch,
+    /// The candidate's materialisation is not an Agent Plugin.
+    #[serde(rename = "unsupported-resource")]
+    UnsupportedResource,
+    /// The plugin manifest could not be retrieved or verified.
+    #[serde(rename = "entrypoint-unavailable")]
+    EntrypointUnavailable,
+    /// The plugin manifest is not a valid plugin manifest, or the bundle has another manifest that would take precedence over the reviewed one.
+    #[serde(rename = "invalid-plugin")]
+    InvalidPlugin,
+    /// The plugin manifest exceeds the bounded complete review size.
+    #[serde(rename = "review-too-large")]
+    ReviewTooLarge,
+    /// The reviewed plugin files could not be acquired.
+    #[serde(rename = "payload-unavailable")]
+    PayloadUnavailable,
+    /// The acquired files no longer match the reviewed descriptor.
+    #[serde(rename = "payload-mismatch")]
+    PayloadMismatch,
+    /// Plugin installation storage or admission is busy.
+    #[serde(rename = "busy")]
+    Busy,
+    /// A plugin with the same name or install location already exists.
+    #[serde(rename = "already-installed")]
+    AlreadyInstalled,
+    /// A storage operation failed; nothing was registered.
+    #[serde(rename = "write-failed")]
+    WriteFailed,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Agent Plugin installation management outcome discriminator.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PluginInstallationManagementOutcomeInstallPlannedKind {
+    #[serde(rename = "install-planned")]
+    #[default]
+    InstallPlanned,
+}
+
+/// Agent Plugin installation management outcome discriminator.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PluginInstallationManagementOutcomeRefusedKind {
+    #[serde(rename = "refused")]
+    #[default]
+    Refused,
+}
+
+/// Management outcome for verified Agent Plugin installation planning.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PluginInstallationManagementOutcome {
+    InstallPlanned(PluginInstallationManagementOutcomeInstallPlanned),
+    Refused(PluginInstallationManagementOutcomeRefused),
+}
+
+/// Discriminator: handled management outcome.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PluginInstallationManagementResultOutcomeKind {
+    #[serde(rename = "outcome")]
+    #[default]
+    Outcome,
+}
+
+/// Agent Plugin installation planning result with the honoured contract, or a typed refusal.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PluginInstallationManagementResult {
+    Outcome(PluginInstallationManagementResultOutcome),
+    NegotiationRefused(CatalogNegotiationRefusedError),
+    InvalidRequest(CatalogInvalidRequestError),
+}
+
+/// Terminal Agent Plugin installation outcome discriminator.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PluginInstallationOutcomeInstalledKind {
+    #[serde(rename = "installed")]
+    #[default]
+    Installed,
+}
+
+/// Terminal Agent Plugin installation outcome discriminator.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PluginInstallationOutcomeDeclinedKind {
+    #[serde(rename = "declined")]
+    #[default]
+    Declined,
+}
+
+/// Terminal Agent Plugin installation outcome discriminator.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PluginInstallationOutcomeCancelledKind {
+    #[serde(rename = "cancelled")]
+    #[default]
+    Cancelled,
+}
+
+/// Terminal Agent Plugin installation outcome discriminator.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PluginInstallationOutcomeRefusedKind {
+    #[serde(rename = "refused")]
+    #[default]
+    Refused,
+}
+
+/// Terminal verified Agent Plugin installation result.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PluginInstallationOutcome {
+    Installed(PluginInstallationOutcomeInstalled),
+    Declined(PluginInstallationOutcomeDeclined),
+    Cancelled(PluginInstallationOutcomeCancelled),
+    Refused(PluginInstallationOutcomeRefused),
+}
+
+/// Discriminator: handled operation outcome.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PluginInstallationResultOutcomeKind {
+    #[serde(rename = "outcome")]
+    #[default]
+    Outcome,
+}
+
+/// Agent Plugin installation result with the honoured contract, or a typed request/negotiation refusal.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PluginInstallationResult {
+    Outcome(PluginInstallationResultOutcome),
+    NegotiationRefused(CatalogNegotiationRefusedError),
+    InvalidRequest(CatalogInvalidRequestError),
+}
+
+/// Exact reviewed Agent Plugin installation action.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PluginInstallationReviewAction {
+    #[serde(rename = "install")]
+    #[default]
+    Install,
+}
+
 /// Where completed plugin content was staged before atomic promotion.
 ///
 /// <div class="warning">
@@ -49801,10 +50961,10 @@ pub enum SandboxProxyCaState {
 /// </div>
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SandboxSessionChange {
-    /// The sandbox is off for the rest of this session; nothing was persisted and a new session starts from managed policy.
+    /// The sandbox is off for the rest of this session; nothing was persisted and a new session starts from saved and managed policy.
     #[serde(rename = "disabled")]
     Disabled,
-    /// A previous session-scoped opt-out was cleared and the sandbox is enforced again.
+    /// The sandbox is enabled for this session; nothing was persisted.
     #[serde(rename = "restored")]
     Restored,
     /// Unknown variant for forward compatibility.
@@ -50831,21 +51991,6 @@ pub enum SkillInstallationFailureReason {
     /// A storage operation failed; inspect durable state before retrying.
     #[serde(rename = "write-failed")]
     WriteFailed,
-    /// The materialisation reference is malformed or uses an unsupported schema version. Returned only to callers that require skill-reference-installation.
-    #[serde(rename = "invalid-reference")]
-    InvalidReference,
-    /// Agent Finder has no materialisation for the referenced resource revision (HTTP 404). Returned only to callers that require skill-reference-installation.
-    #[serde(rename = "descriptor-not-found")]
-    DescriptorNotFound,
-    /// Agent Finder withdrew the referenced resource revision (HTTP 410). Returned only to callers that require skill-reference-installation.
-    #[serde(rename = "descriptor-withdrawn")]
-    DescriptorWithdrawn,
-    /// The retrieved descriptor does not match the referenced descriptor or bundle digest. Returned only to callers that require skill-reference-installation.
-    #[serde(rename = "digest-mismatch")]
-    DigestMismatch,
-    /// The referenced resource is not a Skill. Returned only to callers that require skill-reference-installation.
-    #[serde(rename = "unsupported-resource")]
-    UnsupportedResource,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]

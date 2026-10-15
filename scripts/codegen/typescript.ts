@@ -544,6 +544,12 @@ async function generateSessionEvents(schemaPath?: string): Promise<void> {
 
     const resolvedPath = schemaPath ?? (await getSessionEventsSchemaPath());
     const schema = (await loadSchemaJson(resolvedPath)) as JSONSchema7;
+    const code = await generateSessionEventsCode(schema);
+    const outPath = await writeGeneratedFile("nodejs/src/generated/session-events.ts", code);
+    console.log(`  ✓ ${outPath}`);
+}
+
+export async function generateSessionEventsCode(schema: JSONSchema7): Promise<string> {
     const processed = propagateInternalVisibility(postProcessSchema(schema));
     const definitionCollections = collectDefinitionCollections(processed as Record<string, unknown>);
     const sessionEvent =
@@ -616,8 +622,7 @@ async function generateSessionEvents(schemaPath?: string): Promise<void> {
         );
     }
     assertNoPublicInternalReferences(annotatedTs, sessionInternalTypes);
-    const outPath = await writeGeneratedFile("nodejs/src/generated/session-events.ts", annotatedTs);
-    console.log(`  ✓ ${outPath}`);
+    return annotatedTs;
 }
 
 // ── RPC Types ───────────────────────────────────────────────────────────────
@@ -722,7 +727,13 @@ async function generateRpc(schemaPath?: string, sessionEventsSchema?: JSONSchema
     console.log("TypeScript: generating RPC types...");
 
     const resolvedPath = schemaPath ?? (await getApiSchemaPath());
-    let schema = fixNullableRequiredRefsInApiSchema((await loadSchemaJson(resolvedPath)) as ApiSchema);
+    const code = await generateRpcCode((await loadSchemaJson(resolvedPath)) as ApiSchema, sessionEventsSchema);
+    const outPath = await writeGeneratedFile("nodejs/src/generated/rpc.ts", code);
+    console.log(`  ✓ ${outPath}`);
+}
+
+export async function generateRpcCode(apiSchema: ApiSchema, sessionEventsSchema?: JSONSchema7): Promise<string> {
+    let schema = fixNullableRequiredRefsInApiSchema(apiSchema);
     if (sessionEventsSchema) {
         const sharedDefinitions = findSharedSchemaDefinitions(
             schema as unknown as Record<string, unknown>,
@@ -992,8 +1003,7 @@ function hasInternalMethods(node: Record<string, unknown>): boolean {
         );
     }
     assertNoPublicInternalReferences(rpcTs, internalTypes);
-    const outPath = await writeGeneratedFile("nodejs/src/generated/rpc.ts", rpcTs);
-    console.log(`  ✓ ${outPath}`);
+    return rpcTs;
 }
 
 function emitGroup(

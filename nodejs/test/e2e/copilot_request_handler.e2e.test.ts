@@ -430,6 +430,7 @@ interface Counters {
     httpResponses: number;
     wsRequestMessages: number;
     wsResponseMessages: number;
+    wsRequestContexts: Array<CopilotRequestContext | undefined>;
 }
 
 /**
@@ -516,9 +517,10 @@ class CountingSocketForwarder extends CopilotWebSocketForwarder {
         super(ctx);
     }
 
-    override sendRequestMessage(data: string | Uint8Array): void {
+    override sendRequestMessage(data: string | Uint8Array, ctx?: CopilotRequestContext): void {
         this.counters.wsRequestMessages++;
-        super.sendRequestMessage(data);
+        this.counters.wsRequestContexts.push(ctx ? { ...ctx } : undefined);
+        super.sendRequestMessage(data, ctx);
     }
 
     override async sendResponseMessage(data: string | Uint8Array): Promise<void> {
@@ -534,6 +536,7 @@ describe("CopilotRequestHandler — single subclass handles HTTP + WebSocket", a
         httpResponses: 0,
         wsRequestMessages: 0,
         wsResponseMessages: 0,
+        wsRequestContexts: [],
     };
 
     const {
@@ -557,11 +560,34 @@ describe("CopilotRequestHandler — single subclass handles HTTP + WebSocket", a
 
     it("services both an HTTP turn and a WebSocket turn end-to-end via one handler", async () => {
         await client.start();
-        const session = await client.createSession({ onPermissionRequest: approveAll });
+        const session = await client.createSession({
+            model: "gpt-6-sol",
+            onPermissionRequest: approveAll,
+            capi: { enableWebSocketResponses: true },
+        });
         let resultJson = "";
+        const beforeMessages = counters.wsRequestContexts.length;
         try {
             const result = await session.sendAndWait({ prompt: "Say OK." });
             resultJson = JSON.stringify(result);
+            const firstTurn = counters.wsRequestContexts.slice(beforeMessages);
+            expect(firstTurn).toHaveLength(1);
+            const first = firstTurn[0];
+            expect(first?.agentInvocationId).toEqual(expect.any(String));
+            expect(first?.agentInvocationId).not.toBe("");
+            expect(first?.sessionId).toBe(session.sessionId);
+
+            const followUp = await session.sendAndWait({ prompt: "Say OK again." });
+            expect(followUp?.data.content).toContain(WS_TEXT);
+            const secondTurn = counters.wsRequestContexts.slice(beforeMessages + firstTurn.length);
+            expect(secondTurn).toHaveLength(1);
+            const second = secondTurn[0];
+            expect(second?.agentInvocationId).toEqual(expect.any(String));
+            expect(second?.agentInvocationId).not.toBe("");
+            expect(second?.agentInvocationId).not.toBe(first?.agentInvocationId);
+            expect(second?.sessionId).toBe(session.sessionId);
+            expect(second?.agentId).toBe(first?.agentId);
+            expect(second?.requestId).toBe(first?.requestId);
         } finally {
             await session.disconnect();
         }

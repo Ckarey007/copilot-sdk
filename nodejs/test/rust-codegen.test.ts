@@ -15,6 +15,273 @@ import {
     generateSessionEventsCode,
 } from "../../scripts/codegen/rust.ts";
 import { legacyRequestSchema } from "./legacy-parameters-fixture.ts";
+import {
+    eventFixture,
+    metadataFixture,
+    optionalRequestFixture,
+    rpcFixture,
+    unionFixture,
+    booleanUnionFixture,
+    eventMatrixFixture,
+    jsonShapesFixture,
+    namingFixture,
+    nestedUnionFixture,
+    presenceFixture,
+    referenceFixture,
+    visibilityFixture,
+} from "./codegen-fixtures.ts";
+
+describe("Rust shared schema baseline", () => {
+    it("renders types, server/session calls, and nested namespaces", () => {
+        const types = generateApiTypesCode(rpcFixture());
+        const wrappers = generateRpcCode(rpcFixture());
+        for (const field of [
+            "pub id: String,",
+            "pub count: i32,",
+            "pub active: bool,",
+            "pub score: f64,",
+            "pub tags: Vec<String>,",
+            "pub labels: HashMap<String, String>,",
+            "pub display_name: Option<String>,",
+            "pub note: Option<String>,",
+            "pub items: Vec<SampleItem>,",
+        ])
+            expect(types).toContain(field);
+        expect(types.match(/pub struct SampleItem \{/g)).toHaveLength(1);
+        expect(types).toContain('#[serde(rename_all = "camelCase")]');
+        expect(types).toContain('pub const SAMPLE_GET: &str = "sample.get";');
+        expect(types).toContain('pub const SAMPLE_NESTED_LIST: &str = "sample.nested.list";');
+        expect(types).toContain("pub struct SessionSampleGetRequest {\n    pub id: String,\n}");
+        expect(wrappers).toContain("pub async fn ping(&self) -> Result<(), Error>");
+        expect(wrappers).toContain("pub fn nested(&self) -> ClientRpcSampleNested<'a>");
+        expect(wrappers).toContain(
+            'wire_params["sessionId"] = serde_json::Value::String(self.session.id().to_string());'
+        );
+        expect(wrappers).toContain("call(rpc_methods::SESSION_SAMPLE_GET, Some(wire_params))");
+        expect({ "api_types.rs": types, "rpc.rs": wrappers }).toMatchSnapshot();
+    });
+
+    it("renders separate parameterless and optional-request methods", () => {
+        const types = generateApiTypesCode(optionalRequestFixture());
+        const wrappers = generateRpcCode(optionalRequestFixture());
+        expect(types).toContain("pub enabled: Option<bool>,");
+        expect(wrappers).toContain("pub async fn configure(&self) -> Result<(), Error>");
+        expect(wrappers).toContain(
+            "pub async fn configure_with_params(&self, params: SampleConfigureParams)"
+        );
+    });
+
+    it.each(["anyOf", "oneOf"] as const)("renders referenced %s unions and enums", (keyword) => {
+        const code = generateApiTypesCode(unionFixture(keyword));
+        expect(code).toContain("pub enum SampleChoice {");
+        expect(code).toContain("Text(SampleChoiceText),");
+        expect(code).toContain("Count(SampleChoiceCount),");
+        expect(code).toContain("pub choice: SampleChoice,");
+        expect(code).toContain("pub choices: Vec<SampleChoice>,");
+        expect(code).toContain('#[serde(rename = "fast")]');
+        expect(code).toContain('#[serde(rename = "thorough")]');
+    });
+
+    it("preserves method documentation and exposure annotations", () => {
+        const code = generateRpcCode(metadataFixture());
+        expect(code).toContain("Preview an item.");
+        expect(
+            code.match(/^(?:    \/\/\/[^\n]*\n)+    pub async fn preview[^\n]*/m)?.[0]
+        ).toContain("**Experimental.**");
+        expect(code).toContain("#[deprecated]\n    pub async fn retired(");
+        expect(code).toContain("pub(crate) async fn hidden(");
+        expect(code).not.toContain("pub async fn hidden(");
+    });
+
+    it("renders event payloads and serde discriminators", () => {
+        const code = generateSessionEventsCode(eventFixture());
+        expect(code).toContain('#[serde(rename = "sample.updated")]');
+        expect(code).toContain('#[serde(tag = "type", content = "data")]');
+        expect(code).toContain("SampleUpdated(SampleUpdatedData),");
+        expect(code).toContain("pub sequence: i32,");
+        expect(code).toContain("pub note: Option<String>,");
+        expect(code).toMatchSnapshot();
+    });
+
+    it("keeps existing signatures when a response gains an optional field", () => {
+        const before = generateRpcCode(rpcFixture());
+        expect(generateRpcCode(rpcFixture({ extra: { type: "string" } }))).toBe(before);
+        expect(generateApiTypesCode(rpcFixture())).not.toContain("pub extra:");
+        expect(generateApiTypesCode(rpcFixture({ extra: { type: "string" } }))).toContain(
+            "pub extra: Option<String>,"
+        );
+    });
+});
+
+describe("Rust schema contract matrix", () => {
+    it.each([
+        ["scalar", "String"],
+        ["object", "PresenceValue"],
+        ["array", "Vec<PresenceValue>"],
+        ["map", "HashMap<String, PresenceValue>"],
+    ] as const)("preserves requiredness and null serialization for %s fields", (shape, type) => {
+        const code = generateApiTypesCode(presenceFixture(shape));
+        for (const name of ["Presence", "SamplePresenceResult"]) {
+            const declaration = code.match(
+                new RegExp(`^pub struct ${name} \\{[\\s\\S]*?^\\}`, "m")
+            )?.[0];
+            expect(declaration).toContain(`    pub required_value: ${type},\n`);
+            expect(declaration).toContain(`    pub required_nullable: Option<${type}>,\n`);
+            expect(declaration).not.toContain(
+                `#[serde(skip_serializing_if = "Option::is_none")]\n    pub required_nullable`
+            );
+            for (const field of ["optional_value", "optional_nullable"])
+                expect(declaration).toContain(
+                    `#[serde(skip_serializing_if = "Option::is_none")]\n    pub ${field}: Option<${type}>,`
+                );
+        }
+    });
+
+    it("reuses multi-hop references across request and result signatures", () => {
+        const code = generateApiTypesCode(referenceFixture());
+        for (const name of ["ReferenceGraph", "ReferenceNode", "ReferenceLeaf"])
+            expect(code.match(new RegExp(`^pub struct ${name} \\{`, "gm"))).toHaveLength(1);
+        const graph = code.match(/^pub struct ReferenceGraph \{[\s\S]*?^\}/m)?.[0];
+        expect(graph).toContain("pub first: ReferenceNode,");
+        expect(graph).toContain("pub second: ReferenceNode,");
+        expect(graph).toContain("pub nodes: Vec<ReferenceNode>,");
+        expect(graph).toContain("pub lookup: HashMap<String, ReferenceNode>,");
+        expect(code).toContain("pub struct ReferenceNode {\n    pub leaf: ReferenceLeaf,\n}");
+        expect(generateRpcCode(referenceFixture())).toContain(
+            "pub async fn graph(&self, params: ReferenceGraph) -> Result<ReferenceGraph, Error>"
+        );
+    });
+
+    it("preserves JSON values and open-object maps without synthesizing fields", () => {
+        const code = generateApiTypesCode(jsonShapesFixture());
+        expect(code.match(/^pub struct JsonShapes \{[\s\S]*?^\}/m)?.[0]).toBe(
+            "pub struct JsonShapes {\n    pub empty: serde_json::Value,\n    pub open: HashMap<String, serde_json::Value>,\n    pub opaque: serde_json::Value,\n}"
+        );
+    });
+
+    it.each(["anyOf", "oneOf"] as const)(
+        "extends nested %s enums without changing existing payloads",
+        (keyword) => {
+            const before = generateApiTypesCode(nestedUnionFixture(keyword));
+            const after = generateApiTypesCode(nestedUnionFixture(keyword, true));
+            for (const code of [before, after]) {
+                const result = code.match(/^pub struct VerdictSet \{[\s\S]*?^\}/m)?.[0];
+                expect(result).toContain("pub selected: Option<Verdict>,");
+                expect(result).toContain("pub decisions: HashMap<String, Verdict>,");
+                const variants = code.match(/^pub enum Verdict \{[\s\S]*?^\}/m)?.[0];
+                expect(variants).toContain("Allow(AllowVerdict),");
+                expect(variants).toContain("Deny(DenyVerdict),");
+                expect(code).toContain('#[serde(rename = "allow")]');
+                expect(code).toContain('#[serde(rename = "deny")]');
+            }
+            expect(before).not.toContain("PendingVerdict");
+            expect(after.match(/^pub enum Verdict \{[\s\S]*?^\}/m)?.[0]).toContain(
+                "Pending(PendingVerdict),"
+            );
+            const declaration = /^pub struct AllowVerdict \{[\s\S]*?^\}/m;
+            expect(before).toMatch(declaration);
+            expect(after.match(declaration)?.[0]).toBe(before.match(declaration)?.[0]);
+        }
+    );
+
+    it("validates boolean discriminator wire values in both codec directions", () => {
+        const code = generateApiTypesCode(booleanUnionFixture());
+        expect(code.match(/^pub enum EnqueueCommandResult \{[\s\S]*?^\}/m)?.[0]).toBe(
+            "pub enum EnqueueCommandResult {\n    True(AcceptedEnqueueCommandResult),\n    False(UnsupportedEnqueueCommandResult),\n}"
+        );
+        for (const [name, value] of [
+            ["AcceptedEnqueueCommandResult", true],
+            ["UnsupportedEnqueueCommandResult", false],
+        ] as const) {
+            const declaration = code.match(
+                new RegExp(`^pub struct ${name} \\{[\\s\\S]*?^\\}`, "m")
+            )?.[0];
+            expect(declaration).toContain("pub queued: bool,");
+            expect(declaration).toContain(
+                `#[serde(deserialize_with = "${name}::deserialize_queued", serialize_with = "${name}::serialize_queued")]`
+            );
+            const codec = code.match(new RegExp(`^impl ${name} \\{[\\s\\S]*?^\\}`, "m"))?.[0];
+            expect(codec).toContain(`if ${value ? "!" : ""}value {`);
+            expect(codec).toContain(`if ${value ? "!" : ""}*value {`);
+            expect(codec).toContain(`serde::de::Error::custom("expected ${value}")`);
+            expect(codec).toContain(`serde::ser::Error::custom("expected ${value}")`);
+            expect(codec).toContain("value.serialize(serializer)");
+        }
+        expect(generateRpcCode(booleanUnionFixture())).toContain(
+            "pub async fn accept(&self) -> Result<EnqueueCommandResult, Error>"
+        );
+    });
+
+    it("uses raw identifiers and serde renames without changing wire names", () => {
+        const code = generateApiTypesCode(namingFixture());
+        const declaration = code.match(/^pub struct WireNames \{[\s\S]*?^\}/m)?.[0];
+        expect(declaration).toContain("pub class: String,");
+        expect(declaration).toContain("pub default: bool,");
+        expect(declaration).toContain("pub r#type: String,");
+        expect(declaration).toContain("pub request_id: RequestId,");
+        expect(declaration).toContain(
+            '#[serde(rename = "content-type")]\n    pub content_type: String,'
+        );
+        expect(code).toContain('#[serde(rename_all = "camelCase")]\npub struct WireNames');
+    });
+
+    it("keeps internal methods crate-private while sharing reachable public types", () => {
+        const schema = visibilityFixture();
+        const code = generateRpcCode(schema);
+        for (const namespace of ["Host", "Sample"]) {
+            const methods = code.match(
+                new RegExp(`^impl<'a> ClientRpc${namespace}<'a> \\{[\\s\\S]*?^\\}`, "m")
+            )?.[0];
+            expect(methods).toContain("pub async fn visible(&self) -> Result<PublicResult, Error>");
+            expect(methods).toContain(
+                "pub(crate) async fn secret(&self) -> Result<PrivateResult, Error>"
+            );
+            expect(methods).not.toContain("pub async fn secret(");
+        }
+        expect(generateApiTypesCode(schema).match(/^pub struct SharedValue \{/gm)).toHaveLength(1);
+    });
+
+    it("includes all event tags, payloads, and nested union variants", () => {
+        const code = generateSessionEventsCode(eventMatrixFixture());
+        for (const enumName of ["SessionEventType", "SessionEventData"]) {
+            const declaration = code.match(
+                new RegExp(`^pub enum ${enumName} \\{[\\s\\S]*?^\\}`, "m")
+            )?.[0];
+            expect(declaration?.match(/#\[serde\(rename = "matrix\.[^"]+"\)\]/g)).toEqual([
+                '#[serde(rename = "matrix.empty")]',
+                '#[serde(rename = "matrix.value")]',
+                '#[serde(rename = "matrix.union")]',
+            ]);
+        }
+        for (const name of ["Empty", "Value", "Union"])
+            expect(code).toContain(`Matrix${name}(Matrix${name}Data),`);
+        expect(code.match(/^pub struct MatrixEmptyData \{[\s\S]*?^\}/m)?.[0]).toBe(
+            "pub struct MatrixEmptyData {\n}"
+        );
+        expect(code.match(/^pub struct MatrixValueData \{[\s\S]*?^\}/m)?.[0]).toContain(
+            "pub sequence: i32,"
+        );
+        const union = code.match(/^pub enum MatrixUnionData \{[\s\S]*?^\}/m)?.[0];
+        expect(union).toContain("First(MatrixUnionDataFirst),");
+        expect(union).toContain("Second(MatrixUnionDataSecond),");
+    });
+
+    it("does not retain names or serde declarations between schemas", () => {
+        const before = {
+            types: generateApiTypesCode(referenceFixture()),
+            rpc: generateRpcCode(referenceFixture()),
+            events: generateSessionEventsCode(eventFixture()),
+        };
+        generateApiTypesCode(nestedUnionFixture("oneOf", true));
+        generateRpcCode(nestedUnionFixture("oneOf", true));
+        generateSessionEventsCode(eventMatrixFixture());
+        expect({
+            types: generateApiTypesCode(referenceFixture()),
+            rpc: generateRpcCode(referenceFixture()),
+            events: generateSessionEventsCode(eventFixture()),
+        }).toEqual(before);
+    });
+});
 
 describe("Rust API type codegen", () => {
     it("reuses the named managed operation and kind in request and result fields", () => {

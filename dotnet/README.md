@@ -112,6 +112,18 @@ new CopilotClient(CopilotClientOptions? options = null)
 - `BaseDirectory` - Base directory for Copilot data (session state, config, etc.). Sets `COPILOT_HOME` on the spawned runtime process. When not set, the runtime defaults to `~/.copilot`. Useful in restricted environments where only specific directories are writable. Ignored when connecting via `RuntimeConnection.ForUri(...)`.
 - `EnableRemoteSessions` - Enables remote-session features.
 - `Environment` - Environment variables to pass to the runtime process.
+
+  For the native standalone runtime, set the `Environment` dictionary entry
+  `["COPILOT_GITHUB_TELEMETRY_DISABLED"] = "true"` before startup to disable direct
+  GitHub telemetry uploads for the entire host, including sessionless events.
+  Authentication, `OnGitHubTelemetry` forwarding, and user-configured
+  OpenTelemetry export remain unchanged. This is separate from
+  `EnableSessionTelemetry = false`, which disables only a session's pipeline.
+  The value must be exactly `"true"`; changing it requires a runtime restart.
+  The Node CLI host does not use this variable. In-process connections reject
+  per-client `Environment`; set the variable in the host process environment
+  before starting the runtime instead.
+
 - `Logger` - `ILogger` instance for SDK logging.
 - `GitHubToken` - GitHub token for authentication. When provided, takes priority over other auth methods.
 - `UseLoggedInUser` - Whether to use logged-in user for authentication (default: true, but false when `GitHubToken` is provided). Cannot be used with `RuntimeConnection.ForUri(...)`.
@@ -1394,7 +1406,7 @@ var session = await client.CreateSessionAsync(new SessionConfig
 - `OnPreToolUse` - Intercept tool calls before execution. Can allow/deny or modify arguments.
 - `OnPostToolUse` - Process tool results after successful execution. Can modify results or add context.
 - `OnPostToolUseFailure` - Observe failed tool executions and inject extra context to guide the model's next step.
-- `OnUserPromptSubmitted` - Intercept user prompts. Can modify the prompt before processing.
+- `OnUserPromptSubmitted` - Intercept user prompts. Can modify the prompt before processing, or return `new UserPromptSubmittedHookOutput { Decision = "block", Reason = "..." }` to refuse it: no model turn runs, no user message is recorded, and the session emits an ephemeral `session.warning` (`warningType: "policy_blocked"`) carrying the reason.
 - `OnSessionStart` - Run logic when a session starts or resumes.
 - `OnSessionEnd` - Cleanup or logging when session ends.
 - `OnErrorOccurred` - Handle errors with retry/skip/abort strategies.

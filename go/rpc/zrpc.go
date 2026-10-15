@@ -2323,25 +2323,48 @@ func (r RawCatalogCandidateData) Kind() CatalogCandidateKind {
 
 // An inert Agent Plugin catalog result. Its canonical catalog identity, declared version,
 // repository source claim, and explicit compatibility tags are safe to correlate, while its
-// descriptor, URL, raw data, and installed-plugin state remain runtime-private. This
-// contract-only variant does not mint or expose a candidate handle.
+// descriptor, URL, raw data, materialisation reference, and installed-plugin state remain
+// runtime-private. A handle is minted only under agent-plugin-confirmed-installation, for a
+// candidate with a complete materialisation reference.
 // Experimental: CatalogAgentPluginCandidate is part of an experimental API and may change
 // or be removed.
 type CatalogAgentPluginCandidate struct {
+	// Category slugs reported by the feed, such as `build` or `review`, without repeats. Values
+	// are passed through, so clients must tolerate slugs they do not recognise. Inert untrusted
+	// text. Omitted when the feed reports none.
+	Categories []string `json:"categories,omitzero"`
 	// Explicit validated compatibility tags, in canonical order. An empty list means the source
 	// declared no recognised compatibility; clients must not infer compatibility from other
 	// fields. `canvas-only` requires both `canvas` and `github-copilot`.
 	CompatibilityTags []CatalogAgentPluginCompatibilityTag `json:"compatibilityTags"`
+	// Identifiers of the connectors the resource works with, as reported by the feed, without
+	// repeats. Inert untrusted text. Omitted when the feed reports none.
+	ConnectorIDs []string `json:"connectorIds,omitzero"`
 	// Description taken verbatim from the card. Inert untrusted text.
 	Description *string `json:"description,omitempty"`
 	// Display name taken verbatim from the card. Inert untrusted text.
 	DisplayName string `json:"displayName"`
+	// Opaque, runtime-instance scoped, TTL-bound, single-use handle for planning this plugin's
+	// installation through plugins.planInstall. Present only when the caller requires the
+	// agent-plugin-confirmed-installation capability and the candidate carries a complete Agent
+	// Finder materialisation reference, which stays runtime-private. Never logged.
+	Handle *string `json:"handle,omitempty"`
+	// ISO 8601 timestamp after which the handle is stale and will be rejected. Present exactly
+	// when handle is present.
+	HandleExpiresAt *string `json:"handleExpiresAt,omitempty"`
+	// HTTPS URL of the resource's icon on raw.githubusercontent.com, as reported by the feed.
+	// Untrusted external content: load it without credentials. Omitted when absent or outside
+	// the feed's icon host policy.
+	IconURL *string `json:"iconUrl,omitempty"`
 	// Validated, normalised catalogue resource URN. This identity comes only from the catalog
 	// identifier and is never inferred from display text or installed-plugin state.
 	Identity string `json:"identity"`
 	// Whether this plugin can be installed in the selected session. Present only when the
 	// caller requires the agent-plugin-confirmed-installation capability.
 	Installability *CatalogAgentPluginInstallability `json:"installability,omitempty"`
+	// How many times the resource has been installed, as reported by the feed. Omitted when the
+	// feed reports no count or an invalid one.
+	InstallCount *int64 `json:"installCount,omitempty"`
 	// Reviewable install plan built only from verified catalogue install data. Present exactly
 	// when installability is `installable`; the runtime never derives it from the repository
 	// source, display text, or identity.
@@ -2376,6 +2399,13 @@ func (CatalogAgentPluginCandidate) Kind() CatalogCandidateKind {
 // Experimental: CatalogAiSkillCandidate is part of an experimental API and may change or be
 // removed.
 type CatalogAiSkillCandidate struct {
+	// Category slugs reported by the feed, such as `build` or `review`, without repeats. Values
+	// are passed through, so clients must tolerate slugs they do not recognise. Inert untrusted
+	// text. Omitted when the feed reports none.
+	Categories []string `json:"categories,omitzero"`
+	// Identifiers of the connectors the resource works with, as reported by the feed, without
+	// repeats. Inert untrusted text. Omitted when the feed reports none.
+	ConnectorIDs []string `json:"connectorIds,omitzero"`
 	// Description taken verbatim from the card. Inert untrusted text.
 	Description *string `json:"description,omitempty"`
 	// Display name taken verbatim from the card. Inert untrusted text.
@@ -2386,9 +2416,16 @@ type CatalogAiSkillCandidate struct {
 	Handle string `json:"handle"`
 	// ISO 8601 timestamp after which the handle is stale and will be rejected.
 	HandleExpiresAt string `json:"handleExpiresAt"`
+	// HTTPS URL of the resource's icon on raw.githubusercontent.com, as reported by the feed.
+	// Untrusted external content: load it without credentials. Omitted when absent or outside
+	// the feed's icon host policy.
+	IconURL *string `json:"iconUrl,omitempty"`
 	// Whether this AI skill candidate can be planned for verified installation in the selected
 	// session.
 	Installability CatalogAiSkillInstallability `json:"installability"`
+	// How many times the resource has been installed, as reported by the feed. Omitted when the
+	// feed reports no count or an invalid one.
+	InstallCount *int64 `json:"installCount,omitempty"`
 	// Media type of the underlying AI skill card
 	MediaType CatalogAiSkillMediaType `json:"mediaType"`
 	// Where the catalog reference was observed, without the card itself or any content digest.
@@ -2415,6 +2452,13 @@ func (CatalogAiSkillCandidate) Kind() CatalogCandidateKind {
 // Experimental: CatalogMCPServerCandidate is part of an experimental API and may change or
 // be removed.
 type CatalogMCPServerCandidate struct {
+	// Category slugs reported by the feed, such as `build` or `review`, without repeats. Values
+	// are passed through, so clients must tolerate slugs they do not recognise. Inert untrusted
+	// text. Omitted when the feed reports none.
+	Categories []string `json:"categories,omitzero"`
+	// Identifiers of the connectors the resource works with, as reported by the feed, without
+	// repeats. Inert untrusted text. Omitted when the feed reports none.
+	ConnectorIDs []string `json:"connectorIds,omitzero"`
 	// Description taken verbatim from the card. Inert untrusted text.
 	Description *string `json:"description,omitempty"`
 	// Display name taken verbatim from the card. Inert untrusted text.
@@ -2425,8 +2469,15 @@ type CatalogMCPServerCandidate struct {
 	Handle string `json:"handle"`
 	// ISO 8601 timestamp after which the handle is stale and will be rejected.
 	HandleExpiresAt string `json:"handleExpiresAt"`
+	// HTTPS URL of the resource's icon on raw.githubusercontent.com, as reported by the feed.
+	// Untrusted external content: load it without credentials. Omitted when absent or outside
+	// the feed's icon host policy.
+	IconURL *string `json:"iconUrl,omitempty"`
 	// Whether this MCP server can be planned for installation, and if policy prevents it.
 	Installability CatalogMCPServerInstallability `json:"installability"`
+	// How many times the resource has been installed, as reported by the feed. Omitted when the
+	// feed reports no count or an invalid one.
+	InstallCount *int64 `json:"installCount,omitempty"`
 	// JSON MCP media type of the underlying card.
 	MediaType MCPServerCardMediaType `json:"mediaType"`
 	// Where the catalog reference was observed, without the card itself or any content digest.
@@ -2573,6 +2624,20 @@ type CatalogNegotiatedContract struct {
 	RuntimeProtocolVersion int64 `json:"runtimeProtocolVersion"`
 }
 
+// Side-effect-free planning of whatever resource a materialisation reference pins, rather
+// than a search candidate.
+// Experimental: CatalogPlanInstallFromReferenceRequest is part of an experimental API and
+// may change or be removed.
+type CatalogPlanInstallFromReferenceRequest struct {
+	// Required authenticated bound catalogue and catalog-reference-installation capabilities,
+	// plus the installation capability of each kind the caller can apply.
+	Contract CatalogClientContract `json:"contract"`
+	// Existing local session attached to this connection.
+	PolicySessionID string `json:"policySessionId"`
+	// Materialisation reference to verify and plan.
+	Reference CatalogMaterializationReference `json:"reference"`
+}
+
 // Syntactically validated GitHub repository provenance declared by catalog metadata. This
 // is a source claim rather than proof that the descriptor URL resolves to the repository.
 // Experimental: CatalogPluginRepositorySource is part of an experimental API and may change
@@ -2582,6 +2647,138 @@ type CatalogPluginRepositorySource struct {
 	Path string `json:"path"`
 	// Canonical lowercase owner/repository name derived from metadata.sourceSet.
 	Repository string `json:"repository"`
+}
+
+// Planning outcome for a materialisation reference. A plan names its kind, so the caller
+// applies it with that kind's apply method.
+// Experimental: CatalogReferenceInstallationOutcome is part of an experimental API and may
+// change or be removed.
+type CatalogReferenceInstallationOutcome interface {
+	catalogReferenceInstallationOutcome()
+	Kind() CatalogReferenceInstallationOutcomeKind
+}
+
+type RawCatalogReferenceInstallationOutcomeData struct {
+	Discriminator CatalogReferenceInstallationOutcomeKind
+	Raw           json.RawMessage
+}
+
+func (RawCatalogReferenceInstallationOutcomeData) catalogReferenceInstallationOutcome() {}
+func (r RawCatalogReferenceInstallationOutcomeData) Kind() CatalogReferenceInstallationOutcomeKind {
+	return r.Discriminator
+}
+
+// The reference pins an Agent Plugin. Apply the plan with plugins.applyInstall.
+type CatalogReferenceInstallationOutcomePluginInstallPlanned struct {
+	// Prepared Agent Plugin install plan.
+	Plan PluginInstallPlan `json:"plan"`
+}
+
+func (CatalogReferenceInstallationOutcomePluginInstallPlanned) catalogReferenceInstallationOutcome() {
+}
+func (CatalogReferenceInstallationOutcomePluginInstallPlanned) Kind() CatalogReferenceInstallationOutcomeKind {
+	return CatalogReferenceInstallationOutcomeKindPluginInstallPlanned
+}
+
+// Nothing was planned.
+type CatalogReferenceInstallationOutcomeRefused struct {
+	// Bounded refusal reason.
+	Reason CatalogReferenceInstallationFailureReason `json:"reason"`
+}
+
+func (CatalogReferenceInstallationOutcomeRefused) catalogReferenceInstallationOutcome() {}
+func (CatalogReferenceInstallationOutcomeRefused) Kind() CatalogReferenceInstallationOutcomeKind {
+	return CatalogReferenceInstallationOutcomeKindRefused
+}
+
+// The reference pins a Skill. Apply the plan with skills.applyInstall.
+type CatalogReferenceInstallationOutcomeSkillInstallPlanned struct {
+	// Prepared Skill install plan.
+	Plan SkillInstallPlan `json:"plan"`
+}
+
+func (CatalogReferenceInstallationOutcomeSkillInstallPlanned) catalogReferenceInstallationOutcome() {}
+func (CatalogReferenceInstallationOutcomeSkillInstallPlanned) Kind() CatalogReferenceInstallationOutcomeKind {
+	return CatalogReferenceInstallationOutcomeKindSkillInstallPlanned
+}
+
+// Planning result for a materialisation reference with the honoured contract, or a typed
+// refusal.
+// Experimental: CatalogReferenceInstallationResult is part of an experimental API and may
+// change or be removed.
+type CatalogReferenceInstallationResult interface {
+	catalogReferenceInstallationResult()
+	Kind() CatalogReferenceInstallationResultKind
+}
+
+type RawCatalogReferenceInstallationResultData struct {
+	Discriminator CatalogReferenceInstallationResultKind
+	Raw           json.RawMessage
+}
+
+func (RawCatalogReferenceInstallationResultData) catalogReferenceInstallationResult() {}
+func (r RawCatalogReferenceInstallationResultData) Kind() CatalogReferenceInstallationResultKind {
+	return r.Discriminator
+}
+
+// The request was rejected because a bounded field fell outside its permitted range or a
+// required field was unusable. Pagination may also be rejected by the authority after a
+// continuation request; repeat the search without page.
+// Experimental: CatalogInvalidRequestError is part of an experimental API and may change or
+// be removed.
+type CatalogInvalidRequestError struct {
+	// Which request field was rejected.
+	Field CatalogInvalidRequestField `json:"field"`
+	// Human-readable explanation, safe to surface. Never echoes the offending value, nor a
+	// query, URL, handle, or secret.
+	Message string `json:"message"`
+}
+
+func (CatalogInvalidRequestError) catalogReferenceInstallationResult() {}
+func (CatalogInvalidRequestError) Kind() CatalogReferenceInstallationResultKind {
+	return CatalogReferenceInstallationResultKindInvalidRequest
+}
+
+// The caller's protocol version or required capabilities cannot be honoured. Returned
+// instead of a partial or ambiguous success.
+// Experimental: CatalogNegotiationRefusedError is part of an experimental API and may
+// change or be removed.
+type CatalogNegotiationRefusedError struct {
+	// Human-readable explanation, safe to surface. Never contains a query, URL, handle, or
+	// secret.
+	Message string `json:"message"`
+	// Lowest caller protocol version this runtime will serve.
+	MinimumSupportedProtocolVersion int64 `json:"minimumSupportedProtocolVersion"`
+	// Whether the version or the capability set was the problem.
+	Reason CatalogNegotiationRefusedReason `json:"reason"`
+	// Protocol version of the runtime that refused the request.
+	RuntimeProtocolVersion int64 `json:"runtimeProtocolVersion"`
+	// Capabilities this runtime can safely advertise to this caller. The complete
+	// five-capability protocol-3 legacy set is always present; every capability added after
+	// that baseline appears only when the caller required it, so an older closed-enum decoder
+	// can still consume a refusal. This list does not imply that every deployment has enabled
+	// every operation.
+	SupportedCapabilities []string `json:"supportedCapabilities"`
+	// The subset of the caller's bounded extensible capability identifiers this runtime cannot
+	// honour.
+	UnsupportedCapabilities []string `json:"unsupportedCapabilities"`
+}
+
+func (CatalogNegotiationRefusedError) catalogReferenceInstallationResult() {}
+func (CatalogNegotiationRefusedError) Kind() CatalogReferenceInstallationResultKind {
+	return CatalogReferenceInstallationResultKindNegotiationRefused
+}
+
+type CatalogReferenceInstallationResultOutcome struct {
+	// Capabilities honoured for this request.
+	Negotiated CatalogNegotiatedContract `json:"negotiated"`
+	// Planning outcome.
+	Outcome CatalogReferenceInstallationOutcome `json:"outcome"`
+}
+
+func (CatalogReferenceInstallationResultOutcome) catalogReferenceInstallationResult() {}
+func (CatalogReferenceInstallationResultOutcome) Kind() CatalogReferenceInstallationResultKind {
+	return CatalogReferenceInstallationResultKindOutcome
 }
 
 // Canonical catalogue resource identity. The runtime rewrites accepted urn:ai and urn:air
@@ -2682,7 +2879,7 @@ type CatalogSearchRequest struct {
 // removed.
 type CatalogSearchResult interface {
 	catalogSearchResult()
-	Kind() CatalogSearchResultKind
+	catalogSearchResultKind() CatalogSearchResultKind
 }
 
 type RawCatalogSearchResultData struct {
@@ -2691,7 +2888,7 @@ type RawCatalogSearchResultData struct {
 }
 
 func (RawCatalogSearchResultData) catalogSearchResult() {}
-func (r RawCatalogSearchResultData) Kind() CatalogSearchResultKind {
+func (r RawCatalogSearchResultData) catalogSearchResultKind() CatalogSearchResultKind {
 	return r.Discriminator
 }
 
@@ -2711,7 +2908,7 @@ type CatalogAuthenticationRequiredError struct {
 }
 
 func (CatalogAuthenticationRequiredError) catalogSearchResult() {}
-func (CatalogAuthenticationRequiredError) Kind() CatalogSearchResultKind {
+func (CatalogAuthenticationRequiredError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindAuthenticationRequired
 }
 
@@ -2729,25 +2926,11 @@ type CatalogContractViolationError struct {
 }
 
 func (CatalogContractViolationError) catalogSearchResult() {}
-func (CatalogContractViolationError) Kind() CatalogSearchResultKind {
+func (CatalogContractViolationError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindContractViolation
 }
-
-// The request was rejected because a bounded field fell outside its permitted range or a
-// required field was unusable. Pagination may also be rejected by the authority after a
-// continuation request; repeat the search without page.
-// Experimental: CatalogInvalidRequestError is part of an experimental API and may change or
-// be removed.
-type CatalogInvalidRequestError struct {
-	// Which request field was rejected.
-	Field CatalogInvalidRequestField `json:"field"`
-	// Human-readable explanation, safe to surface. Never echoes the offending value, nor a
-	// query, URL, handle, or secret.
-	Message string `json:"message"`
-}
-
 func (CatalogInvalidRequestError) catalogSearchResult() {}
-func (CatalogInvalidRequestError) Kind() CatalogSearchResultKind {
+func (CatalogInvalidRequestError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindInvalidRequest
 }
 
@@ -2765,37 +2948,11 @@ type CatalogMalformedCardError struct {
 }
 
 func (CatalogMalformedCardError) catalogSearchResult() {}
-func (CatalogMalformedCardError) Kind() CatalogSearchResultKind {
+func (CatalogMalformedCardError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindMalformedCard
 }
-
-// The caller's protocol version or required capabilities cannot be honoured. Returned
-// instead of a partial or ambiguous success.
-// Experimental: CatalogNegotiationRefusedError is part of an experimental API and may
-// change or be removed.
-type CatalogNegotiationRefusedError struct {
-	// Human-readable explanation, safe to surface. Never contains a query, URL, handle, or
-	// secret.
-	Message string `json:"message"`
-	// Lowest caller protocol version this runtime will serve.
-	MinimumSupportedProtocolVersion int64 `json:"minimumSupportedProtocolVersion"`
-	// Whether the version or the capability set was the problem.
-	Reason CatalogNegotiationRefusedReason `json:"reason"`
-	// Protocol version of the runtime that refused the request.
-	RuntimeProtocolVersion int64 `json:"runtimeProtocolVersion"`
-	// Capabilities this runtime can safely advertise to this caller. The complete
-	// five-capability protocol-3 legacy set is always present; every capability added after
-	// that baseline appears only when the caller required it, so an older closed-enum decoder
-	// can still consume a refusal. This list does not imply that every deployment has enabled
-	// every operation.
-	SupportedCapabilities []string `json:"supportedCapabilities"`
-	// The subset of the caller's bounded extensible capability identifiers this runtime cannot
-	// honour.
-	UnsupportedCapabilities []string `json:"unsupportedCapabilities"`
-}
-
 func (CatalogNegotiationRefusedError) catalogSearchResult() {}
-func (CatalogNegotiationRefusedError) Kind() CatalogSearchResultKind {
+func (CatalogNegotiationRefusedError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindNegotiationRefused
 }
 
@@ -2818,7 +2975,7 @@ type CatalogNetworkFailureError struct {
 }
 
 func (CatalogNetworkFailureError) catalogSearchResult() {}
-func (CatalogNetworkFailureError) Kind() CatalogSearchResultKind {
+func (CatalogNetworkFailureError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindNetworkFailure
 }
 
@@ -2834,7 +2991,7 @@ type CatalogPolicyRejectedError struct {
 }
 
 func (CatalogPolicyRejectedError) catalogSearchResult() {}
-func (CatalogPolicyRejectedError) Kind() CatalogSearchResultKind {
+func (CatalogPolicyRejectedError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindPolicyRejected
 }
 
@@ -2866,7 +3023,7 @@ type CatalogSearchSucceeded struct {
 }
 
 func (CatalogSearchSucceeded) catalogSearchResult() {}
-func (CatalogSearchSucceeded) Kind() CatalogSearchResultKind {
+func (CatalogSearchSucceeded) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindSucceeded
 }
 
@@ -2883,7 +3040,7 @@ type CatalogUnavailableError struct {
 }
 
 func (CatalogUnavailableError) catalogSearchResult() {}
-func (CatalogUnavailableError) Kind() CatalogSearchResultKind {
+func (CatalogUnavailableError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindUnavailable
 }
 
@@ -2901,7 +3058,7 @@ type CatalogUnsafeRetrievalError struct {
 }
 
 func (CatalogUnsafeRetrievalError) catalogSearchResult() {}
-func (CatalogUnsafeRetrievalError) Kind() CatalogSearchResultKind {
+func (CatalogUnsafeRetrievalError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindUnsafeRetrieval
 }
 
@@ -2919,7 +3076,7 @@ type CatalogUnsupportedKindError struct {
 }
 
 func (CatalogUnsupportedKindError) catalogSearchResult() {}
-func (CatalogUnsupportedKindError) Kind() CatalogSearchResultKind {
+func (CatalogUnsupportedKindError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindUnsupportedKind
 }
 
@@ -6574,6 +6731,40 @@ type HostStartResult struct {
 	URL *string `json:"url,omitempty"`
 }
 
+// Withdraws an application publication without deleting its underlying local session.
+// Experimental: HostUnpublishSessionRequest is part of an experimental API and may change
+// or be removed.
+type HostUnpublishSessionRequest struct {
+	// Listener UUID returned by host.start; the caller must own the live listener.
+	HostID string `json:"hostId"`
+	// Canonical session ID in the durable catalog, whether resident or dormant.
+	SessionID string `json:"sessionId"`
+}
+
+// Publication withdrawal outcome; local history, worktrees and ongoing work are preserved.
+// Experimental: HostUnpublishSessionResult is part of an experimental API and may change or
+// be removed.
+type HostUnpublishSessionResult struct {
+	// True when a publication was removed; false when it was already absent.
+	Unpublished bool `json:"unpublished"`
+}
+
+// Removes a durable application publication and revokes its AHP attachments.
+// Experimental: HostUnregisterSessionRequest is part of an experimental API and may change
+// or be removed.
+type HostUnregisterSessionRequest struct {
+	// Canonical ID of the application publication to withdraw.
+	SessionID string `json:"sessionId"`
+}
+
+// Publication withdrawal outcome; local history, worktrees and ongoing work are preserved.
+// Experimental: HostUnregisterSessionResult is part of an experimental API and may change
+// or be removed.
+type HostUnregisterSessionResult struct {
+	// True when a publication was removed; false when it was already absent.
+	Unpublished bool `json:"unpublished"`
+}
+
 // Catalogue identity retained from a bound candidate or plan at installation time.
 // Experimental: InstallationCatalogueIdentity is part of an experimental API and may change
 // or be removed.
@@ -6653,6 +6844,16 @@ type InstallationReviewMCP struct {
 func (InstallationReviewMCP) installationReview() {}
 func (InstallationReviewMCP) Resource() InstallationReviewResource {
 	return InstallationReviewResourceMCP
+}
+
+type InstallationReviewPlugin struct {
+	// The exact verified Agent Plugin action and its reviewed files.
+	Review PluginInstallationReview `json:"review"`
+}
+
+func (InstallationReviewPlugin) installationReview() {}
+func (InstallationReviewPlugin) Resource() InstallationReviewResource {
+	return InstallationReviewResourcePlugin
 }
 
 type InstallationReviewSkill struct {
@@ -9497,6 +9698,37 @@ type MCPOauthCancelLoginResult struct {
 	Cancelled bool `json:"cancelled"`
 }
 
+// A remote MCP server whose authorization server should be asked about Dynamic Client
+// Registration.
+// Experimental: MCPOauthCheckDcrSupportRequest is part of an experimental API and may
+// change or be removed.
+// Internal: MCPOauthCheckDcrSupportRequest is an internal SDK API and is not part of the
+// public surface.
+type MCPOauthCheckDcrSupportRequest struct {
+	// Raw protected-resource metadata text from the server's `WWW-Authenticate` challenge. Omit
+	// to discover the authorization server from the server URL instead.
+	ResourceMetadataText *string `json:"resourceMetadataText,omitempty"`
+	// Proxy the request must travel through. Omit to use the session's own egress settings.
+	SandboxProxy *string `json:"sandboxProxy,omitempty"`
+	// URL of the remote MCP server that answered 401.
+	ServerURL string `json:"serverUrl"`
+	// Locally owned session whose egress policy and sandbox proxy constrain the request.
+	// Omitted or nonlocal session IDs provide no local session egress state.
+	SessionID *string `json:"sessionId,omitempty"`
+}
+
+// Whether the server's authorization server registers clients dynamically.
+// Experimental: MCPOauthCheckDcrSupportResult is part of an experimental API and may change
+// or be removed.
+// Internal: MCPOauthCheckDcrSupportResult is an internal SDK API and is not part of the
+// public surface.
+type MCPOauthCheckDcrSupportResult struct {
+	// Authorization server the metadata pointed at. Absent when none could be discovered.
+	AuthorizationServerURL *string `json:"authorizationServerUrl,omitempty"`
+	// Whether the authorization server advertises a client registration endpoint.
+	SupportsDcr bool `json:"supportsDcr"`
+}
+
 // Host-delivered callback for a runtime-managed MCP OAuth login.
 // Experimental: MCPOauthCompleteRequest is part of an experimental API and may change or be
 // removed.
@@ -9507,6 +9739,43 @@ type MCPOauthCompleteRequest struct {
 	// authorization response query parameters. Applications behind a reverse proxy must
 	// reconstruct the public URL rather than passing an internal proxy URL.
 	CallbackURL string `json:"callbackUrl"`
+}
+
+// An OAuth challenge from a remote MCP server whose protected-resource metadata should be
+// read.
+// Experimental: MCPOauthFetchProtectedResourceMetadataRequest is part of an experimental
+// API and may change or be removed.
+// Internal: MCPOauthFetchProtectedResourceMetadataRequest is an internal SDK API and is not
+// part of the public surface.
+type MCPOauthFetchProtectedResourceMetadataRequest struct {
+	// Request headers the configured server sends, as a serialized JSON object. Omit to send
+	// none.
+	HeadersJSON *string `json:"headersJson,omitempty"`
+	// URL of the remote MCP server that answered 401.
+	RequestURL string `json:"requestUrl"`
+	// Metadata URL named in the server's `WWW-Authenticate` challenge. Omit to try conventional
+	// metadata endpoints derived from the request URL. It is server-controlled, so it passes
+	// the same egress policy check as the request URL.
+	ResourceMetadataURL *string `json:"resourceMetadataUrl,omitempty"`
+	// Proxy the request must travel through. Omit to use the session's own egress settings.
+	SandboxProxy *string `json:"sandboxProxy,omitempty"`
+	// Locally owned session whose egress policy and sandbox proxy constrain the request.
+	// Omitted or nonlocal session IDs provide no local session egress state.
+	SessionID *string `json:"sessionId,omitempty"`
+	// User agent to send. Omit to use the runtime's own.
+	UserAgent *string `json:"userAgent,omitempty"`
+}
+
+// Raw protected-resource metadata from the explicit metadata URL or conventional discovery.
+// Experimental: MCPOauthFetchProtectedResourceMetadataResult is part of an experimental API
+// and may change or be removed.
+// Internal: MCPOauthFetchProtectedResourceMetadataResult is an internal SDK API and is not
+// part of the public surface.
+type MCPOauthFetchProtectedResourceMetadataResult struct {
+	// Metadata document exactly as the server returned it, unparsed. Absent when no document
+	// could be read from the explicit metadata URL or, when omitted, the conventional metadata
+	// endpoints.
+	MetadataText *string `json:"metadataText,omitempty"`
 }
 
 // Pending MCP OAuth request ID and host-provided token or cancellation response.
@@ -9526,6 +9795,26 @@ type MCPOauthHandlePendingResult struct {
 	// Whether the response was accepted. False if the request was unknown, timed out, or
 	// already resolved.
 	Success bool `json:"success"`
+}
+
+// An authorization server URL to classify.
+// Experimental: MCPOauthIsMicrosoftAuthorizationServerRequest is part of an experimental
+// API and may change or be removed.
+// Internal: MCPOauthIsMicrosoftAuthorizationServerRequest is an internal SDK API and is not
+// part of the public surface.
+type MCPOauthIsMicrosoftAuthorizationServerRequest struct {
+	// Authorization server URL, typically the one `mcp.oauth.checkDcrSupport` discovered.
+	AuthorizationServerURL string `json:"authorizationServerUrl"`
+}
+
+// Whether the URL is a Microsoft Entra ID authorization server.
+// Experimental: MCPOauthIsMicrosoftAuthorizationServerResult is part of an experimental API
+// and may change or be removed.
+// Internal: MCPOauthIsMicrosoftAuthorizationServerResult is an internal SDK API and is not
+// part of the public surface.
+type MCPOauthIsMicrosoftAuthorizationServerResult struct {
+	// Whether the host is one Microsoft Entra ID serves authorization from.
+	IsMicrosoftAuthorizationServer bool `json:"isMicrosoftAuthorizationServer"`
 }
 
 // Remote MCP server name and optional overrides controlling reauthentication, OAuth client
@@ -9760,6 +10049,48 @@ type MCPOauthRespondResult struct {
 	// Whether the response was accepted. False if the request was unknown, timed out, or
 	// already resolved.
 	Success bool `json:"success"`
+}
+
+// An OAuth client a server configuration pins, without its secret.
+// Experimental: MCPOauthStaticClientConfig is part of an experimental API and may change or
+// be removed.
+// Internal: MCPOauthStaticClientConfig is an internal SDK API and is not part of the public
+// surface.
+type MCPOauthStaticClientConfig struct {
+	// Configured OAuth client identifier.
+	ClientID string `json:"clientId"`
+	// Grant type, carried only when the configuration pins the headless `client_credentials`
+	// flow. Absent for the default interactive authorization-code flow.
+	GrantType *MCPServerConfigHTTPOauthGrantType `json:"grantType,omitempty"`
+	// Whether the configuration declares a public client. Absent when the configuration does
+	// not say, which the flow reads as a public client.
+	PublicClient *bool `json:"publicClient,omitempty"`
+	// Configured OAuth scopes joined into one space-delimited scope value. Absent when the
+	// configuration specifies no scopes.
+	Scope *string `json:"scope,omitempty"`
+}
+
+// A remote MCP server configuration whose pinned OAuth client should be read.
+// Experimental: MCPOauthStaticClientConfigRequest is part of an experimental API and may
+// change or be removed.
+// Internal: MCPOauthStaticClientConfigRequest is an internal SDK API and is not part of the
+// public surface.
+type MCPOauthStaticClientConfigRequest struct {
+	// The server configuration to read. A configuration that pins no client answers nothing.
+	Config MCPServerConfig `json:"config"`
+}
+
+// The OAuth client the configuration pins, when it pins one.
+// Experimental: MCPOauthStaticClientConfigResult is part of an experimental API and may
+// change or be removed.
+// Internal: MCPOauthStaticClientConfigResult is an internal SDK API and is not part of the
+// public surface.
+type MCPOauthStaticClientConfigResult struct {
+	// The pinned client. Absent when the configuration pins no non-empty client id, so the flow
+	// should register one dynamically.
+	// Internal: ClientConfig is part of the SDK's internal API surface and is not intended for
+	// external use.
+	ClientConfig *MCPOauthStaticClientConfig `json:"clientConfig,omitempty"`
 }
 
 // The configuration-change alternative for the transportChoices entry at the same index.
@@ -10461,18 +10792,20 @@ type MCPRegistrySearchResult struct {
 type MCPReloadConfig struct {
 	ActiveGitHubToken *string `json:"activeGitHubToken,omitempty"`
 	// Server names the CLI enabled for this session via `--enable-mcp-server`.
-	CLIEnabledServers       []string                   `json:"cliEnabledServers,omitzero"`
-	ConfigFilter            any                        `json:"configFilter,omitempty"`
-	DisabledServers         []string                   `json:"disabledServers,omitzero"`
-	EnabledServers          []string                   `json:"enabledServers,omitzero"`
-	ForceRestart            *bool                      `json:"forceRestart,omitempty"`
-	GitHubMCPToolOptions    any                        `json:"githubMcpToolOptions,omitempty"`
-	GitHubMCPUserOverride   *bool                      `json:"githubMcpUserOverride,omitempty"`
-	IncludeWorkspaceSources *bool                      `json:"includeWorkspaceSources,omitempty"`
-	Mcp3pEnabled            *bool                      `json:"mcp3pEnabled,omitempty"`
-	MCPServers              map[string]MCPServerConfig `json:"mcpServers"`
-	SecretStore             any                        `json:"secretStore,omitempty"`
-	UseCachedToolSnapshots  *bool                      `json:"useCachedToolSnapshots,omitempty"`
+	CLIEnabledServers []string `json:"cliEnabledServers,omitzero"`
+	ConfigFilter      any      `json:"configFilter,omitempty"`
+	// Caller-resolved settings disables, below CLI enables and explicit session disables.
+	ConfiguredDisabledServers []string                   `json:"configuredDisabledServers,omitzero"`
+	DisabledServers           []string                   `json:"disabledServers,omitzero"`
+	EnabledServers            []string                   `json:"enabledServers,omitzero"`
+	ForceRestart              *bool                      `json:"forceRestart,omitempty"`
+	GitHubMCPToolOptions      any                        `json:"githubMcpToolOptions,omitempty"`
+	GitHubMCPUserOverride     *bool                      `json:"githubMcpUserOverride,omitempty"`
+	IncludeWorkspaceSources   *bool                      `json:"includeWorkspaceSources,omitempty"`
+	Mcp3pEnabled              *bool                      `json:"mcp3pEnabled,omitempty"`
+	MCPServers                map[string]MCPServerConfig `json:"mcpServers"`
+	SecretStore               any                        `json:"secretStore,omitempty"`
+	UseCachedToolSnapshots    *bool                      `json:"useCachedToolSnapshots,omitempty"`
 }
 
 // Opaque MCP reload configuration.
@@ -11630,7 +11963,8 @@ type ModelBillingPromo struct {
 type ModelBillingTokenPrices struct {
 	// Number of tokens per standard billing batch
 	BatchSize *int64 `json:"batchSize,omitempty"`
-	// Use cacheReadPrice instead. AI Credits cost per billing batch of cached tokens
+	// Use cacheReadPrice when available. Cost per billing batch of cached tokens in the unit
+	// reported by models.listTokenPriceUnits.
 	// Deprecated: CachePrice is deprecated.
 	CachePrice *float64 `json:"cachePrice,omitempty"`
 	// AI Credits cost per billing batch of cached (read) tokens
@@ -11643,14 +11977,16 @@ type ModelBillingTokenPrices struct {
 	// window is this value plus the model's max_output_tokens.
 	// Deprecated: ContextMax is deprecated.
 	ContextMax *int64 `json:"contextMax,omitempty"`
-	// AI Credits cost per billing batch of input tokens
+	// Cost per billing batch of input tokens. The unit is reported by
+	// models.listTokenPriceUnits.
 	InputPrice *float64 `json:"inputPrice,omitempty"`
 	// Long context tier pricing (available for models with extended context windows)
 	LongContext *ModelBillingTokenPricesLongContext `json:"longContext,omitempty"`
 	// Prompt token budget for the default tier. The total context window is this value plus the
 	// model's max_output_tokens.
 	MaxPromptTokens *int64 `json:"maxPromptTokens,omitempty"`
-	// AI Credits cost per billing batch of output tokens
+	// Cost per billing batch of output tokens. The unit is reported by
+	// models.listTokenPriceUnits.
 	OutputPrice *float64 `json:"outputPrice,omitempty"`
 }
 
@@ -11873,6 +12209,10 @@ type ModelGetReasoningSummariesResult struct {
 // metadata.
 // Experimental: ModelList is part of an experimental API and may change or be removed.
 type ModelList struct {
+	// Ordered Auto routing preferences discovered for the resolved account. Present only
+	// when the runtime runs with `DYNAMIC_AUTO_TIERS` enabled and CAPI returned Auto
+	// metadata; same shape and semantics as `SessionModelList.auto`.
+	Auto *AutoTierMetadata `json:"auto,omitempty"`
 	// List of available models with full metadata
 	Models []Model `json:"models"`
 }
@@ -12262,6 +12602,17 @@ type ModelsListRequest struct {
 	SelectionID *string `json:"selectionId,omitempty"`
 }
 
+// Experimental: ModelsListTokenPriceUnitsRequest is part of an experimental API and may
+// change or be removed.
+type ModelsListTokenPriceUnitsRequest struct {
+	// GitHub token accepted for compatibility with existing SDK clients. When provided,
+	// resolves this token instead of using the current account.
+	GitHubToken *string `json:"gitHubToken,omitempty"`
+	// Opaque account identifier returned by `account.getAllUsers`. When omitted, the current
+	// account is used.
+	SelectionID *string `json:"selectionId,omitempty"`
+}
+
 // An Auto preference request for the session. This updates Auto configuration only; it does
 // not change the selected model to `auto`.
 // Experimental: ModelSwitchAutoTierRequest is part of an experimental API and may change or
@@ -12390,6 +12741,25 @@ type ModelSwitchToResult struct {
 	Status *string `json:"status,omitempty"`
 	// User-facing warning produced while applying the model switch.
 	Warning *string `json:"warning,omitempty"`
+}
+
+// The unit one model's published token prices are quoted in.
+// Experimental: ModelTokenPriceUnit is part of an experimental API and may change or be
+// removed.
+type ModelTokenPriceUnit struct {
+	// Model ID the unit applies to, matching the id of a models.list entry.
+	ModelID string `json:"modelId"`
+	// Unit this model's token prices are quoted in.
+	Unit TokenPriceUnit `json:"unit"`
+}
+
+// Price units for every catalog model that publishes token prices.
+// Experimental: ModelTokenPriceUnitList is part of an experimental API and may change or be
+// removed.
+type ModelTokenPriceUnitList struct {
+	// One entry per model that publishes token prices, in catalog order. A model with no
+	// published prices is omitted.
+	Units []ModelTokenPriceUnit `json:"units"`
 }
 
 // Service-published warning text that hosts should display when presenting a model.
@@ -14135,6 +14505,316 @@ type Plugin struct {
 	Version *string `json:"version,omitempty"`
 }
 
+// Applies exactly one retained verified Agent Plugin installation plan.
+// Experimental: PluginApplyInstallRequest is part of an experimental API and may change or
+// be removed.
+type PluginApplyInstallRequest struct {
+	// Required authenticated bound catalogue and agent-plugin-confirmed-installation
+	// capabilities.
+	Contract CatalogClientContract `json:"contract"`
+	// Opaque original plan, consumed once.
+	PlanHandle string `json:"planHandle"`
+	// Same existing selected session as planning.
+	PolicySessionID string `json:"policySessionId"`
+}
+
+// One reviewed plugin file.
+// Experimental: PluginInstallationFileReview is part of an experimental API and may change
+// or be removed.
+type PluginInstallationFileReview struct {
+	// SHA-256 digest of the exact file bytes.
+	Digest string `json:"digest"`
+	// Whether the file is installed with executable permissions.
+	Executable bool `json:"executable"`
+	// Declared media type for the file.
+	MediaType string `json:"mediaType"`
+	// Relative file path within the plugin root.
+	Path string `json:"path"`
+	// Exact reviewed file size in bytes.
+	SizeBytes int64 `json:"sizeBytes"`
+}
+
+// Where a plugin is installed, without an absolute host path.
+// Experimental: PluginInstallationLocation is part of an experimental API and may change or
+// be removed.
+type PluginInstallationLocation struct {
+	// Safe display label, for example
+	// ~/.copilot/installed-plugins/_direct/owner--repo--plugins-work-hub.
+	DisplayLabel string `json:"displayLabel"`
+	// Path relative to the Copilot home, under installed-plugins/_direct like any direct plugin
+	// install.
+	RelativePath string `json:"relativePath"`
+}
+
+// Management outcome for verified Agent Plugin installation planning.
+// Experimental: PluginInstallationManagementOutcome is part of an experimental API and may
+// change or be removed.
+type PluginInstallationManagementOutcome interface {
+	pluginInstallationManagementOutcome()
+	Kind() PluginInstallationManagementOutcomeKind
+}
+
+type RawPluginInstallationManagementOutcomeData struct {
+	Discriminator PluginInstallationManagementOutcomeKind
+	Raw           json.RawMessage
+}
+
+func (RawPluginInstallationManagementOutcomeData) pluginInstallationManagementOutcome() {}
+func (r RawPluginInstallationManagementOutcomeData) Kind() PluginInstallationManagementOutcomeKind {
+	return r.Discriminator
+}
+
+// A verified Agent Plugin installation plan was prepared.
+type PluginInstallationManagementOutcomeInstallPlanned struct {
+	// Prepared install plan.
+	Plan PluginInstallPlan `json:"plan"`
+}
+
+func (PluginInstallationManagementOutcomeInstallPlanned) pluginInstallationManagementOutcome() {}
+func (PluginInstallationManagementOutcomeInstallPlanned) Kind() PluginInstallationManagementOutcomeKind {
+	return PluginInstallationManagementOutcomeKindInstallPlanned
+}
+
+// The request was refused without preparing a plan.
+type PluginInstallationManagementOutcomeRefused struct {
+	// Bounded refusal reason.
+	Reason PluginInstallationFailureReason `json:"reason"`
+}
+
+func (PluginInstallationManagementOutcomeRefused) pluginInstallationManagementOutcome() {}
+func (PluginInstallationManagementOutcomeRefused) Kind() PluginInstallationManagementOutcomeKind {
+	return PluginInstallationManagementOutcomeKindRefused
+}
+
+// Agent Plugin installation planning result with the honoured contract, or a typed refusal.
+// Experimental: PluginInstallationManagementResult is part of an experimental API and may
+// change or be removed.
+type PluginInstallationManagementResult interface {
+	pluginInstallationManagementResult()
+	pluginInstallationManagementResultKind() PluginInstallationManagementResultKind
+}
+
+type RawPluginInstallationManagementResultData struct {
+	Discriminator PluginInstallationManagementResultKind
+	Raw           json.RawMessage
+}
+
+func (RawPluginInstallationManagementResultData) pluginInstallationManagementResult() {}
+func (r RawPluginInstallationManagementResultData) pluginInstallationManagementResultKind() PluginInstallationManagementResultKind {
+	return r.Discriminator
+}
+func (CatalogInvalidRequestError) pluginInstallationManagementResult() {}
+func (CatalogInvalidRequestError) pluginInstallationManagementResultKind() PluginInstallationManagementResultKind {
+	return PluginInstallationManagementResultKindInvalidRequest
+}
+func (CatalogNegotiationRefusedError) pluginInstallationManagementResult() {}
+func (CatalogNegotiationRefusedError) pluginInstallationManagementResultKind() PluginInstallationManagementResultKind {
+	return PluginInstallationManagementResultKindNegotiationRefused
+}
+
+type PluginInstallationManagementResultOutcome struct {
+	// Capabilities honoured for this request.
+	Negotiated CatalogNegotiatedContract `json:"negotiated"`
+	// Observed management outcome.
+	Outcome PluginInstallationManagementOutcome `json:"outcome"`
+}
+
+func (PluginInstallationManagementResultOutcome) pluginInstallationManagementResult() {}
+func (PluginInstallationManagementResultOutcome) pluginInstallationManagementResultKind() PluginInstallationManagementResultKind {
+	return PluginInstallationManagementResultKindOutcome
+}
+
+// Terminal verified Agent Plugin installation result.
+// Experimental: PluginInstallationOutcome is part of an experimental API and may change or
+// be removed.
+type PluginInstallationOutcome interface {
+	pluginInstallationOutcome()
+	Kind() PluginInstallationOutcomeKind
+}
+
+type RawPluginInstallationOutcomeData struct {
+	Discriminator PluginInstallationOutcomeKind
+	Raw           json.RawMessage
+}
+
+func (RawPluginInstallationOutcomeData) pluginInstallationOutcome() {}
+func (r RawPluginInstallationOutcomeData) Kind() PluginInstallationOutcomeKind {
+	return r.Discriminator
+}
+
+// The confirmation was cancelled before any change.
+type PluginInstallationOutcomeCancelled struct {
+	// Original operation identity.
+	OperationID string `json:"operationId"`
+}
+
+func (PluginInstallationOutcomeCancelled) pluginInstallationOutcome() {}
+func (PluginInstallationOutcomeCancelled) Kind() PluginInstallationOutcomeKind {
+	return PluginInstallationOutcomeKindCancelled
+}
+
+// The user declined the confirmation request.
+type PluginInstallationOutcomeDeclined struct {
+	// Original operation identity.
+	OperationID string `json:"operationId"`
+}
+
+func (PluginInstallationOutcomeDeclined) pluginInstallationOutcome() {}
+func (PluginInstallationOutcomeDeclined) Kind() PluginInstallationOutcomeKind {
+	return PluginInstallationOutcomeKindDeclined
+}
+
+// The verified plugin was registered disabled.
+type PluginInstallationOutcomeInstalled struct {
+	// Installed plugin summary.
+	Installation PluginInstallationSummary `json:"installation"`
+}
+
+func (PluginInstallationOutcomeInstalled) pluginInstallationOutcome() {}
+func (PluginInstallationOutcomeInstalled) Kind() PluginInstallationOutcomeKind {
+	return PluginInstallationOutcomeKindInstalled
+}
+
+// The operation was refused and nothing was installed.
+type PluginInstallationOutcomeRefused struct {
+	// Present once an operation has been allocated.
+	OperationID *string `json:"operationId,omitempty"`
+	// Bounded refusal reason.
+	Reason PluginInstallationFailureReason `json:"reason"`
+}
+
+func (PluginInstallationOutcomeRefused) pluginInstallationOutcome() {}
+func (PluginInstallationOutcomeRefused) Kind() PluginInstallationOutcomeKind {
+	return PluginInstallationOutcomeKindRefused
+}
+
+// Agent Plugin installation result with the honoured contract, or a typed
+// request/negotiation refusal.
+// Experimental: PluginInstallationResult is part of an experimental API and may change or
+// be removed.
+type PluginInstallationResult interface {
+	pluginInstallationResult()
+	pluginInstallationResultKind() PluginInstallationResultKind
+}
+
+type RawPluginInstallationResultData struct {
+	Discriminator PluginInstallationResultKind
+	Raw           json.RawMessage
+}
+
+func (RawPluginInstallationResultData) pluginInstallationResult() {}
+func (r RawPluginInstallationResultData) pluginInstallationResultKind() PluginInstallationResultKind {
+	return r.Discriminator
+}
+func (CatalogInvalidRequestError) pluginInstallationResult() {}
+func (CatalogInvalidRequestError) pluginInstallationResultKind() PluginInstallationResultKind {
+	return PluginInstallationResultKindInvalidRequest
+}
+func (CatalogNegotiationRefusedError) pluginInstallationResult() {}
+func (CatalogNegotiationRefusedError) pluginInstallationResultKind() PluginInstallationResultKind {
+	return PluginInstallationResultKindNegotiationRefused
+}
+
+type PluginInstallationResultOutcome struct {
+	// Capabilities honoured for this request.
+	Negotiated CatalogNegotiatedContract `json:"negotiated"`
+	// Terminal operation outcome.
+	Outcome PluginInstallationOutcome `json:"outcome"`
+}
+
+func (PluginInstallationResultOutcome) pluginInstallationResult() {}
+func (PluginInstallationResultOutcome) pluginInstallationResultKind() PluginInstallationResultKind {
+	return PluginInstallationResultKindOutcome
+}
+
+// Review for installing a verified Agent Plugin.
+// Experimental: PluginInstallationReview is part of an experimental API and may change or
+// be removed.
+type PluginInstallationReview struct {
+	// Exact reviewed Agent Plugin installation action.
+	Action PluginInstallationReviewAction `json:"action"`
+	// Catalogue identity retained from the bound candidate, or verified data for a reference.
+	Catalogue InstallationCatalogueIdentity `json:"catalogue"`
+	// Manifest description when present.
+	Description *string `json:"description,omitempty"`
+	// Reviewed files and digests.
+	Files []PluginInstallationFileReview `json:"files"`
+	// Installing never grants immediate use; the plugin is registered disabled.
+	InstallsDisabled bool `json:"installsDisabled"`
+	// Complete verified manifest content. Planning refuses with review-too-large
+	// when this exceeds 262144 UTF-8 bytes; it is never truncated.
+	ManifestContent string `json:"manifestContent"`
+	// Relative path of the verified plugin manifest.
+	ManifestPath string `json:"manifestPath"`
+	// Installed plugin name, derived from the verified manifest exactly as a direct install
+	// derives it.
+	Name string `json:"name"`
+	// Exact verified source identity.
+	Source PluginInstallationSource `json:"source"`
+	// Exact install location without an absolute host path.
+	Target PluginInstallationLocation `json:"target"`
+	// Total reviewed payload size in bytes.
+	TotalBytes int64 `json:"totalBytes"`
+	// Manifest version when present.
+	Version *string `json:"version,omitempty"`
+}
+
+// Source identity retained from Agent Finder and the pinned GitHub descriptor.
+// Experimental: PluginInstallationSource is part of an experimental API and may change or
+// be removed.
+type PluginInstallationSource struct {
+	// Digest of the descriptor's bundle manifest.
+	BundleDigest string `json:"bundleDigest"`
+	// Agent Finder materialisation revision identifier.
+	CatalogRevisionID string `json:"catalogRevisionId"`
+	// Digest of the canonical materialisation descriptor.
+	DescriptorDigest string `json:"descriptorDigest"`
+	// Repository full name, for example owner/name.
+	Repository string `json:"repository"`
+	// GitHub repository database identifier.
+	RepositoryID string `json:"repositoryId"`
+	// Agent Finder resource identifier.
+	ResourceID string `json:"resourceId"`
+	// Pinned Git commit revision.
+	Revision string `json:"revision"`
+	// Plugin root within the pinned repository. Empty for the repository root.
+	Root string `json:"root"`
+}
+
+// A plugin registered from a verified materialisation.
+// Experimental: PluginInstallationSummary is part of an experimental API and may change or
+// be removed.
+type PluginInstallationSummary struct {
+	// Catalogue identity retained at install time.
+	Catalogue InstallationCatalogueIdentity `json:"catalogue"`
+	// Whether the plugin is enabled for new sessions. Always false after installation.
+	Enabled bool `json:"enabled"`
+	// ISO 8601 wall-clock installation time.
+	InstalledAt string `json:"installedAt"`
+	// Installed plugin name, as plugins.list, plugins.enable and plugins.uninstall identify it.
+	Name string `json:"name"`
+	// Operation that installed the plugin.
+	OperationID string `json:"operationId"`
+	// Exact retained verified source identity.
+	Source PluginInstallationSource `json:"source"`
+	// Install location without an absolute host path.
+	Target PluginInstallationLocation `json:"target"`
+}
+
+// A computed Agent Plugin install plan. Nothing has been applied.
+// Experimental: PluginInstallPlan is part of an experimental API and may change or be
+// removed.
+type PluginInstallPlan struct {
+	// Original wall-clock expiry as an ISO 8601 timestamp.
+	ExpiresAt string `json:"expiresAt"`
+	// Original operation identifier returned before confirmation.
+	OperationID string `json:"operationId"`
+	// One-use plan handle, bound to the original authority.
+	PlanHandle string `json:"planHandle"`
+	// Safe review to present before applying the plan.
+	Review PluginInstallationReview `json:"review"`
+}
+
 // Result of installing a plugin.
 // Experimental: PluginInstallResult is part of an experimental API and may change or be
 // removed.
@@ -14165,6 +14845,20 @@ type PluginList struct {
 type PluginListResult struct {
 	// Installed plugins
 	Plugins []InstalledPluginInfo `json:"plugins"`
+}
+
+// Side-effect-free planning of one Agent Plugin search candidate through its Agent Finder
+// materialisation.
+// Experimental: PluginPlanInstallRequest is part of an experimental API and may change or
+// be removed.
+type PluginPlanInstallRequest struct {
+	// Fresh single-use Agent Plugin candidate handle returned by a bound catalogue search.
+	CandidateHandle string `json:"candidateHandle"`
+	// Required authenticated bound catalogue and agent-plugin-confirmed-installation
+	// capabilities.
+	Contract CatalogClientContract `json:"contract"`
+	// Existing local session attached to this connection.
+	PolicySessionID string `json:"policySessionId"`
 }
 
 // Trusted built-in plugin directories to use for this runtime process.
@@ -21089,20 +21783,6 @@ type SkillList struct {
 	Skills []Skill `json:"skills"`
 }
 
-// Side-effect-free planning of one Skill from a materialisation reference rather than a
-// search candidate.
-// Experimental: SkillPlanInstallFromReferenceRequest is part of an experimental API and may
-// change or be removed.
-type SkillPlanInstallFromReferenceRequest struct {
-	// Required authenticated bound catalogue, skill-confirmed-installation and
-	// skill-reference-installation capabilities.
-	Contract CatalogClientContract `json:"contract"`
-	// Existing local session attached to this connection.
-	PolicySessionID string `json:"policySessionId"`
-	// Materialisation reference to verify and plan.
-	Reference CatalogMaterializationReference `json:"reference"`
-}
-
 // Side-effect-free planning of one verified Agent Finder Skill candidate.
 // Experimental: SkillPlanInstallRequest is part of an experimental API and may change or be
 // removed.
@@ -25780,10 +26460,12 @@ const (
 type CatalogCapability string
 
 const (
-	// Understands `installability` and the reviewable `installPlan` on Agent Plugin candidates.
-	// Requires agent-plugin-discovery; without it, plugin candidates are unchanged. A plugin is
-	// installable only with complete, verified catalogue install data, and may still be
-	// reported as feature-disabled per selected session.
+	// Understands `installability`, the reviewable `installPlan` and the optional
+	// materialisation `handle` on Agent Plugin candidates, and the verified Agent Plugin
+	// installation APIs plugins.planInstall and plugins.applyInstall, and Agent Plugin plans
+	// from catalog.planInstallFromReference. Requires agent-plugin-discovery; without it,
+	// plugin candidates are unchanged. Advertised only by runtimes with the plugin installer
+	// linked; acquisition may still be refused as feature-disabled per selected session.
 	CatalogCapabilityAgentPluginConfirmedInstallation CatalogCapability = "agent-plugin-confirmed-installation"
 	// Understands opt-in `application/vnd.github.copilot-plugin` candidates and their typed
 	// identity, version, source, and compatibility fields.
@@ -25796,6 +26478,12 @@ const (
 	CatalogCapabilityAgentPluginFormats CatalogCapability = "agent-plugin-formats"
 	// Understands `application/ai-skill` candidates as discovery-only and typed non-installable.
 	CatalogCapabilityAiSkillDiscovery CatalogCapability = "ai-skill-discovery"
+	// Understands catalog.planInstallFromReference, which plans installing whatever resource an
+	// Agent Finder materialisation reference pins. It plans only kinds whose installation
+	// capability the caller also requires: skill-confirmed-installation for Skills,
+	// agent-plugin-confirmed-installation for Agent Plugins. Advertised only by runtimes with
+	// the Skill installation engine linked.
+	CatalogCapabilityCatalogReferenceInstallation CatalogCapability = "catalog-reference-installation"
 	// Requires an eligible credential for the selected GitHub.com account before search egress
 	// and prohibits client-side anonymous retry, including after HTTP 401 or 403. The
 	// credential is scoped to the fixed catalog authority without redirect forwarding. Neither
@@ -25840,11 +26528,6 @@ const (
 	// installation engine linked; acquisition may still be refused as feature-disabled per
 	// selected session.
 	CatalogCapabilitySkillConfirmedInstallation CatalogCapability = "skill-confirmed-installation"
-	// Extends skill-confirmed-installation to planning from an Agent Finder materialisation
-	// reference through skills.planInstallFromReference, and to its distinct reference failure
-	// reasons. Requires skill-confirmed-installation. Advertised only by runtimes with the
-	// Skill installation engine linked.
-	CatalogCapabilitySkillReferenceInstallation CatalogCapability = "skill-reference-installation"
 	// Understands versioned candidate trust snapshots. Protocol-3 callers must require this
 	// capability before the runtime adds the optional snapshot field.
 	CatalogCapabilityTrustSnapshot CatalogCapability = "trust-snapshot"
@@ -26051,6 +26734,75 @@ const (
 	CatalogNotInstallableReasonKindNotInstallable CatalogNotInstallableReason = "kind-not-installable"
 	// Policy forbids installing this candidate.
 	CatalogNotInstallableReasonPolicyForbids CatalogNotInstallableReason = "policy-forbids"
+)
+
+// Bounded refusal categories for planning from a materialisation reference.
+// Experimental: CatalogReferenceInstallationFailureReason is part of an experimental API
+// and may change or be removed.
+type CatalogReferenceInstallationFailureReason string
+
+const (
+	// A resource with the same identity or install location already exists.
+	CatalogReferenceInstallationFailureReasonAlreadyInstalled CatalogReferenceInstallationFailureReason = "already-installed"
+	// Installation storage or admission is busy.
+	CatalogReferenceInstallationFailureReasonBusy CatalogReferenceInstallationFailureReason = "busy"
+	// The original host cannot receive human confirmation.
+	CatalogReferenceInstallationFailureReasonConfirmationUnavailable CatalogReferenceInstallationFailureReason = "confirmation-unavailable"
+	// The materialisation descriptor failed validation.
+	CatalogReferenceInstallationFailureReasonDescriptorInvalid CatalogReferenceInstallationFailureReason = "descriptor-invalid"
+	// Agent Finder has no materialisation for the referenced resource revision (HTTP 404).
+	CatalogReferenceInstallationFailureReasonDescriptorNotFound CatalogReferenceInstallationFailureReason = "descriptor-not-found"
+	// The materialisation descriptor could not be retrieved safely.
+	CatalogReferenceInstallationFailureReasonDescriptorUnavailable CatalogReferenceInstallationFailureReason = "descriptor-unavailable"
+	// Agent Finder withdrew the referenced resource revision (HTTP 410).
+	CatalogReferenceInstallationFailureReasonDescriptorWithdrawn CatalogReferenceInstallationFailureReason = "descriptor-withdrawn"
+	// The retrieved descriptor does not match the referenced descriptor or bundle digest.
+	CatalogReferenceInstallationFailureReasonDigestMismatch CatalogReferenceInstallationFailureReason = "digest-mismatch"
+	// The resource's entrypoint could not be retrieved or verified.
+	CatalogReferenceInstallationFailureReasonEntrypointUnavailable CatalogReferenceInstallationFailureReason = "entrypoint-unavailable"
+	// The selected session does not have the installation feature flag for the referenced kind
+	// enabled.
+	CatalogReferenceInstallationFailureReasonFeatureDisabled CatalogReferenceInstallationFailureReason = "feature-disabled"
+	// The plugin manifest is not a valid plugin manifest, or the bundle has another manifest
+	// that would take precedence over the reviewed one.
+	CatalogReferenceInstallationFailureReasonInvalidPlugin CatalogReferenceInstallationFailureReason = "invalid-plugin"
+	// The materialisation reference is malformed or uses an unsupported schema version.
+	CatalogReferenceInstallationFailureReasonInvalidReference CatalogReferenceInstallationFailureReason = "invalid-reference"
+	// The request is unsupported or malformed.
+	CatalogReferenceInstallationFailureReasonInvalidRequest CatalogReferenceInstallationFailureReason = "invalid-request"
+	// The Skill entrypoint is not a valid Skill.
+	CatalogReferenceInstallationFailureReasonInvalidSkill CatalogReferenceInstallationFailureReason = "invalid-skill"
+	// The bounded operation limit was reached.
+	CatalogReferenceInstallationFailureReasonOperationLimit CatalogReferenceInstallationFailureReason = "operation-limit"
+	// Managed policy forbids installing this resource.
+	CatalogReferenceInstallationFailureReasonPolicyBlocked CatalogReferenceInstallationFailureReason = "policy-blocked"
+	// Existing authenticated session and host authority is unavailable.
+	CatalogReferenceInstallationFailureReasonPolicyContextUnavailable CatalogReferenceInstallationFailureReason = "policy-context-unavailable"
+	// The entrypoint exceeds the bounded complete review size.
+	CatalogReferenceInstallationFailureReasonReviewTooLarge CatalogReferenceInstallationFailureReason = "review-too-large"
+	// The referenced resource is a kind this runtime cannot install, or one whose installation
+	// capability the caller did not require.
+	CatalogReferenceInstallationFailureReasonUnsupportedResource CatalogReferenceInstallationFailureReason = "unsupported-resource"
+	// A storage operation failed; nothing was installed.
+	CatalogReferenceInstallationFailureReasonWriteFailed CatalogReferenceInstallationFailureReason = "write-failed"
+)
+
+// Kind discriminator for CatalogReferenceInstallationOutcome.
+type CatalogReferenceInstallationOutcomeKind string
+
+const (
+	CatalogReferenceInstallationOutcomeKindPluginInstallPlanned CatalogReferenceInstallationOutcomeKind = "plugin-install-planned"
+	CatalogReferenceInstallationOutcomeKindRefused              CatalogReferenceInstallationOutcomeKind = "refused"
+	CatalogReferenceInstallationOutcomeKindSkillInstallPlanned  CatalogReferenceInstallationOutcomeKind = "skill-install-planned"
+)
+
+// Kind discriminator for CatalogReferenceInstallationResult.
+type CatalogReferenceInstallationResultKind string
+
+const (
+	CatalogReferenceInstallationResultKindInvalidRequest     CatalogReferenceInstallationResultKind = "invalid-request"
+	CatalogReferenceInstallationResultKindNegotiationRefused CatalogReferenceInstallationResultKind = "negotiation-refused"
+	CatalogReferenceInstallationResultKindOutcome            CatalogReferenceInstallationResultKind = "outcome"
 )
 
 // Kind discriminator for CatalogSearchResult.
@@ -27075,8 +27827,9 @@ const (
 type InstallationReviewResource string
 
 const (
-	InstallationReviewResourceMCP   InstallationReviewResource = "mcp"
-	InstallationReviewResourceSkill InstallationReviewResource = "skill"
+	InstallationReviewResourceMCP    InstallationReviewResource = "mcp"
+	InstallationReviewResourcePlugin InstallationReviewResource = "plugin"
+	InstallationReviewResourceSkill  InstallationReviewResource = "skill"
 )
 
 // Constant value. Always "github".
@@ -28835,6 +29588,117 @@ const (
 	PermissionsSetApproveAllSourceUserSetting PermissionsSetApproveAllSource = "user_setting"
 )
 
+// Bounded refusal categories for verified Agent Plugin installation.
+// Experimental: PluginInstallationFailureReason is part of an experimental API and may
+// change or be removed.
+type PluginInstallationFailureReason string
+
+const (
+	// A plugin with the same name or install location already exists.
+	PluginInstallationFailureReasonAlreadyInstalled PluginInstallationFailureReason = "already-installed"
+	// Plugin installation storage or admission is busy.
+	PluginInstallationFailureReasonBusy PluginInstallationFailureReason = "busy"
+	// The confirmation response is malformed or mismatched.
+	PluginInstallationFailureReasonConfirmationInvalid PluginInstallationFailureReason = "confirmation-invalid"
+	// The original host cannot receive human confirmation.
+	PluginInstallationFailureReasonConfirmationUnavailable PluginInstallationFailureReason = "confirmation-unavailable"
+	// The materialisation descriptor failed validation.
+	PluginInstallationFailureReasonDescriptorInvalid PluginInstallationFailureReason = "descriptor-invalid"
+	// Agent Finder has no materialisation for the referenced resource revision (HTTP 404).
+	PluginInstallationFailureReasonDescriptorNotFound PluginInstallationFailureReason = "descriptor-not-found"
+	// The materialisation descriptor could not be retrieved safely.
+	PluginInstallationFailureReasonDescriptorUnavailable PluginInstallationFailureReason = "descriptor-unavailable"
+	// Agent Finder withdrew the referenced resource revision (HTTP 410).
+	PluginInstallationFailureReasonDescriptorWithdrawn PluginInstallationFailureReason = "descriptor-withdrawn"
+	// The retrieved descriptor does not match the referenced descriptor or bundle digest.
+	PluginInstallationFailureReasonDigestMismatch PluginInstallationFailureReason = "digest-mismatch"
+	// The plugin manifest could not be retrieved or verified.
+	PluginInstallationFailureReasonEntrypointUnavailable PluginInstallationFailureReason = "entrypoint-unavailable"
+	// The handle or operation expired.
+	PluginInstallationFailureReasonExpired PluginInstallationFailureReason = "expired"
+	// The selected session does not have the Agent Finder plugin installation feature flag
+	// enabled.
+	PluginInstallationFailureReasonFeatureDisabled PluginInstallationFailureReason = "feature-disabled"
+	// The handle belongs to a different runtime, session or connection.
+	PluginInstallationFailureReasonForeignRuntime PluginInstallationFailureReason = "foreign-runtime"
+	// The candidate handle does not belong to an Agent Plugin with a complete materialisation
+	// reference.
+	PluginInstallationFailureReasonInvalidCandidate PluginInstallationFailureReason = "invalid-candidate"
+	// The plugin manifest is not a valid plugin manifest, or the bundle has another manifest
+	// that would take precedence over the reviewed one.
+	PluginInstallationFailureReasonInvalidPlugin PluginInstallationFailureReason = "invalid-plugin"
+	// The request is unsupported or malformed.
+	PluginInstallationFailureReasonInvalidRequest PluginInstallationFailureReason = "invalid-request"
+	// The acquired files no longer match the reviewed descriptor.
+	PluginInstallationFailureReasonPayloadMismatch PluginInstallationFailureReason = "payload-mismatch"
+	// The reviewed plugin files could not be acquired.
+	PluginInstallationFailureReasonPayloadUnavailable PluginInstallationFailureReason = "payload-unavailable"
+	// The original plan deadline elapsed.
+	PluginInstallationFailureReasonPlanExpired PluginInstallationFailureReason = "plan-expired"
+	// The one-use plan was already consumed.
+	PluginInstallationFailureReasonPlanReplayed PluginInstallationFailureReason = "plan-replayed"
+	// Managed policy only allows plugins from known marketplaces, which excludes direct
+	// installs.
+	PluginInstallationFailureReasonPolicyBlocked PluginInstallationFailureReason = "policy-blocked"
+	// The original authority or policy changed.
+	PluginInstallationFailureReasonPolicyChanged PluginInstallationFailureReason = "policy-changed"
+	// Existing authenticated session and host authority is unavailable.
+	PluginInstallationFailureReasonPolicyContextUnavailable PluginInstallationFailureReason = "policy-context-unavailable"
+	// The plugin manifest exceeds the bounded complete review size.
+	PluginInstallationFailureReasonReviewTooLarge PluginInstallationFailureReason = "review-too-large"
+	// The handle was minted for a different search result or authority.
+	PluginInstallationFailureReasonSearchMismatch PluginInstallationFailureReason = "search-mismatch"
+	// The candidate's materialisation is not an Agent Plugin.
+	PluginInstallationFailureReasonUnsupportedResource PluginInstallationFailureReason = "unsupported-resource"
+	// A storage operation failed; nothing was registered.
+	PluginInstallationFailureReasonWriteFailed PluginInstallationFailureReason = "write-failed"
+	// The handle is not the expected handle kind.
+	PluginInstallationFailureReasonWrongKind PluginInstallationFailureReason = "wrong-kind"
+)
+
+// Kind discriminator for PluginInstallationManagementOutcome.
+type PluginInstallationManagementOutcomeKind string
+
+const (
+	PluginInstallationManagementOutcomeKindInstallPlanned PluginInstallationManagementOutcomeKind = "install-planned"
+	PluginInstallationManagementOutcomeKindRefused        PluginInstallationManagementOutcomeKind = "refused"
+)
+
+// Kind discriminator for PluginInstallationManagementResult.
+type PluginInstallationManagementResultKind string
+
+const (
+	PluginInstallationManagementResultKindInvalidRequest     PluginInstallationManagementResultKind = "invalid-request"
+	PluginInstallationManagementResultKindNegotiationRefused PluginInstallationManagementResultKind = "negotiation-refused"
+	PluginInstallationManagementResultKindOutcome            PluginInstallationManagementResultKind = "outcome"
+)
+
+// Kind discriminator for PluginInstallationOutcome.
+type PluginInstallationOutcomeKind string
+
+const (
+	PluginInstallationOutcomeKindCancelled PluginInstallationOutcomeKind = "cancelled"
+	PluginInstallationOutcomeKindDeclined  PluginInstallationOutcomeKind = "declined"
+	PluginInstallationOutcomeKindInstalled PluginInstallationOutcomeKind = "installed"
+	PluginInstallationOutcomeKindRefused   PluginInstallationOutcomeKind = "refused"
+)
+
+// Kind discriminator for PluginInstallationResult.
+type PluginInstallationResultKind string
+
+const (
+	PluginInstallationResultKindInvalidRequest     PluginInstallationResultKind = "invalid-request"
+	PluginInstallationResultKindNegotiationRefused PluginInstallationResultKind = "negotiation-refused"
+	PluginInstallationResultKindOutcome            PluginInstallationResultKind = "outcome"
+)
+
+// Exact reviewed Agent Plugin installation action.
+type PluginInstallationReviewAction string
+
+const (
+	PluginInstallationReviewActionInstall PluginInstallationReviewAction = "install"
+)
+
 // Where completed plugin content was staged before atomic promotion.
 // Experimental: PluginInstallStagingMode is part of an experimental API and may change or
 // be removed.
@@ -29354,9 +30218,9 @@ type SandboxSessionChange string
 
 const (
 	// The sandbox is off for the rest of this session; nothing was persisted and a new session
-	// starts from managed policy.
+	// starts from saved and managed policy.
 	SandboxSessionChangeDisabled SandboxSessionChange = "disabled"
-	// A previous session-scoped opt-out was cleared and the sandbox is enforced again.
+	// The sandbox is enabled for this session; nothing was persisted.
 	SandboxSessionChangeRestored SandboxSessionChange = "restored"
 )
 
@@ -29988,17 +30852,8 @@ const (
 	SkillInstallationFailureReasonConfirmationUnavailable SkillInstallationFailureReason = "confirmation-unavailable"
 	// The verified Skill descriptor failed validation.
 	SkillInstallationFailureReasonDescriptorInvalid SkillInstallationFailureReason = "descriptor-invalid"
-	// Agent Finder has no materialisation for the referenced resource revision (HTTP 404).
-	// Returned only to callers that require skill-reference-installation.
-	SkillInstallationFailureReasonDescriptorNotFound SkillInstallationFailureReason = "descriptor-not-found"
 	// The verified Skill descriptor could not be retrieved safely.
 	SkillInstallationFailureReasonDescriptorUnavailable SkillInstallationFailureReason = "descriptor-unavailable"
-	// Agent Finder withdrew the referenced resource revision (HTTP 410). Returned only to
-	// callers that require skill-reference-installation.
-	SkillInstallationFailureReasonDescriptorWithdrawn SkillInstallationFailureReason = "descriptor-withdrawn"
-	// The retrieved descriptor does not match the referenced descriptor or bundle digest.
-	// Returned only to callers that require skill-reference-installation.
-	SkillInstallationFailureReasonDigestMismatch SkillInstallationFailureReason = "digest-mismatch"
 	// The Skill entrypoint could not be retrieved or verified.
 	SkillInstallationFailureReasonEntrypointUnavailable SkillInstallationFailureReason = "entrypoint-unavailable"
 	// The handle or operation expired.
@@ -30010,9 +30865,6 @@ const (
 	SkillInstallationFailureReasonForeignRuntime SkillInstallationFailureReason = "foreign-runtime"
 	// The candidate handle is not a verified installable Skill candidate.
 	SkillInstallationFailureReasonInvalidCandidate SkillInstallationFailureReason = "invalid-candidate"
-	// The materialisation reference is malformed or uses an unsupported schema version.
-	// Returned only to callers that require skill-reference-installation.
-	SkillInstallationFailureReasonInvalidReference SkillInstallationFailureReason = "invalid-reference"
 	// The request is unsupported or malformed.
 	SkillInstallationFailureReasonInvalidRequest SkillInstallationFailureReason = "invalid-request"
 	// The Skill entrypoint is not a valid Skill.
@@ -30043,9 +30895,6 @@ const (
 	SkillInstallationFailureReasonSearchMismatch SkillInstallationFailureReason = "search-mismatch"
 	// The retained Skill source changed after planning.
 	SkillInstallationFailureReasonSourceChanged SkillInstallationFailureReason = "source-changed"
-	// The referenced resource is not a Skill. Returned only to callers that require
-	// skill-reference-installation.
-	SkillInstallationFailureReasonUnsupportedResource SkillInstallationFailureReason = "unsupported-resource"
 	// A storage operation failed; inspect durable state before retrying.
 	SkillInstallationFailureReasonWriteFailed SkillInstallationFailureReason = "write-failed"
 	// The handle is not the expected Skill handle kind.
@@ -30457,6 +31306,19 @@ const (
 	TaskStatusIdle TaskStatus = "idle"
 	// The task is actively executing.
 	TaskStatusRunning TaskStatus = "running"
+)
+
+// Unit the catalog publishes a model's token prices in. The numeric fields of
+// ModelBillingTokenPrices carry no unit of their own, so a client that renders a price
+// needs this to scale it.
+// Experimental: TokenPriceUnit is part of an experimental API and may change or be removed.
+type TokenPriceUnit string
+
+const (
+	// Prices are already quoted in AI Credits and need no conversion.
+	TokenPriceUnitAiCredits TokenPriceUnit = "ai_credits"
+	// Prices are quoted in nano-AIU; divide by 1,000,000,000 to get AI Credits.
+	TokenPriceUnitNanoAiu TokenPriceUnit = "nano_aiu"
 )
 
 // Execution outcome classification.
@@ -30995,6 +31857,34 @@ func (a *ServerAgentsAPI) GetDiscoveryPaths(ctx context.Context, params *AgentsG
 // Experimental: ServerCatalogAPI contains experimental APIs that may change or be removed.
 type ServerCatalogAPI serverAPI
 
+// PlanInstallFromReference plans installing the resource an Agent Finder materialisation
+// reference pins, without writing files and whatever its kind. The runtime retrieves the
+// descriptor once, only from its fixed Agent Finder authority, verifies it, and plans by
+// its resolution policy: a Skill (`agent-skill@1.0.0`) when the caller requires
+// skill-confirmed-installation, an Agent Plugin (`plugin@1.0.0`) when it requires
+// agent-plugin-confirmed-installation. Any other kind is refused as unsupported-resource.
+// The outcome names the kind; apply a Skill plan with skills.applyInstall and an Agent
+// Plugin plan with plugins.applyInstall. The review shows only verified data.
+//
+// RPC method: catalog.planInstallFromReference.
+//
+// Parameters: Side-effect-free planning of whatever resource a materialisation reference
+// pins, rather than a search candidate.
+//
+// Returns: Planning result for a materialisation reference with the honoured contract, or a
+// typed refusal.
+func (a *ServerCatalogAPI) PlanInstallFromReference(ctx context.Context, params *CatalogPlanInstallFromReferenceRequest) (CatalogReferenceInstallationResult, error) {
+	raw, err := a.client.Request(ctx, "catalog.planInstallFromReference", params)
+	if err != nil {
+		return nil, err
+	}
+	result, err := unmarshalCatalogReferenceInstallationResult(raw)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // Search requests a bounded catalog search. This host-implemented server method is
 // available through SDK/TUI hosts; standalone and C-ABI runtimes whose host does not
 // implement server-method dispatch return JSON-RPC MethodNotFound. A runtime with search
@@ -31414,6 +32304,29 @@ func (a *ServerHostAPI) Start(ctx context.Context, params *HostStartRequest) (*H
 		return nil, err
 	}
 	var result HostStartResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// UnpublishSession withdraws a live or dormant application publication from an owned live
+// host and revokes AHP attachments without deleting local session history, worktrees, or
+// ongoing work. Returns false when already absent; rejects nonapplication publications.
+//
+// RPC method: host.unpublishSession.
+//
+// Parameters: Withdraws an application publication without deleting its underlying local
+// session.
+//
+// Returns: Publication withdrawal outcome; local history, worktrees and ongoing work are
+// preserved.
+func (a *ServerHostAPI) UnpublishSession(ctx context.Context, params *HostUnpublishSessionRequest) (*HostUnpublishSessionResult, error) {
+	raw, err := a.client.Request(ctx, "host.unpublishSession", params)
+	if err != nil {
+		return nil, err
+	}
+	var result HostUnpublishSessionResult
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, err
 	}
@@ -32128,8 +33041,59 @@ func (a *ServerModelsAPI) List(ctx context.Context, params *ModelsListRequest) (
 	return &result, nil
 }
 
+// ListTokenPriceUnits reports the unit of each model's published token prices: AI Credits
+// or nano-AIU. Pair these units with models.list prices by model ID and use identical
+// account-selection options for both calls. When options are omitted, the current account
+// and its model providers are used.
+//
+// RPC method: models.listTokenPriceUnits.
+//
+// Parameters: Optional opaque account selection or compatibility GitHub token used to list
+// models.
+//
+// Returns: Price units for every catalog model that publishes token prices.
+func (a *ServerModelsAPI) ListTokenPriceUnits(ctx context.Context, params ...*ModelsListTokenPriceUnitsRequest) (*ModelTokenPriceUnitList, error) {
+	var requestParams *ModelsListTokenPriceUnitsRequest
+	if len(params) > 0 {
+		requestParams = params[0]
+	}
+	raw, err := a.client.Request(ctx, "models.listTokenPriceUnits", requestParams)
+	if err != nil {
+		return nil, err
+	}
+	var result ModelTokenPriceUnitList
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // Experimental: ServerPluginsAPI contains experimental APIs that may change or be removed.
 type ServerPluginsAPI serverAPI
+
+// ApplyInstall consumes one verified Agent Plugin installation plan, requests explicit
+// human consent through installations.confirm on the original connection, then reacquires
+// and verifies every file and registers the plugin, disabled, exactly as a direct plugin
+// install. The installed plugin is listed, enabled and uninstalled through the existing
+// plugins methods.
+//
+// RPC method: plugins.applyInstall.
+//
+// Parameters: Applies exactly one retained verified Agent Plugin installation plan.
+//
+// Returns: Agent Plugin installation result with the honoured contract, or a typed
+// request/negotiation refusal.
+func (a *ServerPluginsAPI) ApplyInstall(ctx context.Context, params *PluginApplyInstallRequest) (PluginInstallationResult, error) {
+	raw, err := a.client.Request(ctx, "plugins.applyInstall", params)
+	if err != nil {
+		return nil, err
+	}
+	result, err := unmarshalPluginInstallationResult(raw)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
 
 // Disables installed plugins for new sessions.
 //
@@ -32201,6 +33165,30 @@ func (a *ServerPluginsAPI) List(ctx context.Context) (*PluginListResult, error) 
 		return nil, err
 	}
 	return &result, nil
+}
+
+// PlanInstall plans installation of an Agent Plugin search candidate from its verified
+// Agent Finder materialisation without writing files. Only candidates that carry a handle
+// can be planned. The review shows only verified data, and installing leaves the plugin
+// disabled until it is enabled through plugins.enable.
+//
+// RPC method: plugins.planInstall.
+//
+// Parameters: Side-effect-free planning of one Agent Plugin search candidate through its
+// Agent Finder materialisation.
+//
+// Returns: Agent Plugin installation planning result with the honoured contract, or a typed
+// refusal.
+func (a *ServerPluginsAPI) PlanInstall(ctx context.Context, params *PluginPlanInstallRequest) (PluginInstallationManagementResult, error) {
+	raw, err := a.client.Request(ctx, "plugins.planInstall", params)
+	if err != nil {
+		return nil, err
+	}
+	result, err := unmarshalPluginInstallationManagementResult(raw)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // Uninstalls an installed plugin.
@@ -33297,31 +34285,6 @@ func (a *ServerSkillsAPI) GetDiscoveryPaths(ctx context.Context, params *SkillsG
 // refusal.
 func (a *ServerSkillsAPI) PlanInstall(ctx context.Context, params *SkillPlanInstallRequest) (SkillInstallationManagementResult, error) {
 	raw, err := a.client.Request(ctx, "skills.planInstall", params)
-	if err != nil {
-		return nil, err
-	}
-	result, err := unmarshalSkillInstallationManagementResult(raw)
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-// PlanInstallFromReference plans installation of the Skill pinned by an Agent Finder
-// materialisation reference without writing files. The runtime retrieves the descriptor
-// only from its fixed Agent Finder authority and applies the same verification as
-// skills.planInstall; the review shows only verified data. Apply the returned plan with
-// skills.applyInstall.
-//
-// RPC method: skills.planInstallFromReference.
-//
-// Parameters: Side-effect-free planning of one Skill from a materialisation reference
-// rather than a search candidate.
-//
-// Returns: Skill installation management result with the honoured contract, or a typed
-// refusal.
-func (a *ServerSkillsAPI) PlanInstallFromReference(ctx context.Context, params *SkillPlanInstallFromReferenceRequest) (SkillInstallationManagementResult, error) {
-	raw, err := a.client.Request(ctx, "skills.planInstallFromReference", params)
 	if err != nil {
 		return nil, err
 	}
@@ -34913,6 +35876,120 @@ func (a *InternalServerMCPAPI) ShouldExcludeGitHubTools(ctx context.Context, par
 		return nil, err
 	}
 	return &result, nil
+}
+
+// Experimental: InternalServerMCPOauthAPI contains experimental APIs that may change or be
+// removed.
+type InternalServerMCPOauthAPI internalServerAPI
+
+// CheckDcrSupport asks a remote MCP server's authorization server whether it supports
+// Dynamic Client Registration, after a 401 has already established that OAuth is required.
+// A host configuring a remote server interactively needs this to choose between registering
+// a client automatically and asking the user for client credentials. The request travels
+// through the named session's egress policy and sandbox proxy, so a server that session may
+// not reach is refused rather than contacted.
+//
+// RPC method: mcp.oauth.checkDcrSupport.
+//
+// Parameters: A remote MCP server whose authorization server should be asked about Dynamic
+// Client Registration.
+//
+// Returns: Whether the server's authorization server registers clients dynamically.
+// Internal: CheckDcrSupport is part of the SDK's internal handshake/plumbing; external
+// callers should not use it.
+func (a *InternalServerMCPOauthAPI) CheckDcrSupport(ctx context.Context, params *MCPOauthCheckDcrSupportRequest) (*MCPOauthCheckDcrSupportResult, error) {
+	raw, err := a.client.Request(ctx, "mcp.oauth.checkDcrSupport", params)
+	if err != nil {
+		return nil, err
+	}
+	var result MCPOauthCheckDcrSupportResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// FetchProtectedResourceMetadata reads raw protected-resource metadata after a 401
+// establishes that OAuth is required. Uses the metadata URL from the server's
+// `WWW-Authenticate` challenge when provided; otherwise, tries conventional metadata
+// endpoints derived from the request URL. A host configuring a remote server interactively
+// needs the unparsed document to classify the challenge before it starts OAuth. The request
+// URL and each metadata URL pass through the named session's egress policy and sandbox
+// proxy. The runtime refuses URLs that the session may not reach.
+//
+// RPC method: mcp.oauth.fetchProtectedResourceMetadata.
+//
+// Parameters: An OAuth challenge from a remote MCP server whose protected-resource metadata
+// should be read.
+//
+// Returns: Raw protected-resource metadata from the explicit metadata URL or conventional
+// discovery.
+// Internal: FetchProtectedResourceMetadata is part of the SDK's internal
+// handshake/plumbing; external callers should not use it.
+func (a *InternalServerMCPOauthAPI) FetchProtectedResourceMetadata(ctx context.Context, params *MCPOauthFetchProtectedResourceMetadataRequest) (*MCPOauthFetchProtectedResourceMetadataResult, error) {
+	raw, err := a.client.Request(ctx, "mcp.oauth.fetchProtectedResourceMetadata", params)
+	if err != nil {
+		return nil, err
+	}
+	var result MCPOauthFetchProtectedResourceMetadataResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// IsMicrosoftAuthorizationServer reports whether an authorization server URL belongs to
+// Microsoft Entra ID. Entra does not support Dynamic Client Registration, so a host that
+// finds no DCR support can still authorize against it with a pre-registered client instead
+// of asking the user for client credentials.
+//
+// RPC method: mcp.oauth.isMicrosoftAuthorizationServer.
+//
+// Parameters: An authorization server URL to classify.
+//
+// Returns: Whether the URL is a Microsoft Entra ID authorization server.
+// Internal: IsMicrosoftAuthorizationServer is part of the SDK's internal
+// handshake/plumbing; external callers should not use it.
+func (a *InternalServerMCPOauthAPI) IsMicrosoftAuthorizationServer(ctx context.Context, params *MCPOauthIsMicrosoftAuthorizationServerRequest) (*MCPOauthIsMicrosoftAuthorizationServerResult, error) {
+	raw, err := a.client.Request(ctx, "mcp.oauth.isMicrosoftAuthorizationServer", params)
+	if err != nil {
+		return nil, err
+	}
+	var result MCPOauthIsMicrosoftAuthorizationServerResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// StaticClientConfig reads the static OAuth client a remote MCP server configuration pins,
+// so a host can decide whether to register a client dynamically or reuse the configured
+// one. Omits `clientConfig` when no non-empty `oauthClientId` is configured. The client
+// secret is deliberately never carried here: the runtime loads it from the OAuth secret
+// store at flow time.
+//
+// RPC method: mcp.oauth.staticClientConfig.
+//
+// Parameters: A remote MCP server configuration whose pinned OAuth client should be read.
+//
+// Returns: The OAuth client the configuration pins, when it pins one.
+// Internal: StaticClientConfig is part of the SDK's internal handshake/plumbing; external
+// callers should not use it.
+func (a *InternalServerMCPOauthAPI) StaticClientConfig(ctx context.Context, params *MCPOauthStaticClientConfigRequest) (*MCPOauthStaticClientConfigResult, error) {
+	raw, err := a.client.Request(ctx, "mcp.oauth.staticClientConfig", params)
+	if err != nil {
+		return nil, err
+	}
+	var result MCPOauthStaticClientConfigResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Experimental: Oauth returns experimental APIs that may change or be removed.
+func (s *InternalServerMCPAPI) Oauth() *InternalServerMCPOauthAPI {
+	return (*InternalServerMCPOauthAPI)(s)
 }
 
 // Experimental: InternalServerMCPRegistryAPI contains experimental APIs that may change or
@@ -46651,6 +47728,17 @@ type HostHandler interface {
 	//
 	// Returns: Empty acknowledgement for a completed host lifecycle operation.
 	Shutdown(request *HostEmptyResult) (*HostShutdownResult, error)
+	// UnregisterSession removes an application publication from the durable catalog and revokes
+	// AHP attachments without deleting the underlying local session. Rejects nonapplication
+	// publications.
+	//
+	// RPC method: host.unregisterSession.
+	//
+	// Parameters: Removes a durable application publication and revokes its AHP attachments.
+	//
+	// Returns: Publication withdrawal outcome; local history, worktrees and ongoing work are
+	// preserved.
+	UnregisterSession(request *HostUnregisterSessionRequest) (*HostUnpublishSessionResult, error)
 }
 
 // Experimental: InstallationsHandler contains experimental APIs that may change or be
@@ -46868,6 +47956,24 @@ func RegisterClientGlobalAPIHandlers(client *jsonrpc2.Client, handlers *ClientGl
 			return nil, &jsonrpc2.Error{Code: -32603, Message: "No host client-global handler registered"}
 		}
 		result, err := handlers.Host.Shutdown(&request)
+		if err != nil {
+			return nil, clientGlobalHandlerError(err)
+		}
+		raw, err := json.Marshal(result)
+		if err != nil {
+			return nil, &jsonrpc2.Error{Code: -32603, Message: fmt.Sprintf("Failed to marshal response: %v", err)}
+		}
+		return raw, nil
+	})
+	client.SetRequestHandler("host.unregisterSession", func(params json.RawMessage) (json.RawMessage, *jsonrpc2.Error) {
+		var request HostUnregisterSessionRequest
+		if err := json.Unmarshal(params, &request); err != nil {
+			return nil, &jsonrpc2.Error{Code: -32602, Message: fmt.Sprintf("Invalid params: %v", err)}
+		}
+		if handlers == nil || handlers.Host == nil {
+			return nil, &jsonrpc2.Error{Code: -32603, Message: "No host client-global handler registered"}
+		}
+		result, err := handlers.Host.UnregisterSession(&request)
 		if err != nil {
 			return nil, clientGlobalHandlerError(err)
 		}

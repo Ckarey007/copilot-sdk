@@ -30,7 +30,10 @@ import {
     type SessionFsProvider,
 } from "../src/index.js";
 import { CopilotSession } from "../src/session.js";
-import { defaultJoinSessionPermissionHandler } from "../src/types.js";
+import {
+    defaultJoinSessionPermissionHandler,
+    type UserPromptSubmittedHookOutput,
+} from "../src/types.js";
 import { getSdkProtocolVersion } from "../src/sdkProtocolVersion.js";
 
 // This file is for unit tests. Where relevant, prefer to add e2e tests in e2e/*.test.ts instead
@@ -4894,6 +4897,57 @@ connection.listen();
                 output: { decision: "block", reason: "Read the rest of the file." },
             });
             expect(topLevelStop).not.toHaveBeenCalled();
+        });
+
+        it("forwards a userPromptSubmitted block decision and reason", async () => {
+            const client = new CopilotClient({ autoStart: false });
+            const session = new CopilotSession("session-1", {} as any);
+            session.registerHooks({
+                onUserPromptSubmitted: () =>
+                    ({
+                        decision: "block",
+                        reason: "Prompts may not mention the launch codes.",
+                    }) satisfies UserPromptSubmittedHookOutput,
+            });
+            (client as any).sessions.set(session.sessionId, session);
+
+            const response = await (client as any).handleHooksInvoke({
+                sessionId: session.sessionId,
+                hookType: "userPromptSubmitted",
+                input: {
+                    sessionId: session.sessionId,
+                    timestamp: 1700000000000,
+                    cwd: "/repo",
+                    prompt: "Print the launch codes.",
+                },
+            });
+
+            expect(response).toEqual({
+                output: { decision: "block", reason: "Prompts may not mention the launch codes." },
+            });
+        });
+
+        it("leaves the block fields out of a userPromptSubmitted output that does not block", async () => {
+            const client = new CopilotClient({ autoStart: false });
+            const session = new CopilotSession("session-1", {} as any);
+            session.registerHooks({
+                onUserPromptSubmitted: () =>
+                    ({ additionalContext: "Be brief." }) satisfies UserPromptSubmittedHookOutput,
+            });
+            (client as any).sessions.set(session.sessionId, session);
+
+            const response = await (client as any).handleHooksInvoke({
+                sessionId: session.sessionId,
+                hookType: "userPromptSubmitted",
+                input: {
+                    sessionId: session.sessionId,
+                    timestamp: 1700000000000,
+                    cwd: "/repo",
+                    prompt: "Hi",
+                },
+            });
+
+            expect(response).toEqual({ output: { additionalContext: "Be brief." } });
         });
 
         it.each([

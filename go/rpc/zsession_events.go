@@ -1322,6 +1322,9 @@ type SessionFusionResolvedData struct {
 	Scores *FusionScores `json:"scores,omitempty"`
 	// Concrete model selected for Critique review, or the legacy Cascade judge/repair model when role-specific fields are absent.
 	SecondaryModel *string `json:"secondaryModel"`
+	// Identifier of the server policy rule whose workflow the plan's steps describe, when CAPI's sticky root routing replaced the workflow of `ruleId`'s rule to keep the previous turn's root model. Absent when no substitution occurred.
+	// Experimental: SelectedRuleID is part of an experimental API and may change or be removed.
+	SelectedRuleID *string `json:"selectedRuleId,omitempty"`
 	// Synthetic HydraFusion model selected for the session.
 	SyntheticModel string `json:"syntheticModel"`
 	// Identifier of the session turn associated with the route.

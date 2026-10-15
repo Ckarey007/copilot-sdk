@@ -132,6 +132,33 @@ func TestAhpHostListSessionsUsesOwningHost(t *testing.T) {
 	}
 }
 
+func TestAhpHostUnpublishSessionForwardsOwningHostAndResults(t *testing.T) {
+	client, server, _ := ahpFixture(t)
+	host, err := client.StartAhpHost(t.Context(), &AhpHostOptions{LocalServer: &rpc.HostLocalServerOptions{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	server.SetRequestHandler("host.unpublishSession", jsonrpc2.RequestHandlerFor(func(params *rpc.HostUnpublishSessionRequest) (*rpc.HostUnpublishSessionResult, *jsonrpc2.Error) {
+		if params.HostID != host.HostID || params.SessionID != "dormant" {
+			t.Errorf("params = %#v, want host %q and session dormant", params, host.HostID)
+		}
+		return &rpc.HostUnpublishSessionResult{Unpublished: calls.Add(1) == 1}, nil
+	}))
+	for _, expected := range []bool{true, false} {
+		result, err := host.UnpublishSession(t.Context(), "dormant")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Unpublished != expected {
+			t.Fatalf("unpublished = %v, want %v", result.Unpublished, expected)
+		}
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("calls = %d, want 2", calls.Load())
+	}
+}
+
 func TestAhpFactoryCancellationLogging(t *testing.T) {
 	output := new(ahpTestLog)
 	previous := log.Writer()

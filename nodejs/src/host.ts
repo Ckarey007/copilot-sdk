@@ -6,6 +6,7 @@ import type {
     HostExitedNotification,
     HostStartResult,
     HostPublishSessionResult,
+    HostUnpublishSessionResult,
     HostListSessionsResult,
     HostLocalServerOptions,
     HostGitHubEnvironmentOptions,
@@ -102,7 +103,10 @@ export class AhpHost {
         private readonly publishHostSession: (
             sessionId: string
         ) => Promise<HostPublishSessionResult>,
-        private readonly listHostSessions: () => Promise<HostListSessionsResult>
+        private readonly listHostSessions: () => Promise<HostListSessionsResult>,
+        private readonly unpublishHostSession: (
+            sessionId: string
+        ) => Promise<HostUnpublishSessionResult>
     ) {
         this.hostId = info.hostId;
         this.url = info.url;
@@ -119,6 +123,15 @@ export class AhpHost {
     /** Publish an attached application session into the durable compute-scoped host catalog. */
     publishSession(sessionId: string): Promise<HostPublishSessionResult> {
         return this.publishHostSession(sessionId);
+    }
+
+    /**
+     * Withdraw a live or dormant application publication and revoke AHP attachments.
+     * Preserves local history, worktrees and ongoing work; returns false when already absent.
+     * Rejects nonapplication publications. Does not stop the host.
+     */
+    unpublishSession(sessionId: string): Promise<HostUnpublishSessionResult> {
+        return this.unpublishHostSession(sessionId);
     }
 
     /** List all live and dormant catalog sessions advertised by this host. */

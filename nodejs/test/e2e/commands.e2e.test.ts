@@ -5,9 +5,9 @@
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterAll, describe, expect, it, onTestFinished } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from "vitest";
 import { CopilotClient, approveAll, RuntimeConnection } from "../../src/index.js";
-import type { CommandContext, SessionEvent } from "../../src/index.js";
+import type { AssistantUsageData, CommandContext, SessionEvent } from "../../src/index.js";
 import { createSdkTestContext } from "./harness/sdkTestContext.js";
 import { waitForCondition } from "./harness/sdkTestHelper.js";
 
@@ -24,19 +24,21 @@ describe("Commands", async () => {
     });
     const client1 = ctx.copilotClient;
 
-    // Trigger connection so we can read the port
-    const initSession = await client1.createSession({ onPermissionRequest: approveAll });
-    await initSession.disconnect();
-
-    const { runtimePort } = client1 as unknown as { runtimePort: number };
-    const client2 = new CopilotClient({
-        connection: RuntimeConnection.forUri(`localhost:${runtimePort}`, {
-            connectionToken: tcpConnectionToken,
-        }),
+    let client2: CopilotClient;
+    beforeAll(async () => {
+        // Trigger connection after the context has created its working directory.
+        const initSession = await client1.createSession({ onPermissionRequest: approveAll });
+        await initSession.disconnect();
+        const { runtimePort } = client1 as unknown as { runtimePort: number };
+        client2 = new CopilotClient({
+            connection: RuntimeConnection.forUri(`localhost:${runtimePort}`, {
+                connectionToken: tcpConnectionToken,
+            }),
+        });
     });
 
     afterAll(async () => {
-        await client2.stop();
+        await client2?.stop();
     });
 
     it(
@@ -349,6 +351,150 @@ describe("Usage command after restart", async () => {
         if (result.kind !== "text") throw new Error(`Unexpected usage result: ${result.kind}`);
         expect(result.text).toContain(expected);
         expect(result.text).not.toContain("1 AI Units");
+    });
+
+    it("keeps complete credits after replaying an empty legacy shutdown", async () => {
+        const token = `usage-command-empty-shutdown-token-${randomUUID()}`;
+        await openAiEndpoint.setCopilotUserByToken(token, {
+            login: "usage-command-user",
+            copilot_plan: "individual_pro",
+            token_based_billing: true,
+            endpoints: { api: openAiEndpoint.url },
+        });
+        const originalClient = createClient({
+            connection: RuntimeConnection.forStdio(),
+            gitHubToken: token,
+        });
+        onTestFinished(async () => {
+            expect(await originalClient.stop()).toHaveLength(0);
+        });
+        const original = await originalClient.createSession({
+            onPermissionRequest: approveAll,
+        });
+        await original.rpc.name.set({ name: "Empty legacy shutdown fixture" });
+        const events = await original.getEvents();
+        const shutdown: SessionEvent = {
+            type: "session.shutdown",
+            id: randomUUID(),
+            timestamp: new Date().toISOString(),
+            parentId: events.at(-1)?.id ?? null,
+            data: {
+                shutdownType: "routine",
+                totalPremiumRequests: 0,
+                totalNanoAiu: 0,
+                totalApiDurationMs: 0,
+                sessionStartTime: Date.now(),
+                codeChanges: { linesAdded: 0, linesRemoved: 0, filesModified: [] },
+                modelMetrics: {},
+            },
+        };
+        const legacyResume: SessionEvent = {
+            type: "session.resume",
+            id: randomUUID(),
+            timestamp: new Date().toISOString(),
+            parentId: shutdown.id,
+            data: {
+                eventCount: events.length + 1,
+                resumeTime: new Date().toISOString(),
+            },
+        };
+        const usage: AssistantUsageData = {
+            model: "gemini-4-argon",
+            modelDisplayName: "Gemini 4 Argon",
+            provider: { id: "copilot", kind: "copilot", label: "GitHub Copilot" },
+            initiator: "user",
+            inputTokens: 79_949,
+            outputTokens: 13,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            cost: 1,
+            aiCreditsStatus: "complete",
+            accounting: {
+                sourceSessionId: original.sessionId,
+                sequence: 1,
+                usageId: randomUUID(),
+            },
+            copilotUsage: {
+                totalNanoAiu: 16_002_800_000,
+                tokenDetails: [
+                    {
+                        batchSize: 1_000_000,
+                        costPerBatch: 200_000_000_000,
+                        tokenCount: 79_949,
+                        tokenType: "input",
+                        model: "gemini-4-argon",
+                    },
+                    {
+                        batchSize: 1_000_000,
+                        costPerBatch: 10_000_000_000,
+                        tokenCount: 0,
+                        tokenType: "cache_read",
+                        model: "gemini-4-argon",
+                    },
+                    {
+                        batchSize: 1_000_000,
+                        costPerBatch: 0,
+                        tokenCount: 0,
+                        tokenType: "cache_write",
+                        model: "gemini-4-argon",
+                    },
+                    {
+                        batchSize: 1_000_000,
+                        costPerBatch: 1_000_000_000_000,
+                        tokenCount: 13,
+                        tokenType: "output",
+                        model: "gemini-4-argon",
+                    },
+                ],
+            },
+        };
+        const usageRecord = {
+            type: "session.usage_record",
+            id: randomUUID(),
+            timestamp: new Date().toISOString(),
+            parentId: legacyResume.id,
+            data: { usage },
+        };
+        await originalClient.rpc.sessions.save({ sessionId: original.sessionId });
+        await originalClient.rpc.sessions.close({ sessionId: original.sessionId });
+        expect(await originalClient.stop()).toHaveLength(0);
+
+        await writeFile(
+            join(env.COPILOT_HOME, "session-state", original.sessionId, "events.jsonl"),
+            `${[...events, shutdown, legacyResume, usageRecord]
+                .map((event) => JSON.stringify(event))
+                .join("\n")}\n`
+        );
+        const resumedClient = createClient({
+            connection: RuntimeConnection.forStdio(),
+            gitHubToken: token,
+        });
+        onTestFinished(async () => {
+            expect(await resumedClient.stop()).toHaveLength(0);
+        });
+        const resumed = await resumedClient.resumeSession(original.sessionId, {
+            onPermissionRequest: approveAll,
+        });
+
+        const metrics = await resumed.rpc.usage.getMetrics();
+        expect(metrics).toMatchObject({
+            totalNanoAiu: 16_002_800_000,
+            aiCreditsStatus: "complete",
+        });
+        expect(metrics.providerModelMetrics).toHaveLength(1);
+        expect(metrics.providerModelMetrics?.[0]).toMatchObject({
+            provider: { id: "copilot", kind: "copilot", label: "GitHub Copilot" },
+            modelId: "gemini-4-argon",
+            metrics: {
+                totalNanoAiu: 16_002_800_000,
+                aiCreditsStatus: "complete",
+            },
+        });
+        const result = await resumed.rpc.commands.invoke({ name: "usage" });
+        expect(result.kind).toBe("text");
+        if (result.kind !== "text") throw new Error(`Unexpected usage result: ${result.kind}`);
+        expect(result.text).toContain("Requests: 16 AI Credits");
+        expect(result.text).not.toContain("partial");
     });
 });
 

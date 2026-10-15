@@ -1041,6 +1041,40 @@ impl<'a> ClientRpcCatalog<'a> {
             .await?;
         Ok(serde_json::from_value(_value)?)
     }
+
+    /// Plans installing the resource an Agent Finder materialisation reference pins, without writing files and whatever its kind. The runtime retrieves the descriptor once, only from its fixed Agent Finder authority, verifies it, and plans by its resolution policy: a Skill (`agent-skill@1.0.0`) when the caller requires skill-confirmed-installation, an Agent Plugin (`plugin@1.0.0`) when it requires agent-plugin-confirmed-installation. Any other kind is refused as unsupported-resource. The outcome names the kind; apply a Skill plan with skills.applyInstall and an Agent Plugin plan with plugins.applyInstall. The review shows only verified data.
+    ///
+    /// Wire method: `catalog.planInstallFromReference`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Side-effect-free planning of whatever resource a materialisation reference pins, rather than a search candidate.
+    ///
+    /// # Returns
+    ///
+    /// Planning result for a materialisation reference with the honoured contract, or a typed refusal.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn plan_install_from_reference(
+        &self,
+        params: CatalogPlanInstallFromReferenceRequest,
+    ) -> Result<CatalogReferenceInstallationResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::CATALOG_PLANINSTALLFROMREFERENCE,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
 }
 
 /// `commands.*` RPCs.
@@ -1940,6 +1974,37 @@ impl<'a> ClientRpcHost<'a> {
         let _value = self
             .client
             .call(rpc_methods::HOST_PUBLISHSESSION, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Withdraws a live or dormant application publication from an owned live host and revokes AHP attachments without deleting local session history, worktrees, or ongoing work. Returns false when already absent; rejects nonapplication publications.
+    ///
+    /// Wire method: `host.unpublishSession`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Withdraws an application publication without deleting its underlying local session.
+    ///
+    /// # Returns
+    ///
+    /// Publication withdrawal outcome; local history, worktrees and ongoing work are preserved.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn unpublish_session(
+        &self,
+        params: HostUnpublishSessionRequest,
+    ) -> Result<HostUnpublishSessionResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::HOST_UNPUBLISHSESSION, Some(wire_params))
             .await?;
         Ok(serde_json::from_value(_value)?)
     }
@@ -3111,6 +3176,13 @@ impl<'a> ClientRpcMcp<'a> {
         }
     }
 
+    /// `mcp.oauth.*` sub-namespace.
+    pub fn oauth(&self) -> ClientRpcMcpOauth<'a> {
+        ClientRpcMcpOauth {
+            client: self.client,
+        }
+    }
+
     /// `mcp.registry.*` sub-namespace.
     pub fn registry(&self) -> ClientRpcMcpRegistry<'a> {
         ClientRpcMcpRegistry {
@@ -3696,6 +3768,144 @@ impl<'a> ClientRpcMcpInstallations<'a> {
     }
 }
 
+/// `mcp.oauth.*` RPCs.
+#[derive(Clone, Copy)]
+pub struct ClientRpcMcpOauth<'a> {
+    pub(crate) client: &'a Client,
+}
+
+impl<'a> ClientRpcMcpOauth<'a> {
+    /// Reads the static OAuth client a remote MCP server configuration pins, so a host can decide whether to register a client dynamically or reuse the configured one. Omits `clientConfig` when no non-empty `oauthClientId` is configured. The client secret is deliberately never carried here: the runtime loads it from the OAuth secret store at flow time.
+    ///
+    /// Wire method: `mcp.oauth.staticClientConfig`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - A remote MCP server configuration whose pinned OAuth client should be read.
+    ///
+    /// # Returns
+    ///
+    /// The OAuth client the configuration pins, when it pins one.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn static_client_config(
+        &self,
+        params: McpOauthStaticClientConfigRequest,
+    ) -> Result<McpOauthStaticClientConfigResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::MCP_OAUTH_STATICCLIENTCONFIG, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reads raw protected-resource metadata after a 401 establishes that OAuth is required. Uses the metadata URL from the server's `WWW-Authenticate` challenge when provided; otherwise, tries conventional metadata endpoints derived from the request URL. A host configuring a remote server interactively needs the unparsed document to classify the challenge before it starts OAuth. The request URL and each metadata URL pass through the named session's egress policy and sandbox proxy. The runtime refuses URLs that the session may not reach.
+    ///
+    /// Wire method: `mcp.oauth.fetchProtectedResourceMetadata`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - An OAuth challenge from a remote MCP server whose protected-resource metadata should be read.
+    ///
+    /// # Returns
+    ///
+    /// Raw protected-resource metadata from the explicit metadata URL or conventional discovery.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn fetch_protected_resource_metadata(
+        &self,
+        params: McpOauthFetchProtectedResourceMetadataRequest,
+    ) -> Result<McpOauthFetchProtectedResourceMetadataResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::MCP_OAUTH_FETCHPROTECTEDRESOURCEMETADATA,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Asks a remote MCP server's authorization server whether it supports Dynamic Client Registration, after a 401 has already established that OAuth is required. A host configuring a remote server interactively needs this to choose between registering a client automatically and asking the user for client credentials. The request travels through the named session's egress policy and sandbox proxy, so a server that session may not reach is refused rather than contacted.
+    ///
+    /// Wire method: `mcp.oauth.checkDcrSupport`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - A remote MCP server whose authorization server should be asked about Dynamic Client Registration.
+    ///
+    /// # Returns
+    ///
+    /// Whether the server's authorization server registers clients dynamically.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn check_dcr_support(
+        &self,
+        params: McpOauthCheckDcrSupportRequest,
+    ) -> Result<McpOauthCheckDcrSupportResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::MCP_OAUTH_CHECKDCRSUPPORT, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reports whether an authorization server URL belongs to Microsoft Entra ID. Entra does not support Dynamic Client Registration, so a host that finds no DCR support can still authorize against it with a pre-registered client instead of asking the user for client credentials.
+    ///
+    /// Wire method: `mcp.oauth.isMicrosoftAuthorizationServer`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - An authorization server URL to classify.
+    ///
+    /// # Returns
+    ///
+    /// Whether the URL is a Microsoft Entra ID authorization server.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn is_microsoft_authorization_server(
+        &self,
+        params: McpOauthIsMicrosoftAuthorizationServerRequest,
+    ) -> Result<McpOauthIsMicrosoftAuthorizationServerResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::MCP_OAUTH_ISMICROSOFTAUTHORIZATIONSERVER,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+}
+
 /// `mcp.registry.*` RPCs.
 #[derive(Clone, Copy)]
 pub struct ClientRpcMcpRegistry<'a> {
@@ -3872,6 +4082,61 @@ impl<'a> ClientRpcModels<'a> {
         let _value = self
             .client
             .call(rpc_methods::MODELS_GETBUILTINCATALOG, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reports the unit of each model's published token prices: AI Credits or nano-AIU. Pair these units with models.list prices by model ID and use identical account-selection options for both calls. When options are omitted, the current account and its model providers are used.
+    ///
+    /// Wire method: `models.listTokenPriceUnits`.
+    ///
+    /// # Returns
+    ///
+    /// Price units for every catalog model that publishes token prices.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn list_token_price_units(&self) -> Result<ModelTokenPriceUnitList, Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self
+            .client
+            .call(rpc_methods::MODELS_LISTTOKENPRICEUNITS, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reports the unit of each model's published token prices: AI Credits or nano-AIU. Pair these units with models.list prices by model ID and use identical account-selection options for both calls. When options are omitted, the current account and its model providers are used.
+    ///
+    /// Wire method: `models.listTokenPriceUnits`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Optional opaque account selection or compatibility GitHub token used to list models.
+    ///
+    /// # Returns
+    ///
+    /// Price units for every catalog model that publishes token prices.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn list_token_price_units_with_params(
+        &self,
+        params: ModelsListRequest,
+    ) -> Result<ModelTokenPriceUnitList, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::MODELS_LISTTOKENPRICEUNITS, Some(wire_params))
             .await?;
         Ok(serde_json::from_value(_value)?)
     }
@@ -4071,6 +4336,68 @@ impl<'a> ClientRpcPlugins<'a> {
         ClientRpcPluginsMarketplaces {
             client: self.client,
         }
+    }
+
+    /// Plans installation of an Agent Plugin search candidate from its verified Agent Finder materialisation without writing files. Only candidates that carry a handle can be planned. The review shows only verified data, and installing leaves the plugin disabled until it is enabled through plugins.enable.
+    ///
+    /// Wire method: `plugins.planInstall`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Side-effect-free planning of one Agent Plugin search candidate through its Agent Finder materialisation.
+    ///
+    /// # Returns
+    ///
+    /// Agent Plugin installation planning result with the honoured contract, or a typed refusal.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn plan_install(
+        &self,
+        params: PluginPlanInstallRequest,
+    ) -> Result<PluginInstallationManagementResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::PLUGINS_PLANINSTALL, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Consumes one verified Agent Plugin installation plan, requests explicit human consent through installations.confirm on the original connection, then reacquires and verifies every file and registers the plugin, disabled, exactly as a direct plugin install. The installed plugin is listed, enabled and uninstalled through the existing plugins methods.
+    ///
+    /// Wire method: `plugins.applyInstall`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Applies exactly one retained verified Agent Plugin installation plan.
+    ///
+    /// # Returns
+    ///
+    /// Agent Plugin installation result with the honoured contract, or a typed request/negotiation refusal.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn apply_install(
+        &self,
+        params: PluginApplyInstallRequest,
+    ) -> Result<PluginInstallationResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::PLUGINS_APPLYINSTALL, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
     }
 
     /// Lists plugins installed in user/global state.
@@ -6635,40 +6962,6 @@ impl<'a> ClientRpcSkills<'a> {
         let _value = self
             .client
             .call(rpc_methods::SKILLS_PLANINSTALL, Some(wire_params))
-            .await?;
-        Ok(serde_json::from_value(_value)?)
-    }
-
-    /// Plans installation of the Skill pinned by an Agent Finder materialisation reference without writing files. The runtime retrieves the descriptor only from its fixed Agent Finder authority and applies the same verification as skills.planInstall; the review shows only verified data. Apply the returned plan with skills.applyInstall.
-    ///
-    /// Wire method: `skills.planInstallFromReference`.
-    ///
-    /// # Parameters
-    ///
-    /// * `params` - Side-effect-free planning of one Skill from a materialisation reference rather than a search candidate.
-    ///
-    /// # Returns
-    ///
-    /// Skill installation management result with the honoured contract, or a typed refusal.
-    ///
-    /// <div class="warning">
-    ///
-    /// **Experimental.** This API is part of an experimental wire-protocol surface
-    /// and may change or be removed in future SDK or CLI releases. Pin both the
-    /// SDK and CLI versions if your code depends on it.
-    ///
-    /// </div>
-    pub async fn plan_install_from_reference(
-        &self,
-        params: SkillPlanInstallFromReferenceRequest,
-    ) -> Result<SkillInstallationManagementResult, Error> {
-        let wire_params = serde_json::to_value(params)?;
-        let _value = self
-            .client
-            .call(
-                rpc_methods::SKILLS_PLANINSTALLFROMREFERENCE,
-                Some(wire_params),
-            )
             .await?;
         Ok(serde_json::from_value(_value)?)
     }

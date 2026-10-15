@@ -132,6 +132,21 @@ describe.skipIf(isByokBackend)("Assignment-only Dynamic Auto tiers", async () =>
             });
         }
     }
+
+    it("keeps server-level models.list on /models without Auto metadata when the runtime flag is off", async () => {
+        const { copilotClient: client, openAiEndpoint: proxy } = context;
+        // A fresh runtime cannot answer from a catalog cached by an earlier test.
+        await client.stop();
+        await client.start();
+        // Served metadata proves the flag-off listing ignores /meta rather than lacking a fixture.
+        await proxy.setMetaResponse(metadataResponse());
+        const listed = await client.rpc.models.list();
+        expect(listed.auto).toBeUndefined();
+        expect(listed.models[0]?.id).toBe("auto");
+        const requests = await proxy.getRequests();
+        expect(requests.some((request) => request.url === "/models")).toBe(true);
+        expect(requests.some((request) => request.url === "/meta")).toBe(false);
+    });
 });
 
 // This contract belongs to CAPI discovery/routing, not the alternate BYOK backend matrix.
@@ -293,6 +308,76 @@ describe.skipIf(isByokBackend)("Dynamic Auto tiers", async () => {
             "unavailable for this account"
         );
         await session.disconnect();
+    });
+
+    it("lists the same Auto metadata from server-level models.list as the session catalog", async () => {
+        const { copilotClient: client, openAiEndpoint: proxy } = context;
+        // A fresh runtime cannot answer from a catalog cached by an earlier test.
+        await client.stop();
+        await client.start();
+        await proxy.setMetaResponse(metadataResponse());
+        const listed = await client.rpc.models.list();
+        expect(listed.auto?.defaultTier).toBe("premium-v2");
+        expect(listed.auto?.tiers.map((tier) => tier.id)).toEqual([
+            "efficiency",
+            "premium-v2",
+            "intelligence",
+            "ensemble",
+        ]);
+        expect(listed.auto?.tiers[2].status).toEqual({ enabled: false, message: "Contact admin" });
+        expect(listed.models.map((model) => model.id)).toContain("claude-sonnet-5");
+        const serverRequests = await proxy.getRequests();
+        expect(serverRequests.some((request) => request.url === "/meta")).toBe(true);
+        expect(serverRequests.some((request) => request.url === "/models")).toBe(false);
+
+        const session = await client.createSession({
+            model: "auto",
+            onPermissionRequest: approveAll,
+        });
+        try {
+            expect((await session.rpc.model.list()).auto).toEqual(listed.auto);
+        } finally {
+            await session.disconnect();
+        }
+        // Every enabled Auto preference the server listing offers must be accepted at creation.
+        for (const tier of listed.auto!.tiers.filter(
+            (candidate) => candidate.type === "auto" && candidate.status.enabled
+        )) {
+            const tiered = await client.createSession({
+                model: "auto",
+                capi: { autoTier: tier.id },
+                onPermissionRequest: approveAll,
+            });
+            try {
+                expect((await tiered.rpc.model.getCurrent()).autoTier).toBe(tier.id);
+            } finally {
+                await tiered.disconnect();
+            }
+        }
+    });
+
+    it("omits Auto metadata and the Auto model from models.list when the envelope omits auto", async () => {
+        const { copilotClient: client, openAiEndpoint: proxy } = context;
+        await client.stop();
+        await client.start();
+        await proxy.setMetaResponse({ models: createGetModelsResponse(["claude-sonnet-5"]) });
+        const listed = await client.rpc.models.list();
+        expect(listed.auto).toBeUndefined();
+        expect(listed.models.map((model) => model.id)).toEqual(["claude-sonnet-5"]);
+        const requests = await proxy.getRequests();
+        expect(requests.some((request) => request.url === "/meta")).toBe(true);
+        expect(requests.some((request) => request.url === "/models")).toBe(false);
+    });
+
+    it("fails models.list without a /models fallback when metadata discovery fails", async () => {
+        const { copilotClient: client, openAiEndpoint: proxy } = context;
+        await client.stop();
+        await client.start();
+        await proxy.setMetaResponse({ message: "Meta is disabled" }, 404);
+        await expect(client.rpc.models.list()).rejects.toThrow("Meta is disabled");
+        const requests = await proxy.getRequests();
+        expect(requests.some((request) => request.url === "/meta")).toBe(true);
+        expect(requests.some((request) => request.url === "/models")).toBe(false);
     });
 
     it("routes a new tier unchanged and retains it on cold resume after removal", async () => {

@@ -4,6 +4,8 @@
 //! terminate the CLI when the SDK-hosting process exits abruptly, even when
 //! Rust cleanup code never runs. Other platforms retain Tokio's direct-child
 //! ownership because no equivalent product failure has been demonstrated.
+//! When Windows denies reopening the initial thread, a logged ordinary-spawn
+//! retry uses best-effort Job assignment, without pre-assignment containment.
 
 use std::io;
 
@@ -14,7 +16,8 @@ use tokio::process::{Child, Command};
 pub(crate) fn spawn(command: &mut Command) -> io::Result<(Child, Option<ProcessTree>)> {
     #[cfg(windows)]
     {
-        platform::spawn(command).map(|(child, tree)| (child, Some(ProcessTree(Some(tree)))))
+        platform::spawn(command)
+            .map(|(child, tree)| (child, tree.map(|tree| ProcessTree(Some(tree)))))
     }
     #[cfg(not(windows))]
     {
@@ -56,11 +59,17 @@ mod platform {
     use std::{io, ptr};
 
     use tokio::process::{Child, Command};
-    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_NO_MORE_ITEMS, HANDLE};
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_ACCESS_DENIED, ERROR_NO_MORE_FILES, ERROR_NO_MORE_ITEMS, HANDLE,
+        INVALID_HANDLE_VALUE,
+    };
     use windows_sys::Win32::System::Diagnostics::ProcessSnapshotting::{
         HPSS, HPSSWALK, PSS_CAPTURE_THREADS, PSS_THREAD_ENTRY, PSS_WALK_THREADS,
         PssCaptureSnapshot, PssFreeSnapshot, PssWalkMarkerCreate, PssWalkMarkerFree,
         PssWalkSnapshot,
+    };
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
     };
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
@@ -129,24 +138,106 @@ mod platform {
         job: OwnedHandle,
     }
 
-    pub(super) fn spawn(command: &mut Command) -> io::Result<(Child, Tree)> {
+    #[derive(Debug)]
+    struct ThreadOpenError(io::Error);
+
+    impl std::fmt::Display for ThreadOpenError {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(formatter, "OpenThread failed: {}", self.0)
+        }
+    }
+
+    impl std::error::Error for ThreadOpenError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    pub(super) fn spawn(command: &mut Command) -> io::Result<(Child, Option<Tree>)> {
         // The root cannot run or create descendants before Job assignment.
         command
             .as_std_mut()
             .creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED);
         let mut child = command.spawn()?;
-        match attach_and_resume(&child) {
-            Ok(tree) => Ok((child, tree)),
+        let tree = match attach(&child) {
+            Ok(tree) => tree,
             Err(error) => {
-                if let Err(kill_error) = child.start_kill() {
+                if let Err(kill_error) = terminate_suspended(&mut child) {
                     tracing::warn!(%kill_error, "failed to terminate suspended CLI child");
                 }
-                Err(error)
+                return Err(error);
+            }
+        };
+        let Err(error) = resume(&child, &tree) else {
+            return Ok((child, Some(tree)));
+        };
+        // Keep the Job alive until termination is requested. Dropping it earlier
+        // races start_kill against kill-on-close. Never retry a root that can run.
+        if let Err(kill_error) = terminate_suspended(&mut child) {
+            tracing::warn!(%kill_error, "failed to terminate suspended CLI child");
+            return Err(error);
+        }
+        let denied_thread_open = error
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<ThreadOpenError>())
+            .is_some_and(|source| source.0.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32));
+        if !denied_thread_open {
+            return Err(error);
+        }
+        drop(child);
+        tracing::warn!(
+            %error,
+            "CLI initial thread access denied; retrying without suspension and with \
+             best-effort private Job assignment; descendants can escape before assignment"
+        );
+        command.as_std_mut().creation_flags(CREATE_NO_WINDOW);
+        let child = command.spawn().map_err(|spawn_error| {
+            io::Error::new(
+                spawn_error.kind(),
+                format!("ordinary CLI spawn failed after {error}: {spawn_error}"),
+            )
+        })?;
+        #[cfg(test)]
+        let assignment =
+            fail_at(FailurePoint::CompatibilityAssignment).and_then(|()| tree.assign(&child));
+        #[cfg(not(test))]
+        let assignment = tree.assign(&child);
+        match assignment {
+            Ok(()) => Ok((child, Some(tree))),
+            Err(assignment_error) => {
+                tracing::warn!(
+                    %assignment_error,
+                    "ordinary CLI child could not join its private Job; descendants may survive \
+                     client shutdown and processes may survive SDK host exit"
+                );
+                Ok((child, None))
             }
         }
     }
 
-    fn attach_and_resume(child: &Child) -> io::Result<Tree> {
+    pub(super) fn terminate_suspended(child: &mut Child) -> io::Result<()> {
+        #[cfg(test)]
+        let result = fail_at(FailurePoint::Kill).and_then(|()| child.start_kill());
+        #[cfg(not(test))]
+        let result = child.start_kill();
+        match result {
+            // TerminateProcess can deny an already-terminated process. Only an
+            // observed exit on this Child's retained handle makes retry safe.
+            Err(error) if error.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) => {
+                match child.try_wait() {
+                    Ok(Some(_)) => Ok(()),
+                    Ok(None) => Err(error),
+                    Err(wait_error) => {
+                        tracing::warn!(%wait_error, "failed to confirm suspended CLI child exit");
+                        Err(error)
+                    }
+                }
+            }
+            result => result,
+        }
+    }
+
+    fn attach(child: &Child) -> io::Result<Tree> {
         #[cfg(test)]
         if let Some(hook) = BEFORE_ASSIGNMENT.with_borrow_mut(Option::take) {
             hook(child)?;
@@ -174,21 +265,19 @@ mod platform {
             return Err(io::Error::last_os_error());
         }
 
-        let process = child.raw_handle().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                "CLI exited before Job Object assignment",
-            )
-        })?;
-        // SAFETY: both handles are valid and the child is still suspended.
-        if unsafe { AssignProcessToJobObject(job.0, process.cast()) } == 0 {
-            return Err(io::Error::last_os_error());
-        }
+        let tree = Tree { job };
+        tree.assign(child)?;
+        Ok(tree)
+    }
 
+    fn resume(child: &Child, _tree: &Tree) -> io::Result<()> {
         #[cfg(test)]
         if let Some(hook) = BEFORE_RESUME.with_borrow_mut(Option::take) {
-            hook(child, job.0)?;
+            hook(child, _tree.job.0)?;
         }
+        let process = child.raw_handle().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotFound, "CLI exited before thread resume")
+        })?;
         #[cfg(test)]
         let resume_start = std::time::Instant::now();
         let result = resume_initial_thread(
@@ -199,8 +288,7 @@ mod platform {
         );
         #[cfg(test)]
         RESUME_ELAPSED.set(resume_start.elapsed());
-        result?;
-        Ok(Tree { job })
+        result
     }
 
     pub(super) fn check_status(status: u32) -> io::Result<()> {
@@ -214,6 +302,74 @@ mod platform {
     pub(super) fn resume_initial_thread(process: HANDLE, pid: u32) -> io::Result<()> {
         #[cfg(test)]
         THREADS_EXAMINED.set(0);
+        let thread_id = match find_initial_thread_pss(process, pid) {
+            Ok(thread_id) => thread_id,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "CLI process-scoped thread lookup failed; falling back to Toolhelp"
+                );
+                find_initial_thread_toolhelp(pid)?
+            }
+        };
+        let thread = open_initial_thread(thread_id)
+            .map_err(|error| io::Error::new(error.kind(), ThreadOpenError(error)))?;
+        resume_owned_thread(thread.0, pid)
+    }
+
+    fn open_initial_thread(thread_id: u32) -> io::Result<OwnedHandle> {
+        #[cfg(test)]
+        fail_at(FailurePoint::OpenThread)?;
+        // SAFETY: the lookup selected a thread belonging to the suspended root.
+        // The opened handle's ownership is independently checked before resume.
+        let raw_thread = unsafe {
+            OpenThread(
+                THREAD_SUSPEND_RESUME | THREAD_QUERY_LIMITED_INFORMATION,
+                0,
+                thread_id,
+            )
+        };
+        if raw_thread.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(OwnedHandle(raw_thread))
+    }
+
+    pub(super) fn find_initial_thread_toolhelp(pid: u32) -> io::Result<u32> {
+        #[cfg(test)]
+        fail_at(FailurePoint::Toolhelp)?;
+        // SAFETY: this read-only system snapshot does not execute any thread.
+        let raw = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
+        if raw == INVALID_HANDLE_VALUE {
+            return Err(io::Error::last_os_error());
+        }
+        let snapshot = OwnedHandle(raw);
+        let mut entry = THREADENTRY32 {
+            dwSize: size_of::<THREADENTRY32>() as u32,
+            ..Default::default()
+        };
+        // SAFETY: entry has the required layout and the snapshot remains owned.
+        let mut found = unsafe { Thread32First(snapshot.0, &mut entry) };
+        while found != 0 {
+            if entry.th32OwnerProcessID == pid {
+                return Ok(entry.th32ThreadID);
+            }
+            entry.dwSize = size_of::<THREADENTRY32>() as u32;
+            // SAFETY: entry and snapshot remain valid throughout the walk.
+            found = unsafe { Thread32Next(snapshot.0, &mut entry) };
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(ERROR_NO_MORE_FILES as i32) {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "CLI initial thread was not found in the Toolhelp snapshot",
+            ))
+        } else {
+            Err(error)
+        }
+    }
+
+    fn find_initial_thread_pss(process: HANDLE, pid: u32) -> io::Result<u32> {
         #[cfg(test)]
         fail_at(FailurePoint::Capture)?;
         let mut snapshot = ptr::null_mut();
@@ -260,21 +416,7 @@ mod platform {
             #[cfg(test)]
             THREADS_EXAMINED.set(THREADS_EXAMINED.get() + 1);
             if entry.ProcessId == pid {
-                #[cfg(test)]
-                fail_at(FailurePoint::OpenThread)?;
-                // SAFETY: the thread id came from the child's process snapshot.
-                let raw_thread = unsafe {
-                    OpenThread(
-                        THREAD_SUSPEND_RESUME | THREAD_QUERY_LIMITED_INFORMATION,
-                        0,
-                        entry.ThreadId,
-                    )
-                };
-                if raw_thread.is_null() {
-                    return Err(io::Error::last_os_error());
-                }
-                let thread = OwnedHandle(raw_thread);
-                return resume_owned_thread(thread.0, pid);
+                return Ok(entry.ThreadId);
             }
         }
     }
@@ -304,6 +446,22 @@ mod platform {
     }
 
     impl Tree {
+        fn assign(&self, child: &Child) -> io::Result<()> {
+            let process = child.raw_handle().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "CLI exited before Job Object assignment",
+                )
+            })?;
+            // SAFETY: the Job and child handles remain valid. Normal startup
+            // assigns before resume; compatibility startup is best-effort.
+            if unsafe { AssignProcessToJobObject(self.job.0, process.cast()) } == 0 {
+                Err(io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        }
+
         pub(super) fn terminate(&self) -> io::Result<()> {
             // SAFETY: the handle is a live Job Object owned by this value.
             if unsafe { TerminateJobObject(self.job.0, 1) } != 0 {

@@ -2331,7 +2331,8 @@ export class CopilotClient {
                     await rpc.host.dispose({ hostId });
                 },
                 (sessionId) => rpc.host.publishSession({ hostId, sessionId }),
-                () => rpc.host.listSessions({ hostId })
+                () => rpc.host.listSessions({ hostId }),
+                (sessionId) => rpc.host.unpublishSession({ hostId, sessionId })
             );
         } catch (error) {
             this.hostExitCallbacks.delete(hostId);

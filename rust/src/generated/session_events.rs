@@ -3053,6 +3053,16 @@ pub struct SessionFusionResolvedData {
     pub scores: Option<FusionScores>,
     /// Concrete model selected for Critique review, or the legacy Cascade judge/repair model when role-specific fields are absent.
     pub secondary_model: Option<String>,
+    /// Identifier of the server policy rule whose workflow the plan's steps describe, when CAPI's sticky root routing replaced the workflow of `ruleId`'s rule to keep the previous turn's root model. Absent when no substitution occurred.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This type is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases.
+    ///
+    /// </div>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selected_rule_id: Option<String>,
     /// Synthetic HydraFusion model selected for the session.
     pub synthetic_model: String,
     /// Identifier of the session turn associated with the route.

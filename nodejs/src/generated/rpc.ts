@@ -1015,10 +1015,10 @@ export type CatalogCapability =
   | "mcp-configured-remote-installation"
   /** Understands verified Agent Finder Skill install, uninstall, recovery and installation-scoped enablement APIs. Advertised only by runtimes with the Skill installation engine linked; acquisition may still be refused as feature-disabled per selected session. */
   | "skill-confirmed-installation"
-  /** Understands `installability` and the reviewable `installPlan` on Agent Plugin candidates. Requires agent-plugin-discovery; without it, plugin candidates are unchanged. A plugin is installable only with complete, verified catalogue install data, and may still be reported as feature-disabled per selected session. */
+  /** Understands `installability`, the reviewable `installPlan` and the optional materialisation `handle` on Agent Plugin candidates, and the verified Agent Plugin installation APIs plugins.planInstall and plugins.applyInstall, and Agent Plugin plans from catalog.planInstallFromReference. Requires agent-plugin-discovery; without it, plugin candidates are unchanged. Advertised only by runtimes with the plugin installer linked; acquisition may still be refused as feature-disabled per selected session. */
   | "agent-plugin-confirmed-installation"
-  /** Extends skill-confirmed-installation to planning from an Agent Finder materialisation reference through skills.planInstallFromReference, and to its distinct reference failure reasons. Requires skill-confirmed-installation. Advertised only by runtimes with the Skill installation engine linked. */
-  | "skill-reference-installation";
+  /** Understands catalog.planInstallFromReference, which plans installing whatever resource an Agent Finder materialisation reference pins. It plans only kinds whose installation capability the caller also requires: skill-confirmed-installation for Skills, agent-plugin-confirmed-installation for Agent Plugins. Advertised only by runtimes with the Skill installation engine linked. */
+  | "catalog-reference-installation";
 /**
  * Bounded extensible wire-feature identifier. Known values are described by `CatalogCapability`; newer callers may send future identifiers so an older runtime can return a typed negotiation refusal instead of failing schema validation. Capability negotiation establishes contract understanding, while each operation's result separately reports runtime availability.
  *
@@ -1219,6 +1219,249 @@ export type McpPlanPolicySource =
   | "registry-policy"
   /** Local trust settings evaluated the server. */
   | "local-trust";
+/**
+ * Bounded refusal categories for planning from a materialisation reference.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogReferenceInstallationFailureReason".
+ */
+/** @experimental */
+export type CatalogReferenceInstallationFailureReason =
+  /** The selected session does not have the installation feature flag for the referenced kind enabled. */
+  | "feature-disabled"
+  /** The request is unsupported or malformed. */
+  | "invalid-request"
+  /** The bounded operation limit was reached. */
+  | "operation-limit"
+  /** Installation storage or admission is busy. */
+  | "busy"
+  /** The original host cannot receive human confirmation. */
+  | "confirmation-unavailable"
+  /** Existing authenticated session and host authority is unavailable. */
+  | "policy-context-unavailable"
+  /** Managed policy forbids installing this resource. */
+  | "policy-blocked"
+  /** The materialisation reference is malformed or uses an unsupported schema version. */
+  | "invalid-reference"
+  /** The materialisation descriptor could not be retrieved safely. */
+  | "descriptor-unavailable"
+  /** Agent Finder has no materialisation for the referenced resource revision (HTTP 404). */
+  | "descriptor-not-found"
+  /** Agent Finder withdrew the referenced resource revision (HTTP 410). */
+  | "descriptor-withdrawn"
+  /** The materialisation descriptor failed validation. */
+  | "descriptor-invalid"
+  /** The retrieved descriptor does not match the referenced descriptor or bundle digest. */
+  | "digest-mismatch"
+  /** The referenced resource is a kind this runtime cannot install, or one whose installation capability the caller did not require. */
+  | "unsupported-resource"
+  /** The resource's entrypoint could not be retrieved or verified. */
+  | "entrypoint-unavailable"
+  /** The Skill entrypoint is not a valid Skill. */
+  | "invalid-skill"
+  /** The plugin manifest is not a valid plugin manifest, or the bundle has another manifest that would take precedence over the reviewed one. */
+  | "invalid-plugin"
+  /** The entrypoint exceeds the bounded complete review size. */
+  | "review-too-large"
+  /** A resource with the same identity or install location already exists. */
+  | "already-installed"
+  /** A storage operation failed; nothing was installed. */
+  | "write-failed";
+/**
+ * Planning outcome for a materialisation reference. A plan names its kind, so the caller applies it with that kind's apply method.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogReferenceInstallationOutcome".
+ */
+/** @experimental */
+export type CatalogReferenceInstallationOutcome =
+  | {
+      plan: SkillInstallPlan;
+      /**
+       * Reference planning outcome discriminator naming the planned kind.
+       */
+      kind: "skill-install-planned";
+    }
+  | {
+      plan: PluginInstallPlan;
+      /**
+       * Reference planning outcome discriminator naming the planned kind.
+       */
+      kind: "plugin-install-planned";
+    }
+  | {
+      reason: CatalogReferenceInstallationFailureReason;
+      /**
+       * Reference planning outcome discriminator naming the planned kind.
+       */
+      kind: "refused";
+    };
+/**
+ * Safe verified Skill review fields. No raw credential, candidate handle or plan handle.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "SkillInstallationReview".
+ */
+/** @experimental */
+export type SkillInstallationReview =
+  | {
+      /**
+       * Skill invocation name from SKILL.md.
+       */
+      name: string;
+      /**
+       * Skill description from SKILL.md when present.
+       */
+      description?: string;
+      catalogue: InstallationCatalogueIdentity;
+      source: SkillInstallationSource;
+      target: SkillInstallationLocation;
+      /**
+       * Installing never grants immediate use; the Skill is written disabled.
+       */
+      installsDisabled: boolean;
+      /**
+       * Reviewed files and digests.
+       */
+      files: SkillInstallationFileReview[];
+      /**
+       * Total reviewed payload size in bytes.
+       */
+      totalBytes: number;
+      /**
+       * Relative path of the verified Skill entrypoint.
+       */
+      entrypointPath: string;
+      /**
+       * Complete verified SKILL.md content. Planning refuses with review-too-large
+       * when this exceeds 262144 UTF-8 bytes; it is never truncated.
+       */
+      entrypointContent: string;
+      /**
+       * Exact reviewed Skill installation action.
+       */
+      action: "install";
+    }
+  | {
+      installation: SkillInstallationSummary;
+      /**
+       * Whether current files differ from the receipt. Apply refuses drift.
+       */
+      filesModified: boolean;
+      /**
+       * Files recorded by the installation receipt.
+       */
+      files: SkillInstallationFileReview[];
+      /**
+       * Total receipt-owned payload size in bytes.
+       */
+      totalBytes: number;
+      catalogue: InstallationCatalogueIdentity;
+      /**
+       * Exact reviewed Skill installation action.
+       */
+      action: "uninstall";
+    };
+
+/** @experimental */
+export type SkillInstallationScope = /** The user's personal Copilot home. */ "personal";
+/**
+ * Bound-session observation after reconciling persisted enablement.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "SkillInstallationSessionState".
+ */
+/** @experimental */
+export type SkillInstallationSessionState =
+  /** The selected session has loaded this Skill and it is enabled. */
+  | "loaded-enabled"
+  /** The selected session has loaded this Skill or settings and it is disabled. */
+  | "loaded-disabled"
+  /** The selected session has not loaded Skills after the latest change. */
+  | "not-loaded"
+  /** The selected session could not be inspected. */
+  | "unknown";
+/**
+ * Owned Skill state observed from files and receipts.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "SkillInstallationOwnershipState".
+ */
+/** @experimental */
+export type SkillInstallationOwnershipState =
+  /** Owned files and receipt evidence match. */
+  | "intact"
+  /** Owned files no longer match the receipt. */
+  | "modified"
+  /** Ownership evidence requires recovery before mutation. */
+  | "recovery-required";
+/**
+ * Safe verified Agent Plugin review fields. No raw credential, candidate handle or plan handle.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "PluginInstallationReview".
+ */
+/** @experimental */
+export type PluginInstallationReview = {
+  /**
+   * Installed plugin name, derived from the verified manifest exactly as a direct install derives it.
+   */
+  name: string;
+  /**
+   * Manifest description when present.
+   */
+  description?: string;
+  /**
+   * Manifest version when present.
+   */
+  version?: string;
+  catalogue: InstallationCatalogueIdentity;
+  source: PluginInstallationSource;
+  target: PluginInstallationLocation;
+  /**
+   * Installing never grants immediate use; the plugin is registered disabled.
+   */
+  installsDisabled: boolean;
+  /**
+   * Reviewed files and digests.
+   */
+  files: PluginInstallationFileReview[];
+  /**
+   * Total reviewed payload size in bytes.
+   */
+  totalBytes: number;
+  /**
+   * Relative path of the verified plugin manifest.
+   */
+  manifestPath: string;
+  /**
+   * Complete verified manifest content. Planning refuses with review-too-large
+   * when this exceeds 262144 UTF-8 bytes; it is never truncated.
+   */
+  manifestContent: string;
+  /**
+   * Exact reviewed Agent Plugin installation action.
+   */
+  action: "install";
+};
+/**
+ * Planning result for a materialisation reference with the honoured contract, or a typed refusal.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogReferenceInstallationResult".
+ */
+/** @experimental */
+export type CatalogReferenceInstallationResult =
+  | {
+      /**
+       * Discriminator: handled planning outcome.
+       */
+      kind: "outcome";
+      outcome: CatalogReferenceInstallationOutcome;
+      negotiated: CatalogNegotiatedContract;
+    }
+  | CatalogNegotiationRefusedError
+  | CatalogInvalidRequestError;
 /**
  * Relationship of the backend-reported count to the complete query result set.
  *
@@ -2354,6 +2597,13 @@ export type InstallationReview =
        * Reviewed resource discriminator.
        */
       resource: "skill";
+    }
+  | {
+      review: PluginInstallationReview;
+      /**
+       * Reviewed resource discriminator.
+       */
+      resource: "plugin";
     };
 /**
  * Safe MCP review fields. No raw card, retrieval URL, plan handle or secret value.
@@ -2581,105 +2831,6 @@ export type McpInstallationSecretStorage =
   | "keychain"
   /** The explicitly selected private file backend. */
   | "private-file";
-/**
- * Safe verified Skill review fields. No raw credential, candidate handle or plan handle.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SkillInstallationReview".
- */
-/** @experimental */
-export type SkillInstallationReview =
-  | {
-      /**
-       * Skill invocation name from SKILL.md.
-       */
-      name: string;
-      /**
-       * Skill description from SKILL.md when present.
-       */
-      description?: string;
-      catalogue: InstallationCatalogueIdentity;
-      source: SkillInstallationSource;
-      target: SkillInstallationLocation;
-      /**
-       * Installing never grants immediate use; the Skill is written disabled.
-       */
-      installsDisabled: boolean;
-      /**
-       * Reviewed files and digests.
-       */
-      files: SkillInstallationFileReview[];
-      /**
-       * Total reviewed payload size in bytes.
-       */
-      totalBytes: number;
-      /**
-       * Relative path of the verified Skill entrypoint.
-       */
-      entrypointPath: string;
-      /**
-       * Complete verified SKILL.md content. Planning refuses with review-too-large
-       * when this exceeds 262144 UTF-8 bytes; it is never truncated.
-       */
-      entrypointContent: string;
-      /**
-       * Exact reviewed Skill installation action.
-       */
-      action: "install";
-    }
-  | {
-      installation: SkillInstallationSummary;
-      /**
-       * Whether current files differ from the receipt. Apply refuses drift.
-       */
-      filesModified: boolean;
-      /**
-       * Files recorded by the installation receipt.
-       */
-      files: SkillInstallationFileReview[];
-      /**
-       * Total receipt-owned payload size in bytes.
-       */
-      totalBytes: number;
-      catalogue: InstallationCatalogueIdentity;
-      /**
-       * Exact reviewed Skill installation action.
-       */
-      action: "uninstall";
-    };
-
-/** @experimental */
-export type SkillInstallationScope = /** The user's personal Copilot home. */ "personal";
-/**
- * Bound-session observation after reconciling persisted enablement.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SkillInstallationSessionState".
- */
-/** @experimental */
-export type SkillInstallationSessionState =
-  /** The selected session has loaded this Skill and it is enabled. */
-  | "loaded-enabled"
-  /** The selected session has loaded this Skill or settings and it is disabled. */
-  | "loaded-disabled"
-  /** The selected session has not loaded Skills after the latest change. */
-  | "not-loaded"
-  /** The selected session could not be inspected. */
-  | "unknown";
-/**
- * Owned Skill state observed from files and receipts.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SkillInstallationOwnershipState".
- */
-/** @experimental */
-export type SkillInstallationOwnershipState =
-  /** Owned files and receipt evidence match. */
-  | "intact"
-  /** Owned files no longer match the receipt. */
-  | "modified"
-  /** Ownership evidence requires recovery before mutation. */
-  | "recovery-required";
 /**
  * Explicit user decisions, never inferred from a permission grant or model response.
  *
@@ -3704,6 +3855,14 @@ export type McpOauthProbeResult =
       status: "failed";
     };
 /**
+ * MCP server configuration (stdio, remote HTTP/SSE, or in-process)
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "McpServerConfig".
+ */
+/** @experimental */
+export type McpServerConfig = McpServerConfigStdio | McpServerConfigHttp;
+/**
  * What an install plan is computed from: a candidate handle from a previous search, or a card supplied directly.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -3784,14 +3943,6 @@ export type McpPromptRole =
   | "user"
   /** A message from the assistant. */
   | "assistant";
-/**
- * MCP server configuration (stdio, remote HTTP/SSE, or in-process)
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "McpServerConfig".
- */
-/** @experimental */
-export type McpServerConfig = (McpServerConfigStdio | McpServerConfigHttp) | undefined;
 /**
  * Outcome of the sampling inference. 'success' produced a response; 'failure' encountered an error (including agent-side rejection by content filter or criteria); 'cancelled' the caller cancelled this execution via cancelSamplingExecution.
  *
@@ -4301,6 +4452,18 @@ export type ModelSwitchAutoTierStatus =
   /** The request was accepted but has not committed. A later user turn using the `auto` model must mint and validate the replacement before it becomes effective. */
   | "pending";
 /**
+ * Unit the catalog publishes a model's token prices in. The numeric fields of ModelBillingTokenPrices carry no unit of their own, so a client that renders a price needs this to scale it.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "TokenPriceUnit".
+ */
+/** @experimental */
+export type TokenPriceUnit =
+  /** Prices are already quoted in AI Credits and need no conversion. */
+  | "ai_credits"
+  /** Prices are quoted in nano-AIU; divide by 1,000,000,000 to get AI Credits. */
+  | "nano_aiu";
+/**
  * Allowed values for the `OptionsUpdateAdditionalContentExclusionPolicyScope` enumeration.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -4551,6 +4714,174 @@ export type PermissionsSetApproveAllSource =
   | "user_setting"
   /** Allow-all was enabled through an RPC caller. */
   | "rpc";
+/**
+ * Bounded refusal categories for verified Agent Plugin installation.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "PluginInstallationFailureReason".
+ */
+/** @experimental */
+export type PluginInstallationFailureReason =
+  /** The selected session does not have the Agent Finder plugin installation feature flag enabled. */
+  | "feature-disabled"
+  /** The request is unsupported or malformed. */
+  | "invalid-request"
+  /** The original host cannot receive human confirmation. */
+  | "confirmation-unavailable"
+  /** The confirmation response is malformed or mismatched. */
+  | "confirmation-invalid"
+  /** Existing authenticated session and host authority is unavailable. */
+  | "policy-context-unavailable"
+  /** The original authority or policy changed. */
+  | "policy-changed"
+  /** Managed policy only allows plugins from known marketplaces, which excludes direct installs. */
+  | "policy-blocked"
+  /** The original plan deadline elapsed. */
+  | "plan-expired"
+  /** The one-use plan was already consumed. */
+  | "plan-replayed"
+  /** The handle belongs to a different runtime, session or connection. */
+  | "foreign-runtime"
+  /** The handle is not the expected handle kind. */
+  | "wrong-kind"
+  /** The handle was minted for a different search result or authority. */
+  | "search-mismatch"
+  /** The handle or operation expired. */
+  | "expired"
+  /** The candidate handle does not belong to an Agent Plugin with a complete materialisation reference. */
+  | "invalid-candidate"
+  /** The materialisation descriptor could not be retrieved safely. */
+  | "descriptor-unavailable"
+  /** Agent Finder has no materialisation for the referenced resource revision (HTTP 404). */
+  | "descriptor-not-found"
+  /** Agent Finder withdrew the referenced resource revision (HTTP 410). */
+  | "descriptor-withdrawn"
+  /** The materialisation descriptor failed validation. */
+  | "descriptor-invalid"
+  /** The retrieved descriptor does not match the referenced descriptor or bundle digest. */
+  | "digest-mismatch"
+  /** The candidate's materialisation is not an Agent Plugin. */
+  | "unsupported-resource"
+  /** The plugin manifest could not be retrieved or verified. */
+  | "entrypoint-unavailable"
+  /** The plugin manifest is not a valid plugin manifest, or the bundle has another manifest that would take precedence over the reviewed one. */
+  | "invalid-plugin"
+  /** The plugin manifest exceeds the bounded complete review size. */
+  | "review-too-large"
+  /** The reviewed plugin files could not be acquired. */
+  | "payload-unavailable"
+  /** The acquired files no longer match the reviewed descriptor. */
+  | "payload-mismatch"
+  /** Plugin installation storage or admission is busy. */
+  | "busy"
+  /** A plugin with the same name or install location already exists. */
+  | "already-installed"
+  /** A storage operation failed; nothing was registered. */
+  | "write-failed";
+/**
+ * Management outcome for verified Agent Plugin installation planning.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "PluginInstallationManagementOutcome".
+ */
+/** @experimental */
+export type PluginInstallationManagementOutcome =
+  | {
+      plan: PluginInstallPlan;
+      /**
+       * Agent Plugin installation management outcome discriminator.
+       */
+      kind: "install-planned";
+    }
+  | {
+      reason: PluginInstallationFailureReason;
+      /**
+       * Agent Plugin installation management outcome discriminator.
+       */
+      kind: "refused";
+    };
+/**
+ * Agent Plugin installation planning result with the honoured contract, or a typed refusal.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "PluginInstallationManagementResult".
+ */
+/** @experimental */
+export type PluginInstallationManagementResult =
+  | {
+      /**
+       * Discriminator: handled management outcome.
+       */
+      kind: "outcome";
+      outcome: PluginInstallationManagementOutcome;
+      negotiated: CatalogNegotiatedContract;
+    }
+  | CatalogNegotiationRefusedError
+  | CatalogInvalidRequestError;
+/**
+ * Terminal verified Agent Plugin installation result.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "PluginInstallationOutcome".
+ */
+/** @experimental */
+export type PluginInstallationOutcome =
+  | {
+      installation: PluginInstallationSummary;
+      /**
+       * Terminal Agent Plugin installation outcome discriminator.
+       */
+      kind: "installed";
+    }
+  | {
+      /**
+       * Original operation identity.
+       */
+      operationId: string;
+      /**
+       * Terminal Agent Plugin installation outcome discriminator.
+       */
+      kind: "declined";
+    }
+  | {
+      /**
+       * Original operation identity.
+       */
+      operationId: string;
+      /**
+       * Terminal Agent Plugin installation outcome discriminator.
+       */
+      kind: "cancelled";
+    }
+  | {
+      reason: PluginInstallationFailureReason;
+      /**
+       * Present once an operation has been allocated.
+       */
+      operationId?: string;
+      /**
+       * Terminal Agent Plugin installation outcome discriminator.
+       */
+      kind: "refused";
+    };
+/**
+ * Agent Plugin installation result with the honoured contract, or a typed request/negotiation refusal.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "PluginInstallationResult".
+ */
+/** @experimental */
+export type PluginInstallationResult =
+  | {
+      /**
+       * Discriminator: handled operation outcome.
+       */
+      kind: "outcome";
+      outcome: PluginInstallationOutcome;
+      negotiated: CatalogNegotiatedContract;
+    }
+  | CatalogNegotiationRefusedError
+  | CatalogInvalidRequestError;
 /**
  * Where completed plugin content was staged before atomic promotion.
  *
@@ -4862,9 +5193,9 @@ export type SandboxProxyCaState =
  */
 /** @experimental */
 export type SandboxSessionChange =
-  /** The sandbox is off for the rest of this session; nothing was persisted and a new session starts from managed policy. */
+  /** The sandbox is off for the rest of this session; nothing was persisted and a new session starts from saved and managed policy. */
   | "disabled"
-  /** A previous session-scoped opt-out was cleared and the sandbox is enforced again. */
+  /** The sandbox is enabled for this session; nothing was persisted. */
   | "restored";
 /**
  * Current authentication information, or null when no authentication is active.
@@ -5580,17 +5911,7 @@ export type SkillInstallationFailureReason =
   /** Installed Skill files no longer match ownership evidence. */
   | "configuration-modified"
   /** A storage operation failed; inspect durable state before retrying. */
-  | "write-failed"
-  /** The materialisation reference is malformed or uses an unsupported schema version. Returned only to callers that require skill-reference-installation. */
-  | "invalid-reference"
-  /** Agent Finder has no materialisation for the referenced resource revision (HTTP 404). Returned only to callers that require skill-reference-installation. */
-  | "descriptor-not-found"
-  /** Agent Finder withdrew the referenced resource revision (HTTP 410). Returned only to callers that require skill-reference-installation. */
-  | "descriptor-withdrawn"
-  /** The retrieved descriptor does not match the referenced descriptor or bundle digest. Returned only to callers that require skill-reference-installation. */
-  | "digest-mismatch"
-  /** The referenced resource is not a Skill. Returned only to callers that require skill-reference-installation. */
-  | "unsupported-resource";
+  | "write-failed";
 /**
  * Management outcome for verified Skill inventory, planning and removal.
  *
@@ -9136,7 +9457,7 @@ export interface CardDigest {
   value: CardDigestValue;
 }
 /**
- * An inert Agent Plugin catalog result. Its canonical catalog identity, declared version, repository source claim, and explicit compatibility tags are safe to correlate, while its descriptor, URL, raw data, and installed-plugin state remain runtime-private. This contract-only variant does not mint or expose a candidate handle.
+ * An inert Agent Plugin catalog result. Its canonical catalog identity, declared version, repository source claim, and explicit compatibility tags are safe to correlate, while its descriptor, URL, raw data, materialisation reference, and installed-plugin state remain runtime-private. A handle is minted only under agent-plugin-confirmed-installation, for a candidate with a complete materialisation reference.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
  * via the `definition` "CatalogAgentPluginCandidate".
@@ -9174,7 +9495,35 @@ export interface CatalogAgentPluginCandidate {
     | [CatalogAgentPluginCompatibilityTag, CatalogAgentPluginCompatibilityTag, CatalogAgentPluginCompatibilityTag];
   installability?: CatalogAgentPluginInstallability;
   installPlan?: CatalogAgentPluginInstallPlan;
+  /**
+   * Opaque, runtime-instance scoped, TTL-bound, single-use handle for planning this plugin's installation through plugins.planInstall. Present only when the caller requires the agent-plugin-confirmed-installation capability and the candidate carries a complete Agent Finder materialisation reference, which stays runtime-private. Never logged.
+   */
+  handle?: string;
+  /**
+   * ISO 8601 timestamp after which the handle is stale and will be rejected. Present exactly when handle is present.
+   */
+  handleExpiresAt?: string;
   provenance: CatalogAgentPluginCandidateProvenance;
+  /**
+   * How many times the resource has been installed, as reported by the feed. Omitted when the feed reports no count or an invalid one.
+   */
+  installCount?: number;
+  /**
+   * HTTPS URL of the resource's icon on raw.githubusercontent.com, as reported by the feed. Untrusted external content: load it without credentials. Omitted when absent or outside the feed's icon host policy.
+   */
+  iconUrl?: string;
+  /**
+   * Identifiers of the connectors the resource works with, as reported by the feed, without repeats. Inert untrusted text. Omitted when the feed reports none.
+   *
+   * @maxItems 64
+   */
+  connectorIds?: string[];
+  /**
+   * Category slugs reported by the feed, such as `build` or `review`, without repeats. Values are passed through, so clients must tolerate slugs they do not recognise. Inert untrusted text. Omitted when the feed reports none.
+   *
+   * @maxItems 64
+   */
+  categories?: string[];
   trust?: CatalogTrustSnapshot;
 }
 /**
@@ -9447,6 +9796,26 @@ export interface CatalogAiSkillCandidate {
   publisher?: string;
   source: CatalogCandidateSource;
   provenance: CatalogAiSkillCandidateProvenance;
+  /**
+   * How many times the resource has been installed, as reported by the feed. Omitted when the feed reports no count or an invalid one.
+   */
+  installCount?: number;
+  /**
+   * HTTPS URL of the resource's icon on raw.githubusercontent.com, as reported by the feed. Untrusted external content: load it without credentials. Omitted when absent or outside the feed's icon host policy.
+   */
+  iconUrl?: string;
+  /**
+   * Identifiers of the connectors the resource works with, as reported by the feed, without repeats. Inert untrusted text. Omitted when the feed reports none.
+   *
+   * @maxItems 64
+   */
+  connectorIds?: string[];
+  /**
+   * Category slugs reported by the feed, such as `build` or `review`, without repeats. Values are passed through, so clients must tolerate slugs they do not recognise. Inert untrusted text. Omitted when the feed reports none.
+   *
+   * @maxItems 64
+   */
+  categories?: string[];
   trust?: CatalogTrustSnapshot;
 }
 /**
@@ -9548,6 +9917,26 @@ export interface CatalogMcpServerCandidate {
   publisher?: string;
   source: CatalogCandidateSource;
   provenance: CatalogMcpServerCandidateProvenance;
+  /**
+   * How many times the resource has been installed, as reported by the feed. Omitted when the feed reports no count or an invalid one.
+   */
+  installCount?: number;
+  /**
+   * HTTPS URL of the resource's icon on raw.githubusercontent.com, as reported by the feed. Untrusted external content: load it without credentials. Omitted when absent or outside the feed's icon host policy.
+   */
+  iconUrl?: string;
+  /**
+   * Identifiers of the connectors the resource works with, as reported by the feed, without repeats. Inert untrusted text. Omitted when the feed reports none.
+   *
+   * @maxItems 64
+   */
+  connectorIds?: string[];
+  /**
+   * Category slugs reported by the feed, such as `build` or `review`, without repeats. Values are passed through, so clients must tolerate slugs they do not recognise. Inert untrusted text. Omitted when the feed reports none.
+   *
+   * @maxItems 64
+   */
+  categories?: string[];
   trust?: CatalogTrustSnapshot;
 }
 /**
@@ -9794,6 +10183,21 @@ export interface CatalogNotInstallableError {
   message: string;
 }
 /**
+ * Side-effect-free planning of whatever resource a materialisation reference pins, rather than a search candidate.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogPlanInstallFromReferenceRequest".
+ */
+/** @experimental */
+export interface CatalogPlanInstallFromReferenceRequest {
+  contract: CatalogClientContract;
+  reference: CatalogMaterializationReference;
+  /**
+   * Existing local session attached to this connection.
+   */
+  policySessionId: string;
+}
+/**
  * Registry or enterprise policy refused the operation.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -9810,6 +10214,301 @@ export interface CatalogPolicyRejectedError {
    * Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.
    */
   message: string;
+}
+/**
+ * A computed Skill install plan. Nothing has been applied.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "SkillInstallPlan".
+ */
+/** @experimental */
+export interface SkillInstallPlan {
+  /**
+   * One-use plan handle, bound to the original candidate authority.
+   */
+  planHandle: string;
+  /**
+   * Original operation identifier returned before confirmation.
+   */
+  operationId: string;
+  /**
+   * Original wall-clock expiry as an ISO 8601 timestamp.
+   */
+  expiresAt: string;
+  review: SkillInstallationReview;
+}
+/**
+ * Catalogue identity retained from a bound candidate or plan at installation time.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "InstallationCatalogueIdentity".
+ */
+/** @experimental */
+export interface InstallationCatalogueIdentity {
+  /**
+   * Authority resource identifier when supplied by the catalogue.
+   */
+  resourceId?: string;
+  /**
+   * Catalogue item URL when supplied by the authority.
+   */
+  itemUrl?: string;
+  /**
+   * Human display name retained from the catalogue candidate.
+   */
+  displayName: string;
+  /**
+   * Catalogue description retained at install planning time.
+   */
+  description?: string;
+  /**
+   * Catalogue publisher retained at install planning time.
+   */
+  publisher?: string;
+  /**
+   * Catalogue version retained at install planning time.
+   */
+  version?: string;
+  /**
+   * Catalogue authority/source string that supplied the candidate.
+   */
+  source: string;
+  trustAtInstall?: CatalogTrustSnapshot;
+}
+/**
+ * Source identity retained from Agent Finder and the pinned GitHub descriptor.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "SkillInstallationSource".
+ */
+/** @experimental */
+export interface SkillInstallationSource {
+  /**
+   * Agent Finder resource identifier.
+   */
+  resourceId: string;
+  /**
+   * Agent Finder materialisation revision identifier.
+   */
+  catalogRevisionId: string;
+  /**
+   * GitHub repository database identifier.
+   */
+  repositoryId: string;
+  /**
+   * Repository full name, for example owner/name.
+   */
+  repository: string;
+  /**
+   * Pinned Git commit revision.
+   */
+  revision: string;
+  /**
+   * Root path within the pinned repository.
+   */
+  root: string;
+  /**
+   * Digest of the canonical materialisation descriptor.
+   */
+  descriptorDigest: string;
+  /**
+   * Digest of the descriptor's bundle manifest.
+   */
+  bundleDigest: string;
+}
+/**
+ * A user-facing personal Skill installation location without absolute host paths.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "SkillInstallationLocation".
+ */
+/** @experimental */
+export interface SkillInstallationLocation {
+  scope: SkillInstallationScope;
+  /**
+   * Path relative to the Copilot home.
+   */
+  relativePath: string;
+  /**
+   * Safe display label, for example ~/.copilot/skills/run-checks.
+   */
+  displayLabel: string;
+  /**
+   * Diagnostics-only absolute host path. Hosts must not display it by default.
+   */
+  diagnosticsAbsolutePath?: string;
+}
+/**
+ * One reviewed Skill file.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "SkillInstallationFileReview".
+ */
+/** @experimental */
+export interface SkillInstallationFileReview {
+  /**
+   * Relative file path within the Skill root.
+   */
+  path: string;
+  /**
+   * Exact reviewed file size in bytes.
+   */
+  sizeBytes: number;
+  /**
+   * Declared media type for the file.
+   */
+  mediaType: string;
+  /**
+   * Whether the file is installed with executable permissions.
+   */
+  executable: boolean;
+  /**
+   * SHA-256 digest of the exact file bytes.
+   */
+  digest: string;
+}
+/**
+ * Durable verified Skill ownership summary.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "SkillInstallationSummary".
+ */
+/** @experimental */
+export interface SkillInstallationSummary {
+  /**
+   * Exact durable installation receipt identity.
+   */
+  installationId: string;
+  /**
+   * Operation that installed this Skill.
+   */
+  operationId: string;
+  /**
+   * Skill invocation name.
+   */
+  name: string;
+  target: SkillInstallationLocation;
+  /**
+   * Persisted enablement requested for this installation.
+   */
+  configuredEnabled: boolean;
+  sessionState: SkillInstallationSessionState;
+  source: SkillInstallationSource;
+  catalogue: InstallationCatalogueIdentity;
+  /**
+   * ISO 8601 wall-clock installation time.
+   */
+  installedAt: string;
+  ownershipState: SkillInstallationOwnershipState;
+}
+/**
+ * A computed Agent Plugin install plan. Nothing has been applied.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "PluginInstallPlan".
+ */
+/** @experimental */
+export interface PluginInstallPlan {
+  /**
+   * One-use plan handle, bound to the original authority.
+   */
+  planHandle: string;
+  /**
+   * Original operation identifier returned before confirmation.
+   */
+  operationId: string;
+  /**
+   * Original wall-clock expiry as an ISO 8601 timestamp.
+   */
+  expiresAt: string;
+  review: PluginInstallationReview;
+}
+/**
+ * Source identity retained from Agent Finder and the pinned GitHub descriptor.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "PluginInstallationSource".
+ */
+/** @experimental */
+export interface PluginInstallationSource {
+  /**
+   * Agent Finder resource identifier.
+   */
+  resourceId: string;
+  /**
+   * Agent Finder materialisation revision identifier.
+   */
+  catalogRevisionId: string;
+  /**
+   * GitHub repository database identifier.
+   */
+  repositoryId: string;
+  /**
+   * Repository full name, for example owner/name.
+   */
+  repository: string;
+  /**
+   * Pinned Git commit revision.
+   */
+  revision: string;
+  /**
+   * Plugin root within the pinned repository. Empty for the repository root.
+   */
+  root: string;
+  /**
+   * Digest of the canonical materialisation descriptor.
+   */
+  descriptorDigest: string;
+  /**
+   * Digest of the descriptor's bundle manifest.
+   */
+  bundleDigest: string;
+}
+/**
+ * Where a plugin is installed, without an absolute host path.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "PluginInstallationLocation".
+ */
+/** @experimental */
+export interface PluginInstallationLocation {
+  /**
+   * Path relative to the Copilot home, under installed-plugins/_direct like any direct plugin install.
+   */
+  relativePath: string;
+  /**
+   * Safe display label, for example ~/.copilot/installed-plugins/_direct/owner--repo--plugins-work-hub.
+   */
+  displayLabel: string;
+}
+/**
+ * One reviewed plugin file.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "PluginInstallationFileReview".
+ */
+/** @experimental */
+export interface PluginInstallationFileReview {
+  /**
+   * Relative file path within the plugin root.
+   */
+  path: string;
+  /**
+   * Exact reviewed file size in bytes.
+   */
+  sizeBytes: number;
+  /**
+   * Declared media type for the file.
+   */
+  mediaType: string;
+  /**
+   * Whether the file is installed with executable permissions.
+   */
+  executable: boolean;
+  /**
+   * SHA-256 digest of the exact file bytes.
+   */
+  digest: string;
 }
 /**
  * An explicit numbered-page request. SDK consumers treat the token as opaque. For bound search, the runtime unwraps an expiring owner-bound reference to the private authority token; only the runtime changes the authority token's targetPage. Legacy unbound navigation keeps its authority-issued token semantics. No snapshot stability is promised.
@@ -14516,42 +15215,47 @@ export interface HostStartResult {
   pid?: number;
 }
 /**
- * Catalogue identity retained from a bound candidate or plan at installation time.
+ * Withdraws an application publication without deleting its underlying local session.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "InstallationCatalogueIdentity".
+ * via the `definition` "HostUnpublishSessionRequest".
  */
 /** @experimental */
-export interface InstallationCatalogueIdentity {
+export interface HostUnpublishSessionRequest {
   /**
-   * Authority resource identifier when supplied by the catalogue.
+   * Listener UUID returned by host.start; the caller must own the live listener.
    */
-  resourceId?: string;
+  hostId: string;
   /**
-   * Catalogue item URL when supplied by the authority.
+   * Canonical session ID in the durable catalog, whether resident or dormant.
    */
-  itemUrl?: string;
+  sessionId: string;
+}
+/**
+ * Publication withdrawal outcome; local history, worktrees and ongoing work are preserved.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "HostUnpublishSessionResult".
+ */
+/** @experimental */
+export interface HostUnpublishSessionResult {
   /**
-   * Human display name retained from the catalogue candidate.
+   * True when a publication was removed; false when it was already absent.
    */
-  displayName: string;
+  unpublished: boolean;
+}
+/**
+ * Removes a durable application publication and revokes its AHP attachments.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "HostUnregisterSessionRequest".
+ */
+/** @experimental */
+export interface HostUnregisterSessionRequest {
   /**
-   * Catalogue description retained at install planning time.
+   * Canonical ID of the application publication to withdraw.
    */
-  description?: string;
-  /**
-   * Catalogue publisher retained at install planning time.
-   */
-  publisher?: string;
-  /**
-   * Catalogue version retained at install planning time.
-   */
-  version?: string;
-  /**
-   * Catalogue authority/source string that supplied the candidate.
-   */
-  source: string;
-  trustAtInstall?: CatalogTrustSnapshot;
+  sessionId: string;
 }
 /**
  * One connection-owned, expiring request for a trusted host's explicit user decision.
@@ -14879,132 +15583,6 @@ export interface McpInstallationRemoteConfiguration {
    * Configured tool selection, not permission to invoke those tools.
    */
   tools: string[];
-}
-/**
- * Source identity retained from Agent Finder and the pinned GitHub descriptor.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SkillInstallationSource".
- */
-/** @experimental */
-export interface SkillInstallationSource {
-  /**
-   * Agent Finder resource identifier.
-   */
-  resourceId: string;
-  /**
-   * Agent Finder materialisation revision identifier.
-   */
-  catalogRevisionId: string;
-  /**
-   * GitHub repository database identifier.
-   */
-  repositoryId: string;
-  /**
-   * Repository full name, for example owner/name.
-   */
-  repository: string;
-  /**
-   * Pinned Git commit revision.
-   */
-  revision: string;
-  /**
-   * Root path within the pinned repository.
-   */
-  root: string;
-  /**
-   * Digest of the canonical materialisation descriptor.
-   */
-  descriptorDigest: string;
-  /**
-   * Digest of the descriptor's bundle manifest.
-   */
-  bundleDigest: string;
-}
-/**
- * A user-facing personal Skill installation location without absolute host paths.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SkillInstallationLocation".
- */
-/** @experimental */
-export interface SkillInstallationLocation {
-  scope: SkillInstallationScope;
-  /**
-   * Path relative to the Copilot home.
-   */
-  relativePath: string;
-  /**
-   * Safe display label, for example ~/.copilot/skills/run-checks.
-   */
-  displayLabel: string;
-  /**
-   * Diagnostics-only absolute host path. Hosts must not display it by default.
-   */
-  diagnosticsAbsolutePath?: string;
-}
-/**
- * One reviewed Skill file.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SkillInstallationFileReview".
- */
-/** @experimental */
-export interface SkillInstallationFileReview {
-  /**
-   * Relative file path within the Skill root.
-   */
-  path: string;
-  /**
-   * Exact reviewed file size in bytes.
-   */
-  sizeBytes: number;
-  /**
-   * Declared media type for the file.
-   */
-  mediaType: string;
-  /**
-   * Whether the file is installed with executable permissions.
-   */
-  executable: boolean;
-  /**
-   * SHA-256 digest of the exact file bytes.
-   */
-  digest: string;
-}
-/**
- * Durable verified Skill ownership summary.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SkillInstallationSummary".
- */
-/** @experimental */
-export interface SkillInstallationSummary {
-  /**
-   * Exact durable installation receipt identity.
-   */
-  installationId: string;
-  /**
-   * Operation that installed this Skill.
-   */
-  operationId: string;
-  /**
-   * Skill invocation name.
-   */
-  name: string;
-  target: SkillInstallationLocation;
-  /**
-   * Persisted enablement requested for this installation.
-   */
-  configuredEnabled: boolean;
-  sessionState: SkillInstallationSessionState;
-  source: SkillInstallationSource;
-  catalogue: InstallationCatalogueIdentity;
-  /**
-   * ISO 8601 wall-clock installation time.
-   */
-  installedAt: string;
-  ownershipState: SkillInstallationOwnershipState;
 }
 /**
  * A response is meaningful only on the connection and request that issued its challenge.
@@ -18099,6 +18677,50 @@ export interface McpOauthCancelLoginResult {
   cancelled: boolean;
 }
 /**
+ * A remote MCP server whose authorization server should be asked about Dynamic Client Registration.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "McpOauthCheckDcrSupportRequest".
+ */
+/** @experimental */
+/** @internal */
+export interface McpOauthCheckDcrSupportRequest {
+  /**
+   * URL of the remote MCP server that answered 401.
+   */
+  serverUrl: string;
+  /**
+   * Raw protected-resource metadata text from the server's `WWW-Authenticate` challenge. Omit to discover the authorization server from the server URL instead.
+   */
+  resourceMetadataText?: string;
+  /**
+   * Proxy the request must travel through. Omit to use the session's own egress settings.
+   */
+  sandboxProxy?: string;
+  /**
+   * Locally owned session whose egress policy and sandbox proxy constrain the request. Omitted or nonlocal session IDs provide no local session egress state.
+   */
+  sessionId?: string;
+}
+/**
+ * Whether the server's authorization server registers clients dynamically.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "McpOauthCheckDcrSupportResult".
+ */
+/** @experimental */
+/** @internal */
+export interface McpOauthCheckDcrSupportResult {
+  /**
+   * Whether the authorization server advertises a client registration endpoint.
+   */
+  supportsDcr: boolean;
+  /**
+   * Authorization server the metadata pointed at. Absent when none could be discovered.
+   */
+  authorizationServerUrl?: string;
+}
+/**
  * Host-delivered callback for a runtime-managed MCP OAuth login.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -18114,6 +18736,54 @@ export interface McpOauthCompleteRequest {
    * Full externally visible HTTPS callback URL received by the host, including the authorization response query parameters. Applications behind a reverse proxy must reconstruct the public URL rather than passing an internal proxy URL.
    */
   callbackUrl: string;
+}
+/**
+ * An OAuth challenge from a remote MCP server whose protected-resource metadata should be read.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "McpOauthFetchProtectedResourceMetadataRequest".
+ */
+/** @experimental */
+/** @internal */
+export interface McpOauthFetchProtectedResourceMetadataRequest {
+  /**
+   * URL of the remote MCP server that answered 401.
+   */
+  requestUrl: string;
+  /**
+   * Request headers the configured server sends, as a serialized JSON object. Omit to send none.
+   */
+  headersJson?: string;
+  /**
+   * Metadata URL named in the server's `WWW-Authenticate` challenge. Omit to try conventional metadata endpoints derived from the request URL. It is server-controlled, so it passes the same egress policy check as the request URL.
+   */
+  resourceMetadataUrl?: string;
+  /**
+   * User agent to send. Omit to use the runtime's own.
+   */
+  userAgent?: string;
+  /**
+   * Proxy the request must travel through. Omit to use the session's own egress settings.
+   */
+  sandboxProxy?: string;
+  /**
+   * Locally owned session whose egress policy and sandbox proxy constrain the request. Omitted or nonlocal session IDs provide no local session egress state.
+   */
+  sessionId?: string;
+}
+/**
+ * Raw protected-resource metadata from the explicit metadata URL or conventional discovery.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "McpOauthFetchProtectedResourceMetadataResult".
+ */
+/** @experimental */
+/** @internal */
+export interface McpOauthFetchProtectedResourceMetadataResult {
+  /**
+   * Metadata document exactly as the server returned it, unparsed. Absent when no document could be read from the explicit metadata URL or, when omitted, the conventional metadata endpoints.
+   */
+  metadataText?: string;
 }
 /**
  * Pending MCP OAuth request ID and host-provided token or cancellation response.
@@ -18141,6 +18811,34 @@ export interface McpOauthHandlePendingResult {
    * Whether the response was accepted. False if the request was unknown, timed out, or already resolved.
    */
   success: boolean;
+}
+/**
+ * An authorization server URL to classify.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "McpOauthIsMicrosoftAuthorizationServerRequest".
+ */
+/** @experimental */
+/** @internal */
+export interface McpOauthIsMicrosoftAuthorizationServerRequest {
+  /**
+   * Authorization server URL, typically the one `mcp.oauth.checkDcrSupport` discovered.
+   */
+  authorizationServerUrl: string;
+}
+/**
+ * Whether the URL is a Microsoft Entra ID authorization server.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "McpOauthIsMicrosoftAuthorizationServerResult".
+ */
+/** @experimental */
+/** @internal */
+export interface McpOauthIsMicrosoftAuthorizationServerResult {
+  /**
+   * Whether the host is one Microsoft Entra ID serves authorization from.
+   */
+  isMicrosoftAuthorizationServer: boolean;
 }
 /**
  * Remote MCP server name and optional overrides controlling reauthentication, OAuth client display name, callback handling, and static OAuth client selection.
@@ -18303,6 +19001,51 @@ export interface McpOauthRespondResult {
    * Whether the response was accepted. False if the request was unknown, timed out, or already resolved.
    */
   success: boolean;
+}
+/**
+ * An OAuth client a server configuration pins, without its secret.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "McpOauthStaticClientConfig".
+ */
+/** @experimental */
+/** @internal */
+export interface McpOauthStaticClientConfig {
+  /**
+   * Configured OAuth client identifier.
+   */
+  clientId: string;
+  /**
+   * Whether the configuration declares a public client. Absent when the configuration does not say, which the flow reads as a public client.
+   */
+  publicClient?: boolean;
+  grantType?: McpServerConfigHttpOauthGrantType;
+  /**
+   * Configured OAuth scopes joined into one space-delimited scope value. Absent when the configuration specifies no scopes.
+   */
+  scope?: string;
+}
+/**
+ * A remote MCP server configuration whose pinned OAuth client should be read.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "McpOauthStaticClientConfigRequest".
+ */
+/** @experimental */
+/** @internal */
+export interface McpOauthStaticClientConfigRequest {
+  config: McpServerConfig;
+}
+/**
+ * The OAuth client the configuration pins, when it pins one.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "McpOauthStaticClientConfigResult".
+ */
+/** @experimental */
+/** @internal */
+export interface McpOauthStaticClientConfigResult {
+  clientConfig?: McpOauthStaticClientConfig;
 }
 /**
  * A computed MCP install plan. Nothing has been applied: the plan describes what installing would change, and the plan handle is what a later apply operation would consume.
@@ -18803,7 +19546,7 @@ export interface McpRegistrySearchResult {
 /** @internal */
 export interface McpReloadConfig {
   mcpServers: {
-    [k: string]: McpServerConfig | undefined;
+    [k: string]: McpServerConfig;
   };
   disabledServers?: string[];
   enabledServers?: string[];
@@ -18811,6 +19554,10 @@ export interface McpReloadConfig {
    * Server names the CLI enabled for this session via `--enable-mcp-server`.
    */
   cliEnabledServers?: string[];
+  /**
+   * Caller-resolved settings disables, below CLI enables and explicit session disables.
+   */
+  configuredDisabledServers?: string[];
   mcp3pEnabled?: boolean;
   includeWorkspaceSources?: boolean;
   configFilter?: OpaqueInProcessValue;
@@ -19830,16 +20577,16 @@ export interface ModelBilling {
 /** @experimental */
 export interface ModelBillingTokenPrices {
   /**
-   * AI Credits cost per billing batch of input tokens
+   * Cost per billing batch of input tokens. The unit is reported by models.listTokenPriceUnits.
    */
   inputPrice?: number;
   /**
-   * AI Credits cost per billing batch of output tokens
+   * Cost per billing batch of output tokens. The unit is reported by models.listTokenPriceUnits.
    */
   outputPrice?: number;
   /**
    * @deprecated
-   * Use cacheReadPrice instead. AI Credits cost per billing batch of cached tokens
+   * Use cacheReadPrice when available. Cost per billing batch of cached tokens in the unit reported by models.listTokenPriceUnits.
    */
   cachePrice?: number;
   /**
@@ -20191,6 +20938,7 @@ export interface ModelList {
    * List of available models with full metadata
    */
   models: Model[];
+  auto?: AutoTierMetadata;
 }
 
 /** @experimental */
@@ -20881,6 +21629,33 @@ export interface ModelSwitchToResult {
    */
   deprecationWarnings?: string[];
   modelState?: CurrentModel;
+}
+/**
+ * The unit one model's published token prices are quoted in.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "ModelTokenPriceUnit".
+ */
+/** @experimental */
+export interface ModelTokenPriceUnit {
+  /**
+   * Model ID the unit applies to, matching the id of a models.list entry.
+   */
+  modelId: string;
+  unit: TokenPriceUnit;
+}
+/**
+ * Price units for every catalog model that publishes token prices.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "ModelTokenPriceUnitList".
+ */
+/** @experimental */
+export interface ModelTokenPriceUnitList {
+  /**
+   * One entry per model that publishes token prices, in catalog order. A model with no published prices is omitted.
+   */
+  units: ModelTokenPriceUnit[];
 }
 /**
  * Agent interaction mode to apply to the session.
@@ -22929,6 +23704,52 @@ export interface Plugin {
   installed?: boolean;
 }
 /**
+ * Applies exactly one retained verified Agent Plugin installation plan.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "PluginApplyInstallRequest".
+ */
+/** @experimental */
+export interface PluginApplyInstallRequest {
+  contract: CatalogClientContract;
+  /**
+   * Opaque original plan, consumed once.
+   */
+  planHandle: string;
+  /**
+   * Same existing selected session as planning.
+   */
+  policySessionId: string;
+}
+/**
+ * A plugin registered from a verified materialisation.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "PluginInstallationSummary".
+ */
+/** @experimental */
+export interface PluginInstallationSummary {
+  /**
+   * Installed plugin name, as plugins.list, plugins.enable and plugins.uninstall identify it.
+   */
+  name: string;
+  /**
+   * Operation that installed the plugin.
+   */
+  operationId: string;
+  target: PluginInstallationLocation;
+  /**
+   * Whether the plugin is enabled for new sessions. Always false after installation.
+   */
+  enabled: boolean;
+  source: PluginInstallationSource;
+  catalogue: InstallationCatalogueIdentity;
+  /**
+   * ISO 8601 wall-clock installation time.
+   */
+  installedAt: string;
+}
+/**
  * Result of installing a plugin.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -22976,6 +23797,24 @@ export interface PluginListResult {
    * Installed plugins
    */
   plugins: InstalledPluginInfo[];
+}
+/**
+ * Side-effect-free planning of one Agent Plugin search candidate through its Agent Finder materialisation.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "PluginPlanInstallRequest".
+ */
+/** @experimental */
+export interface PluginPlanInstallRequest {
+  contract: CatalogClientContract;
+  /**
+   * Fresh single-use Agent Plugin candidate handle returned by a bound catalogue search.
+   */
+  candidateHandle: string;
+  /**
+   * Existing local session attached to this connection.
+   */
+  policySessionId: string;
 }
 /**
  * Trusted built-in plugin directories to use for this runtime process.
@@ -29688,28 +30527,6 @@ export interface SkillDiscoveryPathList {
   paths: SkillDiscoveryPath[];
 }
 /**
- * A computed Skill install plan. Nothing has been applied.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SkillInstallPlan".
- */
-/** @experimental */
-export interface SkillInstallPlan {
-  /**
-   * One-use plan handle, bound to the original candidate authority.
-   */
-  planHandle: string;
-  /**
-   * Original operation identifier returned before confirmation.
-   */
-  operationId: string;
-  /**
-   * Original wall-clock expiry as an ISO 8601 timestamp.
-   */
-  expiresAt: string;
-  review: SkillInstallationReview;
-}
-/**
  * A computed Skill uninstall plan. Nothing has been removed.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -29772,21 +30589,6 @@ export interface SkillList {
    * Available skills
    */
   skills: Skill[];
-}
-/**
- * Side-effect-free planning of one Skill from a materialisation reference rather than a search candidate.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "SkillPlanInstallFromReferenceRequest".
- */
-/** @experimental */
-export interface SkillPlanInstallFromReferenceRequest {
-  contract: CatalogClientContract;
-  reference: CatalogMaterializationReference;
-  /**
-   * Existing local session attached to this connection.
-   */
-  policySessionId: string;
 }
 /**
  * Side-effect-free planning of one verified Agent Finder Skill candidate.
@@ -34785,6 +35587,18 @@ export interface HostGetConfigurationResult {
 export interface HostReadyResult {}
 
 /** @experimental */
+export interface ModelsListTokenPriceUnitsRequest {
+  /**
+   * Opaque account identifier returned by `account.getAllUsers`. When omitted, the current account is used.
+   */
+  selectionId?: string;
+  /**
+   * GitHub token accepted for compatibility with existing SDK clients. When provided, resolves this token instead of using the current account.
+   */
+  gitHubToken?: string;
+}
+
+/** @experimental */
 export interface SessionWorkflowPauseAtCheckpointResult {
   action: WorkflowPauseCheckpointAction;
 }
@@ -35154,6 +35968,19 @@ export interface SessionFsSqliteExistsRequest {
   sessionId: string;
 }
 /**
+ * Publication withdrawal outcome; local history, worktrees and ongoing work are preserved.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "HostUnregisterSessionResult".
+ */
+/** @experimental */
+export interface HostUnregisterSessionResult {
+  /**
+   * True when a publication was removed; false when it was already absent.
+   */
+  unpublished: boolean;
+}
+/**
  * The existing runtime identity and its resource on the listener.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -35505,6 +36332,15 @@ export function createServerRpc(connection: MessageConnection) {
             publishSession: async (params: HostPublishSessionRequest): Promise<HostPublishSessionResult> =>
                 connection.sendRequest("host.publishSession", params),
             /**
+             * Withdraws a live or dormant application publication from an owned live host and revokes AHP attachments without deleting local session history, worktrees, or ongoing work. Returns false when already absent; rejects nonapplication publications.
+             *
+             * @param params Withdraws an application publication without deleting its underlying local session.
+             *
+             * @returns Publication withdrawal outcome; local history, worktrees and ongoing work are preserved.
+             */
+            unpublishSession: async (params: HostUnpublishSessionRequest): Promise<HostUnpublishSessionResult> =>
+                connection.sendRequest("host.unpublishSession", params),
+            /**
              * Reads the complete advertised live and dormant session catalog of an existing host owned by this connection. Does not start hosting, subscribe to sessions, or guarantee resumability.
              *
              * @param params Reads a running host's catalog or the runtime's saved default catalog.
@@ -35573,6 +36409,15 @@ export function createServerRpc(connection: MessageConnection) {
              */
             getBuiltInCatalog: async (): Promise<BuiltInModelCatalog> =>
                 connection.sendRequest("models.getBuiltInCatalog", {}),
+            /**
+             * Reports the unit of each model's published token prices: AI Credits or nano-AIU. Pair these units with models.list prices by model ID and use identical account-selection options for both calls. When options are omitted, the current account and its model providers are used.
+             *
+             * @param params Optional opaque account selection or compatibility GitHub token used to list models.
+             *
+             * @returns Price units for every catalog model that publishes token prices.
+             */
+            listTokenPriceUnits: async (params?: ModelsListTokenPriceUnitsRequest): Promise<ModelTokenPriceUnitList> =>
+                connection.sendRequest("models.listTokenPriceUnits", params),
         },
         /** @experimental */
         contentExclusion: {
@@ -35857,15 +36702,6 @@ export function createServerRpc(connection: MessageConnection) {
             planInstall: async (params: SkillPlanInstallRequest): Promise<SkillInstallationManagementResult> =>
                 connection.sendRequest("skills.planInstall", params),
             /**
-             * Plans installation of the Skill pinned by an Agent Finder materialisation reference without writing files. The runtime retrieves the descriptor only from its fixed Agent Finder authority and applies the same verification as skills.planInstall; the review shows only verified data. Apply the returned plan with skills.applyInstall.
-             *
-             * @param params Side-effect-free planning of one Skill from a materialisation reference rather than a search candidate.
-             *
-             * @returns Skill installation management result with the honoured contract, or a typed refusal.
-             */
-            planInstallFromReference: async (params: SkillPlanInstallFromReferenceRequest): Promise<SkillInstallationManagementResult> =>
-                connection.sendRequest("skills.planInstallFromReference", params),
-            /**
              * Consumes one verified Skill installation plan, requests explicit human consent through installations.confirm on the original connection, then revalidates and installs the Skill disabled.
              *
              * @param params Applies exactly one retained verified Skill installation plan.
@@ -35976,36 +36812,26 @@ export function createServerRpc(connection: MessageConnection) {
             getDiscoveryPaths: async (params: SkillsGetDiscoveryPathsRequest): Promise<SkillDiscoveryPathList> =>
                 connection.sendRequest("skills.getDiscoveryPaths", params),
         },
-        /**
-         * Registers the calling SDK client as the per-entrypoint extension launch provider. Call before creating any sessions. When omitted, the runtime uses its built-in extension launcher.
-         *
-         * @experimental
-         */
-        registerExtensionLaunchProvider: async (): Promise<void> =>
-            connection.sendRequest("registerExtensionLaunchProvider", {}),
-        /** @experimental */
-        catalog: {
-            /**
-             * Requests a bounded catalog search. This host-implemented server method is available through SDK/TUI hosts; standalone and C-ABI runtimes whose host does not implement server-method dispatch return JSON-RPC MethodNotFound. A runtime with search available returns inert candidate summaries, each with an opaque single-use handle scoped to this runtime instance; a runtime without it returns the typed search-unavailable result. Public authorities may be searched anonymously, while an authority that requires credentials yields the typed authentication-required result. All returned text, URLs, and package metadata are untrusted external data and can never trigger instructions, tools, or installation. Read-only: nothing is installed, configured, or persisted.
-             *
-             * @param params A bounded catalog search. Both the query length and the result count are capped by the schema so a caller cannot request an unbounded scan.
-             *
-             * @returns Outcome of a catalog.search call: either bounded inert candidates, or one typed refusal. Never a partial success.
-             */
-            search: async (params: CatalogSearchRequest): Promise<CatalogSearchResult> =>
-                connection.sendRequest("catalog.search", params),
-            /**
-             * Terminates one retained catalog selection group. A selected outcome returns the native host a fresh single-use candidate handle plus the original searchId for a later explicit mcp.planInstall call; non-selected outcomes release the group without producing a planning input. Candidate state, cards, URLs, credentials and private identifiers remain inside the runtime. The model-facing catalog_select tool projects the result separately and never exposes the candidate handle or searchId.
-             *
-             * @param params Terminates one retained catalog selection group through an opaque reference previously returned by the model-safe search projection.
-             *
-             * @returns Typed outcome of catalog.select. Only the selected host result carries a fresh candidate handle; the model-facing projection removes both that handle and searchId.
-             */
-            select: async (params: CatalogSelectionRequest): Promise<CatalogSelectionResult> =>
-                connection.sendRequest("catalog.select", params),
-        },
         /** @experimental */
         plugins: {
+            /**
+             * Plans installation of an Agent Plugin search candidate from its verified Agent Finder materialisation without writing files. Only candidates that carry a handle can be planned. The review shows only verified data, and installing leaves the plugin disabled until it is enabled through plugins.enable.
+             *
+             * @param params Side-effect-free planning of one Agent Plugin search candidate through its Agent Finder materialisation.
+             *
+             * @returns Agent Plugin installation planning result with the honoured contract, or a typed refusal.
+             */
+            planInstall: async (params: PluginPlanInstallRequest): Promise<PluginInstallationManagementResult> =>
+                connection.sendRequest("plugins.planInstall", params),
+            /**
+             * Consumes one verified Agent Plugin installation plan, requests explicit human consent through installations.confirm on the original connection, then reacquires and verifies every file and registers the plugin, disabled, exactly as a direct plugin install. The installed plugin is listed, enabled and uninstalled through the existing plugins methods.
+             *
+             * @param params Applies exactly one retained verified Agent Plugin installation plan.
+             *
+             * @returns Agent Plugin installation result with the honoured contract, or a typed request/negotiation refusal.
+             */
+            applyInstall: async (params: PluginApplyInstallRequest): Promise<PluginInstallationResult> =>
+                connection.sendRequest("plugins.applyInstall", params),
             /**
              * Lists plugins installed in user/global state.
              *
@@ -36115,6 +36941,43 @@ export function createServerRpc(connection: MessageConnection) {
                 refresh: async (params: PluginsMarketplacesRefreshRequest): Promise<MarketplaceRefreshResult> =>
                     connection.sendRequest("plugins.marketplaces.refresh", params),
             },
+        },
+        /**
+         * Registers the calling SDK client as the per-entrypoint extension launch provider. Call before creating any sessions. When omitted, the runtime uses its built-in extension launcher.
+         *
+         * @experimental
+         */
+        registerExtensionLaunchProvider: async (): Promise<void> =>
+            connection.sendRequest("registerExtensionLaunchProvider", {}),
+        /** @experimental */
+        catalog: {
+            /**
+             * Requests a bounded catalog search. This host-implemented server method is available through SDK/TUI hosts; standalone and C-ABI runtimes whose host does not implement server-method dispatch return JSON-RPC MethodNotFound. A runtime with search available returns inert candidate summaries, each with an opaque single-use handle scoped to this runtime instance; a runtime without it returns the typed search-unavailable result. Public authorities may be searched anonymously, while an authority that requires credentials yields the typed authentication-required result. All returned text, URLs, and package metadata are untrusted external data and can never trigger instructions, tools, or installation. Read-only: nothing is installed, configured, or persisted.
+             *
+             * @param params A bounded catalog search. Both the query length and the result count are capped by the schema so a caller cannot request an unbounded scan.
+             *
+             * @returns Outcome of a catalog.search call: either bounded inert candidates, or one typed refusal. Never a partial success.
+             */
+            search: async (params: CatalogSearchRequest): Promise<CatalogSearchResult> =>
+                connection.sendRequest("catalog.search", params),
+            /**
+             * Terminates one retained catalog selection group. A selected outcome returns the native host a fresh single-use candidate handle plus the original searchId for a later explicit mcp.planInstall call; non-selected outcomes release the group without producing a planning input. Candidate state, cards, URLs, credentials and private identifiers remain inside the runtime. The model-facing catalog_select tool projects the result separately and never exposes the candidate handle or searchId.
+             *
+             * @param params Terminates one retained catalog selection group through an opaque reference previously returned by the model-safe search projection.
+             *
+             * @returns Typed outcome of catalog.select. Only the selected host result carries a fresh candidate handle; the model-facing projection removes both that handle and searchId.
+             */
+            select: async (params: CatalogSelectionRequest): Promise<CatalogSelectionResult> =>
+                connection.sendRequest("catalog.select", params),
+            /**
+             * Plans installing the resource an Agent Finder materialisation reference pins, without writing files and whatever its kind. The runtime retrieves the descriptor once, only from its fixed Agent Finder authority, verifies it, and plans by its resolution policy: a Skill (`agent-skill@1.0.0`) when the caller requires skill-confirmed-installation, an Agent Plugin (`plugin@1.0.0`) when it requires agent-plugin-confirmed-installation. Any other kind is refused as unsupported-resource. The outcome names the kind; apply a Skill plan with skills.applyInstall and an Agent Plugin plan with plugins.applyInstall. The review shows only verified data.
+             *
+             * @param params Side-effect-free planning of whatever resource a materialisation reference pins, rather than a search candidate.
+             *
+             * @returns Planning result for a materialisation reference with the honoured contract, or a typed refusal.
+             */
+            planInstallFromReference: async (params: CatalogPlanInstallFromReferenceRequest): Promise<CatalogReferenceInstallationResult> =>
+                connection.sendRequest("catalog.planInstallFromReference", params),
         },
         /** @experimental */
         agents: {
@@ -37162,6 +38025,45 @@ export function createInternalServerRpc(connection: MessageConnection) {
              */
             shouldExcludeGitHubTools: async (params: McpShouldExcludeGitHubToolsRequest): Promise<McpShouldExcludeGitHubToolsResult> =>
                 connection.sendRequest("mcp.shouldExcludeGitHubTools", params),
+            /** @experimental */
+            oauth: {
+                /**
+                 * Reads the static OAuth client a remote MCP server configuration pins, so a host can decide whether to register a client dynamically or reuse the configured one. Omits `clientConfig` when no non-empty `oauthClientId` is configured. The client secret is deliberately never carried here: the runtime loads it from the OAuth secret store at flow time.
+                 *
+                 * @param params A remote MCP server configuration whose pinned OAuth client should be read.
+                 *
+                 * @returns The OAuth client the configuration pins, when it pins one.
+                 */
+                staticClientConfig: async (params: McpOauthStaticClientConfigRequest): Promise<McpOauthStaticClientConfigResult> =>
+                    connection.sendRequest("mcp.oauth.staticClientConfig", params),
+                /**
+                 * Reads raw protected-resource metadata after a 401 establishes that OAuth is required. Uses the metadata URL from the server's `WWW-Authenticate` challenge when provided; otherwise, tries conventional metadata endpoints derived from the request URL. A host configuring a remote server interactively needs the unparsed document to classify the challenge before it starts OAuth. The request URL and each metadata URL pass through the named session's egress policy and sandbox proxy. The runtime refuses URLs that the session may not reach.
+                 *
+                 * @param params An OAuth challenge from a remote MCP server whose protected-resource metadata should be read.
+                 *
+                 * @returns Raw protected-resource metadata from the explicit metadata URL or conventional discovery.
+                 */
+                fetchProtectedResourceMetadata: async (params: McpOauthFetchProtectedResourceMetadataRequest): Promise<McpOauthFetchProtectedResourceMetadataResult> =>
+                    connection.sendRequest("mcp.oauth.fetchProtectedResourceMetadata", params),
+                /**
+                 * Asks a remote MCP server's authorization server whether it supports Dynamic Client Registration, after a 401 has already established that OAuth is required. A host configuring a remote server interactively needs this to choose between registering a client automatically and asking the user for client credentials. The request travels through the named session's egress policy and sandbox proxy, so a server that session may not reach is refused rather than contacted.
+                 *
+                 * @param params A remote MCP server whose authorization server should be asked about Dynamic Client Registration.
+                 *
+                 * @returns Whether the server's authorization server registers clients dynamically.
+                 */
+                checkDcrSupport: async (params: McpOauthCheckDcrSupportRequest): Promise<McpOauthCheckDcrSupportResult> =>
+                    connection.sendRequest("mcp.oauth.checkDcrSupport", params),
+                /**
+                 * Reports whether an authorization server URL belongs to Microsoft Entra ID. Entra does not support Dynamic Client Registration, so a host that finds no DCR support can still authorize against it with a pre-registered client instead of asking the user for client credentials.
+                 *
+                 * @param params An authorization server URL to classify.
+                 *
+                 * @returns Whether the URL is a Microsoft Entra ID authorization server.
+                 */
+                isMicrosoftAuthorizationServer: async (params: McpOauthIsMicrosoftAuthorizationServerRequest): Promise<McpOauthIsMicrosoftAuthorizationServerResult> =>
+                    connection.sendRequest("mcp.oauth.isMicrosoftAuthorizationServer", params),
+            },
         },
         /** @experimental */
         instructions: {

@@ -1865,6 +1865,20 @@ public sealed class UserPromptSubmittedHookOutput
     /// </summary>
     [JsonPropertyName("suppressOutput")]
     public bool? SuppressOutput { get; set; }
+
+    /// <summary>
+    /// Set to <c>"block"</c> to refuse the prompt: no model turn runs, no user message is recorded,
+    /// and the session emits an ephemeral <c>session.warning</c> (<c>warningType: "policy_blocked"</c>)
+    /// carrying <see cref="Reason"/>.
+    /// </summary>
+    [JsonPropertyName("decision")]
+    public string? Decision { get; set; }
+
+    /// <summary>
+    /// Why the prompt was blocked, carried by the <c>session.warning</c>.
+    /// </summary>
+    [JsonPropertyName("reason")]
+    public string? Reason { get; set; }
 }
 
 /// <summary>

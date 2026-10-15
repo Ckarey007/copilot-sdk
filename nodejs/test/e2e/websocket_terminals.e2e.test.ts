@@ -2,7 +2,7 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { approveAll, type SessionEvent } from "../../src/index.js";
 import { withTestCleanup } from "../helpers/withTestCleanup.js";
 import { createSdkTestContext, DEFAULT_GITHUB_TOKEN } from "./harness/sdkTestContext.js";
@@ -23,23 +23,33 @@ const pollOptions = { timeout: 10_000 };
 describe.each(["failed", "incomplete"] as const)(
     "WebSocket response.%s terminals",
     async (terminalType) => {
-        const upstream = await startWebSocketResponsesServer();
+        let upstream: Awaited<ReturnType<typeof startWebSocketResponsesServer>>;
+        let upstreamStartup: Promise<typeof upstream> | undefined;
+        const providerEnv = {
+            COPILOT_API_URL: "",
+            COPILOT_CLI_DISABLE_WEBSOCKET_RESPONSES: "false",
+            WEBSOCKET_RESPONSES_PERSISTENT: "true",
+            COPILOT_EXP_COPILOT_CLI_WEBSOCKET_RESPONSES_PERSISTENT: "true",
+        };
+        beforeAll(async () => {
+            upstreamStartup = startWebSocketResponsesServer();
+            upstream = await upstreamStartup;
+            providerEnv.COPILOT_API_URL = upstream.baseUrl;
+        });
         // Register first so the SDK context stops its client and proxy before this provider.
-        afterAll(() => upstream.stop());
+        afterAll(async () => {
+            const [startup] = await Promise.allSettled(upstreamStartup ? [upstreamStartup] : []);
+            if (startup?.status === "fulfilled") await startup.value.stop();
+        });
         const { copilotClient: client, openAiEndpoint } = await createSdkTestContext({
             // This regression exercises the supported subprocess SDK boundary.
             useStdio: true,
             copilotClientOptions: {
                 gitHubToken: DEFAULT_GITHUB_TOKEN,
-                env: {
-                    COPILOT_API_URL: upstream.baseUrl,
-                    COPILOT_CLI_DISABLE_WEBSOCKET_RESPONSES: "false",
-                    WEBSOCKET_RESPONSES_PERSISTENT: "true",
-                    COPILOT_EXP_COPILOT_CLI_WEBSOCKET_RESPONSES_PERSISTENT: "true",
-                },
+                env: providerEnv,
             },
         });
-        upstream.forwardHttpTo(openAiEndpoint.url);
+        beforeAll(() => upstream.forwardHttpTo(openAiEndpoint.url));
 
         it("retires a reused socket without peer EOF and resumes subsequent or queued work", async () => {
             const { state } = upstream;

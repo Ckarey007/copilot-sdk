@@ -468,6 +468,31 @@ describe("CopilotClient.startAhpHost", () => {
         expect(listSessions).toHaveBeenCalledOnce();
         expect(listSessions.mock.calls[0]?.[0]).toEqual({ hostId: host.hostId });
     });
+    it("unpublishes dormant sessions using the original host connection and preserves errors", async () => {
+        const unpublish = vi
+            .fn()
+            .mockReturnValueOnce({ unpublished: true })
+            .mockReturnValueOnce({ unpublished: false })
+            .mockImplementationOnce(() => {
+                throw new Error("nonapplication publication");
+            });
+        const client = await fixture((rpc) => {
+            rpc.onRequest("host.start", ({ hostId }: HostStartRequest) => info(hostId));
+            rpc.onRequest("host.unpublishSession", unpublish);
+        });
+        const host = await client.startAhpHost({ localServer: {} });
+        await expect(host.unpublishSession("dormant")).resolves.toEqual({ unpublished: true });
+        await expect(host.unpublishSession("dormant")).resolves.toEqual({ unpublished: false });
+        await expect(host.unpublishSession("foreign")).rejects.toThrow(
+            "nonapplication publication"
+        );
+        expect(unpublish.mock.calls.map(([params]) => params)).toEqual([
+            { hostId: host.hostId, sessionId: "dormant" },
+            { hostId: host.hostId, sessionId: "dormant" },
+            { hostId: host.hostId, sessionId: "foreign" },
+        ]);
+    });
+
     it("allows the owner callback to create a session while host.start is still pending", async () => {
         const client = await fixture((rpc) => {
             rpc.onRequest("session.create", ({ sessionId }: { sessionId: string }) => ({

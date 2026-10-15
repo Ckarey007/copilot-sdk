@@ -140,6 +140,8 @@ All handlers may return `void`/`undefined` (no-op) or an output object.
 |-------|------|--------|
 | `modifiedPrompt` | `string` | Replaces the user's prompt |
 | `additionalContext` | `string` | Appended as hidden context the agent sees |
+| `decision` | `"block"` | Refuses the prompt: no model turn runs and no user message is recorded |
+| `reason` | `string` | Why the prompt was blocked, carried by the ephemeral `session.warning` (`warningType: "policy_blocked"`) |
 
 ### onPreToolUse
 

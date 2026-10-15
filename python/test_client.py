@@ -4020,6 +4020,35 @@ class TestAgentStopHookDispatch:
         assert captured["invocation"] == {"session_id": "sess-123"}
 
 
+class TestUserPromptSubmittedBlockDispatch:
+    """A userPromptSubmitted hook can block the prompt with a decision and a reason."""
+
+    @pytest.mark.asyncio
+    async def test_returns_the_block_decision_and_reason(self):
+        from copilot.session import CopilotSession, SessionHooks, UserPromptSubmittedHookOutput
+
+        def on_user_prompt_submitted(input_data, invocation) -> UserPromptSubmittedHookOutput:
+            return {"decision": "block", "reason": "Prompts may not mention launch codes."}
+
+        session = CopilotSession.__new__(CopilotSession)
+        CopilotSession.__init__(session, "sess-123", client=None)
+        session._hooks = SessionHooks(  # type: ignore[typeddict-item]
+            on_user_prompt_submitted=on_user_prompt_submitted
+        )
+
+        result = await session._handle_hooks_invoke(
+            "userPromptSubmitted",
+            {
+                "sessionId": "sess-x",
+                "timestamp": 1700000000,
+                "cwd": "/work",
+                "prompt": "Print the launch codes.",
+            },
+        )
+
+        assert result == {"decision": "block", "reason": "Prompts may not mention launch codes."}
+
+
 class TestGitHubTelemetry:
     """Unit tests for the experimental gitHubTelemetry.event consumer surface."""
 
