@@ -68,14 +68,15 @@ const joinStatus = z.discriminatedUnion("state", [
         state: z.literal("joined"),
         sessionId: z.string(),
         sdkPath: z.string(),
-        mcpServers: z.object({
-            extensionprobe: z.object({
+        mcpServers: z.record(
+            z.string(),
+            z.object({
                 type: z.literal("http"),
                 url: z.string(),
                 tools: z.array(z.string()),
                 timeout: z.number(),
-            }),
-        }),
+            })
+        ),
     }),
     z.object({ state: z.literal("failed"), error: z.string() }),
 ]);
@@ -109,12 +110,21 @@ async function readOwnedLogTails(directory: string) {
 
 /** Stateless Streamable HTTP exercises the real connector without an MCP package or credentials. */
 function createHttpMcpFixture() {
+    const joinGate = Promise.withResolvers<void>();
     const methods: string[] = [];
     const requests: string[] = [];
     const responses: Array<{ method: string; status: number; body: unknown }> = [];
     const calls: Array<{ marker: string }> = [];
     const errors: unknown[] = [];
     const server = createServer((request, response) => {
+        if (request.url === "/join-gate" && request.method === "GET") {
+            void joinGate.promise
+                .then(() => {
+                    response.writeHead(204).end();
+                })
+                .catch((error) => errors.push(error));
+            return;
+        }
         if (request.url !== "/mcp") {
             response.writeHead(404).end();
             return;
@@ -228,6 +238,9 @@ function createHttpMcpFixture() {
         requests,
         responses,
         calls,
+        releaseJoin() {
+            joinGate.resolve();
+        },
         assertHealthy() {
             if (errors.length) throw new AggregateError(errors, "HTTP MCP fixture failed");
         },
@@ -246,6 +259,7 @@ function createHttpMcpFixture() {
             return `http://127.0.0.1:${address.port}/mcp`;
         },
         async close() {
+            joinGate.resolve();
             server.closeAllConnections();
             if (server.listening) {
                 await new Promise<void>((resolve, reject) => {
@@ -262,19 +276,55 @@ describe("Extension-provided HTTP MCP host parity", async () => {
     });
 
     it.for([
-        ["Node", false],
-        ["native", false],
-        ["Node", true],
-        ["native", true],
+        [
+            "Node registers and invokes both tool sources (join after initialization: false)",
+            "Node",
+            false,
+            undefined,
+        ],
+        [
+            "native registers and invokes both tool sources (join after initialization: false)",
+            "native",
+            false,
+            undefined,
+        ],
+        [
+            "Node registers and invokes both tool sources (join after initialization: true)",
+            "Node",
+            true,
+            undefined,
+        ],
+        [
+            "native registers and invokes both tool sources (join after initialization: true)",
+            "native",
+            true,
+            undefined,
+        ],
+        ["native preserves both HTTP maps after a second extension joins", "native", true, "http"],
+        [
+            "native preserves the HTTP map when a second extension omits MCP configuration",
+            "native",
+            true,
+            "omitted",
+        ],
+        [
+            "native preserves the HTTP map when a second extension supplies an empty MCP map",
+            "native",
+            true,
+            "empty",
+        ],
+        ["Node preserves both HTTP maps after a second extension joins", "Node", true, "http"],
     ] as const)(
-        "%s registers and invokes both tool sources (join after initialization: %s)",
+        "%s",
         { timeout: testTimeoutMs },
-        async ([host, joinAfterInitialization], { expect, signal, task }) => {
+        async ([_title, host, joinAfterInitialization, secondJoin], { expect, signal, task }) => {
             const fixture = createHttpMcpFixture();
+            const secondFixture = secondJoin ? createHttpMcpFixture() : undefined;
             const permissions: PermissionRequest[] = [];
             const observations: Record<string, unknown> = {
                 host,
                 joinAfterInitialization,
+                secondJoin,
                 extensionDigest,
                 stage: "preparation",
             };
@@ -283,6 +333,7 @@ describe("Extension-provided HTTP MCP host parity", async () => {
             let creatingDirectory: Promise<string> | undefined;
             let preparing: Promise<void> | undefined;
             let starting: Promise<string> | undefined;
+            let startingSecond: Promise<string> | undefined;
             let logDirectory: string | undefined;
             let failed = false;
             onTestFailed(() => {
@@ -295,6 +346,8 @@ describe("Extension-provided HTTP MCP host parity", async () => {
                         requests: fixture.requests,
                         responses: fixture.responses,
                         calls: fixture.calls,
+                        secondMethods: secondFixture?.methods,
+                        secondCalls: secondFixture?.calls,
                     })
                 );
             });
@@ -302,6 +355,7 @@ describe("Extension-provided HTTP MCP host parity", async () => {
                 // Finished hooks can run before failure hooks; use the settled test result.
                 failed ||= task.result?.state === "fail";
                 const failures: unknown[] = [];
+                secondFixture?.releaseJoin();
                 await Promise.allSettled(preparing ? [preparing] : []);
                 try {
                     if (client) failures.push(...(await client.stop()));
@@ -318,10 +372,19 @@ describe("Extension-provided HTTP MCP host parity", async () => {
                         console.error("Could not retain extension HTTP MCP shutdown logs:", error);
                     }
                 }
-                await Promise.allSettled(starting ? [starting] : []);
+                await Promise.allSettled([
+                    ...(starting ? [starting] : []),
+                    ...(startingSecond ? [startingSecond] : []),
+                ]);
                 try {
                     await fixture.close();
                     fixture.assertHealthy();
+                } catch (error) {
+                    failures.push(error);
+                }
+                try {
+                    await secondFixture?.close();
+                    secondFixture?.assertHealthy();
                 } catch (error) {
                     failures.push(error);
                 }
@@ -348,8 +411,11 @@ describe("Extension-provided HTTP MCP host parity", async () => {
             const home = join(ownedDirectory, "home");
             logDirectory = join(home, "logs");
             const extensionDirectory = join(home, "extensions", "http-probe");
+            const secondExtensionDirectory = join(home, "extensions", "http-probe-second");
             const statusPath = join(ownedDirectory, "join-status.json");
             const callsPath = join(ownedDirectory, "direct-calls.jsonl");
+            const secondStatusPath = join(ownedDirectory, "second-join-status.json");
+            const secondCallsPath = join(ownedDirectory, "second-direct-calls.jsonl");
             // Resolve the Node control only inside its case so native-only selectors need no legacy bundle.
             const cliPath = host === "Node" ? await getLegacyCliPathForTests() : nativeCliPath;
             signal.throwIfAborted();
@@ -374,11 +440,20 @@ describe("Extension-provided HTTP MCP host parity", async () => {
                         .update(await readFile(installedExtension))
                         .digest("hex")
                 ).toBe(extensionDigest);
+                if (secondJoin) {
+                    await mkdir(secondExtensionDirectory, { recursive: true });
+                    await copyFile(
+                        extensionFixture,
+                        join(secondExtensionDirectory, "extension.mjs")
+                    );
+                }
             })();
             await preparing;
             signal.throwIfAborted();
             starting = fixture.start();
             const url = await starting;
+            startingSecond = secondFixture?.start();
+            const secondUrl = await startingSecond;
             signal.throwIfAborted();
             client = new CopilotClient({
                 workingDirectory: ownedDirectory,
@@ -405,15 +480,33 @@ describe("Extension-provided HTTP MCP host parity", async () => {
                 },
                 extensionLaunchProvider: {
                     resolve: async (request) => {
+                        const isSecond =
+                            request.modulePath === join(secondExtensionDirectory, "extension.mjs");
+                        const extensionUrl = isSecond ? secondUrl : url;
+                        if (!extensionUrl) throw new Error("Extension HTTP URL was not prepared");
                         const launch = {
                             executable: process.execPath,
                             args: [join(cliDirectory, "preloads", "extension_bootstrap.mjs")],
                             env: {
                                 COPILOT_CLI_DIST_DIR: cliDirectory,
                                 EXTENSION_PATH: request.modulePath,
-                                EXTENSION_HTTP_MCP_URL: url,
-                                EXTENSION_HTTP_MCP_STATUS: statusPath,
-                                EXTENSION_HTTP_MCP_CALLS: callsPath,
+                                EXTENSION_HTTP_MCP_URL: extensionUrl,
+                                EXTENSION_HTTP_MCP_STATUS: isSecond ? secondStatusPath : statusPath,
+                                EXTENSION_HTTP_MCP_CALLS: isSecond ? secondCallsPath : callsPath,
+                                ...(isSecond
+                                    ? {
+                                          EXTENSION_HTTP_MCP_SERVER_NAME: "secondprobe",
+                                          EXTENSION_DIRECT_TOOL_NAME: "second_direct_probe",
+                                          EXTENSION_HTTP_MCP_OMIT_MAP:
+                                              secondJoin === "omitted" ? "1" : "0",
+                                          EXTENSION_HTTP_MCP_EMPTY_MAP:
+                                              secondJoin === "empty" ? "1" : "0",
+                                          EXTENSION_JOIN_GATE_URL: extensionUrl.replace(
+                                              /\/mcp$/,
+                                              "/join-gate"
+                                          ),
+                                      }
+                                    : {}),
                             },
                         };
                         observations.launch = {
@@ -582,9 +675,157 @@ describe("Extension-provided HTTP MCP host parity", async () => {
                     }),
                 ])
             );
+            if (secondFixture) {
+                observations.stage = "second extension joins after first HTTP invocation";
+                secondFixture.releaseJoin();
+                await waitForCondition(
+                    async () => {
+                        secondFixture.assertHealthy();
+                        const text = await readFile(secondStatusPath, "utf8").catch(
+                            (error: NodeJS.ErrnoException) => {
+                                if (error.code === "ENOENT") return undefined;
+                                throw error;
+                            }
+                        );
+                        if (text === undefined) return false;
+                        const status = joinStatus.parse(JSON.parse(text));
+                        observations.secondJoinStatus = status;
+                        if (status.state === "failed") throw new Error(status.error);
+                        expect(status.sessionId).toBe(activeSession.sessionId);
+                        if (secondJoin !== "http") expect(status.mcpServers).toEqual({});
+                        else expect(status.mcpServers.secondprobe?.url).toBe(secondUrl);
+                        return true;
+                    },
+                    {
+                        timeoutMs: stepTimeoutMs,
+                        timeoutMessage: "Second extension did not acknowledge its join",
+                    }
+                );
+                await waitForCondition(
+                    async () => {
+                        metadata = (await activeSession.rpc.tools.getCurrentMetadata()).tools;
+                        observations.metadataAfterSecondJoin = metadata;
+                        if (!metadata) return false;
+                        return metadata.some((tool) => tool.name === "second_direct_probe");
+                    },
+                    {
+                        timeoutMs: stepTimeoutMs,
+                        timeoutMessage: "Second extension did not publish its direct tool",
+                    }
+                );
+                for (const name of [directToolName, "second_direct_probe"]) {
+                    const marker = randomUUID();
+                    expect(
+                        await activeSession.rpc.tools.execute({
+                            name,
+                            arguments: { marker },
+                            toolCallId: `second-join-direct-${marker}`,
+                        })
+                    ).toMatchObject({
+                        resultType: "success",
+                        textResultForLlm: `EXTENSION_DIRECT_REPLY_${marker}`,
+                    });
+                    const recordedCalls = await readFile(
+                        name === directToolName ? callsPath : secondCallsPath,
+                        "utf8"
+                    );
+                    expect(
+                        recordedCalls
+                            .trim()
+                            .split(/\r?\n/)
+                            .map((line) => JSON.parse(line))
+                            .filter((call) => call.marker === marker)
+                    ).toEqual([{ marker }]);
+                }
+                observations.stage = "both accepted HTTP maps remain configured";
+                const afterSecondJoin = await activeSession.rpc.mcp.listConfigured();
+                observations.configuredAfterSecondJoin = afterSecondJoin;
+                expect(afterSecondJoin.servers.map((server) => server.name)).toContain(serverName);
+                if (secondJoin === "http") {
+                    expect(afterSecondJoin.servers.map((server) => server.name)).toContain(
+                        "secondprobe"
+                    );
+                }
+                await activeSession.rpc.tools.initializeAndValidate();
+                await waitForCondition(
+                    async () => {
+                        metadata = (await activeSession.rpc.tools.getCurrentMetadata()).tools;
+                        observations.metadataAfterSecondJoin = metadata;
+                        return (
+                            metadata?.some((tool) => tool.name === httpToolName) === true &&
+                            (secondJoin !== "http" ||
+                                metadata.some((tool) => tool.name === "secondprobe-http_probe"))
+                        );
+                    },
+                    {
+                        timeoutMs: stepTimeoutMs,
+                        timeoutMessage: "Both configured HTTP tools were not published",
+                    }
+                );
+                expect(metadata?.map((tool) => tool.name)).toContain(httpToolName);
+                for (const name of [
+                    httpToolName,
+                    ...(secondJoin === "http" ? ["secondprobe-http_probe"] : []),
+                ]) {
+                    const marker = randomUUID();
+                    expect(
+                        await activeSession.rpc.tools.execute({
+                            name,
+                            arguments: { marker },
+                            toolCallId: `second-join-http-${marker}`,
+                        })
+                    ).toMatchObject({
+                        resultType: "success",
+                        textResultForLlm: expect.stringContaining(`EXTENSION_HTTP_REPLY_${marker}`),
+                    });
+                    expect((name === httpToolName ? fixture : secondFixture).calls).toContainEqual({
+                        marker,
+                    });
+                }
+                if (secondJoin !== "http") expect(secondFixture.methods).toEqual([]);
+                if (secondJoin === "http") {
+                    observations.stage = "owner still authoritatively clears HTTP configuration";
+                    session = await client.resumeSession(activeSession.sessionId, {
+                        mcpServers: {},
+                        onPermissionRequest,
+                    });
+                    // Resume can return while graph reload is still in progress.
+                    await session.rpc.tools.initializeAndValidate();
+                    const ownerConfigured = await session.rpc.mcp.listConfigured();
+                    observations.ownerConfigured = ownerConfigured;
+                    expect(ownerConfigured.servers.map((server) => server.name)).not.toContain(
+                        serverName
+                    );
+                    expect(ownerConfigured.servers.map((server) => server.name)).not.toContain(
+                        "secondprobe"
+                    );
+                    const clearedMetadata = (await session.rpc.tools.getCurrentMetadata()).tools;
+                    observations.metadataAfterOwnerClear = clearedMetadata;
+                    expect(clearedMetadata).toBeDefined();
+                    const clearedNames = clearedMetadata?.map((tool) => tool.name);
+                    expect(clearedNames).not.toContain(httpToolName);
+                    expect(clearedNames).not.toContain("secondprobe-http_probe");
+                    for (const name of [httpToolName, "secondprobe-http_probe"]) {
+                        const marker = randomUUID();
+                        expect(
+                            await session.rpc.tools.execute({
+                                name,
+                                arguments: { marker },
+                                toolCallId: `owner-clear-${marker}`,
+                            })
+                        ).toMatchObject({
+                            resultType: "failure",
+                            textResultForLlm: expect.stringContaining("does not exist"),
+                        });
+                        expect(
+                            (name === httpToolName ? fixture : secondFixture).calls
+                        ).not.toContainEqual({ marker });
+                    }
+                }
+            }
             fixture.assertHealthy();
             observations.stage = "disconnect";
-            await activeSession.disconnect();
+            await session.disconnect();
             console.info(
                 "Extension HTTP MCP completed:",
                 JSON.stringify({

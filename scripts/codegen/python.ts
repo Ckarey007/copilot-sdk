@@ -303,6 +303,83 @@ const PY_RPC_APPEND_LAST_FIELDS: ReadonlyArray<readonly [string, string]> = [
     ["SessionModelList", "auto"],
 ];
 
+const PY_RPC_PROMOTED_INLINE_UNIONS = new Set(["AuthEnumerateValue"]);
+
+function promoteInlineDiscriminatedUnionsForPython(
+    definitions: Record<string, JSONSchema7>,
+    promotedNames: ReadonlySet<string> = PY_RPC_PROMOTED_INLINE_UNIONS
+): void {
+    for (const name of promotedNames) {
+        const definition = definitions[name];
+        const variants = definition?.anyOf ?? definition?.oneOf;
+        if (!definition || !Array.isArray(variants) || variants.length < 2) continue;
+        const discriminator = findPyDiscriminator(variants as JSONSchema7[]);
+        if (!discriminator) continue;
+
+        const promotedVariants: Array<[string, JSONSchema7]> = [];
+        for (const variant of variants as JSONSchema7[]) {
+            const discriminatorSchema = variant.properties?.[discriminator.property];
+            if (
+                !discriminatorSchema ||
+                typeof discriminatorSchema !== "object" ||
+                typeof discriminatorSchema.const !== "string"
+            ) {
+                promotedVariants.length = 0;
+                break;
+            }
+            const variantName = `${name}${toPascalCase(discriminatorSchema.const)}`;
+            promotedVariants.push([variantName, { ...variant, title: variantName }]);
+        }
+        if (promotedVariants.length !== variants.length) continue;
+        for (const [variantName, variant] of promotedVariants) {
+            definitions[variantName] = variant;
+        }
+        definitions[name] = {
+            ...definition,
+            anyOf: promotedVariants.map(([variantName]) => ({
+                $ref: `#/definitions/${variantName}`,
+            })),
+        };
+        delete definitions[name].oneOf;
+    }
+}
+
+function preserveAuthEnumerateValueKindEnumForPython(code: string): string {
+    for (const [variant, wireValue, enumValue] of [
+        ["Accounts", "accounts", "ACCOUNTS"],
+        ["Providers", "providers", "PROVIDERS"],
+        ["LoginAccounts", "loginAccounts", "LOGIN_ACCOUNTS"],
+    ] as const) {
+        const className = `AuthEnumerateValue${variant}`;
+        code = code.replace(
+            `kind: ClassVar[str] = "${wireValue}"`,
+            `kind: ClassVar[AuthEnumerateQueryKind] = AuthEnumerateQueryKind.${enumValue}`
+        );
+        const classStart = code.indexOf(`class ${className}:`);
+        const classEndCandidates = [
+            code.indexOf("\n# ", classStart + 1),
+            code.indexOf("\n@dataclass", classStart + 1),
+            code.indexOf("\nclass ", classStart + 1),
+            code.indexOf("\ndef ", classStart + 1),
+        ].filter((index) => index !== -1);
+        const classEnd =
+            classEndCandidates.length > 0 ? Math.min(...classEndCandidates) : code.length;
+        const assignment = 'result["kind"] = self.kind';
+        const assignmentStart = code.indexOf(assignment, classStart);
+        if (
+            classStart !== -1 &&
+            assignmentStart !== -1 &&
+            assignmentStart < classEnd
+        ) {
+            code =
+                code.slice(0, assignmentStart) +
+                'result["kind"] = to_enum(AuthEnumerateQueryKind, self.kind)' +
+                code.slice(assignmentStart + assignment.length);
+        }
+    }
+    return code;
+}
+
 /**
  * Append-last entries whose property exists in this schema. An older or narrower schema
  * selected for generation may predate the field, which is not an error; a field the
@@ -3414,10 +3491,16 @@ function preserveUnknownPythonEnumValues(code: string, name: string): string {
 
 async function generateRpc(schemaPath?: string, sessionEventsSchema?: JSONSchema7): Promise<void> {
     console.log("Python: generating RPC types...");
-    const { FetchingJSONSchemaStore, InputData, JSONSchemaInput, quicktype } = await import("quicktype-core");
 
     const resolvedPath = schemaPath ?? (await getApiSchemaPath());
-    const sourceSchema = fixNullableRequiredRefsInApiSchema(cloneSchemaForCodegen((await loadSchemaJson(resolvedPath)) as ApiSchema));
+    const code = await generateRpcCode((await loadSchemaJson(resolvedPath)) as ApiSchema, sessionEventsSchema);
+    const outPath = await writeGeneratedFile("python/copilot/generated/rpc.py", code);
+    console.log(`  ✓ ${outPath}`);
+}
+
+export async function generateRpcCode(apiSchema: ApiSchema, sessionEventsSchema?: JSONSchema7): Promise<string> {
+    const { FetchingJSONSchemaStore, InputData, JSONSchemaInput, quicktype } = await import("quicktype-core");
+    const sourceSchema = fixNullableRequiredRefsInApiSchema(cloneSchemaForCodegen(apiSchema));
     let schema = sourceSchema;
     if (sessionEventsSchema) {
         const sharedDefinitions = findSharedSchemaDefinitions(
@@ -3487,6 +3570,7 @@ async function generateRpc(schemaPath?: string, sessionEventsSchema?: JSONSchema
     }
 
     const allDefinitions = combinedSchema.definitions! as Record<string, JSONSchema7>;
+    promoteInlineDiscriminatedUnionsForPython(allDefinitions);
     preservePythonRpcStringDateFields(allDefinitions);
     const managedOperationProperties = resolveObjectSchema(
         allDefinitions.ManagedPermissionOperation,
@@ -3532,7 +3616,11 @@ async function generateRpc(schemaPath?: string, sessionEventsSchema?: JSONSchema
         enumsByName: new Map(),
         enums: [],
     };
-    for (const name of ["ConnectorDiscoveryAvailability", "ManagedPermissionOperationKind"]) {
+    for (const name of [
+        "ConnectorDiscoveryAvailability",
+        "ImageToolModelAvailability",
+        "ManagedPermissionOperationKind",
+    ]) {
         const definition = allDefinitions[name];
         if (!definition) continue;
         if (!definition.enum?.every((value): value is string => typeof value === "string")) {
@@ -3921,6 +4009,7 @@ def _patch_model_capabilities(data: dict) -> dict:
     // through the discriminator dispatcher.
     finalCode = applyUnionRewritesToPython(finalCode, refBasedUnions);
     finalCode = postProcessDiscriminatorDefaultsForPython(finalCode, refBasedUnions);
+    finalCode = preserveAuthEnumerateValueKindEnumForPython(finalCode);
     finalCode = unwrapRedundantPythonLambdas(finalCode);
     finalCode = removeUnusedSyntheticPythonDataclasses(
         finalCode,
@@ -3973,8 +4062,7 @@ def _patch_model_capabilities(data: dict) -> dict:
     finalCode = appendPythonCompatibilityAliases(finalCode);
     finalCode = appendPythonRpcAllList(finalCode, rpcDefinitions);
 
-    const outPath = await writeGeneratedFile("python/copilot/generated/rpc.py", finalCode);
-    console.log(`  ✓ ${outPath}`);
+    return finalCode;
 }
 
 /**

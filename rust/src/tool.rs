@@ -59,6 +59,9 @@ pub fn schema_for<T: schemars::JsonSchema>() -> serde_json::Value {
 /// [`Tool::parameters`](crate::types::Tool::parameters) map shape
 /// expected by the protocol.
 ///
+/// Object keys are sorted at every depth, so the serialized tool definition
+/// does not depend on how the schema was built.
+///
 /// Panics if the input is not a JSON object — tool parameter schemas
 /// are always top-level objects (`{"type": "object", ...}`). Pair with
 /// `schema_for` (available with the `derive` feature) or a
@@ -87,7 +90,31 @@ pub fn tool_parameters(schema: serde_json::Value) -> IndexMap<String, serde_json
 pub fn try_tool_parameters(
     schema: serde_json::Value,
 ) -> Result<IndexMap<String, serde_json::Value>, serde_json::Error> {
-    serde_json::from_value(schema)
+    serde_json::from_value(sort_object_keys(schema))
+}
+
+/// Sort object keys at every depth so a schema serializes identically however
+/// it was built. With `serde_json/preserve_order` enabled anywhere in the
+/// dependency graph, a schema converted from a `HashMap` would otherwise keep
+/// that map's per-process iteration order and change the tool definitions the
+/// model sees between sessions, defeating prompt caching.
+fn sort_object_keys(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut entries: Vec<_> = map.into_iter().collect();
+            entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+            serde_json::Value::Object(
+                entries
+                    .into_iter()
+                    .map(|(key, value)| (key, sort_object_keys(value)))
+                    .collect(),
+            )
+        }
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.into_iter().map(sort_object_keys).collect())
+        }
+        other => other,
+    }
 }
 
 /// Convert an MCP `CallToolResult` JSON value into a Copilot tool result.

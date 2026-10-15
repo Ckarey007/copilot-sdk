@@ -218,10 +218,24 @@ it("requires linked sign-in, adopts same-session re-login, and persists silent r
         callback.searchParams.set("state", authorize.searchParams.get("state")!);
         const completing = session.rpc.accounts.login.advance({ flowId });
         expect((await fetch(callback)).ok).toBe(true);
-        expect(await completing).toMatchObject({
-            kind: "completed",
-            result: { status: "completed" },
-        });
+        const completed = await completing;
+        expect(completed).toMatchObject({ kind: "completed" });
+        if (completed.kind !== "completed") throw new Error("Expected completed Entra login flow");
+        if (completed.result.status === "needs-account-selection") {
+            const emu = completed.result.accounts.find((account) => account.kind === "entraEmu");
+            if (!emu) throw new Error("Expected an Entra EMU account choice");
+            expect(
+                await session.rpc.accounts.login.advance({
+                    flowId,
+                    input: emu.selectionId,
+                })
+            ).toMatchObject({
+                kind: "completed",
+                result: { status: "completed" },
+            });
+        } else {
+            expect(completed.result.status).toBe("completed");
+        }
         expect(await session.rpc.accounts.get({ query: { kind: "activeAccount" } })).toMatchObject({
             account: { kind: "entraEmu", derivedFrom: baseId },
         });

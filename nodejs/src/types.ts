@@ -1311,10 +1311,11 @@ import type { PermissionDecisionRequest, PermissionDecisionContext } from "./gen
  * access the variant-specific fields (e.g. shell `commands`, write
  * `fileName`/`diff`, mcp `toolName`/`args`).
  *
- * `managedApprovalRequired` indicates that managed policy requires an explicit
- * user decision. Hosts should bypass automatic approval and present their
- * normal confirmation UI. The runtime currently emits it for managed Shell,
- * Read, Edit, and Domain selector asks.
+ * On the raw `permissionRequest`, `managedApprovalRequired` preserves managed
+ * policy provenance and one-shot restrictions. To determine whether a human
+ * response is still required, hosts should prefer
+ * `event.data.promptRequest?.managedApprovalRequired` when `promptRequest` is
+ * present, and fall back to the raw marker for older runtimes.
  */
 export type PermissionRequest = GeneratedPermissionRequest & {
     readonly managedApprovalRequired?: boolean;
@@ -1377,9 +1378,26 @@ export function createAttributedPermissionResult(
     return { kind: "attributed", result: inner, decisionContext };
 }
 
+/**
+ * Context supplied with a permission request callback.
+ */
+export interface PermissionHandlerInvocation {
+    sessionId: string;
+    managedSettingsEnabled?: boolean;
+    /**
+     * Derived user-facing prompt context when supplied by the runtime.
+     *
+     * Managed requests retain their raw `managedApprovalRequired` marker. Only
+     * standard prompt kinds (`commands`, `read`, `write`, `url`, and
+     * `workflow`) can clear that human requirement after Assisted approval.
+     * For missing or other prompt kinds, keep the raw marker authoritative.
+     */
+    promptRequest?: PermissionRequestedData["promptRequest"];
+}
+
 export type PermissionHandler = (
     request: PermissionRequest,
-    invocation: { sessionId: string; managedSettingsEnabled?: boolean }
+    invocation: PermissionHandlerInvocation
 ) =>
     | Promise<PermissionRequestResult | AttributedPermissionResult>
     | PermissionRequestResult
@@ -1519,6 +1537,12 @@ export type AutoModeSwitchHandler = (
  * Base interface for all hook inputs
  */
 export interface BaseHookInput {
+    /** Subagent actor ID, absent for root hooks and older runtimes. */
+    agentId?: string;
+    /** Subagent type, when known by the runtime. */
+    agentType?: string;
+    /** Immediate parent actor ID, when available. */
+    parentAgentId?: string;
     /** The runtime session ID associated with the hook. Child tool hooks use
      * the child session ID; sub-agent lifecycle hooks use the parent session ID,
      * matching `invocation.sessionId`. */
@@ -1672,6 +1696,14 @@ export interface UserPromptSubmittedHookOutput {
     modifiedPrompt?: string;
     additionalContext?: string;
     suppressOutput?: boolean;
+    /**
+     * `"block"` refuses the prompt: no model turn runs, no user message is
+     * recorded, and the session emits an ephemeral `session.warning`
+     * (`warningType: "policy_blocked"`) carrying {@link reason}.
+     */
+    decision?: "block";
+    /** Why the prompt was blocked, carried by the `session.warning`. */
+    reason?: string;
 }
 
 /**
@@ -3095,6 +3127,14 @@ export interface SessionConfigBase {
     enforceManagedModelDefaults?: boolean;
 
     /**
+     * Declares that a human drives this session's conversation, enabling
+     * user-message analysis telemetry for user-authored messages. Automated
+     * messages remain excluded. Defaults to false for SDK sessions; ignored
+     * for cloud sessions and when resuming a session that is already active.
+     */
+    interactiveUser?: boolean;
+
+    /**
      * Host-injected enterprise managed settings for this session.
      *
      * Unlike {@link SessionConfigBase.enableManagedSettings} — which asks the
@@ -3166,6 +3206,14 @@ export interface SessionConfigBase {
      * read from the shared session store.
      */
     enableSessionStore?: boolean;
+
+    /**
+     * When true, requests the read-only GitHub cache store for this session
+     * (the `github-cache-store` capability). The runtime registers the
+     * `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is
+     * also on. Defaults to disabled.
+     */
+    enableGitHubCacheStore?: boolean;
 
     /**
      * When true, enables skill loading (including builtin skills and discovered

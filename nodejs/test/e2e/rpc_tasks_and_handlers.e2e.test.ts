@@ -3,12 +3,17 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { approveAll, CopilotRequestHandler } from "../../src/index.js";
-import type { SessionEvent, CopilotRequestContext, CopilotSession } from "../../src/index.js";
+import type {
+    SessionEvent,
+    CopilotRequestContext,
+    CopilotSession,
+    SessionConfig,
+} from "../../src/index.js";
 import { createSdkTestContext } from "./harness/sdkTestContext.js";
 import { getNextEventOfType, waitForCondition } from "./harness/sdkTestHelper.js";
-import { isByokBackend } from "./harness/testBackend";
+import { isByokBackend, testBackend, withTestBackend } from "./harness/testBackend";
+import { inferenceModelOptions } from "./harness/inferenceRequest";
 
 const capiIt = it.skipIf(isByokBackend);
 
@@ -16,6 +21,7 @@ class ModelRequestRecorder extends CopilotRequestHandler {
     readonly requests: Array<{
         sessionId?: string;
         agentId?: string;
+        path: string;
         body: { model?: string; reasoning_effort?: string };
     }> = [];
 
@@ -23,28 +29,13 @@ class ModelRequestRecorder extends CopilotRequestHandler {
         request: Request,
         context: CopilotRequestContext
     ): Promise<Response> {
-        const pathname = new URL(request.url).pathname;
-        if (["/chat/completions", "/responses", "/v1/messages"].includes(pathname)) {
-            const body = z
-                .object({
-                    model: z.string(),
-                    reasoning_effort: z.string().optional(),
-                    reasoning: z.object({ effort: z.string().optional() }).optional(),
-                    output_config: z.object({ effort: z.string().optional() }).optional(),
-                })
-                .parse(await request.clone().json());
+        const body = await inferenceModelOptions(request);
+        if (body) {
             this.requests.push({
                 sessionId: context.sessionId,
                 agentId: context.agentId,
-                body: {
-                    model: body.model,
-                    reasoning_effort:
-                        pathname === "/responses"
-                            ? body.reasoning?.effort
-                            : pathname === "/v1/messages"
-                              ? body.output_config?.effort
-                              : body.reasoning_effort,
-                },
+                path: new URL(request.url).pathname,
+                body,
             });
         }
         return super.sendRequest(request, context);
@@ -326,8 +317,7 @@ describe("Session tasks RPC and pending handlers", async () => {
         }
     });
 
-    // Shell IDs count up per runtime process, so each attached-shell test owns its
-    // client: the recorded `shellId: 0` then holds regardless of test order.
+    // Each attached-shell test owns its client; replay normalizes process-global shell IDs.
     async function withRunningAttachedShell(
         run: (
             session: CopilotSession,
@@ -528,8 +518,46 @@ describe("Session tasks RPC and pending handlers", async () => {
         const requestRecorder = new ModelRequestRecorder();
         const recordingClient = createClient({ requestHandler: requestRecorder });
         try {
+            let selectedModel = "claude-sonnet-5";
+            let agentModel = "Claude Sonnet 5";
+            let catalog: Pick<SessionConfig, "providers" | "models"> = {};
+            if (isByokBackend) {
+                const { provider } = withTestBackend<SessionConfig>(
+                    { model: "claude-sonnet-5" },
+                    testBackend,
+                    openAiEndpoint.url
+                );
+                if (!provider?.baseUrl) {
+                    throw new Error("The BYOK fixture must supply a provider endpoint");
+                }
+                // CAPI resolves display aliases; BYOK requires a registered selection
+                // ID. Its catalog maps that alias to the intended wire model.
+                selectedModel = "sdk-composed/sonnet";
+                agentModel = selectedModel;
+                catalog = {
+                    providers: [
+                        {
+                            name: "sdk-composed",
+                            type: provider.type,
+                            wireApi: provider.wireApi,
+                            baseUrl: provider.baseUrl,
+                            bearerToken: provider.bearerToken,
+                        },
+                    ],
+                    models: [
+                        {
+                            id: "sonnet",
+                            provider: "sdk-composed",
+                            modelId: "claude-sonnet-5",
+                            wireModel: "claude-sonnet-5",
+                            name: "SDK Claude Sonnet 5",
+                        },
+                    ],
+                };
+            }
             const session = await recordingClient.createSession({
-                model: "claude-sonnet-5",
+                ...catalog,
+                model: selectedModel,
                 reasoningEffort: "medium",
                 onPermissionRequest: approveAll,
                 hooks: {
@@ -545,8 +573,7 @@ describe("Session tasks RPC and pending handlers", async () => {
                         name: "sdk-display-model-agent",
                         description: "SDK display-name model coverage",
                         prompt: "Reply with SDK_DISPLAY_AGENT_DONE exactly.",
-                        // BYOK requires explicit IDs; CAPI also resolves its catalog's display names.
-                        model: `${isByokBackend ? "claude-sonnet-5" : "Claude Sonnet 5"}:defaultReasoningEffort=high`,
+                        model: `${agentModel}:defaultReasoningEffort=high`,
                     },
                 ],
             });
@@ -597,12 +624,19 @@ describe("Session tasks RPC and pending handlers", async () => {
                     reasoningEffort: "high",
                 });
                 expect(configuration.agentId).toBeTruthy();
-                const requests = requestRecorder.requests
-                    .filter((request) => request.agentId === configuration.agentId)
-                    .map((request) => request.body);
+                const requests = requestRecorder.requests.filter(
+                    (request) => request.agentId === configuration.agentId
+                );
                 expect(requests.length).toBeGreaterThan(0);
                 for (const request of requests) {
-                    expect(request).toMatchObject({
+                    const expectedPaths =
+                        testBackend === "anthropic-messages"
+                            ? ["/v1/messages", "/messages"]
+                            : testBackend === "openai-responses"
+                              ? ["/responses"]
+                              : ["/chat/completions"];
+                    expect(expectedPaths).toContain(request.path);
+                    expect(request.body).toMatchObject({
                         model: "claude-sonnet-5",
                         reasoning_effort: "high",
                     });

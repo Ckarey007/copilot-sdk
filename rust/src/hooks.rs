@@ -21,6 +21,38 @@ pub struct HookContext {
     pub session_id: SessionId,
 }
 
+/// Runtime-provided actor metadata for a hook invocation.
+///
+/// Available through [`SessionHooks::on_hook_with_actor`] without changing
+/// legacy hook input structs or their construction patterns.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HookActor {
+    #[serde(default)]
+    agent_id: Option<String>,
+    #[serde(default)]
+    agent_type: Option<String>,
+    #[serde(default)]
+    parent_agent_id: Option<String>,
+}
+
+impl HookActor {
+    /// Subagent actor ID, absent for root hooks and older runtimes.
+    pub fn agent_id(&self) -> Option<&str> {
+        self.agent_id.as_deref()
+    }
+
+    /// Subagent type, when supplied by the runtime.
+    pub fn agent_type(&self) -> Option<&str> {
+        self.agent_type.as_deref()
+    }
+
+    /// Immediate parent actor ID, when supplied by the runtime.
+    pub fn parent_agent_id(&self) -> Option<&str> {
+        self.parent_agent_id.as_deref()
+    }
+}
+
 /// Input for the `preToolUse` hook — received before a tool executes.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -197,6 +229,16 @@ pub struct UserPromptSubmittedOutput {
     /// Suppress the hook's output from the session log.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suppress_output: Option<bool>,
+    /// Set to `"block"` to refuse the prompt. A block needs a `reason`: the
+    /// runtime then runs no model turn, records no user message, and emits an
+    /// ephemeral `session.warning` with `warningType` `"policy_blocked"`
+    /// whose message is the reason. It takes precedence over the other fields.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decision: Option<String>,
+    /// Why the prompt is blocked. Required with a `"block"` decision: without
+    /// it the runtime ignores the decision and the prompt proceeds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// Input for the `userPromptTransformed` hook.
@@ -271,8 +313,9 @@ pub struct SessionEndInput {
     /// The last assistant message.
     #[serde(default)]
     pub final_message: Option<String>,
-    /// Error message, if the session ended due to an error.
-    #[serde(default)]
+    /// Error message, if the session ended due to an error. The CLI sends an
+    /// error object here (`{"message"}`); see `HookErrorWire`.
+    #[serde(default, deserialize_with = "optional_hook_error_text")]
     pub error: Option<String>,
 }
 
@@ -302,12 +345,54 @@ pub struct ErrorOccurredInput {
     /// Working directory.
     #[serde(rename = "cwd")]
     pub working_directory: PathBuf,
-    /// The error message.
+    /// The error message. The CLI sends an error object here
+    /// (`{"name", "message", "stack"}`); see `HookErrorWire`.
+    #[serde(deserialize_with = "hook_error_text")]
     pub error: String,
     /// Context where the error occurred: `"model_call"`, `"tool_execution"`, `"system"`, `"user_input"`.
     pub error_context: String,
     /// Whether the error is recoverable.
     pub recoverable: bool,
+}
+
+/// The two wire shapes of a hook input's `error` field.
+///
+/// The CLI sends the `error` of the `errorOccurred` and `sessionEnd` inputs as
+/// an error object (`{"name", "message", "stack"}`), while the public fields
+/// stay strings. A string is the text, an object's string `message` is the
+/// text, and an object without one keeps its compact JSON form.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum HookErrorWire {
+    Text(String),
+    Object(serde_json::Map<String, Value>),
+}
+
+impl HookErrorWire {
+    fn into_text(self) -> String {
+        match self {
+            Self::Text(text) => text,
+            Self::Object(mut object) => match object.get_mut("message") {
+                Some(Value::String(message)) => std::mem::take(message),
+                _ => Value::Object(object).to_string(),
+            },
+        }
+    }
+}
+
+fn hook_error_text<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    HookErrorWire::deserialize(deserializer).map(HookErrorWire::into_text)
+}
+
+fn optional_hook_error_text<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<HookErrorWire>::deserialize(deserializer)
+        .map(|wire| wire.map(HookErrorWire::into_text))
 }
 
 /// Output for the `errorOccurred` hook.
@@ -612,6 +697,14 @@ impl HookOutput {
 /// sets automatically).
 #[async_trait]
 pub trait SessionHooks: Send + Sync + 'static {
+    /// Receives typed hook input and runtime-provided actor metadata.
+    ///
+    /// The default delegates to [`Self::on_hook`], preserving existing
+    /// whole-event and per-hook implementations.
+    async fn on_hook_with_actor(&self, event: HookEvent, _actor: HookActor) -> HookOutput {
+        self.on_hook(event).await
+    }
+
     /// Top-level dispatch. The default implementation fans out to the
     /// per-hook methods below; override this only if you want a single
     /// matching point across all hook types.
@@ -724,7 +817,8 @@ pub trait SessionHooks: Send + Sync + 'static {
     }
 
     /// Called when the user submits a prompt. Return `Some(output)` to
-    /// rewrite the prompt or inject extra context; `None` (default) passes
+    /// rewrite the prompt or inject extra context, or to block it with a
+    /// `decision` of `"block"` and a `reason`; `None` (default) passes
     /// through unchanged.
     async fn on_user_prompt_submitted(
         &self,
@@ -818,6 +912,7 @@ pub(crate) async fn dispatch_hook(
     let ctx = HookContext {
         session_id: session_id.clone(),
     };
+    let actor_input = raw_input.clone();
 
     let event = match hook_type {
         "preToolUse" => {
@@ -879,7 +974,8 @@ pub(crate) async fn dispatch_hook(
     };
 
     let dispatch_start = Instant::now();
-    let output = hooks.on_hook(event).await;
+    let actor = serde_json::from_value(actor_input)?;
+    let output = hooks.on_hook_with_actor(event, actor).await;
     tracing::debug!(
         elapsed_ms = dispatch_start.elapsed().as_millis(),
         session_id = %session_id,

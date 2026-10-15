@@ -1251,7 +1251,9 @@ public final class CopilotSession implements AutoCloseable {
                 return; // This client doesn't handle permissions; another client will
             }
             executePermissionAndRespondAsync(data.requestId(),
-                    MAPPER.convertValue(data.permissionRequest(), PermissionRequest.class), handler);
+                    MAPPER.convertValue(data.permissionRequest(), PermissionRequest.class),
+                    data.promptRequest() == null ? null : PermissionRequest.fromJsonValue(data.promptRequest()),
+                    handler);
         } else if (event instanceof McpOauthRequiredEvent authEvent) {
             var data = authEvent.getData();
             if (data == null || data.requestId() == null) {
@@ -1452,12 +1454,13 @@ public final class CopilotSession implements AutoCloseable {
      * {@code session.permissions.handlePendingPermissionRequest}.
      */
     private void executePermissionAndRespondAsync(String requestId, PermissionRequest permissionRequest,
-            PermissionHandler handler) {
+            PermissionRequest promptRequest, PermissionHandler handler) {
         Runnable task = () -> {
             try {
                 var invocation = new PermissionInvocation();
                 invocation.setSessionId(sessionId);
                 invocation.setManagedSettingsEnabled(managedSettingsEnabled);
+                invocation.setPromptRequest(promptRequest);
                 handler.handle(permissionRequest, invocation).thenAccept(result -> {
                     try {
                         PermissionRequestResultKind kind = new PermissionRequestResultKind(result.getKind());

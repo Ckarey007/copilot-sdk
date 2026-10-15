@@ -314,6 +314,18 @@ All options are kw-only parameters:
 - `working_directory` (str | None): Working directory for the CLI process (default: current dir).
 - `log_level` (str): Log level (default: "info").
 - `env` (dict | None): Environment variables for the CLI process.
+
+    For the native standalone runtime, include
+    `{"COPILOT_GITHUB_TELEMETRY_DISABLED": "true"}` in `env` before startup to
+    disable direct GitHub telemetry uploads for the entire host, including
+    sessionless events. Authentication, `on_github_telemetry` forwarding, and
+    user-configured OpenTelemetry export remain unchanged. This is separate from
+    `enable_session_telemetry=False`, which disables only a session's pipeline.
+    The value must be exactly `"true"`; changing it requires a runtime restart.
+    The Node CLI host does not use this variable. In-process connections reject
+    per-client `env`; set the variable in the host process environment before
+    starting the runtime instead.
+
 - `github_token` (str | None): GitHub token for authentication. When provided, takes priority over other auth methods.
 - `base_directory` (str | None): Base directory for Copilot data (session state, config, etc.). Sets `COPILOT_HOME` on the spawned CLI process. When `None`, the CLI defaults to `~/.copilot`. Useful in restricted environments where only specific directories are writable. Ignored when using a `UriRuntimeConnection`.
 - `extension_launch_provider` (ExtensionLaunchProviderHandler | None): Experimental connection-level resolver for extension launch profiles. The client installs the reverse-RPC handler and registers the provider during startup before sessions can be created.
@@ -441,10 +453,12 @@ These are passed as keyword arguments to `create_session()`:
 - `infinite_sessions` (InfiniteSessionConfig): Automatic context compaction configuration
 - `working_directory` (str | None): Working directory for the session (default: runtime process working directory).
 - `enable_session_store` (bool): Enables the cross-session store for search and retrieval across sessions. When unset in `"copilot-cli"` mode, the runtime default applies (enabled). In `"empty"` mode, defaults to disabled.
+- `enable_github_cache_store` (bool): Requests the read-only GitHub cache store (`github-cache-store` capability) on create or resume. The runtime registers the `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is also on. Defaults to disabled in every mode.
 - `github_token_provider` (callable): Acquires rotating, session-scoped GitHub tokens. Token results require a positive `expiresIn` value in seconds remaining when the callback completes; production tokens typically last eight hours. Cannot be combined with `github_token`.
 - `on_permission_request` (callable): Optional handler called before each tool execution to approve or deny it. When omitted, permission requests are emitted as events and left pending for manual resolution. `PermissionHandler.approve_all` approves requests when managed settings are disabled and raises an error when `enable_managed_settings` is true. Custom handlers can inspect `managed_approval_required` for human-facing confirmation logic. See [Permission Handling](#permission-handling) section.
 - `on_user_input_request` (callable): Handler for legacy question-and-answer requests from the agent. Enables the legacy `ask_user` tool. See [User Input Requests](#user-input-requests) section.
 - `ask_user_variant` (`"legacy"` | `"elicitation"`): Selects the model-facing shape of the `ask_user` tool. Defaults to `"legacy"`; use `"elicitation"` with `on_elicitation_request`. Re-supply this option when cold-resuming a session.
+- `interactive_user` (bool): Declares that a person types this session's messages, as in an editor chat panel. Enables the runtime's user-message analysis telemetry for user-authored messages; automated messages stay excluded. Defaults to `False`. Ignored for cloud sessions. Re-supply it when cold-resuming a session; it is ignored when resuming a session that is already active.
 - `hooks` (SessionHooks): Hook handlers for session lifecycle events. See [Session Hooks](#session-hooks) section.
 
 ```python
@@ -1068,6 +1082,8 @@ Install with telemetry extras: `pip install "github-copilot-sdk[telemetry]"` (pr
 
 An `on_permission_request` handler is optional when you create or resume a session. When provided, it is called before the agent executes each tool (file writes, shell commands, custom tools, etc.) and returns a decision. When omitted, permission requests are emitted as events and left pending for the consumer to resolve with the pending permission RPC.
 
+Callbacks receive optional derived prompt context as `invocation["prompt_request"]`, matching `PermissionRequestedData.prompt_request`. The raw request's `managed_approval_required` remains managed-policy provenance and enforces one-shot restrictions. Only derived `commands`, `read`, `write`, `url`, and `workflow` prompts can clear the human requirement after Assisted approval; for missing or other prompt kinds, keep the raw marker authoritative.
+
 ### Approve All (simplest)
 
 Use the built-in `PermissionHandler.approve_all` helper to approve ordinary permission requests automatically:
@@ -1311,7 +1327,7 @@ async with await client.create_session(
 - `on_pre_tool_use` - Intercept tool calls before execution. Can allow/deny or modify arguments.
 - `on_post_tool_use` - Process tool results after successful execution. Can modify results or add context.
 - `on_post_tool_use_failure` - Observe failed tool executions and inject extra context to guide the model's next step.
-- `on_user_prompt_submitted` - Intercept user prompts. Can modify the prompt before processing.
+- `on_user_prompt_submitted` - Intercept user prompts. Can modify the prompt before processing, or return `{"decision": "block", "reason": "..."}` to refuse it: no model turn runs, no user message is recorded, and the session emits an ephemeral `session.warning` (`warningType: "policy_blocked"`) carrying the reason.
 - `on_session_start` - Run logic when a session starts or resumes.
 - `on_session_end` - Cleanup or logging when session ends.
 - `on_subagent_start` - Inspect a subagent launch and optionally prepend `additionalContext` to its prompt.

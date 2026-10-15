@@ -14,7 +14,9 @@ use futures_util::FutureExt;
 use github_copilot_sdk::{
     AhpHost, AhpHostExit, AhpHostOptions, CliProgram, Client, ClientOptions, Transport,
 };
+use hpke::rand_core::SeedableRng;
 use hpke::{Deserializable, Serializable};
+use rand_chacha::ChaCha20Rng;
 use rand_core::{OsRng, RngCore};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -292,12 +294,15 @@ fn sealed_auth_token(initialize_meta: &Value, root_meta: &Value, resource: &str)
     .unwrap();
     type Kem = hpke::kem::X25519HkdfSha256;
     let recipient = <Kem as hpke::Kem>::PublicKey::from_bytes(&public_key).unwrap();
+    let mut seed = [0_u8; 32];
+    getrandom::fill(&mut seed).unwrap();
+    let mut rng = ChaCha20Rng::from_seed(seed);
     let (enc, mut sender) = hpke::setup_sender::<
         hpke::aead::AesGcm256,
         hpke::kdf::HkdfSha256,
         Kem,
         _,
-    >(&hpke::OpModeS::Base, &recipient, &[], &mut OsRng)
+    >(&hpke::OpModeS::Base, &recipient, &[], &mut rng)
     .unwrap();
     let mut ciphertext = enc.to_bytes().to_vec();
     ciphertext.extend(sender.seal(&plaintext, &[]).unwrap());
@@ -310,7 +315,9 @@ fn sealed_auth_token(initialize_meta: &Value, root_meta: &Value, resource: &str)
 #[test]
 fn fixture_authentication_is_sealed_and_bound_to_the_live_challenge() {
     type Kem = hpke::kem::X25519HkdfSha256;
-    let (secret, public) = <Kem as hpke::Kem>::gen_keypair(&mut OsRng);
+    let mut seed = [0_u8; 32];
+    getrandom::fill(&mut seed).unwrap();
+    let (secret, public) = <Kem as hpke::Kem>::gen_keypair(&mut ChaCha20Rng::from_seed(seed));
     let key_id = URL_SAFE_NO_PAD.encode(&Sha256::digest(public.to_bytes())[..8]);
     let challenge = "00112233445566778899aabbccddeeff";
     let initialized = json!({

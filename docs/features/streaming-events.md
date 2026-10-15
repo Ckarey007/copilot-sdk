@@ -578,7 +578,7 @@ Emitted when a tool finishes executing—successfully or with an error.
 | `model` | `string` | | Model that generated this tool call |
 | `interactionId` | `string` | | CAPI interaction ID |
 | `isUserRequested` | `boolean` | | `true` when the user explicitly requested this tool call |
-| `result` | `Result` | | Present on success (see below) |
+| `result` | `Result` | | Present on success, and on failure when the tool returned content with its error (see below) |
 | `error` | `{ message, code? }` | | Present on failure |
 | `toolTelemetry` | `object` | | Tool-specific telemetry (e.g., CodeQL check counts) |
 | `parentToolCallId` | `string` | | Deprecated. Use envelope-level `agentId` for sub-agent attribution |

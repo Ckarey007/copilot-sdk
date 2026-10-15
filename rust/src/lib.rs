@@ -2192,7 +2192,7 @@ impl Client {
                             continue;
                         };
                         let event: SessionLifecycleEvent =
-                            match serde_json::from_value(params.clone()) {
+                            match SessionLifecycleEvent::deserialize(params) {
                                 Ok(e) => e,
                                 Err(e) => {
                                     warn!(
@@ -2584,6 +2584,11 @@ impl Client {
     /// Send a JSON-RPC response back to the CLI (e.g. for permission or tool call requests).
     pub(crate) async fn send_response(&self, response: &JsonRpcResponse) -> Result<()> {
         self.inner.rpc.write(response).await
+    }
+
+    /// Send a frame already encoded with `jsonrpc::encode_frame`.
+    pub(crate) async fn send_frame(&self, frame: jsonrpc::EncodedFrame) -> Result<()> {
+        self.inner.rpc.write_frame(frame).await
     }
 
     /// Reconstruct a [`Client`] handle from a shared inner pointer.

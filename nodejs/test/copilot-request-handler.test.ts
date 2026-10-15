@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import {
     CopilotRequestHandler,
+    CopilotWebSocketHandler,
     type CopilotRequestContext,
     createCopilotRequestAdapter,
 } from "../src/copilotRequestHandler.js";
@@ -126,6 +127,161 @@ function frameBytes(frame: LlmInferenceHttpResponseChunkRequest): Uint8Array {
         ? new Uint8Array(Buffer.from(frame.data, "base64"))
         : new TextEncoder().encode(frame.data);
 }
+
+describe("CopilotRequestHandler invocation metadata", () => {
+    it.each(["logical-invocation", undefined, ""])(
+        "preserves HTTP start identity %s across physical retries",
+        async (agentInvocationId) => {
+            const contexts: CopilotRequestContext[] = [];
+            class Handler extends CopilotRequestHandler {
+                protected override async sendRequest(
+                    request: Request,
+                    ctx: CopilotRequestContext
+                ): Promise<Response> {
+                    contexts.push(ctx);
+                    expect(await request.text()).toBe("request-body");
+                    return new Response(null, { status: 200 });
+                }
+            }
+
+            for (const requestId of ["physical-first", "physical-retry"]) {
+                const peer = new ProtocolPeer();
+                const adapter = createAdapter(new Handler(), () => peer.rpc);
+                await adapter.httpRequestStart({
+                    requestId,
+                    agentInvocationId,
+                    sessionId: "session",
+                    agentId: "trajectory",
+                    parentAgentId: "parent",
+                    interactionType: "conversation-agent",
+                    method: "POST",
+                    url: "https://example.test/inference",
+                    headers: { "x-multiple": ["one", "two"] },
+                });
+                await adapter.httpRequestChunk({
+                    requestId,
+                    data: Buffer.from("request-body").toString("base64"),
+                    binary: true,
+                    end: true,
+                });
+                expect((await peer.terminal.promise).error).toBeUndefined();
+                expect(contexts.at(-1)?.agentInvocationId).toBe(agentInvocationId);
+                expect(contexts.at(-1)).toMatchObject({
+                    requestId,
+                    sessionId: "session",
+                    agentId: "trajectory",
+                    parentAgentId: "parent",
+                    interactionType: "conversation-agent",
+                    transport: "http",
+                    headers: { "x-multiple": ["one", "two"] },
+                });
+            }
+            expect(contexts).toHaveLength(2);
+        }
+    );
+
+    it("preserves queued per-message identity on a reused WebSocket without stale fallback", async () => {
+        const messages: Array<{ data: string | Uint8Array; ctx?: CopilotRequestContext }> = [];
+        let connectionContext: CopilotRequestContext | undefined;
+        class Socket extends CopilotWebSocketHandler {
+            constructor(ctx: CopilotRequestContext) {
+                super(ctx);
+            }
+            override sendRequestMessage(
+                data: string | Uint8Array,
+                ctx?: CopilotRequestContext
+            ): void {
+                messages.push({ data, ctx });
+            }
+        }
+        class Handler extends CopilotRequestHandler {
+            protected override openWebSocket(
+                ctx: CopilotRequestContext
+            ): Promise<CopilotWebSocketHandler> {
+                connectionContext = ctx;
+                return Promise.resolve(new Socket(ctx));
+            }
+        }
+        const peer = new ProtocolPeer();
+        const adapter = createAdapter(new Handler(), () => peer.rpc);
+        const ids = ["opening-invocation", "later-invocation", "later-invocation", undefined, ""];
+        for (const [index, agentInvocationId] of ids.slice(0, 2).entries()) {
+            await adapter.httpRequestChunk({
+                requestId: "reused-socket",
+                data: `message-${index}`,
+                agentInvocationId,
+            });
+        }
+        await adapter.httpRequestStart({
+            requestId: "reused-socket",
+            agentInvocationId: "opening-invocation",
+            sessionId: "session",
+            agentId: "trajectory",
+            transport: "websocket",
+            method: "GET",
+            url: "wss://example.test/inference",
+            headers: {},
+        });
+        await waitFor(() => messages.length === 2, "queued messages were not delivered");
+        for (let index = 2; index < ids.length; index++) {
+            await adapter.httpRequestChunk({
+                requestId: "reused-socket",
+                data: `message-${index}`,
+                agentInvocationId: ids[index],
+            });
+        }
+        await adapter.httpRequestChunk({ requestId: "reused-socket", data: "", end: true });
+        expect((await peer.terminal.promise).error).toBeUndefined();
+
+        expect(connectionContext?.agentInvocationId).toBe("opening-invocation");
+        expect(messages.map(({ data }) => data)).toEqual(ids.map((_, i) => `message-${i}`));
+        expect(messages.map(({ ctx }) => ctx?.agentInvocationId)).toEqual(ids);
+        for (const { ctx } of messages) {
+            expect(ctx).toMatchObject({
+                requestId: "reused-socket",
+                sessionId: "session",
+                agentId: "trajectory",
+                transport: "websocket",
+                signal: connectionContext?.signal,
+            });
+            expect(ctx).not.toBe(connectionContext);
+        }
+    });
+
+    it("continues calling legacy single-argument WebSocket handlers", async () => {
+        const messages: Array<string | Uint8Array> = [];
+        class Socket extends CopilotWebSocketHandler {
+            constructor(ctx: CopilotRequestContext) {
+                super(ctx);
+            }
+            override sendRequestMessage(data: string | Uint8Array): void {
+                messages.push(data);
+            }
+        }
+        class Handler extends CopilotRequestHandler {
+            protected override openWebSocket(ctx: CopilotRequestContext) {
+                return Promise.resolve(new Socket(ctx));
+            }
+        }
+        const peer = new ProtocolPeer();
+        const adapter = createAdapter(new Handler(), () => peer.rpc);
+        await adapter.httpRequestStart({
+            requestId: "legacy",
+            transport: "websocket",
+            method: "GET",
+            url: "wss://example.test",
+            headers: {},
+        });
+        await adapter.httpRequestChunk({
+            requestId: "legacy",
+            data: "legacy-message",
+            agentInvocationId: "logical-invocation",
+            end: true,
+        });
+        await peer.terminal.promise;
+        expect(messages).toEqual(["legacy-message"]);
+    });
+});
 
 describe("CopilotRequestHandler HTTP response protocol", () => {
     it("reads ahead, coalesces tiny source chunks, and keeps one data RPC outstanding", async () => {

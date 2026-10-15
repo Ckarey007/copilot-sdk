@@ -1780,104 +1780,112 @@ Related files (use view tool to read):
     ])(
       "replays a notice-only stored turn while preserving empty user input through %s",
       async (backend) => {
-      const cachePath = path.join(tempDir, `mode-notice-${backend}.yaml`);
-      await writeFile(
-        cachePath,
-        yaml.stringify({
-          models: ["test-model"],
-          conversations: [
-            {
-              messages: [
-                {
-                  role: "user",
-                  content:
-                    "<mode_changed_notice>\nPlan mode is no longer active.\n</mode_changed_notice>",
-                },
-                {
-                  role: "user",
-                  content:
-                    "<tools_changed_notice>\nTools no longer available: exit_plan_mode\n</tools_changed_notice>",
-                },
-                { role: "assistant", content: "Notice ready" },
-              ],
-            },
-            {
-              messages: [
-                { role: "user" },
-                { role: "assistant", content: "Empty ready" },
-              ],
-            },
-          ],
-        } satisfies NormalizedData),
-      );
-      const proxy = new ReplayingCapiProxy("http://localhost:9999");
-      await proxy.updateConfig({
-        filePath: cachePath,
-        workDir,
-        backend,
-        replayOnly: true,
-      });
-      const proxyUrl = await proxy.start();
-      const request = (content: string) => {
-        switch (backend) {
-          case "capi":
-          case "openai-completions":
-            return {
-              endpoint: "/chat/completions",
-              body: {
-                model: "test-model",
-                messages: [{ role: "user", content }],
-              },
-            };
-          case "openai-responses":
-            return {
-              endpoint: "/responses",
-              body: {
-                model: "test-model",
-                input: [
+        const cachePath = path.join(tempDir, `mode-notice-${backend}.yaml`);
+        await writeFile(
+          cachePath,
+          yaml.stringify({
+            models: ["test-model"],
+            conversations: [
+              {
+                messages: [
                   {
-                    type: "message",
                     role: "user",
-                    content: [{ type: "input_text", text: content }],
+                    content:
+                      "<mode_changed_notice>\nPlan mode is no longer active.\n</mode_changed_notice>",
                   },
+                  {
+                    role: "user",
+                    content:
+                      "<tools_changed_notice>\nTools no longer available: exit_plan_mode\n</tools_changed_notice>",
+                  },
+                  { role: "assistant", content: "Notice ready" },
                 ],
               },
-            };
-          case "anthropic-messages":
-            return {
-              endpoint: "/v1/messages",
-              body: {
-                model: "test-model",
-                max_tokens: 100,
-                messages: [{ role: "user", content }],
+              {
+                messages: [
+                  { role: "user" },
+                  { role: "assistant", content: "Empty ready" },
+                ],
               },
-            };
-        }
-      };
-
-      try {
-        for (const notice of [
-          "<mode_changed_notice>\nPlan mode is no longer active.\n</mode_changed_notice>",
-          "<tools_changed_notice>\nNew tools available: exit_plan_mode\n</tools_changed_notice>",
-        ]) {
-          const noticeRequest = request(notice);
-          const response = await makeRequest(proxyUrl, noticeRequest.endpoint, {
-            body: noticeRequest.body,
-          });
-
-          expect(response.status).toBe(200);
-          expect(response.body).toContain("Notice ready");
-        }
-
-        const emptyRequest = request("");
-        const emptyResponse = await makeRequest(proxyUrl, emptyRequest.endpoint, {
-          body: emptyRequest.body,
+            ],
+          } satisfies NormalizedData),
+        );
+        const proxy = new ReplayingCapiProxy("http://localhost:9999");
+        await proxy.updateConfig({
+          filePath: cachePath,
+          workDir,
+          backend,
+          replayOnly: true,
         });
-        expect(emptyResponse.status).toBe(200);
-        expect(emptyResponse.body).toContain("Empty ready");
-      } finally {
-        await proxy.stop(true);
-      }
+        const proxyUrl = await proxy.start();
+        const request = (content: string) => {
+          switch (backend) {
+            case "capi":
+            case "openai-completions":
+              return {
+                endpoint: "/chat/completions",
+                body: {
+                  model: "test-model",
+                  messages: [{ role: "user", content }],
+                },
+              };
+            case "openai-responses":
+              return {
+                endpoint: "/responses",
+                body: {
+                  model: "test-model",
+                  input: [
+                    {
+                      type: "message",
+                      role: "user",
+                      content: [{ type: "input_text", text: content }],
+                    },
+                  ],
+                },
+              };
+            case "anthropic-messages":
+              return {
+                endpoint: "/v1/messages",
+                body: {
+                  model: "test-model",
+                  max_tokens: 100,
+                  messages: [{ role: "user", content }],
+                },
+              };
+          }
+        };
+
+        try {
+          for (const notice of [
+            "<mode_changed_notice>\nPlan mode is no longer active.\n</mode_changed_notice>",
+            "<tools_changed_notice>\nNew tools available: exit_plan_mode\n</tools_changed_notice>",
+          ]) {
+            const noticeRequest = request(notice);
+            const response = await makeRequest(
+              proxyUrl,
+              noticeRequest.endpoint,
+              {
+                body: noticeRequest.body,
+              },
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.body).toContain("Notice ready");
+          }
+
+          const emptyRequest = request("");
+          const emptyResponse = await makeRequest(
+            proxyUrl,
+            emptyRequest.endpoint,
+            {
+              body: emptyRequest.body,
+            },
+          );
+          expect(emptyResponse.status).toBe(200);
+          expect(emptyResponse.body).toContain("Empty ready");
+        } finally {
+          await proxy.stop(true);
+        }
       },
     );
 
@@ -2222,6 +2230,92 @@ Related files (use view tool to read):
       },
     );
 
+    test.each([
+      "New tools available: lookup_vegetable",
+      "Tools no longer available: retired_lookup",
+      "New tools available: lookup_vegetable\n\nTools no longer available: retired_lookup\n\nImportant: Do not attempt to call tools that are no longer available unless you've been notified that they're available again.",
+    ])(
+      "preserves quoted and standalone roster-shaped user text: %s",
+      async (body) => {
+        const notice = `<tools_changed_notice>\n${body}\n</tools_changed_notice>`;
+        for (const [storedUsers, shortened] of [
+          [[{ role: "user", content: `Explain: ${notice}` }], "Explain:"],
+          [[{ role: "user", content: `${notice}\n\nContinue.` }], "Continue."],
+          [
+            [
+              { role: "user", content: notice },
+              { role: "user", content: "Continue." },
+            ],
+            "Continue.",
+          ],
+        ] as const) {
+          const cachePath = path.join(tempDir, "literal-tool-roster.yaml");
+          await writeFile(
+            cachePath,
+            yaml.stringify({
+              models: ["test-model"],
+              conversations: [
+                {
+                  messages: [
+                    { role: "system", content: "${system}" },
+                    ...storedUsers,
+                    { role: "assistant", content: "Done." },
+                  ],
+                },
+              ],
+            } satisfies NormalizedData),
+          );
+          const proxy = new ReplayingCapiProxy("http://localhost:9999");
+          await proxy.updateConfig({
+            filePath: cachePath,
+            workDir,
+            replayOnly: true,
+          });
+          const proxyUrl = await proxy.start();
+          try {
+            for (const [users, status] of [
+              [[{ role: "user", content: shortened }], 500],
+              [storedUsers, 200],
+              [[{ role: "user", content: "Do a different task." }], 500],
+              [
+                [
+                  {
+                    role: "user",
+                    content:
+                      "<tools_changed_notice>\nThe model has been switched to another model.\n</tools_changed_notice>\n\nContinue.",
+                  },
+                ],
+                500,
+              ],
+            ] as const) {
+              const response = await makeRequest(
+                proxyUrl,
+                "/chat/completions",
+                {
+                  body: {
+                    model: "test-model",
+                    messages: [
+                      { role: "system", content: "System prompt" },
+                      ...users,
+                    ],
+                  },
+                },
+              );
+              expect(response.status).toBe(status);
+              if (status === 200) {
+                expect(
+                  (JSON.parse(response.body) as ChatCompletion).choices[0]
+                    .message.content,
+                ).toBe("Done.");
+              }
+            }
+          } finally {
+            await proxy.stop(true);
+          }
+        }
+      },
+    );
+
     test("replays a CAPI view-image capture for BYOK tool-result and image-turn continuations", async () => {
       const cachePath = path.join(tempDir, "view-image.yaml");
       await writeFile(
@@ -2343,89 +2437,116 @@ Related files (use view tool to read):
       }
     });
 
-    test("matches shell tool results with shell ID completion markers", async () => {
-      const originalShellConfig =
-        process.platform === "win32"
-          ? ShellConfig.powerShell
-          : ShellConfig.bash;
-      const cachePath = path.join(tempDir, "cache.yaml");
-      const cacheContent = yaml.stringify({
-        models: ["test-model"],
-        conversations: [
-          {
-            messages: [
-              { role: "system", content: "${system}" },
-              { role: "user", content: "Run command" },
-              {
-                role: "assistant",
-                tool_calls: [
-                  {
-                    id: "toolcall_0",
-                    type: "function",
-                    function: {
-                      name: "${shell}",
-                      arguments: '{"command":"echo ok"}',
+    test.each([
+      {
+        toolName: "${shell}",
+        recorded: "ok\n<exited with exit code 0>",
+        actual: "ok\n<shellId: 42 completed with exit code 0>",
+      },
+      {
+        toolName: "${shell}",
+        recorded: "<command started in background with shellId: 0>",
+        actual: "<command started in background with shellId: 42>",
+      },
+      {
+        toolName: "view",
+        recorded: "ok\n<shellId: 42 completed with exit code 0>",
+        actual: "ok\n<shellId: 42 completed with exit code 0>",
+      },
+      {
+        toolName: "view",
+        recorded: "<command started in background with shellId: 42>",
+        actual: "<command started in background with shellId: 42>",
+      },
+    ])(
+      "matches $toolName results containing shell markers: $actual",
+      async ({ toolName, recorded, actual }) => {
+        const originalShellConfig =
+          process.platform === "win32"
+            ? ShellConfig.powerShell
+            : ShellConfig.bash;
+        const cachePath = path.join(tempDir, "cache.yaml");
+        const cacheContent = yaml.stringify({
+          models: ["test-model"],
+          conversations: [
+            {
+              messages: [
+                { role: "system", content: "${system}" },
+                { role: "user", content: "Run command" },
+                {
+                  role: "assistant",
+                  tool_calls: [
+                    {
+                      id: "toolcall_0",
+                      type: "function",
+                      function: {
+                        name: toolName,
+                        arguments: '{"command":"echo ok"}',
+                      },
                     },
-                  },
-                ],
-              },
-              {
-                role: "tool",
-                tool_call_id: "toolcall_0",
-                content: "ok\n<exited with exit code 0>",
-              },
-              { role: "assistant", content: "Done" },
-            ],
-          },
-        ],
-      } satisfies NormalizedData);
-      await writeFile(cachePath, cacheContent);
+                  ],
+                },
+                {
+                  role: "tool",
+                  tool_call_id: "toolcall_0",
+                  content: recorded,
+                },
+                { role: "assistant", content: "Done" },
+              ],
+            },
+          ],
+        } satisfies NormalizedData);
+        await writeFile(cachePath, cacheContent);
 
-      const proxy = new ReplayingCapiProxy(
-        "http://localhost:9999",
-        cachePath,
-        workDir,
-      );
-      const proxyUrl = await proxy.start();
+        const proxy = new ReplayingCapiProxy(
+          "http://localhost:9999",
+          cachePath,
+          workDir,
+        );
+        const proxyUrl = await proxy.start();
 
-      try {
-        const response = await makeRequest(proxyUrl, "/chat/completions", {
-          body: {
-            model: "test-model",
-            messages: [
-              { role: "system", content: "System prompt" },
-              { role: "user", content: "Run command" },
-              {
-                role: "assistant",
-                tool_calls: [
-                  {
-                    id: "runtime-call-id",
-                    type: "function",
-                    function: {
-                      name: originalShellConfig.shellToolName,
-                      arguments: '{"command":"echo ok"}',
+        try {
+          const response = await makeRequest(proxyUrl, "/chat/completions", {
+            body: {
+              model: "test-model",
+              messages: [
+                { role: "system", content: "System prompt" },
+                { role: "user", content: "Run command" },
+                {
+                  role: "assistant",
+                  tool_calls: [
+                    {
+                      id: "runtime-call-id",
+                      type: "function",
+                      function: {
+                        name:
+                          toolName === "${shell}"
+                            ? originalShellConfig.shellToolName
+                            : toolName,
+                        arguments: '{"command":"echo ok"}',
+                      },
                     },
-                  },
-                ],
-              },
-              {
-                role: "tool",
-                tool_call_id: "runtime-call-id",
-                content: "ok\n<shellId: 42 completed with exit code 0>",
-              },
-            ],
-          },
-        });
+                  ],
+                },
+                {
+                  role: "tool",
+                  tool_call_id: "runtime-call-id",
+                  content: actual,
+                },
+              ],
+            },
+          });
 
-        expect(response.status).toBe(200);
-        expect(
-          (JSON.parse(response.body) as ChatCompletion).choices[0].message
-            .content,
-        ).toBe("Done");
-      } finally {
-        await proxy.stop();
-      }
-    });
+          expect(response.status).toBe(200);
+          expect(
+            (JSON.parse(response.body) as ChatCompletion).choices[0].message
+              .content,
+          ).toBe("Done");
+        } finally {
+          await proxy.stop();
+        }
+      },
+    );
 
     test("matches semantically equivalent interrupted tool results", async () => {
       const originalShellConfig =

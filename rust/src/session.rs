@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use futures_util::FutureExt;
 use parking_lot::Mutex as ParkingLotMutex;
+use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -205,7 +206,7 @@ impl StructuredOutputState {
             }
             SessionEventType::AssistantMessage => {
                 let data: crate::session_events::AssistantMessageData =
-                    serde_json::from_value(event.data.clone())?;
+                    crate::session_events::AssistantMessageData::deserialize(&event.data)?;
                 if data.originating_message_id.as_deref() == Some(self.message_id.as_str()) {
                     self.started = true;
                     self.final_message =
@@ -230,7 +231,7 @@ impl StructuredOutputState {
                     structured_output_error("run completed without a structured assistant response")
                 })?;
                 let data: crate::session_events::AssistantMessageData =
-                    serde_json::from_value(result.data.clone())?;
+                    crate::session_events::AssistantMessageData::deserialize(&result.data)?;
                 if data.content.trim().is_empty() {
                     return Err(structured_output_error(
                         "run completed without a structured assistant response",
@@ -348,7 +349,7 @@ impl PendingSessionRegistration {
             let result = response.result.as_ref().ok_or_else(|| {
                 Error::with_message(ErrorKind::Json, "session.create response had no result")
             })?;
-            let parsed: CreateSessionResult = serde_json::from_value(result.clone())?;
+            let parsed = CreateSessionResult::deserialize(result)?;
             // Cancellation sets shutdown before inspecting this stash. Under the
             // same lock, either registration wins and is cleaned up, or it is rejected.
             let mut stashed = stash.lock();
@@ -2996,13 +2997,13 @@ async fn handle_notification(
     // call `Session::capabilities()` / `Session::open_canvases()` in
     // response to the event observe the new state.
     if event_type == SessionEventType::CapabilitiesChanged {
-        match serde_json::from_value::<SessionCapabilities>(notification.event.data.clone()) {
+        match SessionCapabilities::deserialize(&notification.event.data) {
             Ok(changed) => *capabilities.write() = changed,
             Err(e) => warn!(error = %e, "failed to deserialize capabilities.changed payload"),
         }
     }
     if event_type == SessionEventType::SessionCanvasOpened {
-        match serde_json::from_value::<OpenCanvasInstance>(notification.event.data.clone()) {
+        match OpenCanvasInstance::deserialize(&notification.event.data) {
             Ok(open_canvas) => {
                 upsert_open_canvas_snapshot(&mut open_canvases.write(), open_canvas);
             }
@@ -3010,7 +3011,7 @@ async fn handle_notification(
         }
     }
     if event_type == SessionEventType::SessionCanvasClosed {
-        match serde_json::from_value::<SessionCanvasClosedData>(notification.event.data.clone()) {
+        match SessionCanvasClosedData::deserialize(&notification.event.data) {
             Ok(closed) => {
                 if closed.instance_id.is_empty() {
                     warn!("failed to deserialize session.canvas.closed payload");
@@ -3146,7 +3147,7 @@ async fn handle_notification(
                 return;
             };
             let data: ExternalToolRequestedData =
-                match serde_json::from_value(notification.event.data.clone()) {
+                match ExternalToolRequestedData::deserialize(&notification.event.data) {
                     Ok(d) => d,
                     Err(e) => {
                         warn!(error = %e, "failed to deserialize external_tool.requested");
@@ -3360,7 +3361,7 @@ async fn handle_notification(
                 return;
             };
             let elicitation_data: ElicitationRequestedData =
-                match serde_json::from_value(notification.event.data.clone()) {
+                match ElicitationRequestedData::deserialize(&notification.event.data) {
                     Ok(d) => d,
                     Err(e) => {
                         warn!(error = %e, "failed to deserialize elicitation request");
@@ -3369,9 +3370,12 @@ async fn handle_notification(
                 };
             let request = ElicitationRequest {
                 message: elicitation_data.message,
+                // Forward the wire schema verbatim: the generated type keys
+                // `properties` by `HashMap`, so re-serializing it scrambles
+                // the form's field order and drops keys it does not model.
                 requested_schema: elicitation_data
                     .requested_schema
-                    .map(|s| serde_json::to_value(s).unwrap_or(Value::Null)),
+                    .and(notification.event.data.get("requestedSchema").cloned()),
                 mode: elicitation_data.mode.map(|m| match m {
                     crate::generated::session_events::ElicitationRequestedMode::Form => {
                         crate::types::ElicitationMode::Form
@@ -3485,7 +3489,7 @@ async fn handle_notification(
                 return;
             };
             let data: McpOauthRequiredData =
-                match serde_json::from_value(notification.event.data.clone()) {
+                match McpOauthRequiredData::deserialize(&notification.event.data) {
                     Ok(d) => d,
                     Err(e) => {
                         warn!(error = %e, "failed to deserialize MCP OAuth request");
@@ -3570,7 +3574,7 @@ async fn handle_notification(
         }
         SessionEventType::CommandExecute => {
             let data: CommandExecuteData =
-                match serde_json::from_value(notification.event.data.clone()) {
+                match CommandExecuteData::deserialize(&notification.event.data) {
                     Ok(d) => d,
                     Err(e) => {
                         warn!(error = %e, "failed to deserialize command.execute");
@@ -3946,9 +3950,11 @@ async fn handle_request(
 
         "systemMessage.transform" => {
             let params = request.params.as_ref();
-            let sections: HashMap<String, crate::transforms::TransformSection> =
-                match params.and_then(|p| p.get("sections")) {
-                    Some(v) => match serde_json::from_value(v.clone()) {
+            let sections: HashMap<String, crate::transforms::TransformSection> = match params
+                .and_then(|p| p.get("sections"))
+            {
+                Some(v) => {
+                    match HashMap::<String, crate::transforms::TransformSection>::deserialize(v) {
                         Ok(s) => s,
                         Err(e) => {
                             let _ = send_error_response(
@@ -3960,18 +3966,19 @@ async fn handle_request(
                             .await;
                             return;
                         }
-                    },
-                    None => {
-                        let _ = send_error_response(
-                            client,
-                            request.id,
-                            error_codes::INVALID_PARAMS,
-                            "missing sections parameter",
-                        )
-                        .await;
-                        return;
                     }
-                };
+                }
+                None => {
+                    let _ = send_error_response(
+                        client,
+                        request.id,
+                        error_codes::INVALID_PARAMS,
+                        "missing sections parameter",
+                    )
+                    .await;
+                    return;
+                }
+            };
 
             let rpc_result = if let Some(transforms) = transforms {
                 let transform_start = Instant::now();

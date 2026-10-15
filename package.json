@@ -12,6 +12,7 @@
     "build:rust": "node scripts/run-tasks.mjs build rust",
     "test": "node scripts/run-tasks.mjs test",
     "test:default": "node scripts/run-tasks.mjs test:default",
+    "test:codegen": "npm --prefix scripts/codegen test && npm --prefix nodejs run test:codegen --",
     "test:nodejs": "node scripts/run-tasks.mjs test nodejs",
     "test:python": "node scripts/run-tasks.mjs test python",
     "test:go": "node scripts/run-tasks.mjs test go",

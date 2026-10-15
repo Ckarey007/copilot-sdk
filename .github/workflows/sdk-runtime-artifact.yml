@@ -24,6 +24,9 @@ on:
       os:
         required: true
         type: string
+      merge-queue-os:
+        required: true
+        type: string
       target:
         required: true
         type: string
@@ -137,7 +140,7 @@ jobs:
       !cancelled() &&
       (inputs.runtime-source == 'published' ||
        (needs.cache-relay.result == 'success' && needs.cache-relay.outputs.cache-hit != 'true'))
-    runs-on: ${{ inputs.runtime-source == 'checkout' && inputs.os || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runtime-source == 'checkout' && (github.event_name == 'merge_group' && inputs.merge-queue-os || inputs.os) || (github.event_name == 'merge_group' && 'ubuntu-26.04-2core-ar-mq' || 'ubuntu-26.04-2core-agent-runtime') }}
     permissions:
       actions: read
       contents: read

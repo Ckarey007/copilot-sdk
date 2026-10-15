@@ -34,6 +34,28 @@ public final class ServerPluginsApi {
     }
 
     /**
+     * Plans installation of an Agent Plugin search candidate from its verified Agent Finder materialisation without writing files. Only candidates that carry a handle can be planned. The review shows only verified data, and installing leaves the plugin disabled until it is enabled through plugins.enable.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    public CompletableFuture<PluginInstallationManagementResult> planInstall(PluginsPlanInstallParams params) {
+        return caller.invoke("plugins.planInstall", params, PluginInstallationManagementResult.class);
+    }
+
+    /**
+     * Consumes one verified Agent Plugin installation plan, requests explicit human consent through installations.confirm on the original connection, then reacquires and verifies every file and registers the plugin, disabled, exactly as a direct plugin install. The installed plugin is listed, enabled and uninstalled through the existing plugins methods.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    public CompletableFuture<PluginInstallationResult> applyInstall(PluginsApplyInstallParams params) {
+        return caller.invoke("plugins.applyInstall", params, PluginInstallationResult.class);
+    }
+
+    /**
      * Lists plugins installed in user/global state.
      *
      * @apiNote This method is experimental and may change in a future version.

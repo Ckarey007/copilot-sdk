@@ -7,6 +7,7 @@ use std::sync::{Arc, Weak};
 use async_trait::async_trait;
 use futures_util::FutureExt;
 use parking_lot::Mutex;
+use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -20,7 +21,7 @@ pub use crate::generated::api_types::HostExitedNotification as AhpHostExit;
 use crate::generated::api_types::{
     HostDisposeRequest, HostListSessionsRequest, HostListSessionsResult, HostPublishSessionRequest,
     HostPublishSessionResult, HostSessionCreateCallback, HostSessionReleasedNotification,
-    HostStartOptions, HostStartResult,
+    HostStartOptions, HostStartResult, HostUnpublishSessionRequest, HostUnpublishSessionResult,
 };
 use crate::session::Session;
 use crate::{
@@ -323,6 +324,27 @@ impl AhpHost {
             .rpc()
             .host()
             .publish_session(HostPublishSessionRequest {
+                host_id: self.host_id.clone(),
+                session_id: session_id.into(),
+            })
+            .await
+    }
+
+    /// Withdraw a live or dormant application publication and revoke AHP attachments.
+    ///
+    /// Preserves local history, worktrees and ongoing work; returns false when absent.
+    /// Rejects nonapplication publications without stopping the host.
+    pub async fn unpublish_session(
+        &self,
+        session_id: impl Into<crate::SessionId>,
+    ) -> Result<HostUnpublishSessionResult, Error> {
+        let client = Client::from_inner(self.client.upgrade().ok_or_else(|| {
+            Error::from(ErrorKind::Protocol(ProtocolErrorKind::RequestCancelled))
+        })?);
+        client
+            .rpc()
+            .host()
+            .unpublish_session(HostUnpublishSessionRequest {
                 host_id: self.host_id.clone(),
                 session_id: session_id.into(),
             })
@@ -925,6 +947,7 @@ macro_rules! host_settings {
             "featureFlags" => feature_flags,
             "enableManagedSettings" => enable_managed_settings,
             "enableSessionStore" => enable_session_store,
+            "enableGitHubCacheStore" => enable_github_cache_store,
             "availableTools" => available_tools,
             "excludedTools" => excluded_tools,
             "allowedModels" => allowed_models,
@@ -953,9 +976,9 @@ fn config_from_host(settings: &HashMap<String, Value>) -> Result<SessionConfig, 
                     ($($name:literal => $field:ident,)*) => {
                         for (key, value) in settings {
                             match key.as_str() {
-                                "sessionId" => config.session_id = serde_json::from_value(value.clone())?,
-                                "refreshCustomInstructions" => config.refresh_custom_instructions = serde_json::from_value(value.clone())?,
-                                $($name => config.$field = serde_json::from_value(value.clone())?,)*
+                                "sessionId" => config.session_id = Deserialize::deserialize(value)?,
+                                "refreshCustomInstructions" => config.refresh_custom_instructions = Deserialize::deserialize(value)?,
+                                $($name => config.$field = Deserialize::deserialize(value)?,)*
                                 _ => return Err(handoff_error("Unsupported AHP session configuration setting")),
                             }
                         }
@@ -997,10 +1020,10 @@ fn resume_config_from_host(
             for (key, value) in settings {
                 match key.as_str() {
                     "sessionId" => {},
-                    "continuePendingWork" => config.continue_pending_work = serde_json::from_value(value.clone())?,
-                    "suppressResumeEvent" => config.suppress_resume_event = serde_json::from_value(value.clone())?,
-                    "allowTranscriptRecovery" => config.allow_transcript_recovery = serde_json::from_value(value.clone())?,
-                    $($name => config.$field = serde_json::from_value(value.clone())?,)*
+                    "continuePendingWork" => config.continue_pending_work = Deserialize::deserialize(value)?,
+                    "suppressResumeEvent" => config.suppress_resume_event = Deserialize::deserialize(value)?,
+                    "allowTranscriptRecovery" => config.allow_transcript_recovery = Deserialize::deserialize(value)?,
+                    $($name => config.$field = Deserialize::deserialize(value)?,)*
                     _ => return Err(handoff_error("Unsupported AHP resume configuration setting")),
                 }
             }

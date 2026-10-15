@@ -624,6 +624,7 @@ fn host_settings_round_trip_without_callbacks_or_losing_constraints() {
         "streaming": true, "gitHubToken": "test", "mcpOAuthTokenStorage": "in-memory",
         "enableConfigDiscovery": false, "featureFlags": {"flag": true},
         "enableManagedSettings": false, "enableSessionStore": true,
+        "enableGitHubCacheStore": true,
         "availableTools": ["read_file"], "excludedTools": ["shell"], "allowedModels": ["model"],
         "systemMessage": {"mode":"append","content":"app"}, "skipCustomInstructions": true,
         "customAgentsLocalOnly": true, "coauthorEnabled": false, "manageScheduleEnabled": false,
@@ -636,6 +637,7 @@ fn host_settings_round_trip_without_callbacks_or_losing_constraints() {
     assert!(config.permission_handler.is_none());
     assert_eq!(config.config_directory, Some(PathBuf::from("/config")));
     assert_eq!(config.enable_experimental_mode, Some(true));
+    assert_eq!(config.enable_github_cache_store, Some(true));
     assert_eq!(
         config.infinite_sessions.as_ref().unwrap().enabled,
         Some(false)
@@ -648,6 +650,7 @@ fn host_settings_round_trip_without_callbacks_or_losing_constraints() {
     assert!(resume.permission_handler.is_none());
     assert_eq!(resume.config_directory, Some(PathBuf::from("/config")));
     assert_eq!(resume.enable_experimental_mode, Some(true));
+    assert_eq!(resume.enable_github_cache_store, Some(true));
     assert_eq!(
         resume.infinite_sessions.as_ref().unwrap().enabled,
         Some(false)

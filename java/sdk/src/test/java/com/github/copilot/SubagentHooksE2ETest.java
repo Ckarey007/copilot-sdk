@@ -138,10 +138,8 @@ public class SubagentHooksE2ETest {
                             if (request.parentAgentId() == null || request.parentAgentId().isEmpty()) {
                                 continue;
                             }
-                            for (JsonNode message : mapper.readTree(request.body()).path("messages")) {
-                                if (hasChildContext(message)) {
-                                    childContextObserved = true;
-                                }
+                            if (hasChildContext(mapper.readTree(request.body()))) {
+                                childContextObserved = true;
                             }
                         }
                         assertTrue(childContextObserved,
@@ -187,7 +185,22 @@ public class SubagentHooksE2ETest {
         }
     }
 
-    private static boolean hasChildContext(JsonNode message) {
+    private static boolean hasChildContext(JsonNode body) {
+        if (body.path("input").isTextual()) {
+            return body.path("input").asText().contains(CHILD_CONTEXT + "\n\nRead the file \"subagent-test.txt\"");
+        }
+        JsonNode messages = body.hasNonNull("messages") ? body.path("messages") : body.path("input");
+        if (messages.isArray()) {
+            for (JsonNode message : messages) {
+                if (messageHasChildContext(message)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean messageHasChildContext(JsonNode message) {
         if (!"user".equals(message.path("role").asText())) {
             return false;
         }
@@ -198,12 +211,33 @@ public class SubagentHooksE2ETest {
         }
         if (content.isArray()) {
             for (JsonNode part : content) {
-                if ("text".equals(part.path("type").asText()) && part.path("text").asText().contains(expected)) {
+                if (("text".equals(part.path("type").asText()) || "input_text".equals(part.path("type").asText()))
+                        && part.path("text").isTextual() && part.path("text").asText().contains(expected)) {
                     return true;
                 }
             }
         }
         return false;
+    }
+
+    @Test
+    void recognizesUserContextAcrossRequestFormats() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        String text = CHILD_CONTEXT + "\n\nRead the file \"subagent-test.txt\"";
+        String encoded = mapper.writeValueAsString(text);
+        String user = "{\"role\":\"user\",\"content\":" + encoded + "}";
+        assertTrue(hasChildContext(mapper.readTree("{\"messages\":[" + user + "]}")));
+        assertTrue(hasChildContext(mapper.readTree("{\"input\":" + encoded + "}")));
+        assertTrue(hasChildContext(mapper.readTree("{\"input\":[" + user + "]}")));
+        for (String type : List.of("text", "input_text")) {
+            assertTrue(hasChildContext(mapper.readTree("{\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"" + type
+                    + "\",\"text\":" + encoded + "}]}]}")));
+        }
+        assertFalse(hasChildContext(mapper.readTree("{\"input\":[" + "{\"role\":\"assistant\",\"content\":" + encoded
+                + "}," + "{\"type\":\"function_call_output\",\"output\":" + encoded + "},"
+                + "{\"role\":\"user\",\"content\":[null,\"ignored\","
+                + "{\"type\":\"input_text\",\"text\":42},{\"type\":\"input_image\",\"text\":" + encoded + "}]}]}")));
+        assertFalse(hasChildContext(mapper.readTree("{}")));
     }
 
     private static void assertSubagentRequestMetadata(List<RequestRecord> records) {

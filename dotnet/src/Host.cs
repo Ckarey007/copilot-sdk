@@ -90,6 +90,14 @@ public sealed class AhpHost : IAsyncDisposable
     public Task<HostPublishSessionResult> PublishSessionAsync(string sessionId, CancellationToken cancellationToken = default)
         => _rpc.PublishSessionAsync(HostId, sessionId, cancellationToken);
 
+    /// <summary>
+    /// Withdraws a live or dormant application publication and revokes AHP attachments.
+    /// Preserves local history, worktrees and ongoing work; returns false when absent.
+    /// Rejects nonapplication publications without stopping the host.
+    /// </summary>
+    public Task<HostUnpublishSessionResult> UnpublishSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+        => _rpc.UnpublishSessionAsync(HostId, sessionId, cancellationToken);
+
     /// <summary>Lists all live and dormant catalog sessions advertised by this host.</summary>
     public Task<HostListSessionsResult> ListSessionsAsync(CancellationToken cancellationToken = default)
         => _rpc.ListSessionsAsync(HostId, cancellationToken);

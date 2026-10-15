@@ -105,6 +105,7 @@ public class SessionConfig {
     private Boolean enableFileHooks;
     private Boolean enableHostGitOperations;
     private Boolean enableSessionStore;
+    private Boolean enableGitHubCacheStore;
     private Boolean enableSkills;
     private SkillProvider skillProvider;
     private String embeddingCacheStorage;
@@ -124,6 +125,7 @@ public class SessionConfig {
     private CopilotExpAssignmentResponse expAssignments;
     private Boolean enableManagedSettings;
     private Boolean enforceManagedModelDefaults;
+    private Boolean interactiveUser;
     private Map<String, Boolean> featureFlags;
     private ManagedSettings managedSettings;
 
@@ -1845,6 +1847,45 @@ public class SessionConfig {
     }
 
     /**
+     * Gets whether the read-only GitHub cache store is requested.
+     *
+     * @return an {@link java.util.Optional} containing {@code true} to request the
+     *         {@code github-cache-store} capability or {@code false} to decline it,
+     *         or {@link java.util.Optional#empty()} to use the default behavior
+     *         (disabled)
+     */
+    @JsonIgnore
+    public Optional<Boolean> getEnableGitHubCacheStore() {
+        return Optional.ofNullable(enableGitHubCacheStore);
+    }
+
+    /**
+     * Sets whether the read-only GitHub cache store is requested.
+     * <p>
+     * The runtime registers the {@code github_sql} tool only when its
+     * {@code GITHUB_CACHE_STORE} feature flag is also on.
+     *
+     * @param enableGitHubCacheStore
+     *            {@code true} to request the {@code github-cache-store} capability,
+     *            {@code false} to decline it
+     * @return this config instance for method chaining
+     */
+    public SessionConfig setEnableGitHubCacheStore(boolean enableGitHubCacheStore) {
+        this.enableGitHubCacheStore = enableGitHubCacheStore;
+        return this;
+    }
+
+    /**
+     * Clears the enableGitHubCacheStore setting, reverting to the default behavior.
+     *
+     * @return this instance for method chaining
+     */
+    public SessionConfig clearEnableGitHubCacheStore() {
+        this.enableGitHubCacheStore = null;
+        return this;
+    }
+
+    /**
      * Gets whether skill loading is enabled.
      *
      * @return an {@link java.util.Optional} containing {@code true} to enable skill
@@ -2434,6 +2475,32 @@ public class SessionConfig {
     }
 
     /**
+     * Gets whether this session is human-driven.
+     *
+     * @return an optional containing the declaration, or empty when unset
+     */
+    @JsonIgnore
+    public Optional<Boolean> getInteractiveUser() {
+        return Optional.ofNullable(interactiveUser);
+    }
+
+    /**
+     * Declares that a human drives this session's conversation, enabling
+     * user-message analysis telemetry for user-authored messages. Automated
+     * messages remain excluded. Defaults to false for SDK sessions. Ignored for
+     * cloud sessions.
+     *
+     * @param interactiveUser
+     *            {@code true} for interactive hosts such as editors or IDE chat
+     *            panels
+     * @return this config instance for method chaining
+     */
+    public SessionConfig setInteractiveUser(boolean interactiveUser) {
+        this.interactiveUser = interactiveUser;
+        return this;
+    }
+
+    /**
      * Gets host-injected managed settings for this session.
      *
      * @return the managed settings, or {@code null} when unset
@@ -2539,6 +2606,7 @@ public class SessionConfig {
         copy.enableFileHooks = this.enableFileHooks;
         copy.enableHostGitOperations = this.enableHostGitOperations;
         copy.enableSessionStore = this.enableSessionStore;
+        copy.enableGitHubCacheStore = this.enableGitHubCacheStore;
         copy.enableSkills = this.enableSkills;
         copy.skillProvider = this.skillProvider;
         copy.embeddingCacheStorage = this.embeddingCacheStorage;
@@ -2559,6 +2627,7 @@ public class SessionConfig {
         copy.expAssignments = this.expAssignments;
         copy.enableManagedSettings = this.enableManagedSettings;
         copy.enforceManagedModelDefaults = this.enforceManagedModelDefaults;
+        copy.interactiveUser = this.interactiveUser;
         copy.managedSettings = this.managedSettings;
         return copy;
     }

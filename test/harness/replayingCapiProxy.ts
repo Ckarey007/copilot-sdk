@@ -1829,8 +1829,17 @@ function coalesceMessages(
 // older CLI versions as well as to live requests.
 function normalizeStoredToolMessages(conversations: NormalizedConversation[]) {
   for (const conversation of conversations) {
+    const shellToolCallIds = new Set<string>();
     for (const message of conversation.messages) {
+      for (const toolCall of message.tool_calls ?? []) {
+        if (toolCall.function?.name === "${shell}") {
+          shellToolCallIds.add(toolCall.id);
+        }
+      }
       if (message.role === "tool" && typeof message.content === "string") {
+        if (message.tool_call_id && shellToolCallIds.has(message.tool_call_id)) {
+          message.content = normalizeShellExitMarkers(message.content);
+        }
         message.content = normalizeInterruptedToolResult(message.content);
         message.content = normalizeAvailableToolNames(message.content);
         message.content = normalizeBackgroundAgentStartMessage(message.content);
@@ -1869,10 +1878,15 @@ function normalizeLargeOutputFilepaths(result: string): string {
 }
 
 function normalizeShellExitMarkers(result: string): string {
-  return result.replace(
-    /<shellId:\s*[^>\r\n]+?\s+completed with exit code (-?\d+)>/g,
-    "<exited with exit code $1>",
-  );
+  return result
+    .replace(
+      /<shellId:\s*[^>\r\n]+?\s+completed with exit code (-?\d+)>/g,
+      "<exited with exit code $1>",
+    )
+    .replace(
+      /<command started in background with shellId: \d+>/g,
+      "<command started in background with shellId: ${shellId}>",
+    );
 }
 
 // The `gh` CLI emits different "not authenticated" help text depending on the

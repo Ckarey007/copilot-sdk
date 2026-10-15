@@ -128,11 +128,13 @@ await using host = await client.startAhpHost({
             ...config,
             onPermissionRequest: approveAll,
             systemMessage: { mode: "append", content: "Use the app's greeting tool." },
-            tools: [defineTool("greeting", {
-                description: "Get the application's greeting",
-                parameters: { type: "object", properties: {} },
-                handler: () => "Hello from the application!",
-            })],
+            tools: [
+                defineTool("greeting", {
+                    description: "Get the application's greeting",
+                    parameters: { type: "object", properties: {} },
+                    handler: () => "Hello from the application!",
+                }),
+            ],
         });
     },
     onSessionReleased: async (originalSession) => {
@@ -272,6 +274,18 @@ new CopilotClient(options?: CopilotClientOptions)
 - `installationConfirmationHandler?: InstallationConfirmationHandler` - Experimental connection-global human review for `installations.confirm`. Receives the typed request and independent request/connection cancellation signals, and returns an explicit decision. Does not enable installation capabilities.
 - `logLevel?: "none" | "error" | "warning" | "info" | "debug" | "all"` - Log level. When omitted, the runtime uses its own default (currently `"info"`).
 - `env?: Record<string, string | undefined>` - Environment variables for the runtime process. When omitted, inherits `process.env`.
+
+    For the native standalone runtime, set `COPILOT_GITHUB_TELEMETRY_DISABLED=true`
+    before startup to disable direct GitHub telemetry uploads for the entire host,
+    including session and sessionless events. Authentication, SDK
+    `onGitHubTelemetry` forwarding, and user-configured OpenTelemetry export remain
+    unchanged. The value must be exactly `"true"` and is read at startup; changing
+    it requires a runtime restart. With `RuntimeConnection.forInProcess()`, set it
+    in the host process environment; per-client `env` is rejected for that
+    transport. This is separate from `enableSessionTelemetry: false`, which
+    disables only a session's telemetry pipeline. The Node CLI host does not use
+    this environment variable.
+
 - `gitHubToken?: string` - GitHub token for authentication. When provided, takes priority over other auth methods.
 - `useLoggedInUser?: boolean` - Whether to use logged-in user for authentication (default: true, but false when `gitHubToken` is provided). Cannot be used with `RuntimeConnection.forUri`.
 - `onListModels?: () => Promise<ModelInfo[]> | ModelInfo[]` - Optional model-list provider, useful when using a custom provider.
@@ -375,11 +389,13 @@ Create a new conversation session.
 - `workingDirectory?: string` - Working directory for the session (default: runtime process cwd).
 - `refreshCustomInstructions?: boolean` - Invalidates the process-wide custom-instruction discovery cache before creating this session, so instruction-file edits made in the same runtime are read again. Defaults to `false` (cache reuse). Other sessions in this runtime may observe updated instructions on later turns or discovery. This does not watch files or enable disabled instruction loading. Available on `SessionConfig`, not `ResumeSessionConfig`.
 - `enableSessionStore?: boolean` - Enables the cross-session store for search and retrieval across sessions. When unset in `"copilot-cli"` mode, the runtime default applies (enabled). In `"empty"` mode, defaults to disabled.
+- `enableGitHubCacheStore?: boolean` - Requests the read-only GitHub cache store (`github-cache-store` capability) on create or resume. The runtime registers the `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is also on. Defaults to disabled in every mode.
 - `gitHubTokenProvider?: GitHubTokenProvider` - Acquires rotating, session-scoped GitHub tokens. Token results require a positive `expiresIn` value in seconds remaining when the callback completes; production tokens typically last eight hours. Cannot be combined with `gitHubToken`.
 - `provider?: ProviderConfig` - Custom API provider configuration (BYOK - Bring Your Own Key). See [Custom Providers](#custom-providers) section.
 - `onPermissionRequest?: PermissionHandler` - Optional handler called before each tool execution to approve or deny it. When omitted, permission requests are emitted as events and left pending for manual resolution. `approveAll` approves requests when managed settings are disabled and throws when `enableManagedSettings` is true. Custom handlers can inspect `managedApprovalRequired` for human-facing confirmation logic. See [Permission Handling](#permission-handling) section.
 - `onUserInputRequest?: UserInputHandler` - Handler for legacy question-and-answer requests from the agent. Enables the legacy `ask_user` tool. See [User Input Requests](#user-input-requests) section.
 - `askUserVariant?: "legacy" | "elicitation"` - Selects the model-facing `ask_user` tool shape when creating or cold-resuming a session. Defaults to `"legacy"`; use `"elicitation"` with `onElicitationRequest`.
+- `interactiveUser?: boolean` - Declares that a person types this session's messages, as in an editor chat panel. Enables the runtime's user-message analysis telemetry for user-authored messages; automated messages stay excluded. Defaults to `false`. Ignored for cloud sessions. Re-supply it when cold-resuming a session; it is ignored when resuming a session that is already active.
 - `onElicitationRequest?: ElicitationHandler` - Handler for elicitation requests dispatched by the server. Enables this client to present form-based UI dialogs on behalf of the agent or other session participants. See [Elicitation Requests](#elicitation-requests) section.
 - `hooks?: SessionHooks` - Hook handlers for session lifecycle events. See [Session Hooks](#session-hooks) section.
 - `skillProvider?: SkillProvider` - **Experimental.** Serves skills from host storage instead of skill directories. Not persisted; pass it again on resume. See [Skill providers](#skill-providers-experimental).
@@ -1339,6 +1355,8 @@ Inbound trace context from the CLI is available on the `ToolInvocation` object p
 
 An `onPermissionRequest` handler is optional when you create or resume a session. When provided, it is called before the agent executes each tool (file writes, shell commands, custom tools, etc.) and returns a decision. When omitted, permission requests are emitted as events and left pending for the consumer to resolve with the pending permission RPC.
 
+Callbacks receive optional derived prompt context as `invocation.promptRequest`. The raw request's `managedApprovalRequired` remains managed-policy provenance and enforces one-shot restrictions. Only derived `commands`, `read`, `write`, `url`, and `workflow` prompts can clear the human requirement after Assisted approval; for missing or other prompt kinds, keep the raw marker authoritative.
+
 ### Approve All (simplest)
 
 Use the built-in `approveAll` helper when managed settings are disabled:
@@ -1618,7 +1636,7 @@ const session = await client.createSession({
 - `onPreToolUse` - Intercept tool calls before execution. Can allow/deny or modify arguments.
 - `onPostToolUse` - Process tool results after **successful** execution. Can modify results or add context.
 - `onPostToolUseFailure` - Observe and append hidden guidance to the model after tool executions whose result was `"failure"`. Register this in addition to `onPostToolUse` to see failed tool calls.
-- `onUserPromptSubmitted` - Intercept user prompts. Can modify the prompt before processing.
+- `onUserPromptSubmitted` - Intercept user prompts. Can modify the prompt before processing, or return `{ decision: "block", reason }` to refuse it: no model turn runs, no user message is recorded, and the session emits an ephemeral `session.warning` (`warningType: "policy_blocked"`) carrying the reason.
 - `onSessionStart` - Run logic when a session starts or resumes.
 - `onSessionEnd` - Cleanup or logging when session ends.
 - `onErrorOccurred` - Handle errors with retry/skip/abort strategies.

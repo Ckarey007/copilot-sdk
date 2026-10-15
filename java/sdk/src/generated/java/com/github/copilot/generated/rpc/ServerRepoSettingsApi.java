@@ -27,6 +27,17 @@ final class ServerRepoSettingsApi {
     }
 
     /**
+     * Atomically edits one allowed top-level repository setting. Reads the raw file, preserves unrelated keys, applies one scalar or list edit, validates the result and writes under one file lock, so concurrent sibling or list edits are not lost. A malformed or unsafe existing file returns `invalid` without a write; rejected keys, invalid values and I/O errors reject the call.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    CompletableFuture<SettingsEditResult> edit(RepoSettingsEditParams params) {
+        return caller.invoke("repo.settings.edit", params, SettingsEditResult.class);
+    }
+
+    /**
      * Reads one repository settings file without settings normalization or layering. The existing JSONC parser accepts comments and trailing commas and applies its prototype-safety rules. Missing or blank files return an empty valid config. Invalid files return an empty config with invalid=true; other read failures reject.
      *
      * @apiNote This method is experimental and may change in a future version.

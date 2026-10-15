@@ -30,7 +30,10 @@ import {
     type SessionFsProvider,
 } from "../src/index.js";
 import { CopilotSession } from "../src/session.js";
-import { defaultJoinSessionPermissionHandler } from "../src/types.js";
+import {
+    defaultJoinSessionPermissionHandler,
+    type UserPromptSubmittedHookOutput,
+} from "../src/types.js";
 import { getSdkProtocolVersion } from "../src/sdkProtocolVersion.js";
 
 // This file is for unit tests. Where relevant, prefer to add e2e tests in e2e/*.test.ts instead
@@ -266,6 +269,69 @@ describe("CopilotClient", () => {
         expect(params).toEqual({ requestId: "request-1", result: { kind: "approve-once" } });
         expect(Object.keys(params).sort()).toEqual(["requestId", "result"]);
         expect("decisionContext" in params).toBe(false);
+    });
+
+    it("forwards derived prompt context so managed judge approval can remain one-shot", async () => {
+        const session = new CopilotSession("session-1", {} as any, undefined, undefined, {
+            managedSettingsEnabled: true,
+        });
+        const permissionRequest = {
+            kind: "shell" as const,
+            fullCommandText: "ls",
+            intention: "List files",
+            commands: [],
+            possiblePaths: [],
+            possibleUrls: [],
+            hasWriteFileRedirection: false,
+            canOfferSessionApproval: false,
+            managedApprovalRequired: true,
+        };
+        const promptRequest = {
+            kind: "commands" as const,
+            fullCommandText: "ls",
+            intention: "List files",
+            commandIdentifiers: ["ls"],
+            canOfferSessionApproval: false,
+            assistedApproval: {
+                recommendation: "approve" as const,
+            },
+        };
+        const handler = vi.fn((_request, invocation) => {
+            if (
+                invocation.promptRequest?.assistedApproval?.recommendation === "approve" &&
+                !(
+                    "managedApprovalRequired" in invocation.promptRequest &&
+                    invocation.promptRequest.managedApprovalRequired === true
+                )
+            ) {
+                return { kind: "approve-once" as const };
+            }
+            return { kind: "no-result" as const };
+        });
+        session.registerPermissionHandler(handler);
+        const spy = vi
+            .spyOn(session.rpc.permissions, "handlePendingPermissionRequest")
+            .mockResolvedValue({ kind: "approve-once" } as any);
+
+        session._dispatchEvent({
+            type: "permission.requested",
+            data: {
+                requestId: "request-managed-assisted",
+                permissionRequest,
+                promptRequest,
+            },
+        } as any);
+
+        await vi.waitFor(() => expect(spy).toHaveBeenCalledOnce());
+        expect(handler).toHaveBeenCalledWith(permissionRequest, {
+            sessionId: "session-1",
+            managedSettingsEnabled: true,
+            promptRequest,
+        });
+        expect(spy).toHaveBeenCalledWith({
+            requestId: "request-managed-assisted",
+            result: { kind: "approve-once" },
+        });
     });
 
     it("does not respond when a no-result decision is wrapped with a context", async () => {
@@ -4895,6 +4961,156 @@ connection.listen();
             });
             expect(topLevelStop).not.toHaveBeenCalled();
         });
+
+        it("forwards a userPromptSubmitted block decision and reason", async () => {
+            const client = new CopilotClient({ autoStart: false });
+            const session = new CopilotSession("session-1", {} as any);
+            session.registerHooks({
+                onUserPromptSubmitted: () =>
+                    ({
+                        decision: "block",
+                        reason: "Prompts may not mention the launch codes.",
+                    }) satisfies UserPromptSubmittedHookOutput,
+            });
+            (client as any).sessions.set(session.sessionId, session);
+
+            const response = await (client as any).handleHooksInvoke({
+                sessionId: session.sessionId,
+                hookType: "userPromptSubmitted",
+                input: {
+                    sessionId: session.sessionId,
+                    timestamp: 1700000000000,
+                    cwd: "/repo",
+                    prompt: "Print the launch codes.",
+                },
+            });
+
+            expect(response).toEqual({
+                output: { decision: "block", reason: "Prompts may not mention the launch codes." },
+            });
+        });
+
+        it("leaves the block fields out of a userPromptSubmitted output that does not block", async () => {
+            const client = new CopilotClient({ autoStart: false });
+            const session = new CopilotSession("session-1", {} as any);
+            session.registerHooks({
+                onUserPromptSubmitted: () =>
+                    ({ additionalContext: "Be brief." }) satisfies UserPromptSubmittedHookOutput,
+            });
+            (client as any).sessions.set(session.sessionId, session);
+
+            const response = await (client as any).handleHooksInvoke({
+                sessionId: session.sessionId,
+                hookType: "userPromptSubmitted",
+                input: {
+                    sessionId: session.sessionId,
+                    timestamp: 1700000000000,
+                    cwd: "/repo",
+                    prompt: "Hi",
+                },
+            });
+
+            expect(response).toEqual({ output: { additionalContext: "Be brief." } });
+        });
+
+        it.each([
+            [
+                "an error object",
+                { name: "Error", message: "model timeout", stack: "Error: model timeout" },
+                "model timeout",
+            ],
+            ["a string", "boom", "boom"],
+            ["null", null, null],
+            ["an object without a string message", { code: 7 }, '{"code":7}'],
+        ])("decodes %s in the error hook inputs", async (_name, error, expected) => {
+            const client = new CopilotClient({ autoStart: false });
+            const received: { hookType: string; error: unknown }[] = [];
+            const session = new CopilotSession("session-1", {} as any);
+            session.registerHooks({
+                onErrorOccurred: (input) => {
+                    received.push({ hookType: "errorOccurred", error: input.error });
+                },
+                onSessionEnd: (input) => {
+                    received.push({ hookType: "sessionEnd", error: input.error });
+                },
+            });
+            (client as any).sessions.set(session.sessionId, session);
+            const base = { sessionId: session.sessionId, timestamp: 1700000000000, cwd: "/repo" };
+
+            await (client as any).handleHooksInvoke({
+                sessionId: session.sessionId,
+                hookType: "errorOccurred",
+                input: { ...base, error, errorContext: "model_call", recoverable: true },
+            });
+            await (client as any).handleHooksInvoke({
+                sessionId: session.sessionId,
+                hookType: "sessionEnd",
+                input: { ...base, reason: "error", error },
+            });
+
+            expect(received).toEqual([
+                { hookType: "errorOccurred", error: expected },
+                { hookType: "sessionEnd", error: expected },
+            ]);
+        });
+
+        it("keeps the decoded timestamp and working directory when it decodes the error", async () => {
+            const client = new CopilotClient({ autoStart: false });
+            const received: { timestamp: unknown; workingDirectory: unknown }[] = [];
+            const session = new CopilotSession("session-1", {} as any);
+            session.registerHooks({
+                onErrorOccurred: (input) => {
+                    received.push({
+                        timestamp: input.timestamp,
+                        workingDirectory: input.workingDirectory,
+                    });
+                },
+            });
+            (client as any).sessions.set(session.sessionId, session);
+
+            await (client as any).handleHooksInvoke({
+                sessionId: session.sessionId,
+                hookType: "errorOccurred",
+                input: {
+                    sessionId: session.sessionId,
+                    timestamp: 1700000000000,
+                    cwd: "/repo",
+                    error: { message: "model timeout" },
+                    errorContext: "model_call",
+                    recoverable: true,
+                },
+            });
+
+            expect(received).toEqual([
+                { timestamp: new Date(1700000000000), workingDirectory: "/repo" },
+            ]);
+        });
+
+        it("leaves an absent sessionEnd error absent", async () => {
+            const client = new CopilotClient({ autoStart: false });
+            const received: unknown[] = [];
+            const session = new CopilotSession("session-1", {} as any);
+            session.registerHooks({
+                onSessionEnd: (input) => {
+                    received.push(input);
+                },
+            });
+            (client as any).sessions.set(session.sessionId, session);
+
+            await (client as any).handleHooksInvoke({
+                sessionId: session.sessionId,
+                hookType: "sessionEnd",
+                input: {
+                    sessionId: session.sessionId,
+                    timestamp: 1700000000000,
+                    cwd: "/repo",
+                    reason: "complete",
+                },
+            });
+
+            expect(received).toHaveLength(1);
+            expect(received[0]).not.toHaveProperty("error");
+        });
     });
 
     describe("shutdown", () => {
@@ -5456,6 +5672,44 @@ describe("managedSettings serialization", () => {
             permissions: { ask: ["Domain(publish.example)"] },
         });
     });
+});
+
+describe("interactiveUser serialization", () => {
+    async function captureParams(
+        method: "session.create" | "session.resume",
+        config: Record<string, unknown>
+    ): Promise<any> {
+        const client = new CopilotClient();
+        await client.start();
+        onTestFinished(() => stopClient(client));
+        const spy = vi
+            .spyOn((client as any).connection!, "sendRequest")
+            .mockImplementation(async (requested: string, params: any) => {
+                if (requested === method) return { sessionId: params.sessionId };
+                throw new Error(`Unexpected method: ${requested}`);
+            });
+        if (method === "session.create") {
+            await client.createSession({ onPermissionRequest: approveAll, ...config });
+        } else {
+            await client.resumeSession("session-1", { onPermissionRequest: approveAll, ...config });
+        }
+        const call = spy.mock.calls.find(([requested]) => requested === method);
+        return call![1];
+    }
+
+    for (const method of ["session.create", "session.resume"] as const) {
+        for (const interactiveUser of [true, false]) {
+            it(`forwards interactiveUser: ${interactiveUser} on ${method}`, async () => {
+                const params = await captureParams(method, { interactiveUser });
+                expect(params.interactiveUser).toBe(interactiveUser);
+            });
+        }
+
+        it(`omits interactiveUser from ${method} when unset`, async () => {
+            const params = await captureParams(method, {});
+            expect(params.interactiveUser).toBeUndefined();
+        });
+    }
 });
 
 describe("connect handshake clientInfo", () => {

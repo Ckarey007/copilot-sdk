@@ -2,7 +2,7 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CopilotClient, RuntimeConnection } from "../../src/index.js";
 import { createSdkTestContext } from "./harness/sdkTestContext.js";
 
@@ -13,19 +13,21 @@ describe("Connection token", async () => {
         },
     });
     const goodClient = ctx.copilotClient;
-    await goodClient.start();
-    const port = (goodClient as unknown as { runtimePort: number }).runtimePort;
-
-    const wrongClient = new CopilotClient({
-        connection: RuntimeConnection.forUri(`localhost:${port}`, { connectionToken: "wrong" }),
-    });
-    const noTokenClient = new CopilotClient({
-        connection: RuntimeConnection.forUri(`localhost:${port}`),
+    let wrongClient: CopilotClient;
+    let noTokenClient: CopilotClient;
+    beforeAll(async () => {
+        await goodClient.start();
+        const port = (goodClient as unknown as { runtimePort: number }).runtimePort;
+        wrongClient = new CopilotClient({
+            connection: RuntimeConnection.forUri(`localhost:${port}`, { connectionToken: "wrong" }),
+        });
+        noTokenClient = new CopilotClient({
+            connection: RuntimeConnection.forUri(`localhost:${port}`),
+        });
     });
 
     afterAll(async () => {
-        await wrongClient.forceStop();
-        await noTokenClient.forceStop();
+        await Promise.all([wrongClient?.forceStop(), noTokenClient?.forceStop()]);
     });
 
     it("connects with the matching token", async () => {

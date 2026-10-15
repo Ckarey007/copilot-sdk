@@ -115,6 +115,13 @@ tool name is `<server-key>-<tool-name>`. For `AvailableTools` and
 `mcp:<server-key>-<tool-name>`. For `CustomAgents[].Tools` and
 `DefaultAgent.ExcludedTools`, use `<server-key>-<tool-name>` directly.
 
+## Untyped JSON numbers
+
+Only `ContentExclusionValidatePoliciesResult` decodes untyped JSON numbers as `json.Number` to preserve policy values without precision loss.
+Existing RPC results, requests, callbacks, and session events keep their existing numeric representation, including `float64` for untyped numbers.
+Typed numeric fields keep their declared Go types.
+Use `json.Number.Int64()` or `json.Number.Float64()` when you need a numeric conversion, and handle the returned error.
+
 ## JSON-RPC errors
 
 Use `errors.As` to inspect a runtime error without parsing its message, including
@@ -362,6 +369,18 @@ Event types: `SessionLifecycleCreated`, `SessionLifecycleDeleted`, `SessionLifec
 - `InstallationConfirmationHandler` (InstallationConfirmationHandler): Experimental connection-global human review for `installations.confirm`. Receives the typed request, a per-request cancellation context and a separate connection-closed signal, then returns an explicit decision. Does not enable installation capabilities.
 - `LogLevel` (string): Log level. When empty (default), the runtime uses its own default level (the SDK does not pass `--log-level`).
 - `Env` ([]string): Environment variables for the runtime process (default: inherits from current process)
+
+  For the native standalone runtime, include
+  `"COPILOT_GITHUB_TELEMETRY_DISABLED=true"` in `Env` before startup to disable
+  direct GitHub telemetry uploads for the entire host, including sessionless
+  events. Authentication, `OnGitHubTelemetry` forwarding, and user-configured
+  OpenTelemetry export remain unchanged. This is separate from
+  `EnableSessionTelemetry: copilot.Bool(false)`, which disables only a session's
+  pipeline. The value must be exactly `"true"`; changing it requires a runtime
+  restart. The Node CLI host does not use this variable. In-process connections
+  reject per-client `Env`; set the variable in the host process environment
+  before starting the runtime instead.
+
 - `GitHubToken` (string): GitHub token for authentication. When provided, takes priority over other auth methods.
 - `UseLoggedInUser` (\*bool): Whether to use logged-in user for authentication (default: true, but false when `GitHubToken` is provided). Cannot be used with `URIConnection`.
 - `EnableRemoteSessions` (bool): Enable remote session support (Mission Control integration). Ignored with `URIConnection`.
@@ -383,10 +402,13 @@ Event types: `SessionLifecycleCreated`, `SessionLifecycleDeleted`, `SessionLifec
 - `InfiniteSessions` (\*InfiniteSessionConfig): Automatic context compaction configuration
 - `WorkingDirectory` (string): Working directory for the session (default: runtime process working directory)
 - `EnableSessionStore` (\*bool): Enables the cross-session store for search and retrieval across sessions. When unset in `ModeCopilotCli`, the runtime default applies (enabled). In `ModeEmpty`, defaults to disabled.
+- `EnableGitHubCacheStore` (\*bool): Requests the read-only GitHub cache store (`github-cache-store` capability) on create or resume. The runtime registers the `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is also on. Defaults to disabled in every mode.
 - `GitHubTokenProvider` (GitHubTokenProvider): Acquires session-scoped GitHub tokens on demand. Return `GitHubTokenResult` with a positive `ExpiresIn` value (production GitHub tokens typically use `8 * 60 * 60` seconds), or `GitHubTokenCancelled`. Cannot be combined with `GitHubToken`.
 - `OnPermissionRequest` (PermissionHandlerFunc): Optional handler called before each tool execution to approve or deny it. When nil, permission requests are emitted as events and left pending for manual resolution. `copilot.PermissionHandler.ApproveAll` approves requests when managed settings are disabled and returns an error when `EnableManagedSettings` is true. Custom handlers can inspect `RequiresManagedApproval()` for human-facing confirmation logic. See [Permission Handling](#permission-handling) section.
+- `OnPermissionRequestWithPrompt` (PermissionHandlerWithPromptFunc): Optional compatibility-preserving alternative that also receives the derived user-facing prompt. Takes precedence when both permission handlers are set. See [Permission Handling](#permission-handling) section.
 - `OnUserInputRequest` (UserInputHandler): Handler for legacy question-and-answer requests from the agent. Enables the legacy `ask_user` tool. See [User Input Requests](#user-input-requests) section.
 - `AskUserVariant` (AskUserVariant): Selects the model-facing shape of the `ask_user` tool. The zero value preserves legacy behavior; use `AskUserVariantElicitation` with `OnElicitationRequest`.
+- `InteractiveUser` (\*bool): Declares that a person types this session's messages, as in an editor chat panel. Enables the runtime's user-message analysis telemetry for user-authored messages; automated messages stay excluded. Nil or false keeps the SDK default of off. Ignored for cloud sessions.
 - `Hooks` (\*SessionHooks): Hook handlers for session lifecycle events. See [Session Hooks](#session-hooks) section.
 - `Commands` ([]CommandDefinition): Slash-commands registered for this session. See [Commands](#commands) section.
 - `OnElicitationRequest` (ElicitationHandler): Handler for elicitation requests from the server. See [Elicitation Requests](#elicitation-requests-serverclient) section.
@@ -394,6 +416,7 @@ Event types: `SessionLifecycleCreated`, `SessionLifecycleDeleted`, `SessionLifec
 **ResumeSessionConfig:**
 
 - `OnPermissionRequest` (PermissionHandlerFunc): Optional handler called before each tool execution to approve or deny it. See [Permission Handling](#permission-handling) section.
+- `OnPermissionRequestWithPrompt` (PermissionHandlerWithPromptFunc): Optional alternative that also receives the derived user-facing prompt. Takes precedence when both permission handlers are set.
 - `Tools` ([]Tool): Tools to expose when resuming
 - `ReasoningEffort` (string): Reasoning effort level for models that support it
 - `Provider` (\*ProviderConfig): Custom API provider configuration (BYOK). See [Custom Providers](#custom-providers) section.
@@ -401,6 +424,7 @@ Event types: `SessionLifecycleCreated`, `SessionLifecycleDeleted`, `SessionLifec
 - `Commands` ([]CommandDefinition): Slash-commands. See [Commands](#commands) section.
 - `OnElicitationRequest` (ElicitationHandler): Elicitation handler. See [Elicitation Requests](#elicitation-requests-serverclient) section.
 - `AskUserVariant` (AskUserVariant): Selects the model-facing shape of the `ask_user` tool on cold resume. Re-supply `AskUserVariantElicitation` with `OnElicitationRequest`; the zero value preserves legacy behavior.
+- `InteractiveUser` (\*bool): Re-supplies the interactive-user declaration on cold resume. It is ignored when resuming a session that is already active.
 - `GitHubTokenProvider` (GitHubTokenProvider): Replaces the session-scoped token provider when resuming. Cannot be combined with `GitHubToken`.
 
 ```go
@@ -968,7 +992,9 @@ Dependency: `go.opentelemetry.io/otel`
 
 ## Permission Handling
 
-An `OnPermissionRequest` handler is optional when you create or resume a session. When provided, it is called before the agent executes each tool (file writes, shell commands, custom tools, etc.) and returns a decision. When nil, permission requests are emitted as events and left pending for the consumer to resolve with the pending permission RPC.
+Permission handlers are optional when you create or resume a session. When provided, the selected handler is called before the agent executes each tool (file writes, shell commands, custom tools, etc.) and returns a decision. When both handlers are nil, permission requests are emitted as events and left pending for the consumer to resolve with the pending permission RPC.
+
+Use `OnPermissionRequestWithPrompt` when the callback needs optional derived prompt context as `invocation.PromptRequest`, matching `PermissionRequestedData.PromptRequest`. The existing `OnPermissionRequest` callback remains available with its original two-field `PermissionInvocation` for source compatibility. The raw request's managed-approval marker remains managed-policy provenance and enforces one-shot restrictions. Only derived `commands`, `read`, `write`, `url`, and `workflow` prompts can clear the human requirement after Assisted approval; for missing or other prompt kinds, keep the raw marker authoritative.
 
 ### Approve All (simplest)
 
@@ -985,7 +1011,7 @@ When `EnableManagedSettings` is true for the session, `ApproveAll` returns an er
 
 ### Custom Permission Handler
 
-Provide your own `PermissionHandlerFunc` to inspect each request and apply custom logic. Check `RequiresManagedApproval()` before any automatic approval:
+Provide your own `PermissionHandlerWithPromptFunc` to inspect each request and the optional derived prompt. Check the raw managed requirement before any automatic approval, and clear it only from a supported derived prompt:
 
 ```go
 import (
@@ -997,8 +1023,21 @@ import (
 
 session, err := client.CreateSession(context.Background(), &copilot.SessionConfig{
     Model: "gpt-5",
-    OnPermissionRequest: func(request copilot.PermissionRequest, invocation copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
-        if request.RequiresManagedApproval() {
+    OnPermissionRequestWithPrompt: func(request copilot.PermissionRequest, invocation copilot.PermissionHandlerInvocation) (rpc.PermissionDecision, error) {
+        assistedApprovalClearsManagedRequirement := false
+        switch prompt := invocation.PromptRequest.(type) {
+        case *rpc.PermissionPromptRequestCommands:
+            assistedApprovalClearsManagedRequirement = prompt.ManagedApprovalRequired == nil || !*prompt.ManagedApprovalRequired
+        case *rpc.PermissionPromptRequestRead:
+            assistedApprovalClearsManagedRequirement = prompt.ManagedApprovalRequired == nil || !*prompt.ManagedApprovalRequired
+        case *rpc.PermissionPromptRequestWrite:
+            assistedApprovalClearsManagedRequirement = prompt.ManagedApprovalRequired == nil || !*prompt.ManagedApprovalRequired
+        case *rpc.PermissionPromptRequestURL:
+            assistedApprovalClearsManagedRequirement = prompt.ManagedApprovalRequired == nil || !*prompt.ManagedApprovalRequired
+        case *rpc.PermissionPromptRequestWorkflow:
+            assistedApprovalClearsManagedRequirement = prompt.ManagedApprovalRequired == nil || !*prompt.ManagedApprovalRequired
+        }
+        if request.RequiresManagedApproval() && !assistedApprovalClearsManagedRequirement {
             return &rpc.PermissionDecisionNoResult{}, nil
         }
 
@@ -1028,7 +1067,7 @@ Richer decisions (`PermissionDecisionApproveForSession`, `PermissionDecisionAppr
 
 ### Resuming Sessions
 
-You may pass `OnPermissionRequest` when resuming a session too:
+You may pass either permission handler when resuming a session too:
 
 ```go
 session, err := client.ResumeSession(context.Background(), sessionID, &copilot.ResumeSessionConfig{
@@ -1169,7 +1208,7 @@ session, err := client.CreateSession(context.Background(), &copilot.SessionConfi
 - `OnPreToolUse` - Intercept tool calls before execution. Can allow/deny or modify arguments.
 - `OnPostToolUse` - Process tool results after successful execution. Can modify results or add context.
 - `OnPostToolUseFailure` - Observe failed tool executions and inject extra context to guide the model's next step.
-- `OnUserPromptSubmitted` - Intercept user prompts. Can modify the prompt before processing.
+- `OnUserPromptSubmitted` - Intercept user prompts. Can modify the prompt before processing, or return `Decision: "block"` with a non-empty `Reason` to refuse it: no model turn runs, no user message is recorded, and the session emits an ephemeral `session.warning` (`warningType: "policy_blocked"`) carrying the reason.
 - `OnSessionStart` - Run logic when a session starts or resumes.
 - `OnSessionEnd` - Cleanup or logging when session ends.
 - `OnSubagentStart` - Observe a subagent before its first turn and optionally prepend `AdditionalContext` to its prompt.

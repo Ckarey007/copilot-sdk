@@ -218,6 +218,7 @@ final class SessionRequestBuilder {
         config.getEnableFileHooks().ifPresent(request::setEnableFileHooks);
         config.getEnableHostGitOperations().ifPresent(request::setEnableHostGitOperations);
         config.getEnableSessionStore().ifPresent(request::setEnableSessionStore);
+        config.getEnableGitHubCacheStore().ifPresent(request::setEnableGitHubCacheStore);
         config.getEnableSkills().ifPresent(request::setEnableSkills);
         if (config.getSkillProvider() != null) {
             request.setHasSkillProvider(true);
@@ -253,6 +254,7 @@ final class SessionRequestBuilder {
         request.setExpAssignments(config.getExpAssignments());
         config.getEnableManagedSettings().ifPresent(request::setEnableManagedSettings);
         config.getEnforceManagedModelDefaults().ifPresent(request::setEnforceManagedModelDefaults);
+        config.getInteractiveUser().ifPresent(request::setInteractiveUser);
         request.setManagedSettings(config.getManagedSettings());
 
         return request;
@@ -342,6 +344,7 @@ final class SessionRequestBuilder {
         config.getEnableFileHooks().ifPresent(request::setEnableFileHooks);
         config.getEnableHostGitOperations().ifPresent(request::setEnableHostGitOperations);
         config.getEnableSessionStore().ifPresent(request::setEnableSessionStore);
+        config.getEnableGitHubCacheStore().ifPresent(request::setEnableGitHubCacheStore);
         config.getEnableSkills().ifPresent(request::setEnableSkills);
         if (config.getSkillProvider() != null) {
             request.setHasSkillProvider(true);
@@ -404,6 +407,7 @@ final class SessionRequestBuilder {
         request.setExpAssignments(config.getExpAssignments());
         config.getEnableManagedSettings().ifPresent(request::setEnableManagedSettings);
         config.getEnforceManagedModelDefaults().ifPresent(request::setEnforceManagedModelDefaults);
+        config.getInteractiveUser().ifPresent(request::setInteractiveUser);
         request.setManagedSettings(config.getManagedSettings());
 
         return request;

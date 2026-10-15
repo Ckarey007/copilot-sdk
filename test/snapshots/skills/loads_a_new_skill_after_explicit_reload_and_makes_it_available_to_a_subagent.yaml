@@ -34,15 +34,7 @@ conversations:
       - role: assistant
         content: READY
       - role: user
-        content: >-
-          <tools_changed_notice>
-
-          New tools available: skill
-
-          </tools_changed_notice>
-
-
-          Use the skill tool to load late-skill, then use the task tool to ask a task agent to load late-skill with the
+        content: Use the skill tool to load late-skill, then use the task tool to ask a task agent to load late-skill with the
           skill tool and report its verification word. Report the agent's word.
       - role: assistant
         tool_calls:

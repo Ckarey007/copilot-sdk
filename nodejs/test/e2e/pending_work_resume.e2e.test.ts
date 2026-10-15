@@ -150,7 +150,6 @@ describe("Pending work resume", async () => {
         const server = createClient({
             workingDirectory: workDir,
             env,
-            gitHubToken: DEFAULT_GITHUB_TOKEN,
             connection: RuntimeConnection.forTcp({
                 path: process.env.COPILOT_CLI_PATH,
                 connectionToken: SHARED_TOKEN,
@@ -305,6 +304,122 @@ describe("Pending work resume", async () => {
                     releaseOriginalPermission.resolve({ kind: "no-result" });
                 }
             }
+        }
+    );
+
+    it(
+        "should continue an approved permission after abandoning an earlier pending permission",
+        { timeout: TEST_TIMEOUT_MS },
+        async () => {
+            const client = createClient();
+            onTestFinished(async () => {
+                await client.stop();
+            });
+            const executions: string[] = [];
+            const config = {
+                tools: [
+                    defineTool("resume_permission_tool", {
+                        description: "Transforms a value after permission is granted",
+                        parameters: z.object({ value: z.string() }),
+                        handler: ({ value }) => {
+                            executions.push(value);
+                            return `PERMISSION_RESUMED_${value.toUpperCase()}`;
+                        },
+                    }),
+                ],
+                onPermissionRequest: (): PermissionRequestResult => ({ kind: "no-result" }),
+                infiniteSessions: { enabled: false },
+            };
+            const original = await client.createSession(config);
+            expect((await original.rpc.permissions.setRequired({ required: true })).success).toBe(
+                true
+            );
+            const abandonedPermission = waitForPermissionRequest(original);
+            await original.send({
+                prompt: "Use resume_permission_tool with value 'alpha', then reply with the result.",
+            });
+            const abandoned = await abandonedPermission;
+            await original.disconnect();
+
+            const next = await client.resumeSession(original.sessionId, {
+                ...config,
+                continuePendingWork: false,
+            });
+            expect((await next.rpc.permissions.pendingRequests()).items).toEqual([]);
+            expect(
+                (
+                    await next.rpc.permissions.handlePendingPermissionRequest({
+                        requestId: abandoned.data.requestId,
+                        result: { kind: "approve-once" },
+                    })
+                ).success
+            ).toBe(false);
+            expect((await next.rpc.permissions.setRequired({ required: true })).success).toBe(true);
+            const nextPermission = waitForPermissionRequest(next);
+            await next.send({
+                prompt: "Use resume_permission_tool with value 'beta', then reply with the result.",
+            });
+            const pending = await nextPermission;
+            await next.disconnect();
+
+            const resumed = await client.resumeSession(original.sessionId, {
+                ...config,
+                continuePendingWork: true,
+            });
+            expect((await resumed.rpc.permissions.setRequired({ required: true })).success).toBe(
+                true
+            );
+            expect(
+                (await resumed.rpc.permissions.pendingRequests()).items.map(
+                    (request) => request.requestId
+                )
+            ).toEqual([pending.data.requestId]);
+            const resumeEvents = (await resumed.getEvents()).filter(
+                (event) => event.type === "session.resume"
+            );
+            expect(
+                resumeEvents.map((event) => ({
+                    continuePendingWork: event.data.continuePendingWork,
+                    sessionWasActive: event.data.sessionWasActive,
+                }))
+            ).toEqual([
+                { continuePendingWork: false, sessionWasActive: false },
+                { continuePendingWork: true, sessionWasActive: false },
+            ]);
+
+            const idle = deferred<void>();
+            const replies: string[] = [];
+            const unsubscribe = resumed.on((event) => {
+                if (event.agentId) return;
+                if (event.type === "assistant.message") {
+                    replies.push(event.data.content);
+                } else if (event.type === "session.idle") {
+                    idle.resolve();
+                } else if (event.type === "session.error") {
+                    idle.reject(new Error(event.data.message));
+                }
+            });
+            onTestFinished(unsubscribe);
+            expect(
+                (
+                    await resumed.rpc.permissions.handlePendingPermissionRequest({
+                        requestId: pending.data.requestId,
+                        result: { kind: "approve-once" },
+                    })
+                ).success
+            ).toBe(true);
+            await waitWithTimeout(idle.promise, PENDING_WORK_TIMEOUT_MS, "approved turn idle");
+            expect(replies.join("\n")).toContain("PERMISSION_RESUMED_BETA");
+            expect(executions).toEqual(["beta"]);
+            expect(
+                (await resumed.getEvents()).filter(
+                    (event) =>
+                        event.type === "tool.execution_complete" &&
+                        event.data.toolCallId === pending.data.permissionRequest.toolCallId
+                )
+            ).toMatchObject([{ data: { success: true } }]);
+            expect((await resumed.rpc.permissions.pendingRequests()).items).toEqual([]);
+            await resumed.disconnect();
         }
     );
 

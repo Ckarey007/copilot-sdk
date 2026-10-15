@@ -280,6 +280,30 @@ async fn publication_forwards_existing_identity_to_the_owning_listener() {
 }
 
 #[tokio::test]
+async fn unpublication_forwards_dormant_identity_and_each_result() {
+    let (client, mut peer) = fixture();
+    let pending = start(&client, local_options());
+    let request = peer.request().await;
+    peer.started(&request, None).await;
+    let host = Arc::new(pending.await.unwrap().unwrap());
+    for unpublished in [true, false] {
+        let operation = {
+            let host = host.clone();
+            tokio::spawn(async move { host.unpublish_session("dormant").await })
+        };
+        let request = peer.request().await;
+        assert_eq!(request["method"], "host.unpublishSession");
+        assert_eq!(
+            request["params"],
+            json!({"hostId": host.host_id, "sessionId": "dormant"})
+        );
+        peer.respond(&request, json!({"unpublished": unpublished}))
+            .await;
+        assert_eq!(operation.await.unwrap().unwrap().unpublished, unpublished);
+    }
+}
+
+#[tokio::test]
 async fn list_sessions_forwards_the_owning_host_and_returns_the_catalog() {
     let (client, mut peer) = fixture();
     let pending = start(&client, local_options());

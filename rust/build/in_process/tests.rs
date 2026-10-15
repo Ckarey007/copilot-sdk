@@ -24,6 +24,43 @@ const PLATFORMS: &[&str] = &[
     "win32-x64",
 ];
 
+#[test]
+fn windows_runtime_archive_preserves_oneauth_and_its_terms_beside_the_runtime() {
+    let platform = Platform {
+        package_name: "copilot-win32-x64",
+        binary_name: "copilot.exe",
+    };
+    let package = tar_archive(&[
+        ("package/copilot-runtime.exe", b"runtime wrapper"),
+        ("package/prebuilds/win32-x64/runtime.node", b"runtime"),
+        (
+            "package/prebuilds/win32-x64/OneAuthInterop.dll",
+            b"native authentication",
+        ),
+        (
+            "package/prebuilds/win32-x64/OneAuthInterop.LICENSE.txt",
+            b"native terms",
+        ),
+    ]);
+    let archive = build_embedded_runtime_archive(&package, platform, false);
+    let root = fixture_dir();
+    tar::Archive::new(flate2::read::GzDecoder::new(Cursor::new(archive)))
+        .unpack(root.path())
+        .unwrap();
+    assert_eq!(
+        fs::read(root.path().join("OneAuthInterop.dll")).unwrap(),
+        b"native authentication"
+    );
+    assert_eq!(
+        fs::read(root.path().join("OneAuthInterop.LICENSE.txt")).unwrap(),
+        b"native terms"
+    );
+    assert_eq!(
+        fs::read(root.path().join("runtime.node")).unwrap(),
+        b"runtime"
+    );
+}
+
 fn release(sdk: bool) -> Release {
     Release::new(
         VERSION.into(),

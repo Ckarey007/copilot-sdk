@@ -2,7 +2,7 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { approveAll, defineTool, type SessionEvent } from "../../src/index.js";
 import { withTestCleanup } from "../helpers/withTestCleanup.js";
@@ -24,20 +24,30 @@ const usage = {
 };
 
 describe("WebSocket to HTTP fallback telemetry", async () => {
-    const upstream = await startWebSocketResponsesServer();
+    let upstream: Awaited<ReturnType<typeof startWebSocketResponsesServer>>;
+    let upstreamStartup: Promise<typeof upstream> | undefined;
+    const providerEnv = {
+        COPILOT_API_URL: "",
+        COPILOT_CLI_DISABLE_WEBSOCKET_RESPONSES: "false",
+    };
+    beforeAll(async () => {
+        upstreamStartup = startWebSocketResponsesServer();
+        upstream = await upstreamStartup;
+        providerEnv.COPILOT_API_URL = upstream.baseUrl;
+    });
     // Register first so the SDK context stops its client and proxy before this provider.
-    afterAll(() => upstream.stop());
+    afterAll(async () => {
+        const [startup] = await Promise.allSettled(upstreamStartup ? [upstreamStartup] : []);
+        if (startup?.status === "fulfilled") await startup.value.stop();
+    });
     const { copilotClient: client, openAiEndpoint } = await createSdkTestContext({
         useStdio: true,
         copilotClientOptions: {
             gitHubToken: DEFAULT_GITHUB_TOKEN,
-            env: {
-                COPILOT_API_URL: upstream.baseUrl,
-                COPILOT_CLI_DISABLE_WEBSOCKET_RESPONSES: "false",
-            },
+            env: providerEnv,
         },
     });
-    upstream.forwardHttpTo(openAiEndpoint.url);
+    beforeAll(() => upstream.forwardHttpTo(openAiEndpoint.url));
 
     it("describes the WebSocket failure on the downgrading call and keeps it sticky", async () => {
         const { state } = upstream;

@@ -2,7 +2,7 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { beforeAll, describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
     approveAll,
@@ -23,23 +23,26 @@ describe("Structured output", async () => {
         },
     });
     const model = isByokBackend ? undefined : "gpt-4.1";
-    const provider: ProviderConfig | undefined = isByokBackend
-        ? undefined
-        : {
-              type: "openai",
-              wireApi: "completions",
-              baseUrl: openAiEndpoint.url,
-              modelId: "gpt-4.1",
-              wireModel: "gpt-4.1",
-              apiKey: isCI
-                  ? DEFAULT_GITHUB_TOKEN
-                  : (process.env.GITHUB_TOKEN ?? DEFAULT_GITHUB_TOKEN),
-              headers: {
-                  "Copilot-Integration-Id": "copilot-developer-cli",
-                  "Copilot-Harness-Id": "copilot-sdk",
-                  "X-GitHub-Api-Version": "2026-08-01",
-              },
-          };
+    let provider: ProviderConfig | undefined;
+    beforeAll(() => {
+        provider = isByokBackend
+            ? undefined
+            : {
+                  type: "openai",
+                  wireApi: "completions",
+                  baseUrl: openAiEndpoint.url,
+                  modelId: "gpt-4.1",
+                  wireModel: "gpt-4.1",
+                  apiKey: isCI
+                      ? DEFAULT_GITHUB_TOKEN
+                      : (process.env.GITHUB_TOKEN ?? DEFAULT_GITHUB_TOKEN),
+                  headers: {
+                      "Copilot-Integration-Id": "copilot-developer-cli",
+                      "Copilot-Harness-Id": "copilot-sdk",
+                      "X-GitHub-Api-Version": "2026-08-01",
+                  },
+              };
+    });
 
     it("infers_typed_result_after_custom_tool", async () => {
         let calls = 0;

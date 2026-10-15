@@ -11,6 +11,195 @@ import { readDiagnosticTail, sanitizeDiagnosticLine } from "./sdk-diagnostics.mj
 const prefix = "2026-10-05T12:00:00Z [DEBUG] [rust:sdk_diagnostics] ";
 
 describe("SDK failure diagnostics", () => {
+    it("projects telemetry delivery metadata without payloads, endpoints, or errors", () => {
+        const cases = [
+            [
+                "service",
+                "Sending telemetry event: cli.telemetry (kind: session_start)",
+                'github telemetry enqueue {"kind":"session_start","restricted":false}',
+            ],
+            [
+                "service",
+                "Sending telemetry event: cli.restricted_telemetry (kind: session_model_change)",
+                'github telemetry enqueue {"kind":"session_model_change","restricted":true}',
+            ],
+            [
+                "queue_worker",
+                "[telemetry-queue] Flushing 3 events (2048 B \u2192 512 B gzipped)",
+                'github telemetry flush {"event_count":3,"bytes":2048,"compressed_bytes":512}',
+            ],
+            [
+                "queue_worker",
+                '[telemetry-queue] POST accepted {"status":200,"event_count":3,"endpoint":"PRIVATE"}',
+                'github telemetry transport {"phase":"post_accepted","event_count":3,"status":200}',
+            ],
+            [
+                "queue_worker",
+                '[telemetry-queue] POST was not accepted; events dropped {"error":"PRIVATE","status":null,"event_count":3}',
+                'github telemetry transport {"phase":"post_rejected","event_count":3}',
+            ],
+            [
+                "queue_worker",
+                '[telemetry-queue] failed to build HTTP client; telemetry POSTs disabled {"error":"PRIVATE"}',
+                'github telemetry transport {"phase":"http_client_failed"}',
+            ],
+            [
+                "service",
+                '[telemetry] failed to create telemetry queue {"error":"PRIVATE"}',
+                'github telemetry transport {"phase":"queue_creation_failed"}',
+            ],
+            [
+                "router",
+                'Unable to enqueue native startup telemetry {"error":"PRIVATE"}',
+                'github telemetry transport {"phase":"startup_enqueue_failed"}',
+            ],
+        ];
+        for (const [target, message, expected] of cases) {
+            const line = `2026-10-05T12:00:00Z [DEBUG] [rust:github_telemetry::${target}] ${message}`;
+            expect(sanitizeDiagnosticLine(line)).toBe(expected);
+            expect(sanitizeDiagnosticLine(line.replace("[DEBUG]", "[WARN]"))).toBe(expected);
+            expect(sanitizeDiagnosticLine(line.replace("[DEBUG]", "[WARNING]"))).toBe(expected);
+            expect(expected).not.toContain("PRIVATE");
+        }
+    });
+
+    it("rejects unaudited telemetry kinds, messages, targets, and invalid counters", () => {
+        for (const message of [
+            "Sending telemetry event: cli.telemetry (kind: PRIVATE)",
+            "PRIVATE",
+            '[telemetry-queue] POST accepted {"event_count":-1}',
+            '[telemetry-queue] POST accepted {"status":"PRIVATE"}',
+            '[telemetry-queue] POST accepted {"event_count":0.5}',
+            '[telemetry-queue] POST accepted {"event_count":9007199254740992}',
+            "[telemetry-queue] POST accepted {invalid}",
+            "[telemetry-queue] Flushing 9007199254740992 events (1 B \u2192 1 B gzipped)",
+        ]) {
+            expect(
+                sanitizeDiagnosticLine(
+                    `2026-10-05T12:00:00Z [DEBUG] [rust:github_telemetry::queue_worker] ${message}`
+                )
+            ).toBeUndefined();
+        }
+        expect(
+            sanitizeDiagnosticLine(
+                "2026-10-05T12:00:00Z [DEBUG] [rust:PRIVATE] [telemetry-queue] POST accepted"
+            )
+        ).toBeUndefined();
+        expect(
+            sanitizeDiagnosticLine(
+                "2026-10-05T12:00:00Z [DEBUG] [rust:github_telemetry::service] Sending telemetry event: cli.telemetry (kind: PRIVATE)"
+            )
+        ).toBeUndefined();
+    });
+
+    it("collects only audited telemetry metadata from the native log file", async () => {
+        const home = await mkdtemp(join(tmpdir(), "sdk-telemetry-diagnostics-"));
+        onTestFinished(() => rm(home, { recursive: true, force: true }));
+        await mkdir(join(home, "logs"));
+        await writeFile(
+            join(home, "logs", "process.log"),
+            [
+                '2026-10-05T12:00:00Z [DEBUG] [rust:github_telemetry::service] Sending telemetry event: cli.telemetry (kind: session_start) {"payload":"PRIVATE_PAYLOAD"}',
+                '2026-10-05T12:00:00Z [WARN] [rust:github_telemetry::queue_worker] [telemetry-queue] POST was not accepted; events dropped {"error":"PRIVATE_ERROR","endpoint":"PRIVATE_ENDPOINT","status":503,"event_count":2}',
+                "2026-10-05T12:00:00Z [DEBUG] [rust:github_telemetry::queue_worker] PRIVATE_LOG",
+            ].join("\n")
+        );
+        expect(await readDiagnosticTail(home)).toEqual([
+            'github telemetry enqueue {"kind":"session_start","restricted":false}',
+            'github telemetry transport {"phase":"post_rejected","event_count":2,"status":503}',
+        ]);
+    });
+
+    it.each([
+        {
+            record: "sdk telemetry auth",
+            fields: { source: "session", changed: true, user_present: true },
+        },
+        {
+            record: "sdk telemetry auth",
+            fields: { source: "manager", changed: true, user_present: false },
+        },
+        {
+            record: "sdk telemetry route",
+            fields: {
+                kind: "session_start",
+                host_only: false,
+                credential_resolved: true,
+                endpoint_present: true,
+                buffering: false,
+                service_present: true,
+                event_count: 1,
+            },
+        },
+        {
+            record: "sdk telemetry enqueue",
+            fields: { phase: "queue", restricted: false, pending_count: 0 },
+        },
+        {
+            record: "sdk telemetry queue",
+            fields: { phase: "client", client_present: true },
+        },
+        {
+            record: "sdk telemetry queue",
+            fields: { phase: "flush", client_present: false, event_count: 2 },
+        },
+        {
+            record: "sdk telemetry queue",
+            fields: { phase: "accepted", event_count: 2, http_status: 204 },
+        },
+        {
+            record: "sdk telemetry queue",
+            fields: {
+                phase: "rejected",
+                event_count: 2,
+                http_status: 0,
+                status_present: false,
+                is_connect: true,
+                is_timeout: false,
+                is_body: false,
+                is_request: true,
+            },
+        },
+    ])("projects $record without auth, destination or event content", ({ record, fields }) => {
+        const safe = sanitizeDiagnosticLine(
+            `${prefix}${record} ${JSON.stringify({
+                ...fields,
+                session_id: "PRIVATE_SESSION",
+                login: "PRIVATE_LOGIN",
+                token: "PRIVATE_TOKEN",
+                endpoint: "PRIVATE_ENDPOINT",
+                proxy: "PRIVATE_PROXY",
+                path: "PRIVATE_PATH",
+                payload: { content: "PRIVATE_PAYLOAD" },
+                error: "PRIVATE_ERROR",
+            })}`
+        );
+        expect(safe).toBeDefined();
+        expect(JSON.parse(safe!.slice(record.length + 1))).toEqual(fields);
+        expect(safe).not.toContain("PRIVATE");
+    });
+
+    it.each([
+        ["sdk telemetry auth", { source: "PRIVATE_SOURCE" }],
+        ["sdk telemetry auth", { user_present: "PRIVATE_USER" }],
+        ["sdk telemetry auth", { changed: null }],
+        ["sdk telemetry route", { kind: "PRIVATE_KIND" }],
+        ["sdk telemetry route", { event_count: -1 }],
+        ["sdk telemetry route", { endpoint_present: "PRIVATE_ENDPOINT" }],
+        ["sdk telemetry enqueue", { phase: "PRIVATE_PHASE" }],
+        ["sdk telemetry enqueue", { pending_count: 0.5 }],
+        ["sdk telemetry enqueue", { restricted: "PRIVATE_STATE" }],
+        ["sdk telemetry queue", { phase: "PRIVATE_PHASE" }],
+        ["sdk telemetry queue", { event_count: Number.MAX_SAFE_INTEGER + 1 }],
+        ["sdk telemetry queue", { http_status: "PRIVATE_STATUS" }],
+        ["sdk telemetry queue", { is_connect: "PRIVATE_ERROR" }],
+        ["sdk telemetry queue", { token: "PRIVATE_TOKEN" }],
+    ])("rejects invalid or unaudited %s metadata", (record, fields) => {
+        expect(
+            sanitizeDiagnosticLine(`${prefix}${record} ${JSON.stringify(fields)}`)
+        ).toBeUndefined();
+    });
+
     it("projects model admission phases, authoritative sequences and policy metadata without content", () => {
         const cases = [
             { phase: "received" },

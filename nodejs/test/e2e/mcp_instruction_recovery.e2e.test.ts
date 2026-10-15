@@ -127,6 +127,15 @@ describe("MCP catalog recovery", async () => {
                 ),
                 "the first stale call must be refused before dispatch"
             ).toBe(true);
+            expect(
+                events.some(
+                    (event) =>
+                        event.type === "tool.execution_complete" &&
+                        event.data.success &&
+                        event.data.result?.content.includes("CATALOG_RECORD")
+                ),
+                "the reconnected server must execute the offered tool"
+            ).toBe(true);
             expect(changing.calls, "only the recovered call may reach the MCP server").toBe(1);
         } else if (reconnectInHook) {
             const starts = events

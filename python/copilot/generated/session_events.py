@@ -2434,6 +2434,8 @@ class SessionFusionResolvedData:
     rule_index: int | None = None
     rule_name: str | None = None
     scores: FusionScores | None = None
+    # Experimental: this field is part of an experimental API and may change or be removed.
+    selected_rule_id: str | None = None
 
     @staticmethod
     def from_dict(obj: Any) -> "SessionFusionResolvedData":
@@ -2463,6 +2465,7 @@ class SessionFusionResolvedData:
         rule_index = from_union([from_none, from_int], obj.get("ruleIndex"))
         rule_name = from_union([from_none, from_str], obj.get("ruleName"))
         scores = from_union([from_none, FusionScores.from_dict], obj.get("scores"))
+        selected_rule_id = from_union([from_none, from_str], obj.get("selectedRuleId"))
         return SessionFusionResolvedData(
             contract_version=contract_version,
             fallback_model=fallback_model,
@@ -2489,6 +2492,7 @@ class SessionFusionResolvedData:
             rule_index=rule_index,
             rule_name=rule_name,
             scores=scores,
+            selected_rule_id=selected_rule_id,
         )
 
     def to_dict(self) -> dict:
@@ -2533,6 +2537,8 @@ class SessionFusionResolvedData:
             result["ruleName"] = from_union([from_none, from_str], self.rule_name)
         if self.scores is not None:
             result["scores"] = from_union([from_none, lambda x: to_class(FusionScores, x)], self.scores)
+        if self.selected_rule_id is not None:
+            result["selectedRuleId"] = from_union([from_none, from_str], self.selected_rule_id)
         return result
 
 
@@ -2874,6 +2880,76 @@ class ToolExecutionCompleteShellExecution:
     def to_dict(self) -> dict:
         result: dict = {}
         result["exitCode"] = to_int(self.exit_code)
+        return result
+
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
+class ToolExecutionUsage:
+    "Authoritative usage reported by a separately metered runtime-owned tool operation. May be present on a failed tool when the service reported usage before local result processing failed. Missing token counts or billing mean unavailable, not zero."
+    model: str
+    request_id: str
+    accounting: UsageAccountingIdentity | None = None
+    copilot_usage: AssistantUsageCopilotUsage | None = None
+    input_tokens: int | None = None
+    input_tokens_details: ToolExecutionUsageTokenDetails | None = None
+    output_tokens: int | None = None
+    output_tokens_details: ToolExecutionUsageTokenDetails | None = None
+    provider: ModelProviderRef | None = None
+    # Internal: this field is an internal SDK API and is not part of the public surface.
+    _quota_snapshots: dict[str, Any] | None = None
+    total_tokens: int | None = None
+
+    @staticmethod
+    def from_dict(obj: Any) -> "ToolExecutionUsage":
+        assert isinstance(obj, dict)
+        model = from_str(obj.get("model"))
+        request_id = from_str(obj.get("requestId"))
+        accounting = from_union([from_none, UsageAccountingIdentity.from_dict], obj.get("accounting"))
+        copilot_usage = from_union([from_none, AssistantUsageCopilotUsage.from_dict], obj.get("copilotUsage"))
+        input_tokens = from_union([from_none, from_int], obj.get("inputTokens"))
+        input_tokens_details = from_union([from_none, ToolExecutionUsageTokenDetails.from_dict], obj.get("inputTokensDetails"))
+        output_tokens = from_union([from_none, from_int], obj.get("outputTokens"))
+        output_tokens_details = from_union([from_none, ToolExecutionUsageTokenDetails.from_dict], obj.get("outputTokensDetails"))
+        provider = from_union([from_none, ModelProviderRef.from_dict], obj.get("provider"))
+        _quota_snapshots = from_union([from_none, lambda x: from_dict(lambda x: x, x)], obj.get("quotaSnapshots"))
+        total_tokens = from_union([from_none, from_int], obj.get("totalTokens"))
+        return ToolExecutionUsage(
+            model=model,
+            request_id=request_id,
+            accounting=accounting,
+            copilot_usage=copilot_usage,
+            input_tokens=input_tokens,
+            input_tokens_details=input_tokens_details,
+            output_tokens=output_tokens,
+            output_tokens_details=output_tokens_details,
+            provider=provider,
+            _quota_snapshots=_quota_snapshots,
+            total_tokens=total_tokens,
+        )
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["model"] = from_str(self.model)
+        result["requestId"] = from_str(self.request_id)
+        if self.accounting is not None:
+            result["accounting"] = from_union([from_none, lambda x: to_class(UsageAccountingIdentity, x)], self.accounting)
+        if self.copilot_usage is not None:
+            result["copilotUsage"] = from_union([from_none, lambda x: to_class(AssistantUsageCopilotUsage, x)], self.copilot_usage)
+        if self.input_tokens is not None:
+            result["inputTokens"] = from_union([from_none, to_int], self.input_tokens)
+        if self.input_tokens_details is not None:
+            result["inputTokensDetails"] = from_union([from_none, lambda x: to_class(ToolExecutionUsageTokenDetails, x)], self.input_tokens_details)
+        if self.output_tokens is not None:
+            result["outputTokens"] = from_union([from_none, to_int], self.output_tokens)
+        if self.output_tokens_details is not None:
+            result["outputTokensDetails"] = from_union([from_none, lambda x: to_class(ToolExecutionUsageTokenDetails, x)], self.output_tokens_details)
+        if self.provider is not None:
+            result["provider"] = from_union([from_none, lambda x: to_class(ModelProviderRef, x)], self.provider)
+        if self._quota_snapshots is not None:
+            result["quotaSnapshots"] = from_union([from_none, lambda x: from_dict(lambda x: x, x)], self._quota_snapshots)
+        if self.total_tokens is not None:
+            result["totalTokens"] = from_union([from_none, to_int], self.total_tokens)
         return result
 
 
@@ -9484,17 +9560,21 @@ class SessionCompactionCompleteData:
     "Conversation compaction results including success status, metrics, and optional error details"
     success: bool
     # Internal: this field is an internal SDK API and is not part of the public surface.
-    _active_factory_summary: str | None = None
-    # Internal: this field is an internal SDK API and is not part of the public surface.
     _active_workflow_summary: str | None = None
     behavior_model_id: str | None = None
     checkpoint_number: int | None = None
     checkpoint_path: str | None = None
+    compaction_attempt_id: str | None = None
     compaction_tokens_used: CompactionCompleteCompactionTokensUsed | None = None
     conversation_tokens: int | None = None
     custom_instructions: str | None = None
     error: str | None = None
+    failure_reason: str | None = None
+    initial_model: str | None = None
     messages_removed: int | None = None
+    model: str | None = None
+    outcome: str | None = None
+    outcome_reason: str | None = None
     post_compaction_tokens: int | None = None
     pre_compaction_messages_length: int | None = None
     pre_compaction_tokens: int | None = None
@@ -9503,7 +9583,10 @@ class SessionCompactionCompleteData:
     service_request_id: str | None = None
     status_code: int | None = None
     summary_content: str | None = None
+    switch_target_model: str | None = None
     system_tokens: int | None = None
+    target_prompt_token_limit: int | None = None
+    token_accounting_basis: str | None = None
     token_limit: int | None = None
     tokens_removed: int | None = None
     tool_definitions_tokens: int | None = None
@@ -9513,16 +9596,21 @@ class SessionCompactionCompleteData:
     def from_dict(obj: Any) -> "SessionCompactionCompleteData":
         assert isinstance(obj, dict)
         success = from_bool(obj.get("success"))
-        _active_factory_summary = from_union([from_none, from_str], obj.get("activeFactorySummary"))
         _active_workflow_summary = from_union([from_none, from_str], obj.get("activeWorkflowSummary"))
         behavior_model_id = from_union([from_none, from_str], obj.get("behaviorModelId"))
         checkpoint_number = from_union([from_none, from_int], obj.get("checkpointNumber"))
         checkpoint_path = from_union([from_none, from_str], obj.get("checkpointPath"))
+        compaction_attempt_id = from_union([from_none, from_str], obj.get("compactionAttemptId"))
         compaction_tokens_used = from_union([from_none, CompactionCompleteCompactionTokensUsed.from_dict], obj.get("compactionTokensUsed"))
         conversation_tokens = from_union([from_none, from_int], obj.get("conversationTokens"))
         custom_instructions = from_union([from_none, from_str], obj.get("customInstructions"))
         error = from_union([from_none, from_str], obj.get("error"))
+        failure_reason = from_union([from_none, from_str], obj.get("failureReason"))
+        initial_model = from_union([from_none, from_str], obj.get("initialModel"))
         messages_removed = from_union([from_none, from_int], obj.get("messagesRemoved"))
+        model = from_union([from_none, from_str], obj.get("model"))
+        outcome = from_union([from_none, from_str], obj.get("outcome"))
+        outcome_reason = from_union([from_none, from_str], obj.get("outcomeReason"))
         post_compaction_tokens = from_union([from_none, from_int], obj.get("postCompactionTokens"))
         pre_compaction_messages_length = from_union([from_none, from_int], obj.get("preCompactionMessagesLength"))
         pre_compaction_tokens = from_union([from_none, from_int], obj.get("preCompactionTokens"))
@@ -9531,23 +9619,31 @@ class SessionCompactionCompleteData:
         service_request_id = from_union([from_none, from_str], obj.get("serviceRequestId"))
         status_code = from_union([from_none, from_int], obj.get("statusCode"))
         summary_content = from_union([from_none, from_str], obj.get("summaryContent"))
+        switch_target_model = from_union([from_none, from_str], obj.get("switchTargetModel"))
         system_tokens = from_union([from_none, from_int], obj.get("systemTokens"))
+        target_prompt_token_limit = from_union([from_none, from_int], obj.get("targetPromptTokenLimit"))
+        token_accounting_basis = from_union([from_none, from_str], obj.get("tokenAccountingBasis"))
         token_limit = from_union([from_none, from_int], obj.get("tokenLimit"))
         tokens_removed = from_union([from_none, from_int], obj.get("tokensRemoved"))
         tool_definitions_tokens = from_union([from_none, from_int], obj.get("toolDefinitionsTokens"))
         trigger = from_union([from_none, lambda x: parse_enum(CompactionTrigger, x)], obj.get("trigger"))
         return SessionCompactionCompleteData(
             success=success,
-            _active_factory_summary=_active_factory_summary,
             _active_workflow_summary=_active_workflow_summary,
             behavior_model_id=behavior_model_id,
             checkpoint_number=checkpoint_number,
             checkpoint_path=checkpoint_path,
+            compaction_attempt_id=compaction_attempt_id,
             compaction_tokens_used=compaction_tokens_used,
             conversation_tokens=conversation_tokens,
             custom_instructions=custom_instructions,
             error=error,
+            failure_reason=failure_reason,
+            initial_model=initial_model,
             messages_removed=messages_removed,
+            model=model,
+            outcome=outcome,
+            outcome_reason=outcome_reason,
             post_compaction_tokens=post_compaction_tokens,
             pre_compaction_messages_length=pre_compaction_messages_length,
             pre_compaction_tokens=pre_compaction_tokens,
@@ -9556,7 +9652,10 @@ class SessionCompactionCompleteData:
             service_request_id=service_request_id,
             status_code=status_code,
             summary_content=summary_content,
+            switch_target_model=switch_target_model,
             system_tokens=system_tokens,
+            target_prompt_token_limit=target_prompt_token_limit,
+            token_accounting_basis=token_accounting_basis,
             token_limit=token_limit,
             tokens_removed=tokens_removed,
             tool_definitions_tokens=tool_definitions_tokens,
@@ -9566,8 +9665,6 @@ class SessionCompactionCompleteData:
     def to_dict(self) -> dict:
         result: dict = {}
         result["success"] = from_bool(self.success)
-        if self._active_factory_summary is not None:
-            result["activeFactorySummary"] = from_union([from_none, from_str], self._active_factory_summary)
         if self._active_workflow_summary is not None:
             result["activeWorkflowSummary"] = from_union([from_none, from_str], self._active_workflow_summary)
         if self.behavior_model_id is not None:
@@ -9576,6 +9673,8 @@ class SessionCompactionCompleteData:
             result["checkpointNumber"] = from_union([from_none, to_int], self.checkpoint_number)
         if self.checkpoint_path is not None:
             result["checkpointPath"] = from_union([from_none, from_str], self.checkpoint_path)
+        if self.compaction_attempt_id is not None:
+            result["compactionAttemptId"] = from_union([from_none, from_str], self.compaction_attempt_id)
         if self.compaction_tokens_used is not None:
             result["compactionTokensUsed"] = from_union([from_none, lambda x: to_class(CompactionCompleteCompactionTokensUsed, x)], self.compaction_tokens_used)
         if self.conversation_tokens is not None:
@@ -9584,8 +9683,18 @@ class SessionCompactionCompleteData:
             result["customInstructions"] = from_union([from_none, from_str], self.custom_instructions)
         if self.error is not None:
             result["error"] = from_union([from_none, from_str], self.error)
+        if self.failure_reason is not None:
+            result["failureReason"] = from_union([from_none, from_str], self.failure_reason)
+        if self.initial_model is not None:
+            result["initialModel"] = from_union([from_none, from_str], self.initial_model)
         if self.messages_removed is not None:
             result["messagesRemoved"] = from_union([from_none, to_int], self.messages_removed)
+        if self.model is not None:
+            result["model"] = from_union([from_none, from_str], self.model)
+        if self.outcome is not None:
+            result["outcome"] = from_union([from_none, from_str], self.outcome)
+        if self.outcome_reason is not None:
+            result["outcomeReason"] = from_union([from_none, from_str], self.outcome_reason)
         if self.post_compaction_tokens is not None:
             result["postCompactionTokens"] = from_union([from_none, to_int], self.post_compaction_tokens)
         if self.pre_compaction_messages_length is not None:
@@ -9602,8 +9711,14 @@ class SessionCompactionCompleteData:
             result["statusCode"] = from_union([from_none, to_int], self.status_code)
         if self.summary_content is not None:
             result["summaryContent"] = from_union([from_none, from_str], self.summary_content)
+        if self.switch_target_model is not None:
+            result["switchTargetModel"] = from_union([from_none, from_str], self.switch_target_model)
         if self.system_tokens is not None:
             result["systemTokens"] = from_union([from_none, to_int], self.system_tokens)
+        if self.target_prompt_token_limit is not None:
+            result["targetPromptTokenLimit"] = from_union([from_none, to_int], self.target_prompt_token_limit)
+        if self.token_accounting_basis is not None:
+            result["tokenAccountingBasis"] = from_union([from_none, from_str], self.token_accounting_basis)
         if self.token_limit is not None:
             result["tokenLimit"] = from_union([from_none, to_int], self.token_limit)
         if self.tokens_removed is not None:
@@ -9618,10 +9733,13 @@ class SessionCompactionCompleteData:
 @dataclass
 class SessionCompactionStartData:
     "Context window breakdown at the start of LLM-powered conversation compaction"
+    compaction_attempt_id: str | None = None
     conversation_tokens: int | None = None
     current_tokens: int | None = None
     model: str | None = None
+    switch_target_model: str | None = None
     system_tokens: int | None = None
+    target_prompt_token_limit: int | None = None
     token_limit: int | None = None
     tool_definitions_tokens: int | None = None
     trigger: CompactionTrigger | None = None
@@ -9629,18 +9747,24 @@ class SessionCompactionStartData:
     @staticmethod
     def from_dict(obj: Any) -> "SessionCompactionStartData":
         assert isinstance(obj, dict)
+        compaction_attempt_id = from_union([from_none, from_str], obj.get("compactionAttemptId"))
         conversation_tokens = from_union([from_none, from_int], obj.get("conversationTokens"))
         current_tokens = from_union([from_none, from_int], obj.get("currentTokens"))
         model = from_union([from_none, from_str], obj.get("model"))
+        switch_target_model = from_union([from_none, from_str], obj.get("switchTargetModel"))
         system_tokens = from_union([from_none, from_int], obj.get("systemTokens"))
+        target_prompt_token_limit = from_union([from_none, from_int], obj.get("targetPromptTokenLimit"))
         token_limit = from_union([from_none, from_int], obj.get("tokenLimit"))
         tool_definitions_tokens = from_union([from_none, from_int], obj.get("toolDefinitionsTokens"))
         trigger = from_union([from_none, lambda x: parse_enum(CompactionTrigger, x)], obj.get("trigger"))
         return SessionCompactionStartData(
+            compaction_attempt_id=compaction_attempt_id,
             conversation_tokens=conversation_tokens,
             current_tokens=current_tokens,
             model=model,
+            switch_target_model=switch_target_model,
             system_tokens=system_tokens,
+            target_prompt_token_limit=target_prompt_token_limit,
             token_limit=token_limit,
             tool_definitions_tokens=tool_definitions_tokens,
             trigger=trigger,
@@ -9648,14 +9772,20 @@ class SessionCompactionStartData:
 
     def to_dict(self) -> dict:
         result: dict = {}
+        if self.compaction_attempt_id is not None:
+            result["compactionAttemptId"] = from_union([from_none, from_str], self.compaction_attempt_id)
         if self.conversation_tokens is not None:
             result["conversationTokens"] = from_union([from_none, to_int], self.conversation_tokens)
         if self.current_tokens is not None:
             result["currentTokens"] = from_union([from_none, to_int], self.current_tokens)
         if self.model is not None:
             result["model"] = from_union([from_none, from_str], self.model)
+        if self.switch_target_model is not None:
+            result["switchTargetModel"] = from_union([from_none, from_str], self.switch_target_model)
         if self.system_tokens is not None:
             result["systemTokens"] = from_union([from_none, to_int], self.system_tokens)
+        if self.target_prompt_token_limit is not None:
+            result["targetPromptTokenLimit"] = from_union([from_none, to_int], self.target_prompt_token_limit)
         if self.token_limit is not None:
             result["tokenLimit"] = from_union([from_none, to_int], self.token_limit)
         if self.tool_definitions_tokens is not None:
@@ -10860,6 +10990,8 @@ class SessionShutdownData:
     system_tokens: int | None = None
     token_details: dict[str, ShutdownTokenDetail] | None = None
     tool_definitions_tokens: int | None = None
+    # Internal: this field is an internal SDK API and is not part of the public surface.
+    _tool_usage_request_ids: list[str] | None = None
     # Experimental: this field is part of an experimental API and may change or be removed.
     total_nano_aiu: float | None = None
     # Internal: this field is an internal SDK API and is not part of the public surface.
@@ -10885,6 +11017,7 @@ class SessionShutdownData:
         system_tokens = from_union([from_none, from_int], obj.get("systemTokens"))
         token_details = from_union([from_none, lambda x: from_dict(ShutdownTokenDetail.from_dict, x)], obj.get("tokenDetails"))
         tool_definitions_tokens = from_union([from_none, from_int], obj.get("toolDefinitionsTokens"))
+        _tool_usage_request_ids = from_union([from_none, lambda x: from_list(from_str, x)], obj.get("toolUsageRequestIds"))
         total_nano_aiu = from_union([from_none, from_float], obj.get("totalNanoAiu"))
         _total_premium_requests = from_union([from_none, from_float], obj.get("totalPremiumRequests"))
         usage_accounting_watermarks = from_union([from_none, lambda x: from_dict(from_int, x)], obj.get("usageAccountingWatermarks"))
@@ -10905,6 +11038,7 @@ class SessionShutdownData:
             system_tokens=system_tokens,
             token_details=token_details,
             tool_definitions_tokens=tool_definitions_tokens,
+            _tool_usage_request_ids=_tool_usage_request_ids,
             total_nano_aiu=total_nano_aiu,
             _total_premium_requests=_total_premium_requests,
             usage_accounting_watermarks=usage_accounting_watermarks,
@@ -10939,6 +11073,8 @@ class SessionShutdownData:
             result["tokenDetails"] = from_union([from_none, lambda x: from_dict(lambda x: to_class(ShutdownTokenDetail, x), x)], self.token_details)
         if self.tool_definitions_tokens is not None:
             result["toolDefinitionsTokens"] = from_union([from_none, to_int], self.tool_definitions_tokens)
+        if self._tool_usage_request_ids is not None:
+            result["toolUsageRequestIds"] = from_union([from_none, lambda x: from_list(from_str, x)], self._tool_usage_request_ids)
         if self.total_nano_aiu is not None:
             result["totalNanoAiu"] = from_union([from_none, to_float], self.total_nano_aiu)
         if self._total_premium_requests is not None:
@@ -11269,6 +11405,8 @@ class SessionUsageCheckpointData:
     _prompt_cache_break_state: list[Any] | None = None
     provider_model_metrics: list[UsageMetricsProviderModelMetric] | None = None
     # Internal: this field is an internal SDK API and is not part of the public surface.
+    _tool_usage_request_ids: list[str] | None = None
+    # Internal: this field is an internal SDK API and is not part of the public surface.
     _total_premium_requests: float | None = None
     usage_accounting_watermarks: dict[str, int] | None = None
 
@@ -11280,6 +11418,7 @@ class SessionUsageCheckpointData:
         _model_cache_state = from_union([from_none, lambda x: from_list(_UsageCheckpointModelCacheState.from_dict, x)], obj.get("modelCacheState"))
         _prompt_cache_break_state = from_union([from_none, lambda x: from_list(lambda x: x, x)], obj.get("promptCacheBreakState"))
         provider_model_metrics = from_union([from_none, lambda x: from_list(UsageMetricsProviderModelMetric.from_dict, x)], obj.get("providerModelMetrics"))
+        _tool_usage_request_ids = from_union([from_none, lambda x: from_list(from_str, x)], obj.get("toolUsageRequestIds"))
         _total_premium_requests = from_union([from_none, from_float], obj.get("totalPremiumRequests"))
         usage_accounting_watermarks = from_union([from_none, lambda x: from_dict(from_int, x)], obj.get("usageAccountingWatermarks"))
         return SessionUsageCheckpointData(
@@ -11288,6 +11427,7 @@ class SessionUsageCheckpointData:
             _model_cache_state=_model_cache_state,
             _prompt_cache_break_state=_prompt_cache_break_state,
             provider_model_metrics=provider_model_metrics,
+            _tool_usage_request_ids=_tool_usage_request_ids,
             _total_premium_requests=_total_premium_requests,
             usage_accounting_watermarks=usage_accounting_watermarks,
         )
@@ -11303,6 +11443,8 @@ class SessionUsageCheckpointData:
             result["promptCacheBreakState"] = from_union([from_none, lambda x: from_list(lambda x: x, x)], self._prompt_cache_break_state)
         if self.provider_model_metrics is not None:
             result["providerModelMetrics"] = from_union([from_none, lambda x: from_list(lambda x: to_class(UsageMetricsProviderModelMetric, x), x)], self.provider_model_metrics)
+        if self._tool_usage_request_ids is not None:
+            result["toolUsageRequestIds"] = from_union([from_none, lambda x: from_list(from_str, x)], self._tool_usage_request_ids)
         if self._total_premium_requests is not None:
             result["totalPremiumRequests"] = from_union([from_none, to_float], self._total_premium_requests)
         if self.usage_accounting_watermarks is not None:
@@ -12130,7 +12272,6 @@ class SubagentStartedData:
     tool_call_id: str
     agent_type: str | None = None
     execution_mode: str | None = None
-    factory_run_id: str | None = None
     model: str | None = None
     model_selection_source: SubagentModelSelectionSource | None = None
     parent_id: str | None = None
@@ -12147,7 +12288,6 @@ class SubagentStartedData:
         tool_call_id = from_str(obj.get("toolCallId"))
         agent_type = from_union([from_none, from_str], obj.get("agentType"))
         execution_mode = from_union([from_none, from_str], obj.get("executionMode"))
-        factory_run_id = from_union([from_none, from_str], obj.get("factoryRunId"))
         model = from_union([from_none, from_str], obj.get("model"))
         model_selection_source = from_union([from_none, lambda x: parse_enum(SubagentModelSelectionSource, x)], obj.get("modelSelectionSource"))
         parent_id = from_union([from_none, from_str], obj.get("parentId"))
@@ -12161,7 +12301,6 @@ class SubagentStartedData:
             tool_call_id=tool_call_id,
             agent_type=agent_type,
             execution_mode=execution_mode,
-            factory_run_id=factory_run_id,
             model=model,
             model_selection_source=model_selection_source,
             parent_id=parent_id,
@@ -12180,8 +12319,6 @@ class SubagentStartedData:
             result["agentType"] = from_union([from_none, from_str], self.agent_type)
         if self.execution_mode is not None:
             result["executionMode"] = from_union([from_none, from_str], self.execution_mode)
-        if self.factory_run_id is not None:
-            result["factoryRunId"] = from_union([from_none, from_str], self.factory_run_id)
         if self.model is not None:
             result["model"] = from_union([from_none, from_str], self.model)
         if self.model_selection_source is not None:
@@ -12881,6 +13018,8 @@ class ToolExecutionCompleteData:
     shell_execution: ToolExecutionCompleteShellExecution | None = None
     tool_description: ToolExecutionCompleteToolDescription | None = None
     tool_telemetry: dict[str, Any] | None = None
+    # Experimental: this field is part of an experimental API and may change or be removed.
+    tool_usage: ToolExecutionUsage | None = None
     turn_id: str | None = None
 
     @staticmethod
@@ -12902,6 +13041,7 @@ class ToolExecutionCompleteData:
         shell_execution = from_union([from_none, ToolExecutionCompleteShellExecution.from_dict], obj.get("shellExecution"))
         tool_description = from_union([from_none, ToolExecutionCompleteToolDescription.from_dict], obj.get("toolDescription"))
         tool_telemetry = from_union([from_none, lambda x: from_dict(lambda x: x, x)], obj.get("toolTelemetry"))
+        tool_usage = from_union([from_none, ToolExecutionUsage.from_dict], obj.get("toolUsage"))
         turn_id = from_union([from_none, from_str], obj.get("turnId"))
         return ToolExecutionCompleteData(
             success=success,
@@ -12920,6 +13060,7 @@ class ToolExecutionCompleteData:
             shell_execution=shell_execution,
             tool_description=tool_description,
             tool_telemetry=tool_telemetry,
+            tool_usage=tool_usage,
             turn_id=turn_id,
         )
 
@@ -12955,6 +13096,8 @@ class ToolExecutionCompleteData:
             result["toolDescription"] = from_union([from_none, lambda x: to_class(ToolExecutionCompleteToolDescription, x)], self.tool_description)
         if self.tool_telemetry is not None:
             result["toolTelemetry"] = from_union([from_none, lambda x: from_dict(lambda x: x, x)], self.tool_telemetry)
+        if self.tool_usage is not None:
+            result["toolUsage"] = from_union([from_none, lambda x: to_class(ToolExecutionUsage, x)], self.tool_usage)
         if self.turn_id is not None:
             result["turnId"] = from_union([from_none, from_str], self.turn_id)
         return result
@@ -13560,6 +13703,29 @@ class ToolExecutionStartToolDescriptionMetaUI:
             result["resourceUri"] = from_union([from_none, from_str], self.resource_uri)
         if self.visibility is not None:
             result["visibility"] = from_union([from_none, lambda x: from_list(lambda x: to_enum(ToolExecutionStartToolDescriptionMetaUIVisibility, x), x)], self.visibility)
+        return result
+
+
+@dataclass
+class ToolExecutionUsageTokenDetails:
+    "Provider-reported image and text token counts, which are subsets of the corresponding total rather than additional tokens."
+    image_tokens: int
+    text_tokens: int
+
+    @staticmethod
+    def from_dict(obj: Any) -> "ToolExecutionUsageTokenDetails":
+        assert isinstance(obj, dict)
+        image_tokens = from_int(obj.get("imageTokens"))
+        text_tokens = from_int(obj.get("textTokens"))
+        return ToolExecutionUsageTokenDetails(
+            image_tokens=image_tokens,
+            text_tokens=text_tokens,
+        )
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["imageTokens"] = to_int(self.image_tokens)
+        result["textTokens"] = to_int(self.text_tokens)
         return result
 
 
@@ -17052,6 +17218,8 @@ __all__ = [
     "ToolExecutionStartToolDescriptionMeta",
     "ToolExecutionStartToolDescriptionMetaUI",
     "ToolExecutionStartToolDescriptionMetaUIVisibility",
+    "ToolExecutionUsage",
+    "ToolExecutionUsageTokenDetails",
     "ToolSearchActivatedData",
     "ToolShellOutputData",
     "ToolShellOutputStream",

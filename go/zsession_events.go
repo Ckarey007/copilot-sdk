@@ -479,6 +479,8 @@ type (
 	ToolExecutionStartToolDescriptionMeta             = rpc.ToolExecutionStartToolDescriptionMeta
 	ToolExecutionStartToolDescriptionMetaUI           = rpc.ToolExecutionStartToolDescriptionMetaUI
 	ToolExecutionStartToolDescriptionMetaUIVisibility = rpc.ToolExecutionStartToolDescriptionMetaUIVisibility
+	ToolExecutionUsage                                = rpc.ToolExecutionUsage
+	ToolExecutionUsageTokenDetails                    = rpc.ToolExecutionUsageTokenDetails
 	ToolSearchActivatedData                           = rpc.ToolSearchActivatedData
 	ToolShellOutputData                               = rpc.ToolShellOutputData
 	ToolShellOutputStream                             = rpc.ToolShellOutputStream

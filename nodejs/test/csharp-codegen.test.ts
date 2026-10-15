@@ -5,6 +5,338 @@ import { generateRpcCode, generateSessionEventsCode } from "../../scripts/codege
 import type { ApiSchema, RpcMethod } from "../../scripts/codegen/utils.ts";
 import { postProcessSchema } from "../../scripts/codegen/utils.ts";
 import { legacyRequestSchema } from "./legacy-parameters-fixture.ts";
+import {
+    callbackFixture,
+    eventFixture,
+    metadataFixture,
+    optionalRequestFixture,
+    rpcFixture,
+    unionFixture,
+    booleanUnionFixture,
+    eventMatrixFixture,
+    jsonShapesFixture,
+    namingFixture,
+    nestedUnionFixture,
+    presenceFixture,
+    referenceFixture,
+    visibilityFixture,
+} from "./codegen-fixtures.ts";
+
+describe("C# shared schema baseline", () => {
+    it("renders types, server/session calls, and nested namespaces", () => {
+        const code = generateRpcCode(rpcFixture());
+        for (const field of [
+            "public string Id",
+            "public int Count",
+            "public bool Active",
+            "public double Score",
+            "public IList<string> Tags",
+            "public IDictionary<string, string> Labels",
+            "public string? DisplayName",
+            "public string? Note",
+            "public IList<SampleItem> Items",
+        ])
+            expect(code).toContain(field);
+        expect(code.match(/public sealed class SampleItem\n/g)).toHaveLength(1);
+        expect(code).toContain('[JsonPropertyName("displayName")]');
+        expect(code).toContain(
+            "GetAsync(string id, CancellationToken cancellationToken = default)"
+        );
+        expect(code).toContain('InvokeRpcAsync<SampleItem>(_rpc, "sample.get"');
+        expect(code).toContain('InvokeRpcAsync<SampleListResult>(_rpc, "sample.nested.list"');
+        expect(code).toContain("Task PingAsync(CancellationToken cancellationToken = default)");
+        expect(code).toContain("SessionId = _session.SessionId");
+        expect(code).toContain('"session.sample.get"');
+        expect(code).toContain("[JsonSerializable(typeof(SampleItem))]");
+        expect(code).toMatchSnapshot();
+    });
+
+    it("renders optional requests without requiring an argument", () => {
+        const code = generateRpcCode(optionalRequestFixture());
+        expect(code).toContain("ConfigureAsync(CancellationToken cancellationToken = default)");
+        expect(code).toContain('InvokeRpcAsync(_rpc, "sample.configure", [], cancellationToken);');
+        expect(code).toContain(
+            "ConfigureAsync(SampleConfigureRequest request, CancellationToken cancellationToken = default)"
+        );
+        expect(code).toContain("public bool? Enabled");
+    });
+
+    it.each(["anyOf", "oneOf"] as const)("renders referenced %s unions and enums", (keyword) => {
+        const code = generateRpcCode(unionFixture(keyword));
+        expect(code).toContain('[JsonDerivedType(typeof(SampleChoiceText), "text")]');
+        expect(code).toContain('[JsonDerivedType(typeof(SampleChoiceCount), "count")]');
+        expect(code).toContain("public SampleChoice Choice");
+        expect(code).toContain("public IList<SampleChoice> Choices");
+        expect(code).toContain('public static SampleMode Fast { get; } = new("fast");');
+        expect(code).toContain('public static SampleMode Thorough { get; } = new("thorough");');
+        expect(code).toContain("[JsonSerializable(typeof(SampleChoice))]");
+    });
+
+    it("preserves method documentation and exposure annotations", () => {
+        const code = generateRpcCode(metadataFixture());
+        expect(code).toContain("Preview an item.");
+        expect(code).toContain(
+            "[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]\n    public async Task<SamplePreviewResult> PreviewAsync("
+        );
+        expect(code).toMatch(
+            /\[Obsolete\("This member is deprecated[^\n]+\n#endif\n    public async Task RetiredAsync\(/
+        );
+        expect(code).toContain("internal async Task HiddenAsync(");
+        expect(code).not.toContain("public async Task HiddenAsync(");
+    });
+
+    it.each(["clientSession", "clientGlobal"] as const)(
+        "renders %s callback registration",
+        (scope) => {
+            const code = generateRpcCode(callbackFixture(scope));
+            expect(code).toContain("ValueTask<SampleConfirmResult>");
+            expect(code).toContain('rpc.SetLocalRpcMethod("sample.confirm"');
+            expect(code).toContain('rpc.SetLocalRpcMethod("sample.changed"');
+            if (scope === "clientSession") {
+                expect(code).toContain("getHandlers(request.SessionId)");
+                expect(code).not.toContain('"sample.hidden"');
+            } else {
+                expect(code).toContain("ClientGlobalApiHandlers handlers");
+                expect(code).toContain("handlers.Sample");
+            }
+        }
+    );
+
+    it("renders event payloads and serializer registrations", () => {
+        const code = generateSessionEventsCode(eventFixture());
+        expect(code).toContain('[JsonDerivedType(typeof(SampleUpdatedEvent), "sample.updated")]');
+        expect(code).toContain("public required int Sequence");
+        expect(code).toContain("public string? Note");
+        expect(code).toContain("public required SampleUpdatedData Data");
+        expect(code).toContain("[JsonSerializable(typeof(SampleUpdatedEvent))]");
+        expect(code).toMatchSnapshot();
+    });
+
+    it("keeps existing signatures when a response gains an optional field", () => {
+        const before = generateRpcCode(rpcFixture());
+        const after = generateRpcCode(rpcFixture({ extra: { type: "string" } }));
+        const signature =
+            "Task<SampleItem> GetAsync(string id, CancellationToken cancellationToken = default)";
+        expect(before).toContain(signature);
+        expect(after).toContain(signature);
+        expect(before).not.toContain("string? Extra");
+        expect(after).toContain("public string? Extra { get; set; }");
+    });
+});
+
+describe("C# schema contract matrix", () => {
+    it.each([
+        ["scalar", "string", "{ get; set; } = string.Empty;"],
+        ["object", "PresenceValue", "{ get => field ??= new(); set; }"],
+        ["array", "IList<PresenceValue>", "{ get => field ??= []; set; }"],
+        [
+            "map",
+            "IDictionary<string, PresenceValue>",
+            "{ get => field ??= new Dictionary<string, PresenceValue>(); set; }",
+        ],
+    ] as const)("preserves required and nullable %s property types", (shape, type, initializer) => {
+        const code = generateRpcCode(presenceFixture(shape));
+        const declaration = code.match(
+            /^public sealed class SamplePresenceResult\n\{[\s\S]*?^\}/m
+        )?.[0];
+        expect(declaration).toContain(`public ${type} RequiredValue ${initializer}`);
+        for (const name of ["OptionalValue", "RequiredNullable", "OptionalNullable"])
+            expect(declaration).toContain(`public ${type}? ${name} { get; set; }`);
+        expect(declaration).toContain('[JsonPropertyName("requiredNullable")]');
+    });
+
+    it("shares multi-hop reference classes across request and result models", () => {
+        const code = generateRpcCode(referenceFixture());
+        for (const name of ["ReferenceNode", "ReferenceLeaf"])
+            expect(code.match(new RegExp(`^public sealed class ${name}\\n`, "gm"))).toHaveLength(1);
+        expect(code.match(/^public sealed class ReferenceNode\n\{[\s\S]*?^\}/m)?.[0]).toContain(
+            "public ReferenceLeaf Leaf"
+        );
+        for (const name of ["SampleGraphRequest", "SampleGraphResult"]) {
+            const declaration = code.match(
+                new RegExp(`^(?:public|internal) sealed class ${name}\\n\\{[\\s\\S]*?^\\}`, "m")
+            )?.[0];
+            for (const field of [
+                "ReferenceNode First",
+                "ReferenceNode Second",
+                "IList<ReferenceNode> Nodes",
+                "IDictionary<string, ReferenceNode> Lookup",
+            ])
+                expect(declaration).toContain(`public ${field}`);
+        }
+        expect(code).toContain("[JsonSerializable(typeof(ReferenceNode))]");
+        expect(code).toContain("[JsonSerializable(typeof(ReferenceLeaf))]");
+    });
+
+    it("keeps empty object classes distinct from open maps and opaque JsonElement", () => {
+        const code = generateRpcCode(jsonShapesFixture());
+        expect(code.match(/^public sealed class JsonShapesEmpty\n\{[\s\S]*?^\}/m)?.[0]).toBe(
+            "public sealed class JsonShapesEmpty\n{\n}"
+        );
+        const declaration = code.match(/^public sealed class JsonShapes\n\{[\s\S]*?^\}/m)?.[0];
+        expect(declaration).toContain("public JsonShapesEmpty Empty");
+        expect(declaration).toContain("public IDictionary<string, JsonElement> Open");
+        expect(declaration).toContain("public JsonElement Opaque");
+    });
+
+    it.each(["anyOf", "oneOf"] as const)(
+        "registers nested %s union variants without changing existing declarations",
+        (keyword) => {
+            const before = generateRpcCode(nestedUnionFixture(keyword));
+            const after = generateRpcCode(nestedUnionFixture(keyword, true));
+            for (const code of [before, after]) {
+                const result = code.match(
+                    /^public sealed class SampleDecideResult\n\{[\s\S]*?^\}/m
+                )?.[0];
+                expect(result).toContain("public Verdict? Selected");
+                expect(result).toContain("public IDictionary<string, Verdict> Decisions");
+                for (const variant of ["Allow", "Deny"]) {
+                    expect(code).toContain(
+                        `[JsonDerivedType(typeof(Verdict${variant}), "${variant.toLowerCase()}")]`
+                    );
+                    expect(code).toContain(`public partial class Verdict${variant} : Verdict\n`);
+                }
+                expect(code).toContain("[JsonSerializable(typeof(Verdict))]");
+            }
+            expect(before).not.toContain("VerdictPending");
+            expect(after).toContain('[JsonDerivedType(typeof(VerdictPending), "pending")]');
+            expect(after).toContain("public partial class VerdictPending : Verdict\n");
+            const declaration = /^public partial class VerdictAllow : Verdict\n\{[\s\S]*?^\}/m;
+            expect(before).toMatch(declaration);
+            expect(after.match(declaration)?.[0]).toBe(before.match(declaration)?.[0]);
+        }
+    );
+
+    it("represents boolean-discriminated results with boolean wire values", () => {
+        const code = generateRpcCode(booleanUnionFixture());
+        const declaration = code.match(
+            /^public partial class SampleAcceptResult\n\{[\s\S]*?^\}/m
+        )?.[0];
+        expect(declaration).toContain('[JsonPropertyName("queued")]\n    public bool Queued');
+        expect(declaration).toContain("public string? Reason");
+        expect(declaration).toContain("public string? Value");
+        expect(declaration).not.toContain("public string Queued");
+    });
+
+    it("preserves wire names independently of PascalCase property names", () => {
+        const code = generateRpcCode(namingFixture());
+        const declaration = code.match(/^public sealed class WireNames\n\{[\s\S]*?^\}/m)?.[0];
+        for (const [wire, type, name] of [
+            ["class", "string", "Class"],
+            ["default", "bool", "Default"],
+            ["type", "string", "Type"],
+            ["requestId", "string", "RequestId"],
+            ["content-type", "string", "ContentType"],
+        ])
+            expect(declaration).toContain(
+                `[JsonPropertyName("${wire}")]\n    public ${type} ${name}`
+            );
+    });
+
+    it("keeps internal results internal without hiding shared public dependencies", () => {
+        const code = generateRpcCode(visibilityFixture());
+        expect(code).toContain("internal sealed class SampleSecretResult\n");
+        expect(code).toContain("internal async Task<SampleSecretResult> SecretAsync(");
+        expect(code).toContain("public async Task<SampleVisibleResult> VisibleAsync(");
+        expect(code).toContain("internal async Task<HostSecretResult> SecretAsync(");
+        expect(code).toContain("public async Task<HostVisibleResult> VisibleAsync(");
+        expect(code).not.toContain("public async Task<HostSecretResult> SecretAsync(");
+        expect(code.match(/^public sealed class SharedValue\n/gm)).toHaveLength(1);
+        expect(code).not.toContain("internal sealed class SharedValue");
+        expect(code).not.toContain("public sealed class SampleSecretResult");
+    });
+
+    it("registers every event and its empty, object, or union payload", () => {
+        const code = generateSessionEventsCode(eventMatrixFixture());
+        expect(
+            [
+                ...code.matchAll(
+                    /\[JsonDerivedType\(typeof\((Matrix\w+Event)\), "matrix\.(\w+)"\)\]/g
+                ),
+            ].map((match) => [match[1], match[2]])
+        ).toEqual([
+            ["MatrixEmptyEvent", "empty"],
+            ["MatrixUnionEvent", "union"],
+            ["MatrixValueEvent", "value"],
+        ]);
+        for (const name of ["Empty", "Union", "Value"]) {
+            const event = code.match(
+                new RegExp(
+                    `^public sealed partial class Matrix${name}Event : SessionEvent\\n\\{[\\s\\S]*?^\\}`,
+                    "m"
+                )
+            )?.[0];
+            expect(event).toContain(`public required Matrix${name}Data Data`);
+            expect(code).toContain(`[JsonSerializable(typeof(Matrix${name}Event))]`);
+            expect(code).toContain(`[JsonSerializable(typeof(Matrix${name}Data))]`);
+        }
+        expect(code).toContain('[JsonDerivedType(typeof(MatrixUnionDataFirst), "first")]');
+        expect(code).toContain('[JsonDerivedType(typeof(MatrixUnionDataSecond), "second")]');
+    });
+
+    it("does not retain declarations or serializer registrations between schemas", () => {
+        const before = generateRpcCode(referenceFixture());
+        const eventsBefore = generateSessionEventsCode(eventFixture());
+        generateRpcCode(nestedUnionFixture("oneOf", true));
+        generateSessionEventsCode(eventMatrixFixture());
+        expect(generateRpcCode(referenceFixture())).toBe(before);
+        expect(generateSessionEventsCode(eventFixture())).toBe(eventsBefore);
+    });
+});
+
+describe("C# RPC dictionaries", () => {
+    it.each([undefined, true, { type: "string" } as const])(
+        "retains open object entries with additionalProperties=%j",
+        (additionalProperties) => {
+            const dictionary: JSONSchema7 = {
+                type: "object",
+                properties: {},
+                ...(additionalProperties === undefined ? {} : { additionalProperties }),
+            };
+            const schema: ApiSchema = {
+                server: {
+                    sample: {
+                        read: {
+                            rpcMethod: "sample.read",
+                            params: {
+                                title: "SampleRequest",
+                                type: "object",
+                                properties: { environment: dictionary },
+                                required: ["environment"],
+                            },
+                            result: {
+                                title: "SampleResult",
+                                type: "object",
+                                properties: {
+                                    settings: dictionary,
+                                    referenced: { $ref: "#/definitions/Dictionary" },
+                                    entries: { type: "array", items: dictionary },
+                                    closed: {
+                                        type: "object",
+                                        properties: {},
+                                        additionalProperties: false,
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                definitions: { Dictionary: dictionary },
+            };
+            const before = structuredClone(schema);
+            const code = generateRpcCode(schema);
+            const valueType = typeof additionalProperties === "object" ? "string" : "JsonElement";
+            expect(code).toContain(`IDictionary<string, ${valueType}> Environment`);
+            expect(code).toContain(`IDictionary<string, ${valueType}>? Settings`);
+            expect(code).toContain(`IDictionary<string, ${valueType}>? Referenced`);
+            expect(code).toContain(`IList<IDictionary<string, ${valueType}>>? Entries`);
+            expect(code).toContain("class SampleResultClosed");
+            expect(code).not.toContain("class SampleRequestEnvironment");
+            expect(code).not.toContain("class SampleResultSettings");
+            expect(schema).toEqual(before);
+        }
+    );
+});
 
 function legacySignatureFixture(scope: "server" | "session", legacy: unknown) {
     const params: JSONSchema7 & { "x-legacy-parameters"?: unknown } = {
@@ -47,6 +379,95 @@ describe("C# required opaque JSON parameters", () => {
 });
 
 describe("C# additive request entry compatibility", () => {
+    it("preserves the legacy login signature and exposes new inputs through the request overload", () => {
+        const { schema } = legacySignatureFixture("session", ["kind"]);
+        const methods = schema.session!.sample as Record<string, RpcMethod>;
+        const method = methods.run;
+        methods.begin = method;
+        delete methods.run;
+        schema.definitions = {
+            LoginProviderKind: { type: "string", enum: ["github", "entra"] },
+            AuthLoginMode: { type: "string", enum: ["default", "selectAccount"] },
+        };
+        method.rpcMethod = "session.accounts.login.begin";
+        method.params = {
+            title: "AuthLoginBeginRequest",
+            type: "object",
+            properties: {
+                sessionId: { type: "string" },
+                kind: { $ref: "#/definitions/LoginProviderKind" },
+                mode: { $ref: "#/definitions/AuthLoginMode" },
+                accountId: { type: "string" },
+            },
+            required: ["sessionId", "kind"],
+            "x-legacy-parameters": ["kind"],
+        };
+
+        const code = generateRpcCode(schema);
+
+        expect(code).toContain(
+            "BeginAsync(LoginProviderKind kind, CancellationToken cancellationToken = default)"
+        );
+        expect(code).toContain(
+            "BeginAsync(AuthLoginBeginRequest request, CancellationToken cancellationToken = default)"
+        );
+        expect(code).toContain("public AuthLoginMode? Mode { get; set; }");
+        expect(code).toContain("public string? AccountId { get; set; }");
+        expect(code).toContain(
+            "new AuthLoginBeginRequestWithSession { SessionId = _session.SessionId, Kind = request.Kind, Mode = request.Mode, AccountId = request.AccountId }"
+        );
+        expect(code).not.toContain("CancellationToken cancellationToken = default, AuthLoginMode?");
+    });
+
+    it("preserves cancellation-token calls when a server method gains optional parameters", () => {
+        const params = { $ref: "#/definitions/ModelsListRequest" };
+        const optionalRequest: JSONSchema7 = {
+            title: "ModelsListRequest",
+            anyOf: [
+                { not: {} },
+                {
+                    type: "object",
+                    properties: {
+                        selectionId: { type: "string" },
+                        gitHubToken: { type: "string" },
+                    },
+                    additionalProperties: false,
+                },
+            ],
+        };
+        const code = generateRpcCode({
+            definitions: {
+                ModelsListRequest: optionalRequest,
+            },
+            server: {
+                models: {
+                    list: { rpcMethod: "models.list", params, result: null },
+                    listTokenPriceUnits: {
+                        rpcMethod: "models.listTokenPriceUnits",
+                        params: optionalRequest,
+                        result: null,
+                    },
+                },
+            },
+        });
+
+        expect(code).toContain(
+            "ListTokenPriceUnitsAsync(CancellationToken cancellationToken = default)"
+        );
+        expect(code).toContain(
+            "ListTokenPriceUnitsAsync(ModelsListTokenPriceUnitsRequest request, CancellationToken cancellationToken = default)"
+        );
+        expect(code).toContain(
+            "ListAsync(string? selectionId = null, string? gitHubToken = null, CancellationToken cancellationToken = default)"
+        );
+        expect(code).toContain("public sealed class ModelsListTokenPriceUnitsRequest\n");
+        expect(code).toContain("public string? SelectionId { get; set; }");
+        expect(code).toContain("public string? GitHubToken { get; set; }");
+        expect(code).toContain(
+            '(_rpc, "models.listTokenPriceUnits", [request], cancellationToken)'
+        );
+    });
+
     it.each(["server", "session"] as const)(
         "preserves the exact legacy %s signature and adds a same-name request overload",
         (scope) => {

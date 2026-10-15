@@ -28,6 +28,9 @@ import javax.annotation.processing.Generated;
 public record SessionOptionsUpdateParams(
     /** Target session identifier */
     @JsonProperty("sessionId") String sessionId,
+    /** Enable or disable the native image tool for this session without changing the conversation model.
+Omitted values preserve the current setting. Re-supply consent on cold resume. */
+    @JsonProperty("imageGeneration") ProtocolImageGenerationOptions imageGeneration,
     /** The model ID to use for assistant turns. */
     @JsonProperty("model") String model,
     /** Per-property model capability overrides for the selected model. */

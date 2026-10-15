@@ -578,6 +578,7 @@ interface GoCodegenCtx {
     encodingBlocks?: Set<string>;
     unionVariantMarshalers?: Set<string>;
     packageName?: string;
+    numberPreservingTypes?: ReadonlySet<string>;
 }
 
 function extractGoEventVariants(schema: JSONSchema7): GoEventVariant[] {
@@ -1142,11 +1143,27 @@ function registerGoExternalUnionUnmarshalers(
     }
 }
 
+function pushGoNumberPreservingUnmarshal(typeName: string, ctx: GoCodegenCtx): void {
+    pushGoEncodingBlock([
+        `func (r *${typeName}) UnmarshalJSON(data []byte) error {`,
+        `\ttype wire ${typeName}`,
+        `\tdecoder := json.NewDecoder(bytes.NewReader(data))`,
+        `\tdecoder.UseNumber()`,
+        `\treturn decoder.Decode((*wire)(r))`,
+        `}`,
+    ], ctx);
+}
+
 function pushGoStructUnmarshalJSON(lines: string[], typeName: string, fields: GoStructField[], ctx: GoCodegenCtx): void {
     const unionFields = fields
         .map((field) => ({ field, unionField: goDiscriminatedUnionField(field.goType, ctx) }))
         .filter((entry): entry is { field: GoStructField; unionField: GoDiscriminatedUnionField } => entry.unionField !== undefined);
-    if (unionFields.length === 0) return;
+    const preservesNumbers = ctx.numberPreservingTypes?.has(typeName) === true
+        && fields.some((field) => /\bany\b/.test(field.goType));
+    if (unionFields.length === 0) {
+        if (preservesNumbers) pushGoNumberPreservingUnmarshal(typeName, ctx);
+        return;
+    }
 
     const blockLines: string[] = [];
     blockLines.push(`func (r *${typeName}) UnmarshalJSON(data []byte) error {`);
@@ -1161,7 +1178,11 @@ function pushGoStructUnmarshalJSON(lines: string[], typeName: string, fields: Go
     }
     blockLines.push(`\t}`);
     blockLines.push(`\tvar raw raw${typeName}`);
-    blockLines.push(`\tif err := json.Unmarshal(data, &raw); err != nil {`);
+    if (preservesNumbers) {
+        blockLines.push(`\tdecoder := json.NewDecoder(bytes.NewReader(data))`);
+        blockLines.push(`\tdecoder.UseNumber()`);
+    }
+    blockLines.push(`\tif err := ${preservesNumbers ? "decoder.Decode(&raw)" : "json.Unmarshal(data, &raw)"}; err != nil {`);
     blockLines.push(`\t\treturn err`);
     blockLines.push(`\t}`);
 
@@ -3013,8 +3034,12 @@ function emitGoAlias(typeName: string, schema: JSONSchema7, ctx: GoCodegenCtx): 
     if (isSchemaDeprecated(schema)) {
         pushGoCommentForContext(lines, `Deprecated: ${typeName} is deprecated and will be removed in a future version.`, ctx);
     }
-    lines.push(`type ${typeName} ${resolveGoPropertyType(schema, typeName, "Value", true, ctx)}`);
+    const goType = resolveGoPropertyType(schema, typeName, "Value", true, ctx);
+    lines.push(`type ${typeName} ${goType}`);
     ctx.structs.push(lines.join("\n"));
+    if (ctx.numberPreservingTypes?.has(typeName) && (goType.startsWith("map[") || goType.startsWith("[]")) && /\bany\b/.test(goType)) {
+        pushGoNumberPreservingUnmarshal(typeName, ctx);
+    }
 }
 
 /**
@@ -3134,6 +3159,9 @@ function goGeneratedEncodingFileCode(schemaFileName: string, packageName: string
     lines.push(``);
 
     const imports = [`"encoding/json"`];
+    if (generatedEncodingCode.includes("bytes.")) {
+        imports.push(`"bytes"`);
+    }
     if (generatedEncodingCode.includes("errors.")) {
         imports.push(`"errors"`);
     }
@@ -3155,7 +3183,7 @@ function goGeneratedEncodingFileCode(schemaFileName: string, packageName: string
     return wrapComments ? wrapGeneratedGoComments(code) : code;
 }
 
-function generateGoRpcTypeCode(definitions: Record<string, JSONSchema7>, definitionCollections: DefinitionCollections): GoGeneratedTypeCode {
+function generateGoRpcTypeCode(definitions: Record<string, JSONSchema7>, definitionCollections: DefinitionCollections, numberPreservingTypes: ReadonlySet<string>): GoGeneratedTypeCode {
     const ctx: GoCodegenCtx = {
         structs: [],
         encoding: [],
@@ -3165,6 +3193,7 @@ function generateGoRpcTypeCode(definitions: Record<string, JSONSchema7>, definit
         generatedNames: new Set(),
         definitions: definitionCollections,
         packageName: "rpc",
+        numberPreservingTypes,
     };
     ctx.skipDefinitionTypeNames = collectGoDiscriminatedUnionVariantDefinitionTypeNames(definitions, ctx);
     const schemaKeysByTypeName = new Map<string, string>();
@@ -3925,7 +3954,18 @@ async function generateRpc(schemaPath?: string): Promise<void> {
     console.log("Go: generating RPC types...");
 
     const resolvedPath = schemaPath ?? (await getApiSchemaPath());
-    const schema = propagateInternalVisibility(normalizeExtensibleEnums(fixNullableRequiredRefsInApiSchema(cloneSchemaForCodegen((await loadSchemaJson(resolvedPath)) as ApiSchema))) as JSONSchema7) as unknown as ApiSchema;
+    const { typeCode, encodingCode } = generateGoRpcCode((await loadSchemaJson(resolvedPath)) as ApiSchema);
+    const outPath = await writeGeneratedFile("go/rpc/zrpc.go", typeCode);
+    console.log(`  ✓ ${outPath}`);
+    await formatGoFile(outPath);
+
+    const encodingOutPath = await writeGeneratedFile("go/rpc/zrpc_encoding.go", encodingCode);
+    console.log(`  ✓ ${encodingOutPath}`);
+    await formatGoFile(encodingOutPath);
+}
+
+export function generateGoRpcCode(apiSchema: ApiSchema): { typeCode: string; encodingCode: string } {
+    const schema = propagateInternalVisibility(normalizeExtensibleEnums(fixNullableRequiredRefsInApiSchema(cloneSchemaForCodegen(apiSchema))) as JSONSchema7) as unknown as ApiSchema;
 
     const allMethods = [
         ...collectRpcMethods(schema.server || {}),
@@ -4009,8 +4049,10 @@ async function generateRpc(schemaPath?: string): Promise<void> {
     };
     rpcDefinitions = allDefinitionCollections;
 
+    // Opt in only the policy result; existing RPC consumers depend on float64 values.
+    const numberPreservingTypes = new Set(["ContentExclusionValidatePoliciesResult"]);
+    const generatedRpcCode = generateGoRpcTypeCode(allDefinitions, allDefinitionCollections, numberPreservingTypes);
     // Strip trailing whitespace from generated output (gofmt requirement)
-    const generatedRpcCode = generateGoRpcTypeCode(allDefinitions, allDefinitionCollections);
     let generatedTypeCode = stripTrailingGoWhitespace(generatedRpcCode.typeCode);
     const generatedEncodingCode = stripTrailingGoWhitespace(generatedRpcCode.encodingCode);
 
@@ -4152,15 +4194,10 @@ async function generateRpc(schemaPath?: string): Promise<void> {
         emitClientGlobalApiRegistration(lines, schema.clientGlobal, resolveType, generatedRpcCode.discriminatedUnions);
     }
 
-    const outPath = await writeGeneratedFile("go/rpc/zrpc.go", wrapGeneratedGoComments(lines.join("\n")));
-    console.log(`  ✓ ${outPath}`);
-
-    await formatGoFile(outPath);
-
-    const encodingOutPath = await writeGeneratedFile("go/rpc/zrpc_encoding.go", goGeneratedEncodingFileCode("api.schema.json", "rpc", generatedEncodingCode, true));
-    console.log(`  ✓ ${encodingOutPath}`);
-
-    await formatGoFile(encodingOutPath);
+    return {
+        typeCode: wrapGeneratedGoComments(lines.join("\n")),
+        encodingCode: goGeneratedEncodingFileCode("api.schema.json", "rpc", generatedEncodingCode, true),
+    };
 }
 
 function emitApiGroup(

@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test node-stream.test.mjs",
     "generate": "tsx typescript.ts && tsx csharp.ts && tsx python.ts && tsx go.ts && tsx rust.ts",
     "generate:ts": "tsx typescript.ts",
     "generate:csharp": "tsx csharp.ts",
@@ -14,7 +15,11 @@
     "json-schema": "^0.4.0",
     "json-schema-to-typescript": "^15.0.4",
     "quicktype-core": "^23.2.6",
+    "readable-stream": "file:./node-stream",
     "tsx": "^4.22.4",
     "wordwrap": "^1.0.0"
+  },
+  "overrides": {
+    "readable-stream": "$readable-stream"
   }
 }

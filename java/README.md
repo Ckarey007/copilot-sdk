@@ -121,6 +121,18 @@ CopilotClient client = new CopilotClient(options);
 client.start().get();
 ```
 
+For the native standalone runtime, include
+`"COPILOT_GITHUB_TELEMETRY_DISABLED", "true"` in the environment map passed to
+`CopilotClientOptions.setEnvironment(...)` before startup to disable direct
+GitHub telemetry uploads for the entire host, including sessionless events.
+Authentication, `setOnGitHubTelemetry(...)` forwarding, and user-configured
+OpenTelemetry export remain unchanged. This is separate from
+`SessionConfig.setEnableSessionTelemetry(false)`, which disables only a session's
+pipeline. The value must be exactly `"true"`; changing it requires a runtime
+restart. The Node CLI host does not use this variable. In-process connections
+reject per-client environment maps; set the variable in the host process
+environment before starting the runtime instead.
+
 ## Quick Start
 
 For experimental in-process AHP hosting, select a transport explicitly:
@@ -289,6 +301,12 @@ Pass `new ResumeSessionConfig().setContinuePendingWork(true)` to
 instead. Leave the option unset to use the runtime default. Re-register any
 external tools needed to handle continued work.
 
+`SessionConfig.setInteractiveUser(true)` declares that a person types the
+session's messages, as in an editor chat panel. This enables the runtime's
+user-message analysis telemetry for user-authored messages. Automated messages
+stay excluded. The default is off, and cloud sessions ignore it. Re-supply it
+through `ResumeSessionConfig` on a cold resume.
+
 For rotating per-session GitHub credentials, use
 `SessionConfig.setGitHubTokenProvider(...)` (or the equivalent
 `ResumeSessionConfig` setter) instead of `setGitHubToken(...)`:
@@ -454,7 +472,27 @@ Cancellation and timeout stop waiting without aborting the agent.
 
 `PermissionHandler.APPROVE_ALL` approves requests when managed settings are disabled. When `enableManagedSettings` is true, it completes exceptionally. Custom handlers can inspect `request.getManagedApprovalRequired()` for human-facing confirmation logic.
 
-When handling `PermissionRequestedEvent` directly, convert its generated event value with `PermissionRequest.fromJsonValue(event.getData().permissionRequest())` to access the typed metadata.
+When handling `PermissionRequestedEvent` directly, convert its generated event values with `PermissionRequest.fromJsonValue(...)` to access the typed metadata:
+
+```java
+if (Boolean.TRUE.equals(event.getData().resolvedByHook())) {
+    return; // The permissionRequest hook already answered this request.
+}
+
+var rawRequest = PermissionRequest.fromJsonValue(event.getData().permissionRequest());
+var promptValue = event.getData().promptRequest();
+var promptRequest = promptValue == null ? null : PermissionRequest.fromJsonValue(promptValue);
+
+var assistedApprovalClearsManagedRequirement = promptRequest != null
+        && ("commands".equals(promptRequest.getKind()) || "read".equals(promptRequest.getKind())
+                || "write".equals(promptRequest.getKind()) || "url".equals(promptRequest.getKind())
+                || "workflow".equals(promptRequest.getKind()))
+        && !Boolean.TRUE.equals(promptRequest.getManagedApprovalRequired());
+var humanApprovalRequired = Boolean.TRUE.equals(rawRequest.getManagedApprovalRequired())
+        && !assistedApprovalClearsManagedRequirement;
+```
+
+`PermissionHandler` receives the same derived prompt as `invocation.getPromptRequest()` when newer runtimes provide it. The raw request's `managedApprovalRequired` remains managed-policy provenance and enforces one-shot restrictions. Only derived `commands`, `read`, `write`, `url`, and `workflow` prompts can clear the human requirement after Assisted approval; for missing or other prompt kinds, keep the raw marker authoritative. Java represents the derived prompt as `PermissionRequest`, so prompt-only fields such as `assistedApproval` are available through `getExtensionData()`.
 
 Custom handlers must check managed approval before applying kind-specific automatic decisions:
 
@@ -465,7 +503,14 @@ import com.github.copilot.rpc.PermissionHandler;
 import com.github.copilot.rpc.PermissionRequestResult;
 
 PermissionHandler handler = (request, invocation) -> {
-    if (Boolean.TRUE.equals(request.getManagedApprovalRequired())) {
+    var prompt = invocation.getPromptRequest();
+    var assistedApprovalClearsManagedRequirement = prompt != null
+            && ("commands".equals(prompt.getKind()) || "read".equals(prompt.getKind())
+                    || "write".equals(prompt.getKind()) || "url".equals(prompt.getKind())
+                    || "workflow".equals(prompt.getKind()))
+            && !Boolean.TRUE.equals(prompt.getManagedApprovalRequired());
+    if (Boolean.TRUE.equals(request.getManagedApprovalRequired())
+            && !assistedApprovalClearsManagedRequirement) {
         return CompletableFuture.completedFuture(PermissionRequestResult.noResult());
     }
 
@@ -698,6 +743,8 @@ The two constructor arguments are the persisted visibility setting (`null` when 
 ## Session Store
 
 `enableSessionStore` on `SessionConfig` enables the cross-session store for search and retrieval across sessions. When unset in the default `CopilotClientMode.COPILOT_CLI` mode, the runtime default applies (enabled). In `CopilotClientMode.EMPTY` mode, defaults to disabled.
+
+`enableGitHubCacheStore` on `SessionConfig` and `ResumeSessionConfig` requests the read-only GitHub cache store (`github-cache-store` capability) on create or resume. The runtime registers the `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is also on. Defaults to disabled in every mode.
 
 ## Memory
 

@@ -54,6 +54,18 @@ function includesPrompt(exchange: ParsedHttpExchange, prompt: string): boolean {
     );
 }
 
+function expectCurrentToolAvailability(exchange: ParsedHttpExchange) {
+    const userMessages = JSON.stringify(
+        exchange.request.messages.filter((message) => message.role === "user")
+    );
+    expect(userMessages).not.toContain("New tools available:");
+    expect(userMessages).not.toContain("Tools no longer available:");
+    expect(userMessages).not.toContain("unless you've been notified");
+    expect(JSON.stringify(exchange.request.messages)).not.toContain(
+        "a currently offered tool or a fresh successful discovery/load is notice that it is available again"
+    );
+}
+
 describe("Live tool replacement", async () => {
     const { copilotClient: client, openAiEndpoint } = await createSdkTestContext();
 
@@ -100,6 +112,7 @@ describe("Live tool replacement", async () => {
             expect(offeredTools(exchange)).not.toContain("lookup_vegetable");
         }
         for (const exchange of exchanges.slice(replacedFrom)) {
+            expectCurrentToolAvailability(exchange);
             expect(offeredTools(exchange)).toEqual(
                 expect.arrayContaining(["lookup_fruit", "lookup_vegetable"])
             );
@@ -140,6 +153,7 @@ describe("Live tool replacement", async () => {
         );
         expect(replacedFrom).toBeGreaterThan(0);
         for (const exchange of exchanges.slice(replacedFrom)) {
+            expectCurrentToolAvailability(exchange);
             expect(offeredTools(exchange)).toContain("lookup_vegetable");
             expect(offeredTools(exchange)).not.toContain("lookup_fruit");
         }

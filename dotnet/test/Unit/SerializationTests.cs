@@ -1105,6 +1105,42 @@ public class SerializationTests
         Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1700000000000), input.Timestamp);
     }
 
+    [Theory]
+    [InlineData("""{"name":"Error","message":"model timeout","stack":"Error: model timeout"}""", "model timeout")]
+    [InlineData("\"boom\"", "boom")]
+    [InlineData("""{"code":7}""", """{"code":7}""")]
+    public void ErrorOccurredHookInput_DecodesCliErrorShapes(string error, string expected)
+    {
+        var options = GetSerializerOptions();
+        var input = JsonSerializer.Deserialize<ErrorOccurredHookInput>(
+            $$"""{"sessionId":"session-1","timestamp":1700000000000,"cwd":"/repo","error":{{error}},"errorContext":"model_call","recoverable":true}""",
+            options);
+
+        Assert.NotNull(input);
+        Assert.Equal(expected, input.Error);
+        Assert.Equal("model_call", input.ErrorContext);
+        Assert.True(input.Recoverable);
+    }
+
+    [Theory]
+    [InlineData("""{"message":"model timeout"}""", "model timeout")]
+    [InlineData("\"boom\"", "boom")]
+    [InlineData("null", null)]
+    [InlineData(null, null)]
+    [InlineData("""{"code":7}""", """{"code":7}""")]
+    public void SessionEndHookInput_DecodesCliErrorShapes(string? error, string? expected)
+    {
+        var options = GetSerializerOptions();
+        var errorField = error is null ? string.Empty : $",\"error\":{error}";
+        var input = JsonSerializer.Deserialize<SessionEndHookInput>(
+            $$"""{"sessionId":"session-1","timestamp":1700000000000,"cwd":"/repo","reason":"error"{{errorField}}}""",
+            options);
+
+        Assert.NotNull(input);
+        Assert.Equal(expected, input.Error);
+        Assert.Equal("error", input.Reason);
+    }
+
     [Fact]
     public void AgentStopHookOutput_SerializesBlockDecision_WithSdkOptions()
     {
@@ -1119,6 +1155,39 @@ public class SerializationTests
 
         Assert.Equal("block", json.GetProperty("decision").GetString());
         Assert.Equal("finish the remaining work", json.GetProperty("reason").GetString());
+    }
+
+    [Fact]
+    public void HooksInvokeResponse_SerializesUserPromptSubmittedBlock_WithSdkOptions()
+    {
+        var options = GetSerializerOptions();
+        var hookOutput = new UserPromptSubmittedHookOutput
+        {
+            Decision = "block",
+            Reason = "Prompts may not mention launch codes."
+        };
+
+        // The exact path SendResultResponseAsync takes: the internal HooksInvokeResponse wraps the output.
+        var responseType = GetNestedType(typeof(CopilotClient), "HooksInvokeResponse");
+        var response = CreateInternalRequest(responseType, ("Output", hookOutput));
+        var json = JsonSerializer.SerializeToElement(response, options.GetTypeInfo(response.GetType()));
+
+        var output = json.GetProperty("output");
+        Assert.Equal("block", output.GetProperty("decision").GetString());
+        Assert.Equal("Prompts may not mention launch codes.", output.GetProperty("reason").GetString());
+        Assert.False(output.TryGetProperty("modifiedPrompt", out _));
+    }
+
+    [Fact]
+    public void UserPromptSubmittedHookOutput_OmitsUnsetBlockFields_WithSdkOptions()
+    {
+        var options = GetSerializerOptions();
+        var output = new UserPromptSubmittedHookOutput { AdditionalContext = "Be brief." };
+        var json = JsonSerializer.SerializeToElement(output, options);
+
+        Assert.Equal("Be brief.", json.GetProperty("additionalContext").GetString());
+        Assert.False(json.TryGetProperty("decision", out _));
+        Assert.False(json.TryGetProperty("reason", out _));
     }
 
     [Fact]

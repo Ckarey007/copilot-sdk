@@ -27,6 +27,8 @@ const OUTPUT_ROOT = process.env.COPILOT_CODEGEN_OUTPUT_ROOT ?? REPO_ROOT;
 const EXCLUDED_EVENT_TYPES = new Set(["session.import_legacy"]);
 // Existing event unions are Object in the shipped Java API; opt in new unions without changing those signatures.
 const PROMOTED_SESSION_EVENT_UNION_TYPES = new Set(["HumanResponseRecordedResponse"]);
+// Existing request unions are Object in the shipped Java API; opt in new typed request unions.
+const PROMOTED_RPC_REQUEST_UNION_TYPES = new Set(["AuthEnumerateQuery"]);
 
 function isSchemaInternal(schema: JSONSchema7 | null | undefined): boolean {
     return typeof schema === "object" &&
@@ -260,7 +262,7 @@ const generatedSessionEventTypeNames = new Set<string>();
 let publicRpcDefinitionNames = new Set<string>();
 
 // Cross-schema definitions: keyed by schema filename (e.g. "session-events.schema.json"),
-// value is the definitions map from that schema. Populated by generateRpcTypes so that
+// value is the definitions map from that schema. Populated by renderRpcTypes so that
 // cross-schema $ref values like "session-events.schema.json#/definitions/Foo" can be resolved.
 const crossSchemaDefinitions = new Map<string, Record<string, JSONSchema7>>();
 
@@ -1344,6 +1346,14 @@ export function schemaTypeToJava(
         const resolved = resolution.definitions[name];
         if (resolved) {
             if (
+                context === "SessionAccountsEnumerateParams"
+                && propName === "query"
+                && name === "AuthEnumerateQuery"
+            ) {
+                resolution.standaloneTypes.set(name, resolved);
+                return { javaType: "Object", imports };
+            }
+            if (
                 name === "ManagedPermissionsContext"
                 && generatedSessionEventTypeNames.has(name)
                 && crossSchemaDefinitions.get("session-events.schema.json")?.[name]
@@ -1585,7 +1595,28 @@ async function generateSessionEvents(schemaPath: string): Promise<void> {
     console.log("\n📋 Generating session event classes...");
     const schemaContent = await fs.readFile(schemaPath, "utf-8");
     const schema = normalizeSchemaBrandCasing(JSON.parse(schemaContent) as JSONSchema7);
+    const variantCount = await emitSessionEvents(schema);
+    console.log(`✅ Generated ${variantCount + 1} session event files`);
+}
 
+/**
+ * Render all session event classes, registrations, and referenced types in memory.
+ * Calls must be awaited sequentially with other Java renderers, which share module state.
+ * Normalizes brand casing in the supplied schema in place.
+ */
+export async function renderSessionEvents(schema: JSONSchema7): Promise<Map<string, string>> {
+    if (pendingOutput) throw new Error("Concurrent Java session event generation is not supported.");
+    const files = new Map<string, string>();
+    pendingOutput = files;
+    try {
+        await emitSessionEvents(normalizeSchemaBrandCasing(schema));
+        return files;
+    } finally {
+        pendingOutput = undefined;
+    }
+}
+
+async function emitSessionEvents(schema: JSONSchema7): Promise<number> {
     // Set module-level definitions for $ref resolution
     currentDefinitions = (schema.definitions ?? {}) as Record<string, JSONSchema7>;
     pendingStandaloneTypes.clear();
@@ -1631,7 +1662,7 @@ async function generateSessionEvents(schemaPath: string): Promise<void> {
         }
     }
 
-    console.log(`✅ Generated ${variants.length + 1} session event files`);
+    return variants.length;
 }
 
 async function generateSessionEventBaseClass(
@@ -2720,32 +2751,40 @@ async function generateRpcTypes(schemaPath: string): Promise<void> {
     console.log("\n🔌 Generating RPC types...");
     const schemaContent = await fs.readFile(schemaPath, "utf-8");
     const schema = normalizeRpcSchema(JSON.parse(schemaContent) as RpcSchema);
-    crossSchemaDefinitions.clear();
+    let sessionEventsSchema: JSONSchema7 | undefined;
 
     // Load cross-schema definitions (session-events) so that cross-schema $ref values
     // like "session-events.schema.json#/definitions/Foo" can be resolved.
     try {
         const sessionEventsSchemaPath = await getSessionEventsSchemaPath();
         const sessionEventsContent = await fs.readFile(sessionEventsSchemaPath, "utf-8");
-        const sessionEventsSchema = normalizeSchemaBrandCasing(JSON.parse(sessionEventsContent) as JSONSchema7);
-        crossSchemaDefinitions.set("session-events.schema.json",
-            (sessionEventsSchema.definitions ?? {}) as Record<string, JSONSchema7>);
+        sessionEventsSchema = JSON.parse(sessionEventsContent) as JSONSchema7;
     } catch (e) {
         console.warn(`[codegen] Could not load session-events schema for cross-ref resolution: ${e}`);
     }
 
-    const files = await renderRpcTypes(schema);
+    const files = await renderRpcTypes(schema, RPC_VARIANT_OWNERS, sessionEventsSchema);
     for (const [file, content] of files) await writeGeneratedFile(file, content);
     console.log(`✅ Generated ${files.size} RPC type files`);
 }
 
-/** Plan and render all RPC types in memory, rejecting ABI/name conflicts before file writes. */
+/**
+ * Plan and render all RPC types in memory, rejecting ABI/name conflicts before file writes.
+ * Shared event types require their schema and a preceding session-event render.
+ */
 export async function renderRpcTypes(
     schema: RpcSchema,
-    historicalOwners: Readonly<Record<string, string>> = RPC_VARIANT_OWNERS
+    historicalOwners: Readonly<Record<string, string>> = RPC_VARIANT_OWNERS,
+    sessionEventsSchema?: JSONSchema7
 ): Promise<Map<string, string>> {
     if (rpcGeneration) throw new Error("Concurrent Java RPC generation is not supported.");
     schema = normalizeRpcSchema(schema);
+    crossSchemaDefinitions.clear();
+    if (sessionEventsSchema) {
+        const normalized = normalizeSchemaBrandCasing(structuredClone(sessionEventsSchema));
+        crossSchemaDefinitions.set("session-events.schema.json",
+            (normalized.definitions ?? {}) as Record<string, JSONSchema7>);
+    }
     const generation: RpcGeneration = { files: new Map(), unions: new Map() };
     rpcGeneration = generation;
     try {
@@ -2822,6 +2861,17 @@ async function collectRpcTypes(schema: RpcSchema): Promise<void> {
 
     for (const [, sectionNode] of sections) {
         for (const [, method] of collectRpcMethods(sectionNode)) {
+            const resolvedParams = resolveRef(method.params as JSONSchema7 | undefined);
+            for (const typeName of collectDirectDiscriminatedUnionTypeNames(
+                resolvedParams,
+                currentDefinitions,
+                PROMOTED_RPC_REQUEST_UNION_TYPES,
+            )) {
+                promotedNestedUnionTypes.add(typeName);
+            }
+            for (const typeName of collectNestedDiscriminatedUnionTypeNames(method.params, currentDefinitions)) {
+                promotedNestedUnionTypes.add(typeName);
+            }
             for (const typeName of collectNestedDiscriminatedUnionTypeNames(method.result, currentDefinitions)) {
                 promotedNestedUnionTypes.add(typeName);
             }
@@ -2928,6 +2978,18 @@ async function collectRpcTypes(schema: RpcSchema): Promise<void> {
                 }
             }
         }
+    }
+
+    // Legacy request additions can introduce referenced types absent from the
+    // preserved params record. Resolve them before standalone generation so the
+    // fluent request never refers to a class that was discovered too late.
+    for (const request of legacyRequests) {
+        generateLegacyRequestClass(
+            request.className,
+            request.schema,
+            request.legacy,
+            request.method.visibility === "internal" ? "internal" : "public"
+        );
     }
 
     // Generate standalone types discovered via $ref resolution
@@ -3173,6 +3235,10 @@ function wrapperResultClassName(method: RpcMethodNode): string {
     // Inline result schema with properties
     let result = originalResult;
     if (result.$ref) result = resolveRef(result) as JSONSchema7;
+    if (result.type === "boolean" || result.type === "integer" || result.type === "number"
+        || (result.type === "string" && !result.enum)) {
+        return schemaTypeToJava(result, false, rpcResultClassName(method.rpcMethod), "value", new Map()).javaType;
+    }
     if (
         result &&
         typeof result === "object" &&
@@ -3227,6 +3293,11 @@ function addWrapperResultImports(resultType: string, allImports: Set<string>, pa
 
     if (resultType === "JsonNode") {
         allImports.add("com.fasterxml.jackson.databind.JsonNode");
+        return;
+    }
+
+    if (resultType === "UUID" || resultType === "OffsetDateTime") {
+        allImports.add(resultType === "UUID" ? "java.util.UUID" : "java.time.OffsetDateTime");
         return;
     }
 

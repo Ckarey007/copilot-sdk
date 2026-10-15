@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import inspect
+import json
 import logging
 import os
 import pathlib
@@ -96,6 +97,7 @@ from .generated.session_events import (
     ExternalToolCompletedData,
     ExternalToolRequestedData,
     McpOauthRequiredData,
+    PermissionPromptRequest,
     PermissionRequest,
     PermissionRequestedData,
     SessionCanvasClosedData,
@@ -254,6 +256,22 @@ def _tool_handlers_for(tools: list[Tool] | None) -> dict[str, ToolHandler]:
     return {
         tool.name: tool.handler for tool in tools or [] if tool.name and tool.handler is not None
     }
+
+
+def _hook_error_text(error: Any) -> Any:
+    """Decode the ``error`` of an errorOccurred or sessionEnd hook input.
+
+    The CLI sends an error object (``{"name", "message", "stack"}`` or
+    ``{"message"}``) where the hook input types declare a string: its message
+    becomes the error, and an object without a string message becomes its
+    compact JSON. Other values pass through.
+    """
+    if isinstance(error, dict):
+        message = error.get("message")
+        if isinstance(message, str):
+            return message
+        return json.dumps(error, separators=(",", ":"), ensure_ascii=False)
+    return error
 
 
 def _consume_task_exception(task: asyncio.Task[Any]) -> None:
@@ -532,6 +550,9 @@ def create_attributed_permission_result(
 class PermissionInvocation(TypedDict, total=False):
     session_id: Required[str]
     managed_settings_enabled: NotRequired[bool]
+    # Only standard prompt kinds can clear a raw managed-approval requirement.
+    # Missing and other prompt kinds must remain conservative.
+    prompt_request: NotRequired[PermissionPromptRequest]
 
 
 _PermissionHandlerFn = Callable[
@@ -994,6 +1015,10 @@ class PreToolUseHookInput(TypedDict):
     toolName: str
     toolArgs: Any
 
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
+
 
 class PreToolUseHookOutput(TypedDict, total=False):
     """Output for pre-tool-use hook"""
@@ -1023,6 +1048,10 @@ class PreMcpToolCallHookInput(TypedDict):
     toolCallId: NotRequired[str]
     _meta: NotRequired[dict[str, Any]]
 
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
+
 
 class PreMcpToolCallHookOutput(TypedDict, total=False):
     """Output for pre-MCP-tool-call hook.
@@ -1051,6 +1080,10 @@ class PostToolUseHookInput(TypedDict):
     toolName: str
     toolArgs: Any
     toolResult: Any
+
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
 
 
 class PostToolUseHookOutput(TypedDict, total=False):
@@ -1082,6 +1115,10 @@ class PostToolUseFailureHookInput(TypedDict):
     toolArgs: Any
     error: str
 
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
+
 
 class PostToolUseFailureHookOutput(TypedDict, total=False):
     """Output for post-tool-use-failure hook.
@@ -1107,13 +1144,24 @@ class UserPromptSubmittedHookInput(TypedDict):
     workingDirectory: str
     prompt: str
 
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
+
 
 class UserPromptSubmittedHookOutput(TypedDict, total=False):
-    """Output for user-prompt-submitted hook"""
+    """Output for user-prompt-submitted hook.
+
+    A ``decision`` of ``"block"`` refuses the prompt: no model turn runs, no
+    user message is recorded, and the session emits an ephemeral
+    ``session.warning`` (``warningType: "policy_blocked"``) carrying ``reason``.
+    """
 
     modifiedPrompt: str
     additionalContext: str
     suppressOutput: bool
+    decision: Literal["block"]
+    reason: str
 
 
 UserPromptSubmittedHandler = Callable[
@@ -1130,6 +1178,10 @@ class UserPromptTransformedHookInput(TypedDict):
     workingDirectory: str
     prompt: str
     transformedPrompt: str
+
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
 
 
 class UserPromptTransformedHookOutput(TypedDict, total=False):
@@ -1152,6 +1204,10 @@ class SessionStartHookInput(TypedDict):
     workingDirectory: str
     source: Literal["startup", "resume", "new"]
     initialPrompt: NotRequired[str]
+
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
 
 
 class SessionStartHookOutput(TypedDict, total=False):
@@ -1177,6 +1233,10 @@ class SessionEndHookInput(TypedDict):
     finalMessage: NotRequired[str]
     error: NotRequired[str]
 
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
+
 
 class SessionEndHookOutput(TypedDict, total=False):
     """Output for session-end hook"""
@@ -1201,6 +1261,10 @@ class ErrorOccurredHookInput(TypedDict):
     error: str
     errorContext: Literal["model_call", "tool_execution", "system", "user_input"]
     recoverable: bool
+
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
 
 
 class ErrorOccurredHookOutput(TypedDict, total=False):
@@ -1228,6 +1292,10 @@ class AgentStopHookInput(TypedDict):
     transcriptPath: NotRequired[str]
     stopHookActive: NotRequired[bool]
 
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
+
 
 class AgentStopHookOutput(TypedDict, total=False):
     """Output for the agent-stop hook."""
@@ -1252,6 +1320,10 @@ class SubagentStartHookInput(TypedDict):
     agentName: str
     agentDisplayName: NotRequired[str]
     agentDescription: NotRequired[str]
+
+    agentId: NotRequired[str]
+    agentType: NotRequired[str]
+    parentAgentId: NotRequired[str]
 
 
 class SubagentStartHookOutput(TypedDict, total=False):
@@ -1280,6 +1352,8 @@ class SubagentStopHookInput(TypedDict):
     agentId: NotRequired[str]
     agentDisplayName: NotRequired[str]
     agentDescription: NotRequired[str]
+
+    parentAgentId: NotRequired[str]
 
 
 class _SubagentStopBlockHookOutput(TypedDict):
@@ -2558,7 +2632,7 @@ class CopilotSession:
 
                 asyncio.ensure_future(
                     self._execute_permission_and_respond(
-                        request_id, permission_request, perm_handler
+                        request_id, permission_request, perm_handler, data.prompt_request
                     )
                 )
 
@@ -2812,17 +2886,18 @@ class CopilotSession:
         request_id: str,
         permission_request: Any,
         handler: _PermissionHandlerFn,
+        prompt_request: PermissionPromptRequest | None = None,
     ) -> None:
         """Execute a permission handler and respond via RPC."""
         try:
             handler_start = time.perf_counter()
-            result = handler(
-                permission_request,
-                {
-                    "session_id": self.session_id,
-                    "managed_settings_enabled": self._managed_settings_enabled,
-                },
-            )
+            invocation: PermissionInvocation = {
+                "session_id": self.session_id,
+                "managed_settings_enabled": self._managed_settings_enabled,
+            }
+            if prompt_request is not None:
+                invocation["prompt_request"] = prompt_request
+            result = handler(permission_request, invocation)
             if inspect.isawaitable(result):
                 result = await result
             log_timing(
@@ -3575,6 +3650,10 @@ class CopilotSession:
             timestamp = transformed.get("timestamp")
             if isinstance(timestamp, (int, float)):
                 transformed["timestamp"] = datetime.fromtimestamp(timestamp / 1000, tz=UTC)
+            # The CLI sends errorOccurred's and sessionEnd's ``error`` as an
+            # error object; the hook input types declare a string.
+            if hook_type in ("errorOccurred", "sessionEnd") and "error" in transformed:
+                transformed["error"] = _hook_error_text(transformed["error"])
             # Each per-hook-type TypedDict is structurally compatible with the
             # normalized dict; cast to ``Any`` so ty doesn't try to narrow the
             # specific TypedDict variant from the runtime ``dict``.

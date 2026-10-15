@@ -35,6 +35,54 @@ func newTestEvent() SessionEvent {
 	return SessionEvent{Data: &SessionIdleData{}}
 }
 
+func TestPermissionHandlerReceivesDerivedPromptContext(t *testing.T) {
+	session := &Session{
+		SessionID:       "session-1",
+		managedSettings: true,
+	}
+	promptRequest := &rpc.PermissionPromptRequestCommands{
+		FullCommandText:         "ls",
+		Intention:               "List files",
+		CommandIdentifiers:      []string{"ls"},
+		CanOfferSessionApproval: false,
+		AssistedApproval: &rpc.PermissionAssistedApproval{
+			Recommendation: rpc.AssistedApprovalRecommendationApprove,
+		},
+	}
+	var observed PermissionHandlerInvocation
+	session.registerPermissionHandlerWithPrompt(func(_ PermissionRequest, invocation PermissionHandlerInvocation) (rpc.PermissionDecision, error) {
+		observed = invocation
+		return &rpc.PermissionDecisionNoResult{}, nil
+	})
+	managedApprovalRequired := true
+
+	session.handleBroadcastEvent(SessionEvent{
+		Data: &PermissionRequestedData{
+			RequestID: "permission-1",
+			PermissionRequest: &rpc.PermissionRequestShell{
+				FullCommandText:         "ls",
+				Intention:               "List files",
+				ManagedApprovalRequired: &managedApprovalRequired,
+			},
+			PromptRequest: promptRequest,
+		},
+	})
+
+	if observed.PromptRequest != promptRequest {
+		t.Fatalf("expected derived prompt context, got %#v", observed.PromptRequest)
+	}
+	if !observed.ManagedSettingsEnabled {
+		t.Fatal("expected managed settings context")
+	}
+}
+
+func TestPermissionInvocationPreservesPositionalFields(t *testing.T) {
+	invocation := PermissionInvocation{"session-1", true}
+	if invocation.SessionID != "session-1" || !invocation.ManagedSettingsEnabled {
+		t.Fatalf("unexpected legacy invocation: %#v", invocation)
+	}
+}
+
 func TestExternalToolCompletedCancelsBlockedHandler(t *testing.T) {
 	session, cleanup := newTestSession()
 	defer cleanup()
@@ -1983,6 +2031,116 @@ func TestSession_PostToolUseFailureHook(t *testing.T) {
 			t.Errorf("expected nil output, got %v", output)
 		}
 	})
+}
+
+func TestSession_UserPromptSubmittedHookBlocks(t *testing.T) {
+	cases := []struct {
+		name   string
+		output *UserPromptSubmittedHookOutput
+		want   string
+	}{
+		{
+			"block with a reason",
+			&UserPromptSubmittedHookOutput{Decision: "block", Reason: "Prompts may not mention launch codes."},
+			`{"decision":"block","reason":"Prompts may not mention launch codes."}`,
+		},
+		{"no decision", &UserPromptSubmittedHookOutput{AdditionalContext: "Be brief."}, `{"additionalContext":"Be brief."}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			session, cleanup := newTestSession()
+			defer cleanup()
+			session.registerHooks(&SessionHooks{
+				OnUserPromptSubmitted: func(UserPromptSubmittedHookInput, HookInvocation) (*UserPromptSubmittedHookOutput, error) {
+					return tc.output, nil
+				},
+			})
+
+			raw := json.RawMessage(`{"sessionId": "sess-1", "timestamp": 1700000000, "cwd": "/work", "prompt": "Hi"}`)
+			output, err := session.handleHooksInvoke("userPromptSubmitted", raw)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			encoded, err := json.Marshal(output)
+			if err != nil {
+				t.Fatalf("marshal output: %v", err)
+			}
+			if string(encoded) != tc.want {
+				t.Errorf("expected output %s, got %s", tc.want, encoded)
+			}
+		})
+	}
+}
+
+func TestSession_ErrorHooksDecodeCliErrorObject(t *testing.T) {
+	cases := []struct {
+		name  string
+		error string
+		want  string
+	}{
+		{"error object", `"error": {"name": "Error", "message": "model timeout", "stack": "Error: model timeout"},`, "model timeout"},
+		{"string", `"error": "boom",`, "boom"},
+		{"null", `"error": null,`, ""},
+		{"absent", ``, ""},
+		{"object without a string message", `"error": {"code": 7},`, `{"code":7}`},
+	}
+	for _, tc := range cases {
+		t.Run("errorOccurred/"+tc.name, func(t *testing.T) {
+			session, cleanup := newTestSession()
+			defer cleanup()
+
+			var captured *ErrorOccurredHookInput
+			session.registerHooks(&SessionHooks{
+				OnErrorOccurred: func(input ErrorOccurredHookInput, _ HookInvocation) (*ErrorOccurredHookOutput, error) {
+					captured = &input
+					return nil, nil
+				},
+			})
+
+			raw := json.RawMessage(`{"sessionId": "sess-1", "timestamp": 1700000000, "cwd": "/work", ` + tc.error +
+				` "errorContext": "model_call", "recoverable": true}`)
+			if _, err := session.handleHooksInvoke("errorOccurred", raw); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if captured == nil {
+				t.Fatal("OnErrorOccurred did not run")
+			}
+			if captured.Error != tc.want {
+				t.Errorf("expected error %q, got %q", tc.want, captured.Error)
+			}
+			if captured.ErrorContext != "model_call" || !captured.Recoverable {
+				t.Errorf("unexpected input: %+v", *captured)
+			}
+		})
+
+		t.Run("sessionEnd/"+tc.name, func(t *testing.T) {
+			session, cleanup := newTestSession()
+			defer cleanup()
+
+			var captured *SessionEndHookInput
+			session.registerHooks(&SessionHooks{
+				OnSessionEnd: func(input SessionEndHookInput, _ HookInvocation) (*SessionEndHookOutput, error) {
+					captured = &input
+					return nil, nil
+				},
+			})
+
+			raw := json.RawMessage(`{"sessionId": "sess-1", "timestamp": 1700000000, "cwd": "/work", ` + tc.error +
+				` "reason": "error"}`)
+			if _, err := session.handleHooksInvoke("sessionEnd", raw); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if captured == nil {
+				t.Fatal("OnSessionEnd did not run")
+			}
+			if captured.Error != tc.want {
+				t.Errorf("expected error %q, got %q", tc.want, captured.Error)
+			}
+			if captured.Reason != "error" {
+				t.Errorf("expected reason 'error', got %q", captured.Reason)
+			}
+		})
+	}
 }
 
 func TestSession_AgentStopHook(t *testing.T) {

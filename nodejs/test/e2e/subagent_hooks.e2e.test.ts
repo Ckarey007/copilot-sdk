@@ -2,7 +2,7 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { writeFile } from "fs/promises";
+import { copyFile, mkdir, readFile, readdir, writeFile } from "fs/promises";
 import { randomUUID } from "node:crypto";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
@@ -98,7 +98,11 @@ describe("Subagent hooks", async () => {
     // For snapshot recording (non-CI), use RECORD_GH_TOKEN if available
     const recordToken = !isCI ? process.env.RECORD_GH_TOKEN : undefined;
     const requestHandler = new RecordingRequestHandler();
-    const { copilotClient: client, workDir } = await createSdkTestContext({
+    const {
+        copilotClient: client,
+        workDir,
+        env,
+    } = await createSdkTestContext({
         copilotClientOptions: {
             ...(recordToken ? { gitHubToken: recordToken } : {}),
             requestHandler,
@@ -109,7 +113,12 @@ describe("Subagent hooks", async () => {
     it(
         "should apply subagent lifecycle hook outputs",
         async () => {
-            const hookLog: { kind: "pre" | "post"; toolName: string; sessionId: string }[] = [];
+            const hookLog: {
+                kind: "pre" | "post";
+                toolName: string;
+                sessionId: string;
+                input: PreToolUseHookInput | PostToolUseHookInput;
+            }[] = [];
             const startInputs: { input: SubagentStartHookInput; invocationSessionId: string }[] =
                 [];
             const stopInputs: { input: SubagentStopHookInput; invocationSessionId: string }[] = [];
@@ -118,6 +127,43 @@ describe("Subagent hooks", async () => {
             const finalText =
                 "The explore agent successfully read the file. The contents of **subagent-test.txt** are:\n\n```\nHello from subagent test!\n```";
             const parentSessionId = randomUUID();
+            const capturesDir = join(workDir, "hook-inputs");
+            const hooksDir = join(workDir, ".github", "hooks");
+            await mkdir(capturesDir);
+            await mkdir(hooksDir, { recursive: true });
+            await mkdir(env.COPILOT_HOME, { recursive: true });
+            await writeFile(
+                join(env.COPILOT_HOME, "config.json"),
+                JSON.stringify({ trustedFolders: [workDir] })
+            );
+            await copyFile(
+                new URL("./fixtures/hook-identity-recorder.cjs", import.meta.url),
+                join(workDir, "hook-recorder.cjs")
+            );
+            const repositoryHooks: Record<string, object[]> = {};
+            for (const [native, claude] of [
+                ["preToolUse", "PreToolUse"],
+                ["postToolUse", "PostToolUse"],
+                ["subagentStart", "SubagentStart"],
+                ["subagentStop", "SubagentStop"],
+            ]) {
+                for (const [event, dialect] of [
+                    [native, "native"],
+                    [claude, "claude"],
+                ]) {
+                    repositoryHooks[event] = [
+                        {
+                            type: "command",
+                            exec: process.execPath,
+                            args: ["hook-recorder.cjs", `${native}.${dialect}`, capturesDir],
+                        },
+                    ];
+                }
+            }
+            await writeFile(
+                join(hooksDir, "identity.json"),
+                JSON.stringify({ version: 1, hooks: repositoryHooks })
+            );
             let releaseView!: () => void;
             const parentWaiting = new Promise<void>((resolve) => {
                 releaseView = resolve;
@@ -132,6 +178,7 @@ describe("Subagent hooks", async () => {
                             kind: "pre",
                             toolName: input.toolName,
                             sessionId: input.sessionId,
+                            input,
                         });
                         return { permissionDecision: "allow" } as PreToolUseHookOutput;
                     },
@@ -140,6 +187,7 @@ describe("Subagent hooks", async () => {
                             kind: "post",
                             toolName: input.toolName,
                             sessionId: input.sessionId,
+                            input,
                         });
                         // A fast child can inject its result before the parent ever asks for the fixture's waiting reply.
                         if (input.toolName === "view" && input.sessionId !== parentSessionId)
@@ -238,6 +286,23 @@ describe("Subagent hooks", async () => {
             expect(stop!.input.agentDescription).toBe(start!.input.agentDescription);
             expect(stop!.input.agentId).toBeTruthy();
             expect(stop!.input.agentType).toBe("explore");
+            expect(start!.input).toMatchObject({
+                agentId: stop!.input.agentId,
+                agentType: "explore",
+                parentAgentId: session.sessionId,
+            });
+            for (const { input } of [...viewPre, ...viewPost]) {
+                expect(input).toMatchObject({
+                    agentId: stop!.input.agentId,
+                    agentType: "explore",
+                    parentAgentId: session.sessionId,
+                });
+            }
+            for (const { input } of hookLog.filter((hook) => hook.sessionId === parentSessionId)) {
+                expect(input).not.toHaveProperty("agentId");
+                expect(input).not.toHaveProperty("agentType");
+                expect(input).not.toHaveProperty("parentAgentId");
+            }
             expect(stop!.input.stopReason).toBe("end_turn");
             expect(stop!.input.response).toContain("Hello from subagent test!");
 
@@ -252,6 +317,103 @@ describe("Subagent hooks", async () => {
                     timeout: SUBAGENT_TEST_TIMEOUT_MS,
                 })
                 .toBeGreaterThan(0);
+            const capturedInputs = await Promise.all(
+                (await readdir(capturesDir)).map(async (name) => {
+                    return JSON.parse(await readFile(join(capturesDir, name), "utf8")) as {
+                        hook: string;
+                        input: Record<string, unknown>;
+                    };
+                })
+            );
+            for (const dialect of ["native", "claude"]) {
+                const [idKey, typeKey, parentKey, toolKey, childTool, parentTool] =
+                    dialect === "native"
+                        ? ["agentId", "agentType", "parentAgentId", "toolName", "view", "task"]
+                        : [
+                              "agent_id",
+                              "agent_type",
+                              "parent_agent_id",
+                              "tool_name",
+                              "Read",
+                              "Agent",
+                          ];
+                for (const event of ["preToolUse", "postToolUse"]) {
+                    const inputs = capturedInputs.filter(
+                        (record) => record.hook === `${event}.${dialect}`
+                    );
+                    const childInputs = inputs.filter(
+                        (record) => record.input[toolKey] === childTool
+                    );
+                    const parentInputs = inputs.filter(
+                        (record) => record.input[toolKey] === parentTool
+                    );
+                    expect(
+                        childInputs,
+                        `${event}/${dialect} must run in the child`
+                    ).not.toHaveLength(0);
+                    expect(
+                        parentInputs,
+                        `${event}/${dialect} must run in the parent`
+                    ).not.toHaveLength(0);
+                    for (const { input } of childInputs) {
+                        expect(input).toMatchObject({
+                            [idKey]: stop!.input.agentId,
+                            [typeKey]: "explore",
+                            [parentKey]: parentSessionId,
+                        });
+                    }
+                    for (const { input } of parentInputs) {
+                        expect(input).not.toHaveProperty(idKey);
+                        expect(input).not.toHaveProperty(typeKey);
+                        expect(input).not.toHaveProperty(parentKey);
+                    }
+                }
+                for (const event of ["subagentStart", "subagentStop"]) {
+                    const inputs = capturedInputs.filter(
+                        (record) => record.hook === `${event}.${dialect}`
+                    );
+                    expect(inputs, `${event}/${dialect} must describe the one child`).toHaveLength(
+                        1
+                    );
+                    expect(inputs[0].input).toMatchObject({
+                        [idKey]: stop!.input.agentId,
+                        [typeKey]: "explore",
+                        [parentKey]: parentSessionId,
+                    });
+                    expect(inputs[0].input.sessionId ?? inputs[0].input.session_id).toBe(
+                        parentSessionId
+                    );
+                }
+            }
+            const transcript = await session.getEvents();
+            const hookStarts = transcript.filter(
+                (event) =>
+                    event.type === "hook.start" &&
+                    ["preToolUse", "postToolUse", "subagentStart", "subagentStop"].includes(
+                        event.data.hookType
+                    )
+            );
+            expect(
+                hookStarts.some(
+                    (event) =>
+                        event.agentId === stop!.input.agentId &&
+                        event.data.hookType === "preToolUse"
+                ),
+                "the transcript must attribute child hooks to the same stable identity"
+            ).toBe(true);
+            for (const start of hookStarts) {
+                const end = transcript.find(
+                    (event) =>
+                        event.type === "hook.end" &&
+                        event.data.hookInvocationId === start.data.hookInvocationId
+                );
+                expect(
+                    end,
+                    `hook ${start.data.hookInvocationId} must have completed`
+                ).toMatchObject({
+                    data: { success: true },
+                });
+            }
             await session.disconnect();
         },
         SUBAGENT_TEST_TIMEOUT_MS

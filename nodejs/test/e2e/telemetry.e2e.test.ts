@@ -217,7 +217,9 @@ describe("Telemetry export", async () => {
             const session = await subagentClient.createSession({ onPermissionRequest: approveAll });
             sessionId = session.sessionId;
             try {
-                expect((await session.rpc.gitHubAuth.getStatus()).isAuthenticated).toBe(true);
+                const auth = await session.rpc.gitHubAuth.getStatus();
+                expect(auth.isAuthenticated).toBe(true);
+                expect(auth.login).toBe("e2e-test-user");
                 const response = await session.sendAndWait({ prompt }, 90_000);
                 expect(response?.data.content ?? "").toContain("SUBAGENT_OTEL_DONE");
             } finally {

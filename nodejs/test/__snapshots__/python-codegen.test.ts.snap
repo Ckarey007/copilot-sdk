@@ -1,0 +1,619 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Python shared schema baseline > renders event payloads and discriminator-driven decoding 1`] = `
+""""
+AUTO-GENERATED FILE - DO NOT EDIT
+Generated from: session-events.schema.json
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from typing import Any, TypeVar, cast
+from uuid import UUID
+
+import dateutil.parser
+
+T = TypeVar("T")
+EnumT = TypeVar("EnumT", bound=Enum)
+
+
+def from_str(x: Any) -> str:
+    assert isinstance(x, str)
+    return x
+
+
+def from_int(x: Any) -> int:
+    assert isinstance(x, (int, float)) and not isinstance(x, bool)
+    assert not isinstance(x, float) or x.is_integer()
+    return int(x)
+
+
+def to_int(x: Any) -> int:
+    assert isinstance(x, int) and not isinstance(x, bool)
+    return x
+
+
+def from_float(x: Any) -> float:
+    assert isinstance(x, (float, int)) and not isinstance(x, bool)
+    return float(x)
+
+
+def to_float(x: Any) -> float:
+    assert isinstance(x, (float, int)) and not isinstance(x, bool)
+    return float(x)
+
+
+def from_bool(x: Any) -> bool:
+    assert isinstance(x, bool)
+    return x
+
+
+def from_none(x: Any) -> Any:
+    assert x is None
+    return x
+
+
+def from_union(fs: list[Callable[[Any], T]], x: Any) -> T:
+    for f in fs:
+        try:
+            return f(x)
+        except Exception:
+            pass
+    assert False
+
+
+def from_list(f: Callable[[Any], T], x: Any) -> list[T]:
+    assert isinstance(x, list)
+    return [f(item) for item in x]
+
+
+def from_dict(f: Callable[[Any], T], x: Any) -> dict[str, T]:
+    assert isinstance(x, dict)
+    return {key: f(value) for key, value in x.items()}
+
+
+def from_datetime(x: Any) -> datetime:
+    return dateutil.parser.parse(from_str(x))
+
+
+def to_datetime(x: datetime) -> str:
+    return x.isoformat()
+
+
+def from_uuid(x: Any) -> UUID:
+    return UUID(from_str(x))
+
+
+def to_uuid(x: UUID) -> str:
+    return str(x)
+
+
+def parse_enum(c: type[EnumT], x: Any) -> EnumT:
+    assert isinstance(x, str)
+    return c(x)
+
+
+def to_class(c: type[T], x: Any) -> dict:
+    assert isinstance(x, c)
+    return cast(Any, x).to_dict()
+
+
+def to_enum(c: type[EnumT], x: Any) -> str:
+    assert isinstance(x, c)
+    return cast(str, x.value)
+
+
+class SessionEventType(Enum):
+    SAMPLE_UPDATED = "sample.updated"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "SessionEventType":
+        return cls.UNKNOWN
+
+
+@dataclass
+class RawSessionEventData:
+    raw: Any
+
+    @staticmethod
+    def from_dict(obj: Any) -> "RawSessionEventData":
+        return RawSessionEventData(obj)
+
+    def to_dict(self) -> Any:
+        return self.raw
+
+
+def _compat_to_python_key(name: str) -> str:
+    normalized = name.replace(".", "_")
+    result: list[str] = []
+    for index, char in enumerate(normalized):
+        if char.isupper() and index > 0 and (not normalized[index - 1].isupper() or (index + 1 < len(normalized) and normalized[index + 1].islower())):
+            result.append("_")
+        result.append(char.lower())
+    return "".join(result)
+
+
+def _compat_to_json_key(name: str) -> str:
+    parts = name.split("_")
+    if not parts:
+        return name
+    return parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
+
+
+def _compat_to_json_value(value: Any) -> Any:
+    if hasattr(value, "to_dict"):
+        return cast(Any, value).to_dict()
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, list):
+        return [_compat_to_json_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _compat_to_json_value(item) for key, item in value.items()}
+    return value
+
+
+def _compat_from_json_value(value: Any) -> Any:
+    return value
+
+
+class Data:
+    """Backward-compatible shim for manually constructed event payloads."""
+
+    def __init__(self, **kwargs: Any):
+        self._values = {key: _compat_from_json_value(value) for key, value in kwargs.items()}
+        self._json_keys: dict[str, str] = {}
+        self._json_values: dict[str, Any] | None = None
+        for key, value in self._values.items():
+            setattr(self, key, value)
+
+    @staticmethod
+    def from_dict(obj: Any) -> "Data":
+        assert isinstance(obj, dict)
+        data = Data()
+        data._values = {}
+        data._json_keys = {}
+        data._json_values = {}
+        for key, value in obj.items():
+            py_key = _compat_to_python_key(key)
+            json_value = _compat_from_json_value(value)
+            data._values[py_key] = json_value
+            data._json_keys[py_key] = key
+            data._json_values[key] = json_value
+            setattr(data, py_key, data._values[py_key])
+        return data
+
+    def to_dict(self) -> dict:
+        if self._json_values is not None:
+            return {key: _compat_to_json_value(value) for key, value in self._json_values.items() if value is not None}
+        return {(self._json_keys.get(key) or _compat_to_json_key(key)): _compat_to_json_value(value) for key, value in self._values.items() if value is not None}
+
+
+@dataclass
+class SampleUpdatedData:
+    active: bool
+    message: str
+    sequence: int
+    tags: list[str]
+    note: str | None = None
+
+    @staticmethod
+    def from_dict(obj: Any) -> "SampleUpdatedData":
+        assert isinstance(obj, dict)
+        active = from_bool(obj.get("active"))
+        message = from_str(obj.get("message"))
+        sequence = from_int(obj.get("sequence"))
+        tags = from_list(from_str, obj.get("tags"))
+        note = from_union([from_none, from_str], obj.get("note"))
+        return SampleUpdatedData(
+            active=active,
+            message=message,
+            sequence=sequence,
+            tags=tags,
+            note=note,
+        )
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["active"] = from_bool(self.active)
+        result["message"] = from_str(self.message)
+        result["sequence"] = to_int(self.sequence)
+        result["tags"] = from_list(from_str, self.tags)
+        if self.note is not None:
+            result["note"] = from_union([from_none, from_str], self.note)
+        return result
+
+
+SessionEventData = SampleUpdatedData | RawSessionEventData | Data
+
+
+@dataclass
+class SessionEvent:
+    data: SessionEventData
+    id: UUID
+    timestamp: datetime
+    type: SessionEventType
+    parent_id: str | None = None
+    raw_type: str | None = None
+
+    @staticmethod
+    def from_dict(obj: Any) -> "SessionEvent":
+        assert isinstance(obj, dict)
+        raw_type = from_str(obj.get("type"))
+        event_type = SessionEventType(raw_type)
+        id = from_uuid(obj.get("id"))
+        timestamp = from_datetime(obj.get("timestamp"))
+        parent_id = from_union([from_none, from_str], obj.get("parentId"))
+        data_obj = obj.get("data")
+        match event_type:
+            case SessionEventType.SAMPLE_UPDATED: data = SampleUpdatedData.from_dict(data_obj)
+            case _: data = RawSessionEventData.from_dict(data_obj)
+        return SessionEvent(
+            data=data,
+            id=id,
+            timestamp=timestamp,
+            type=event_type,
+            parent_id=parent_id,
+            raw_type=raw_type if event_type == SessionEventType.UNKNOWN else None,
+        )
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["data"] = self.data.to_dict()
+        result["id"] = to_uuid(self.id)
+        result["timestamp"] = to_datetime(self.timestamp)
+        result["type"] = self.raw_type if self.type == SessionEventType.UNKNOWN and self.raw_type is not None else to_enum(SessionEventType, self.type)
+        if self.parent_id is not None:
+            result["parentId"] = from_union([from_none, from_str], self.parent_id)
+        return result
+
+
+def session_event_from_dict(s: Any) -> SessionEvent:
+    return SessionEvent.from_dict(s)
+
+
+def session_event_to_dict(x: SessionEvent) -> Any:
+    return x.to_dict()
+
+"
+`;
+
+exports[`Python shared schema baseline > renders types, server/session calls, and nested namespaces through Quicktype 1`] = `
+""""
+AUTO-GENERATED FILE - DO NOT EDIT
+Generated from: api.schema.json
+"""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+
+
+if TYPE_CHECKING:
+    from .._jsonrpc import JsonRpcClient
+
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Any, Protocol, TypeVar, cast
+from uuid import UUID
+
+import dateutil.parser
+
+T = TypeVar("T")
+EnumT = TypeVar("EnumT", bound=Enum)
+UNSET_SENTINEL = object()
+
+
+def from_str(x: Any) -> str:
+    assert isinstance(x, str)
+    return x
+
+def from_list(f: Callable[[Any], T], x: Any) -> list[T]:
+    assert isinstance(x, list)
+    return [f(y) for y in x]
+
+def from_none(x: Any) -> Any:
+    assert x is None
+    return x
+
+def from_union(fs, x):
+    for f in fs:
+        try:
+            return f(x)
+        except Exception:
+            pass
+    assert False
+
+def from_bool(x: Any) -> bool:
+    assert isinstance(x, bool)
+    return x
+
+def from_int(x: Any) -> int:
+    assert isinstance(x, (int, float)) and not isinstance(x, bool)
+    assert not isinstance(x, float) or x.is_integer()
+    return int(x)
+
+def from_dict(f: Callable[[Any], T], x: Any) -> dict[str, T]:
+    assert isinstance(x, dict)
+    return { k: f(v) for (k, v) in x.items() }
+
+def from_float(x: Any) -> float:
+    assert isinstance(x, (float, int)) and not isinstance(x, bool)
+    return float(x)
+
+def to_float(x: Any) -> float:
+    assert isinstance(x, (int, float))
+    return x
+
+def to_class(c: type[T], x: Any) -> dict:
+    assert isinstance(x, c)
+    return cast(Any, x).to_dict()
+
+@dataclass
+class MCPServerConfigHTTP:
+    url: str
+    oauth_scopes: list[str] | None = field(default=None, kw_only=True)
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'MCPServerConfigHTTP':
+        assert isinstance(obj, dict)
+        url = from_str(obj.get("url"))
+        oauth_scopes = from_union([lambda x: from_list(from_str, x), from_none], obj.get("oauthScopes"))
+        return MCPServerConfigHTTP(url, oauth_scopes=oauth_scopes)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["url"] = from_str(self.url)
+        if self.oauth_scopes is not None:
+            result["oauthScopes"] = from_union([lambda x: from_list(from_str, x), from_none], self.oauth_scopes)
+        return result
+
+@dataclass
+class SampleGetRequest:
+    id: str
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'SampleGetRequest':
+        assert isinstance(obj, dict)
+        id = from_str(obj.get("id"))
+        return SampleGetRequest(id)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["id"] = from_str(self.id)
+        return result
+
+@dataclass
+class SampleItem:
+    """An item returned by the sample service."""
+
+    active: bool
+    count: int
+    id: str
+    labels: dict[str, str]
+    score: float
+    tags: list[str]
+    display_name: str | None = None
+    note: str | None = None
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'SampleItem':
+        assert isinstance(obj, dict)
+        active = from_bool(obj.get("active"))
+        count = from_int(obj.get("count"))
+        id = from_str(obj.get("id"))
+        labels = from_dict(from_str, obj.get("labels"))
+        score = from_float(obj.get("score"))
+        tags = from_list(from_str, obj.get("tags"))
+        display_name = from_union([from_str, from_none], obj.get("displayName"))
+        note = from_union([from_none, from_str], obj.get("note"))
+        return SampleItem(active, count, id, labels, score, tags, display_name, note)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["active"] = from_bool(self.active)
+        result["count"] = from_int(self.count)
+        result["id"] = from_str(self.id)
+        result["labels"] = from_dict(from_str, self.labels)
+        result["score"] = to_float(self.score)
+        result["tags"] = from_list(from_str, self.tags)
+        if self.display_name is not None:
+            result["displayName"] = from_union([from_str, from_none], self.display_name)
+        if self.note is not None:
+            result["note"] = from_union([from_none, from_str], self.note)
+        return result
+
+@dataclass
+class SessionFSSetProviderCapabilities:
+    sqlite: bool | None = None
+
+    binary: bool | None = field(default=None, kw_only=True)
+    @staticmethod
+    def from_dict(obj: Any) -> 'SessionFSSetProviderCapabilities':
+        assert isinstance(obj, dict)
+        binary = from_union([from_bool, from_none], obj.get("binary"))
+        sqlite = from_union([from_bool, from_none], obj.get("sqlite"))
+        return SessionFSSetProviderCapabilities(sqlite, binary=binary)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        if self.binary is not None:
+            result["binary"] = from_union([from_bool, from_none], self.binary)
+        if self.sqlite is not None:
+            result["sqlite"] = from_union([from_bool, from_none], self.sqlite)
+        return result
+
+@dataclass
+class SessionSampleGetRequest:
+    id: str
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'SessionSampleGetRequest':
+        assert isinstance(obj, dict)
+        id = from_str(obj.get("id"))
+        return SessionSampleGetRequest(id)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["id"] = from_str(self.id)
+        return result
+
+@dataclass
+class SampleListResult:
+    items: list[SampleItem]
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'SampleListResult':
+        assert isinstance(obj, dict)
+        items = from_list(SampleItem.from_dict, obj.get("items"))
+        return SampleListResult(items)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["items"] = from_list(lambda x: to_class(SampleItem, x), self.items)
+        return result
+
+@dataclass
+class RPC:
+    mcp_server_config_http: MCPServerConfigHTTP
+    sample_get_request: SampleGetRequest
+    sample_item: SampleItem
+    sample_list_result: SampleListResult
+    session_fs_set_provider_capabilities: SessionFSSetProviderCapabilities
+    session_sample_get_request: SessionSampleGetRequest
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'RPC':
+        assert isinstance(obj, dict)
+        mcp_server_config_http = MCPServerConfigHTTP.from_dict(obj.get("MCPServerConfigHTTP"))
+        sample_get_request = SampleGetRequest.from_dict(obj.get("SampleGetRequest"))
+        sample_item = SampleItem.from_dict(obj.get("SampleItem"))
+        sample_list_result = SampleListResult.from_dict(obj.get("SampleListResult"))
+        session_fs_set_provider_capabilities = SessionFSSetProviderCapabilities.from_dict(obj.get("SessionFsSetProviderCapabilities"))
+        session_sample_get_request = SessionSampleGetRequest.from_dict(obj.get("SessionSampleGetRequest"))
+        return RPC(mcp_server_config_http, sample_get_request, sample_item, sample_list_result, session_fs_set_provider_capabilities, session_sample_get_request)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["MCPServerConfigHTTP"] = to_class(MCPServerConfigHTTP, self.mcp_server_config_http)
+        result["SampleGetRequest"] = to_class(SampleGetRequest, self.sample_get_request)
+        result["SampleItem"] = to_class(SampleItem, self.sample_item)
+        result["SampleListResult"] = to_class(SampleListResult, self.sample_list_result)
+        result["SessionFsSetProviderCapabilities"] = to_class(SessionFSSetProviderCapabilities, self.session_fs_set_provider_capabilities)
+        result["SessionSampleGetRequest"] = to_class(SessionSampleGetRequest, self.session_sample_get_request)
+        return result
+
+def rpc_from_dict(s: Any) -> RPC:
+    return RPC.from_dict(s)
+
+def rpc_to_dict(x: RPC) -> Any:
+    return to_class(RPC, x)
+
+
+def _timeout_kwargs(timeout: float | None) -> dict:
+    """Build keyword arguments for optional timeout forwarding."""
+    if timeout is not None:
+        return {"timeout": timeout}
+    return {}
+
+def _patch_model_capabilities(data: dict) -> dict:
+    """Ensure model capabilities have required fields.
+
+    TODO: Remove once the runtime schema correctly marks these fields as optional.
+    Some models (e.g. embedding models) may omit 'limits' or 'supports' in their
+    capabilities, or omit 'max_context_window_tokens' within limits. The generated
+    deserializer requires these fields, so we supply defaults here.
+    """
+    for model in data.get("models", []):
+        caps = model.get("capabilities")
+        if caps is None:
+            model["capabilities"] = {"supports": {}, "limits": {"max_context_window_tokens": 0}}
+            continue
+        if "supports" not in caps:
+            caps["supports"] = {}
+        if "limits" not in caps:
+            caps["limits"] = {"max_context_window_tokens": 0}
+        elif "max_context_window_tokens" not in caps["limits"]:
+            caps["limits"]["max_context_window_tokens"] = 0
+    return data
+
+
+class ServerSampleNestedApi:
+    def __init__(self, client: "JsonRpcClient"):
+        self._client = client
+
+    async def list(self, *, timeout: float | None = None) -> SampleListResult:
+        "Calls sample.nested.list."
+        return SampleListResult.from_dict(await self._client.request("sample.nested.list", {}, **_timeout_kwargs(timeout)))
+
+
+class ServerSampleApi:
+    def __init__(self, client: "JsonRpcClient"):
+        self._client = client
+        self.nested = ServerSampleNestedApi(client)
+
+    async def get(self, params: SampleGetRequest, *, timeout: float | None = None) -> SampleItem:
+        "Look up an item.\\n\\nReturns:\\n    An item returned by the sample service."
+        params_dict = {k: v for k, v in params.to_dict().items() if v is not None}
+        return SampleItem.from_dict(await self._client.request("sample.get", params_dict, **_timeout_kwargs(timeout)))
+
+    async def ping(self, *, timeout: float | None = None) -> None:
+        "Calls sample.ping."
+        await self._client.request("sample.ping", {}, **_timeout_kwargs(timeout))
+
+
+class ServerRpc:
+    """Typed server-scoped RPC methods."""
+    def __init__(self, client: "JsonRpcClient"):
+        self._client = client
+        self.sample = ServerSampleApi(client)
+
+
+class SampleApi:
+    def __init__(self, client: "JsonRpcClient", session_id: str):
+        self._client = client
+        self._session_id = session_id
+
+    async def get(self, params: SessionSampleGetRequest, *, timeout: float | None = None) -> SampleItem:
+        "Calls session.sample.get.\\n\\nReturns:\\n    An item returned by the sample service."
+        params_dict: dict[str, Any] = {k: v for k, v in params.to_dict().items() if v is not None}
+        params_dict["sessionId"] = self._session_id
+        return SampleItem.from_dict(await self._client.request("session.sample.get", params_dict, **_timeout_kwargs(timeout)))
+
+
+class SessionRpc:
+    """Typed session-scoped RPC methods."""
+    def __init__(self, client: "JsonRpcClient", session_id: str):
+        self._client = client
+        self._session_id = session_id
+        self.sample = SampleApi(client, session_id)
+
+__all__ = [
+    "MCPServerConfigHTTP",
+    "RPC",
+    "SampleApi",
+    "SampleGetRequest",
+    "SampleItem",
+    "SampleListResult",
+    "ServerRpc",
+    "ServerSampleApi",
+    "ServerSampleNestedApi",
+    "SessionFSSetProviderCapabilities",
+    "SessionRpc",
+    "SessionSampleGetRequest",
+    "UNSET_SENTINEL",
+    "rpc_from_dict",
+    "rpc_to_dict",
+]
+"
+`;

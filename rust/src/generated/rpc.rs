@@ -64,6 +64,13 @@ impl<'a> ClientRpc<'a> {
         }
     }
 
+    /// `contentExclusion.*` sub-namespace.
+    pub fn content_exclusion(&self) -> ClientRpcContentExclusion<'a> {
+        ClientRpcContentExclusion {
+            client: self.client,
+        }
+    }
+
     /// `environments.*` sub-namespace.
     pub fn environments(&self) -> ClientRpcEnvironments<'a> {
         ClientRpcEnvironments {
@@ -158,6 +165,20 @@ impl<'a> ClientRpc<'a> {
     /// `models.*` sub-namespace.
     pub fn models(&self) -> ClientRpcModels<'a> {
         ClientRpcModels {
+            client: self.client,
+        }
+    }
+
+    /// `permissions.*` sub-namespace.
+    pub fn permissions(&self) -> ClientRpcPermissions<'a> {
+        ClientRpcPermissions {
+            client: self.client,
+        }
+    }
+
+    /// `persistence.*` sub-namespace.
+    pub fn persistence(&self) -> ClientRpcPersistence<'a> {
+        ClientRpcPersistence {
             client: self.client,
         }
     }
@@ -1020,6 +1041,40 @@ impl<'a> ClientRpcCatalog<'a> {
             .await?;
         Ok(serde_json::from_value(_value)?)
     }
+
+    /// Plans installing the resource an Agent Finder materialisation reference pins, without writing files and whatever its kind. The runtime retrieves the descriptor once, only from its fixed Agent Finder authority, verifies it, and plans by its resolution policy: a Skill (`agent-skill@1.0.0`) when the caller requires skill-confirmed-installation, an Agent Plugin (`plugin@1.0.0`) when it requires agent-plugin-confirmed-installation. Any other kind is refused as unsupported-resource. The outcome names the kind; apply a Skill plan with skills.applyInstall and an Agent Plugin plan with plugins.applyInstall. The review shows only verified data.
+    ///
+    /// Wire method: `catalog.planInstallFromReference`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Side-effect-free planning of whatever resource a materialisation reference pins, rather than a search candidate.
+    ///
+    /// # Returns
+    ///
+    /// Planning result for a materialisation reference with the honoured contract, or a typed refusal.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn plan_install_from_reference(
+        &self,
+        params: CatalogPlanInstallFromReferenceRequest,
+    ) -> Result<CatalogReferenceInstallationResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::CATALOG_PLANINSTALLFROMREFERENCE,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
 }
 
 /// `commands.*` RPCs.
@@ -1167,6 +1222,48 @@ impl<'a> ClientRpcConnectors<'a> {
         let _value = self
             .client
             .call(rpc_methods::CONNECTORS_REFRESH, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+}
+
+/// `contentExclusion.*` RPCs.
+#[derive(Clone, Copy)]
+pub struct ClientRpcContentExclusion<'a> {
+    pub(crate) client: &'a Client,
+}
+
+impl<'a> ClientRpcContentExclusion<'a> {
+    /// Validates candidate content-exclusion policies and returns them normalized, without starting a session. This runs the same parser the runtime's own policy enforcement uses, so a host cannot accept a policy set the runtime would later reject, nor reject one it would have honored. Call it when policies arrive from outside the runtime — a command-line flag, a configuration file, a host's own settings — and must be checked before a session exists to apply them to. A malformed document fails with a message prefixed `Invalid JSON: `; a well-formed document that violates the policy schema fails with the offending field paths.
+    ///
+    /// Wire method: `contentExclusion.validatePolicies`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Candidate content-exclusion policies to validate, as the raw JSON text a host received. The text is supplied unparsed so that a syntax error and a schema violation are both reported by the runtime's own validator rather than by the caller's JSON parser.
+    ///
+    /// # Returns
+    ///
+    /// The accepted policies, parsed and normalized. A rejected input is reported as an error rather than in this result.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn validate_policies(
+        &self,
+        params: ContentExclusionValidatePoliciesRequest,
+    ) -> Result<ContentExclusionValidatePoliciesResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::CONTENTEXCLUSION_VALIDATEPOLICIES,
+                Some(wire_params),
+            )
             .await?;
         Ok(serde_json::from_value(_value)?)
     }
@@ -1360,6 +1457,40 @@ pub struct ClientRpcFeatureFlags<'a> {
 }
 
 impl<'a> ClientRpcFeatureFlags<'a> {
+    /// Resolves named gates against this installation's cached online-experiment assignment, for the account the runtime is already authenticated as. Unlike `featureFlags.resolve`, which layers static availability with the populations supplied, this reads the experiment assignment the runtime cached for its own current authentication, so a launch can honor a rollout before any session exists. The account is never taken from the request: naming one would read another account's cached assignments. The cached assignment answers immediately and any network refresh happens behind it, so this call does not wait on the network. Not available to an extension, which cannot carry the user's consent to read their assignment.
+    ///
+    /// Wire method: `featureFlags.resolveStartupGates`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Caller population and startup inputs to resolve named online-experiment gates for. Carries no account: the runtime resolves the assignment for the authentication it already holds.
+    ///
+    /// # Returns
+    ///
+    /// The resolved gates, keyed by flag name.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn resolve_startup_gates(
+        &self,
+        params: FeatureFlagsResolveStartupGatesRequest,
+    ) -> Result<FeatureFlagsResolveStartupGatesResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::FEATUREFLAGS_RESOLVESTARTUPGATES,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
     /// Lists every feature flag this runtime declares, with the population each one is declared for, its experimental description, and the online-experiment flag it maps to. This is the static catalog: it describes how each flag is defined, not whether it is on for anyone. Use `featureFlags.resolve` for static values with caller overrides, not active runtime values or experiment assignments.
     ///
     /// Wire method: `featureFlags.listMetadata`.
@@ -1843,6 +1974,37 @@ impl<'a> ClientRpcHost<'a> {
         let _value = self
             .client
             .call(rpc_methods::HOST_PUBLISHSESSION, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Withdraws a live or dormant application publication from an owned live host and revokes AHP attachments without deleting local session history, worktrees, or ongoing work. Returns false when already absent; rejects nonapplication publications.
+    ///
+    /// Wire method: `host.unpublishSession`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Withdraws an application publication without deleting its underlying local session.
+    ///
+    /// # Returns
+    ///
+    /// Publication withdrawal outcome; local history, worktrees and ongoing work are preserved.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn unpublish_session(
+        &self,
+        params: HostUnpublishSessionRequest,
+    ) -> Result<HostUnpublishSessionResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::HOST_UNPUBLISHSESSION, Some(wire_params))
             .await?;
         Ok(serde_json::from_value(_value)?)
     }
@@ -2445,6 +2607,326 @@ impl<'a> ClientRpcManagedSettings<'a> {
         }
     }
 
+    /// Discovers device-managed settings the way the runtime's own device layer does, and reports the sandbox floor and the load outcome alongside the validated document. This differs from `managedSettings.read` in three ways a policy-enforcing host depends on: a document that validates to an empty object is reported as absent rather than as an empty policy, a discovery error does not suppress a document that still validates, and a failure is reported as a flag rather than only as error text. Hosts that compose the device layer into an effective policy use this, because `managedSettings.read` cannot distinguish "no device policy" from "device policy could not be read" and would silently hand the user's own layer the win.
+    ///
+    /// Wire method: `managedSettings.readDevice`.
+    ///
+    /// # Returns
+    ///
+    /// The device-managed settings layer, with the sandbox floor and the load outcome a host needs to compose it into an effective policy.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn read_device(&self) -> Result<ManagedSettingsReadDeviceResult, Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self
+            .client
+            .call(rpc_methods::MANAGEDSETTINGS_READDEVICE, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Retains the supplied managed layers as this runtime process's startup policy and re-applies the result to every live session. Hosts that own their own short-lived process policy use this, so a guarded mutation is checked against the policy the host actually fetched. Retaining is a whole-process replacement rather than a merge, so a host that already resolved a good policy must not retain a partial one over it. The failure flags are honest inputs rather than assumptions: reporting a fetch or load that failed keeps the layers already retained, and the interim fail-closed state, instead of clearing them.
+    ///
+    /// Wire method: `managedSettings.retainPolicy`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - The managed layers to retain as this process's startup policy, with the outcome of fetching each one.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn retain_policy(
+        &self,
+        params: ManagedSettingsRetainPolicyParams,
+    ) -> Result<(), Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::MANAGEDSETTINGS_RETAINPOLICY, Some(wire_params))
+            .await?;
+        Ok(())
+    }
+
+    /// Stamps an effective managed policy's individually-controlled entries onto a user settings document, returning the settings a host should actually act on. The managed layer wins on every plugin spec and marketplace name it names, and leaves everything it does not name as the user wrote it. Hosts use this rather than merging the two documents themselves, because the merge is per entry rather than per document and a whole-document overlay would either discard the user's unmanaged entries or let a user entry outrank a managed one. Omitting the managed layer returns the settings unchanged, which is what an unmanaged host wants. Rejects when either document is present but is not a JSON object rather than treating it as absent, since silently dropping a malformed policy hands the user's layer the win on exactly the entries the policy exists to control.
+    ///
+    /// Wire method: `managedSettings.applyControls`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - A user settings document and the effective managed policy whose controlled entries should be stamped onto it.
+    ///
+    /// # Returns
+    ///
+    /// The user settings with the managed layer's controlled entries stamped on.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn apply_controls(
+        &self,
+        params: ManagedSettingsApplyControlsParams,
+    ) -> Result<ManagedSettingsApplyControlsResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::MANAGEDSETTINGS_APPLYCONTROLS,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Validates the managed settings a client is supplying for a session it is about to open, and returns them reduced to the keys a client is allowed to set. A client-supplied policy is not the same thing as an administrator's: it may only narrow permissions, so this accepts `permissions` and rejects every other key outright rather than ignoring it. Rejecting is the point — a host that silently dropped an unsupported key would report a policy as applied while running without it. Hosts call this before opening the session rather than letting the open fail, so a malformed policy is reported against the request that carried it. The runtime applies the same rule again when the session starts, so this cannot be used to smuggle a wider document past it. An accepted document that sets nothing comes back as an empty object, which is distinct from supplying nothing at all.
+    ///
+    /// Wire method: `managedSettings.parseClientValue`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - The client-supplied managed settings to validate and normalize. Omitting them is valid and yields no policy.
+    ///
+    /// # Returns
+    ///
+    /// The accepted managed settings, reduced to the keys a client is allowed to set.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn parse_client_value(
+        &self,
+        params: ManagedSettingsParseClientValueParams,
+    ) -> Result<ManagedSettingsParseClientValueResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::MANAGEDSETTINGS_PARSECLIENTVALUE,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Composes the supplied server, device/MDM, device sandbox floor and policy-helper layers into the single effective managed policy a host should enforce, resolving each key across the layers by the runtime's own precedence rules. Hosts that assemble managed layers themselves use this so their precedence matches the runtime's exactly instead of reimplementing it. The composition is not a pure function of its inputs: an advisory sandbox force-on that arrived over the server channel is declined when this host cannot run a sandbox, so the result reflects the runtime host's capabilities, and the returned settings carry `sandboxAdvisoryFloorDeclined: true` when that happened. Enforced channels (device/MDM and policy helper) are never declined, and a server force-on carrying `failIfUnavailable` is preserved so the session fails loudly instead of quietly running unsandboxed. Rejects when a supplied layer is present but is not a JSON object, rather than treating it as unmanaged, because silently dropping a malformed policy would hand the user's own layer the win on exactly the keys the policy exists to control.
+    ///
+    /// Wire method: `managedSettings.resolveEffectiveValue`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - The managed-settings layers to compose into an effective policy. Every layer is optional; omitting all of them yields no effective policy.
+    ///
+    /// # Returns
+    ///
+    /// The effective managed policy composed from the supplied layers.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn resolve_effective_value(
+        &self,
+        params: ManagedSettingsResolveEffectiveValueParams,
+    ) -> Result<ManagedSettingsResolveEffectiveValueResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::MANAGEDSETTINGS_RESOLVEEFFECTIVEVALUE,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Decides what a host must do to its bypass-permissions state after a managed-policy resolution lands, given the state already in force and the account now signed in. A host holds two pieces of state — which layer disabled bypass mode, and for a server-delivered disable, the account it was pinned to — and cannot decide the next step from the new policy alone. Three rules make that so, and each one is a control rather than a preference. A device/MDM disable outranks the account, so a later server answer never lifts it. An unknown policy, which is what a failed fetch or a refusal this build cannot enforce yields, preserves whatever is in force instead of reverting to permissive. And a server disable is lifted only when the account it was pinned to is no longer the signed-in one, which is what makes signing in to an unrestricted account recover without a restart while a reconnect on the same restricted account does not. Hosts call this rather than reimplementing it because getting the pinning backwards either strands a disable on an account that never carried one or drops one that still applies. `setDisabledState` is omitted when the host must leave its stored flag untouched, which is distinct from being told to set it to false.
+    ///
+    /// Wire method: `managedSettings.resolveBypassDisableTransition`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - The bypass-permissions state a host holds today, the account now signed in, and what the managed-policy resolution said.
+    ///
+    /// # Returns
+    ///
+    /// The bypass-permissions state a host should hold after the resolution, and what it must do to get there.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn resolve_bypass_disable_transition(
+        &self,
+        params: ManagedSettingsResolveBypassDisableTransitionParams,
+    ) -> Result<ManagedSettingsResolveBypassDisableTransitionResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::MANAGEDSETTINGS_RESOLVEBYPASSDISABLETRANSITION,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Resolves managed (enterprise policy) settings for a host from every layer at once: the account's server-delivered policy, the device/MDM layer, and a platform policy helper. Hosts use this instead of fetching and composing the layers themselves, because the per-layer precedence and the fail-closed rules that apply when a layer cannot be confirmed are the runtime's own and must match the policy a session will later enforce. It does not retain or apply anything to process-global policy state, so a host may call it before any session exists — which is the point, since plugin activation and one-shot commands resolve policy before a session is available to carry it. The returned per-layer outcome flags are load-bearing rather than diagnostic: a host must distinguish an unmanaged device from a managed device whose policy could not be confirmed, and apply its fail-closed gates in the second case. Reports its diagnostics in `logMessages` rather than logging them, so a host that runs before a log sink exists still sees them.
+    ///
+    /// Wire method: `managedSettings.ingest`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Inputs describing the host and account an ingestion should resolve managed policy for.
+    ///
+    /// # Returns
+    ///
+    /// The managed policy layers an ingestion resolved, together with the per-layer outcome flags a host needs to decide how much to trust the result. The flags are reported rather than folded into the settings because a host must be able to distinguish an unmanaged device from a managed device whose policy could not be confirmed, and apply its fail-closed gates in the second case.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn ingest(
+        &self,
+        params: ManagedSettingsIngestParams,
+    ) -> Result<ManagedSettingsIngestResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::MANAGEDSETTINGS_INGEST, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Resolves the managed (enterprise policy) settings a host must enforce from startup, and judges the account against the enterprise sign-in pin in the same pass. This composes the layers the way `managedSettings.ingest` does and then answers the two questions a host cannot answer for itself: which fail-closed floors apply when a layer could not be confirmed, and whether this credential is allowed to sign in at all. The sign-in verdict is the reason a host must not assemble this itself from `managedSettings.ingest` — a pinned organization is an access control, and a host that composed the layers but skipped the pin would let a developer sign in with a personal or another enterprise's account and escape every control that keys off the signed-in identity. The verdict is computed on every resolution, including one that is not retained, so declining to apply policy never widens access. Set `retainAndApply` to keep the resolved policy as this runtime process's startup policy; leave it false to resolve without side effects.
+    ///
+    /// Wire method: `managedSettings.resolveStartupPolicy`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Inputs describing the host and account a startup policy resolution should run for. Mirrors `managedSettings.ingest`, and adds the decision of whether the resolved policy is retained for this runtime process.
+    ///
+    /// # Returns
+    ///
+    /// The startup policy a resolution composed, the per-layer outcome flags a host needs to decide how much to trust it, and the enterprise sign-in verdict for the credential it ran against. The flags are reported rather than folded into the settings because a host must distinguish an unmanaged device from a managed device whose policy could not be confirmed, and apply its fail-closed gates in the second case.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn resolve_startup_policy(
+        &self,
+        params: ManagedSettingsResolveStartupPolicyParams,
+    ) -> Result<ManagedSettingsResolveStartupPolicyResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::MANAGEDSETTINGS_RESOLVESTARTUPPOLICY,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Resolves the managed `remoteControl` policy for an account on its own, for a host deciding whether a remote-control session may start. Composes the same layers as `managedSettings.ingest` and returns only that one key, so a host does not have to know which layer won. An absent policy means the account is unmanaged for this capability and the host may proceed; that default is safe only while absence really does mean "no policy", so a service refusal that says an account policy exists which this client is too old to enforce resolves to an explicit disabled policy instead of to absence. A resolution that cannot be completed is rejected rather than answered as absence, for the same reason.
+    ///
+    /// Wire method: `managedSettings.loadRemoteControl`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Inputs describing the host and account whose managed remote-control policy should be resolved. Mirrors `managedSettings.ingest`, and deliberately carries no retention decision: reading this gate never becomes this runtime process's startup policy.
+    ///
+    /// # Returns
+    ///
+    /// The managed remote-control policy in force for an account, if any. An absent policy means the account is unmanaged for this capability, which a host reads as allowed — so absence here is a positive statement that no policy applies, never a stand-in for a resolution that failed. A resolution that cannot be completed is rejected instead.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn load_remote_control(
+        &self,
+        params: ManagedSettingsLoadRemoteControlParams,
+    ) -> Result<ManagedSettingsLoadRemoteControlResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::MANAGEDSETTINGS_LOADREMOTECONTROL,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Evaluates the device-channel enterprise sign-in pin (MDM plist, registry, or managed-settings file) against a credential, without resolving any server-delivered policy. This is the gate an entry point runs before it branches, and the only one that can refuse a developer's first sign-in: it is local, needs no credential, and a server-delivered pin only ever reaches accounts already inside the organization. It fails closed by construction — a discovery that cannot determine whether a pin exists refuses rather than allows, because a control that fails open under a triggerable condition is not a control. Hosts that also want the server channel should call `managedSettings.resolveStartupPolicy`, which folds both channels into one verdict.
+    ///
+    /// Wire method: `managedSettings.resolveDeviceForceLoginOrgsGate`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - The credential and environment to evaluate the device-channel sign-in pin against.
+    ///
+    /// # Returns
+    ///
+    /// The verdict of the `forceLoginOrgs` enterprise sign-in pin for one credential. A managed device may pin Copilot to an approved set of GitHub organizations so a developer cannot sign in with a personal — or another enterprise's — account and escape every control that keys off the signed-in identity. A host must refuse to proceed when `allowed` is false; the remaining fields explain the refusal rather than qualifying it.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn resolve_device_force_login_orgs_gate(
+        &self,
+        params: ManagedSettingsResolveDeviceForceLoginOrgsGateParams,
+    ) -> Result<ForceLoginOrgsDecision, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::MANAGEDSETTINGS_RESOLVEDEVICEFORCELOGINORGSGATE,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
     /// Discovers device-managed settings from production MDM and managed-file sources, validates them against the runtime-owned managed-settings schema, and returns the canonical JSON without requiring a session. `managedSettings.resolve` returns the same device settings together with the account's server policy.
     ///
     /// Wire method: `managedSettings.read`.
@@ -2690,6 +3172,13 @@ impl<'a> ClientRpcMcp<'a> {
     /// `mcp.installations.*` sub-namespace.
     pub fn installations(&self) -> ClientRpcMcpInstallations<'a> {
         ClientRpcMcpInstallations {
+            client: self.client,
+        }
+    }
+
+    /// `mcp.oauth.*` sub-namespace.
+    pub fn oauth(&self) -> ClientRpcMcpOauth<'a> {
+        ClientRpcMcpOauth {
             client: self.client,
         }
     }
@@ -3279,6 +3768,144 @@ impl<'a> ClientRpcMcpInstallations<'a> {
     }
 }
 
+/// `mcp.oauth.*` RPCs.
+#[derive(Clone, Copy)]
+pub struct ClientRpcMcpOauth<'a> {
+    pub(crate) client: &'a Client,
+}
+
+impl<'a> ClientRpcMcpOauth<'a> {
+    /// Reads the static OAuth client a remote MCP server configuration pins, so a host can decide whether to register a client dynamically or reuse the configured one. Omits `clientConfig` when no non-empty `oauthClientId` is configured. The client secret is deliberately never carried here: the runtime loads it from the OAuth secret store at flow time.
+    ///
+    /// Wire method: `mcp.oauth.staticClientConfig`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - A remote MCP server configuration whose pinned OAuth client should be read.
+    ///
+    /// # Returns
+    ///
+    /// The OAuth client the configuration pins, when it pins one.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn static_client_config(
+        &self,
+        params: McpOauthStaticClientConfigRequest,
+    ) -> Result<McpOauthStaticClientConfigResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::MCP_OAUTH_STATICCLIENTCONFIG, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reads raw protected-resource metadata after a 401 establishes that OAuth is required. Uses the metadata URL from the server's `WWW-Authenticate` challenge when provided; otherwise, tries conventional metadata endpoints derived from the request URL. A host configuring a remote server interactively needs the unparsed document to classify the challenge before it starts OAuth. The request URL and each metadata URL pass through the named session's egress policy and sandbox proxy. The runtime refuses URLs that the session may not reach.
+    ///
+    /// Wire method: `mcp.oauth.fetchProtectedResourceMetadata`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - An OAuth challenge from a remote MCP server whose protected-resource metadata should be read.
+    ///
+    /// # Returns
+    ///
+    /// Raw protected-resource metadata from the explicit metadata URL or conventional discovery.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn fetch_protected_resource_metadata(
+        &self,
+        params: McpOauthFetchProtectedResourceMetadataRequest,
+    ) -> Result<McpOauthFetchProtectedResourceMetadataResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::MCP_OAUTH_FETCHPROTECTEDRESOURCEMETADATA,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Asks a remote MCP server's authorization server whether it supports Dynamic Client Registration, after a 401 has already established that OAuth is required. A host configuring a remote server interactively needs this to choose between registering a client automatically and asking the user for client credentials. The request travels through the named session's egress policy and sandbox proxy, so a server that session may not reach is refused rather than contacted.
+    ///
+    /// Wire method: `mcp.oauth.checkDcrSupport`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - A remote MCP server whose authorization server should be asked about Dynamic Client Registration.
+    ///
+    /// # Returns
+    ///
+    /// Whether the server's authorization server registers clients dynamically.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn check_dcr_support(
+        &self,
+        params: McpOauthCheckDcrSupportRequest,
+    ) -> Result<McpOauthCheckDcrSupportResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::MCP_OAUTH_CHECKDCRSUPPORT, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reports whether an authorization server URL belongs to Microsoft Entra ID. Entra does not support Dynamic Client Registration, so a host that finds no DCR support can still authorize against it with a pre-registered client instead of asking the user for client credentials.
+    ///
+    /// Wire method: `mcp.oauth.isMicrosoftAuthorizationServer`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - An authorization server URL to classify.
+    ///
+    /// # Returns
+    ///
+    /// Whether the URL is a Microsoft Entra ID authorization server.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn is_microsoft_authorization_server(
+        &self,
+        params: McpOauthIsMicrosoftAuthorizationServerRequest,
+    ) -> Result<McpOauthIsMicrosoftAuthorizationServerResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::MCP_OAUTH_ISMICROSOFTAUTHORIZATIONSERVER,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+}
+
 /// `mcp.registry.*` RPCs.
 #[derive(Clone, Copy)]
 pub struct ClientRpcMcpRegistry<'a> {
@@ -3458,6 +4085,236 @@ impl<'a> ClientRpcModels<'a> {
             .await?;
         Ok(serde_json::from_value(_value)?)
     }
+
+    /// Reports the unit of each model's published token prices: AI Credits or nano-AIU. Pair these units with models.list prices by model ID and use identical account-selection options for both calls. When options are omitted, the current account and its model providers are used.
+    ///
+    /// Wire method: `models.listTokenPriceUnits`.
+    ///
+    /// # Returns
+    ///
+    /// Price units for every catalog model that publishes token prices.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn list_token_price_units(&self) -> Result<ModelTokenPriceUnitList, Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self
+            .client
+            .call(rpc_methods::MODELS_LISTTOKENPRICEUNITS, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reports the unit of each model's published token prices: AI Credits or nano-AIU. Pair these units with models.list prices by model ID and use identical account-selection options for both calls. When options are omitted, the current account and its model providers are used.
+    ///
+    /// Wire method: `models.listTokenPriceUnits`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Optional opaque account selection or compatibility GitHub token used to list models.
+    ///
+    /// # Returns
+    ///
+    /// Price units for every catalog model that publishes token prices.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn list_token_price_units_with_params(
+        &self,
+        params: ModelsListRequest,
+    ) -> Result<ModelTokenPriceUnitList, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::MODELS_LISTTOKENPRICEUNITS, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+}
+
+/// `permissions.*` RPCs.
+#[derive(Clone, Copy)]
+pub struct ClientRpcPermissions<'a> {
+    pub(crate) client: &'a Client,
+}
+
+impl<'a> ClientRpcPermissions<'a> {
+    /// `permissions.folderTrust.*` sub-namespace.
+    pub fn folder_trust(&self) -> ClientRpcPermissionsFolderTrust<'a> {
+        ClientRpcPermissionsFolderTrust {
+            client: self.client,
+        }
+    }
+
+    /// `permissions.locations.*` sub-namespace.
+    pub fn locations(&self) -> ClientRpcPermissionsLocations<'a> {
+        ClientRpcPermissionsLocations {
+            client: self.client,
+        }
+    }
+
+    /// Interprets a verbatim managed `permissions` slice into the three policy questions a host asks before granting elevated permissions: whether bypass-permissions mode is forbidden, whether a policy exists that this build could not determine, and whether the layer supplies permission rules the session must enforce. An absent or empty slice means no managed policy applies. The runtime and its permission service share one policy type, so a new managed permission setting is interpreted in exactly one place; a host that reimplements the reading would silently diverge the first time that set grows. Hosts must fail closed on an undetermined policy rather than treating it as permission granted.
+    ///
+    /// Wire method: `permissions.evaluateManagedPolicy`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - The verbatim managed `permissions` slice to interpret.
+    ///
+    /// # Returns
+    ///
+    /// The policy questions a host asks before granting elevated permissions.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn evaluate_managed_policy(
+        &self,
+        params: PermissionsEvaluateManagedPolicyParams,
+    ) -> Result<PermissionsEvaluateManagedPolicyResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::PERMISSIONS_EVALUATEMANAGEDPOLICY,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+}
+
+/// `permissions.folderTrust.*` RPCs.
+#[derive(Clone, Copy)]
+pub struct ClientRpcPermissionsFolderTrust<'a> {
+    pub(crate) client: &'a Client,
+}
+
+impl<'a> ClientRpcPermissionsFolderTrust<'a> {
+    /// Reports whether a folder is trusted, reading the persisted trusted-folders list directly rather than through a session. Use this from a host that has no session yet, such as a one-shot command deciding whether to honor a checkout's own settings. It differs from the session-scoped check in two ways that matter: it takes the configuration directory to read the list from, instead of inheriting the session's, and it answers only from the persisted list, so trust a user granted for the lifetime of one session is not visible here. A host that has a session should prefer the session-scoped check, which also covers session-only trust.
+    ///
+    /// Wire method: `permissions.folderTrust.checkTrust`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - A folder to check against a persisted trusted-folders list, and the configuration directory holding that list.
+    ///
+    /// # Returns
+    ///
+    /// Folder trust check result.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn check_trust(
+        &self,
+        params: FolderTrustIsTrustedParams,
+    ) -> Result<FolderTrustCheckResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::PERMISSIONS_FOLDERTRUST_CHECKTRUST,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+}
+
+/// `permissions.locations.*` RPCs.
+#[derive(Clone, Copy)]
+pub struct ClientRpcPermissionsLocations<'a> {
+    pub(crate) client: &'a Client,
+}
+
+impl<'a> ClientRpcPermissionsLocations<'a> {
+    /// Drops stored per-location permission grants whose directory no longer exists, and reports which location keys were removed. Runs against the permission store under the runtime's own Copilot home, the same store `session.permissions.locations.resolve` reads. Marked internal because it exists to carry a CLI call site off the napi boundary onto the SDK contract; it is migration plumbing, not a surface consumers are meant to depend on. It can become public once an SDK consumer needs to prune its own permission store.
+    ///
+    /// Wire method: `permissions.locations.cleanupOrphaned`.
+    ///
+    /// # Returns
+    ///
+    /// Which stored location permissions were dropped because their directory is gone.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn cleanup_orphaned(&self) -> Result<LocationPermissionsCleanupResult, Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self
+            .client
+            .call(
+                rpc_methods::PERMISSIONS_LOCATIONS_CLEANUPORPHANED,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+}
+
+/// `persistence.*` RPCs.
+#[derive(Clone, Copy)]
+pub struct ClientRpcPersistence<'a> {
+    pub(crate) client: &'a Client,
+}
+
+impl<'a> ClientRpcPersistence<'a> {
+    /// Atomically replaces a JSON file's entire contents while holding the runtime's per-path lock. The lock lives in the runtime process, so a host that writes these files itself takes no part in it and can tear a concurrent runtime write; route the write here instead. Unlike a merging write this never reads or parses the existing file, so a previously corrupted snapshot is replaced wholesale rather than failing every later write. Use it only for callers that always persist a complete snapshot.
+    ///
+    /// Wire method: `persistence.writeRawJsonLocked`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - A complete JSON snapshot to write under the runtime's per-path file lock.
+    ///
+    /// # Returns
+    ///
+    /// The outcome of a locked snapshot write.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn write_raw_json_locked(
+        &self,
+        params: PersistenceWriteRawJsonLockedRequest,
+    ) -> Result<PersistenceWriteRawJsonLockedResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::PERSISTENCE_WRITERAWJSONLOCKED,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
 }
 
 /// `plugins.*` RPCs.
@@ -3479,6 +4336,68 @@ impl<'a> ClientRpcPlugins<'a> {
         ClientRpcPluginsMarketplaces {
             client: self.client,
         }
+    }
+
+    /// Plans installation of an Agent Plugin search candidate from its verified Agent Finder materialisation without writing files. Only candidates that carry a handle can be planned. The review shows only verified data, and installing leaves the plugin disabled until it is enabled through plugins.enable.
+    ///
+    /// Wire method: `plugins.planInstall`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Side-effect-free planning of one Agent Plugin search candidate through its Agent Finder materialisation.
+    ///
+    /// # Returns
+    ///
+    /// Agent Plugin installation planning result with the honoured contract, or a typed refusal.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn plan_install(
+        &self,
+        params: PluginPlanInstallRequest,
+    ) -> Result<PluginInstallationManagementResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::PLUGINS_PLANINSTALL, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Consumes one verified Agent Plugin installation plan, requests explicit human consent through installations.confirm on the original connection, then reacquires and verifies every file and registers the plugin, disabled, exactly as a direct plugin install. The installed plugin is listed, enabled and uninstalled through the existing plugins methods.
+    ///
+    /// Wire method: `plugins.applyInstall`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Applies exactly one retained verified Agent Plugin installation plan.
+    ///
+    /// # Returns
+    ///
+    /// Agent Plugin installation result with the honoured contract, or a typed request/negotiation refusal.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn apply_install(
+        &self,
+        params: PluginApplyInstallRequest,
+    ) -> Result<PluginInstallationResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::PLUGINS_APPLYINSTALL, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
     }
 
     /// Lists plugins installed in user/global state.
@@ -3895,6 +4814,37 @@ pub struct ClientRpcRepoSettings<'a> {
 }
 
 impl<'a> ClientRpcRepoSettings<'a> {
+    /// Atomically edits one allowed top-level repository setting. Reads the raw file, preserves unrelated keys, applies one scalar or list edit, validates the result and writes under one file lock, so concurrent sibling or list edits are not lost. A malformed or unsafe existing file returns `invalid` without a write; rejected keys, invalid values and I/O errors reject the call.
+    ///
+    /// Wire method: `repo.settings.edit`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - One atomic edit of an allowed top-level repository setting.
+    ///
+    /// # Returns
+    ///
+    /// Outcome of an atomic user or repository settings edit.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn edit(
+        &self,
+        params: RepoSettingsEditRequest,
+    ) -> Result<SettingsEditResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::REPO_SETTINGS_EDIT, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
     /// Reads one repository settings file without settings normalization or layering. The existing JSONC parser accepts comments and trailing commas and applies its prototype-safety rules. Missing or blank files return an empty valid config. Invalid files return an empty config with invalid=true; other read failures reject.
     ///
     /// Wire method: `repo.settings.readRaw`.
@@ -4017,6 +4967,352 @@ impl<'a> ClientRpcSandbox<'a> {
         }
     }
 
+    /// `sandbox.proxySecret.*` sub-namespace.
+    pub fn proxy_secret(&self) -> ClientRpcSandboxProxySecret<'a> {
+        ClientRpcSandboxProxySecret {
+            client: self.client,
+        }
+    }
+
+    /// `sandbox.settings.*` sub-namespace.
+    pub fn settings(&self) -> ClientRpcSandboxSettings<'a> {
+        ClientRpcSandboxSettings {
+            client: self.client,
+        }
+    }
+
+    /// Raises a user's sandbox settings to an administrator's managed sandbox floor and returns the result a session should actually run under. The floor can only tighten: an enterprise force-on is reflected even when the user's own `enabled` is false, and a user cannot lower a setting the floor raised. The result is normalized through the declared sandbox shape, so a key reorder or an undeclared passthrough key is not mistaken for a policy change by callers that diff two results. A host must call this rather than merge the two layers itself, because reimplementing the direction of the fold is what turns an administrator's floor into a suggestion.
+    ///
+    /// Wire method: `sandbox.resolveFlooredConfig`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - The user's sandbox settings and the managed sandbox floor to raise them to.
+    ///
+    /// # Returns
+    ///
+    /// The user's sandbox settings raised to the managed floor.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn resolve_floored_config(
+        &self,
+        params: SandboxResolveFlooredConfigParams,
+    ) -> Result<SandboxResolveFlooredConfigResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::SANDBOX_RESOLVEFLOOREDCONFIG, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Builds the effective filesystem policy one `@`-file picker checks its suggestions against, so Git discovery and grant canonicalization run once for the picker's lifetime instead of on every debounced keystroke. Returns no policy when the sandbox is absent or disabled, which the paired filter reads as "keep every candidate". A host must pair this with `sandbox.filterPickerCandidates` rather than resolve a grant list itself, because the picker's grants are narrower than a file tool's — the same path a built-in tool may read can be one the picker must not offer.
+    ///
+    /// Wire method: `sandbox.preparePickerPolicy`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - The working directory and sandbox settings to build a file-picker policy from.
+    ///
+    /// # Returns
+    ///
+    /// The prepared file-picker policy, or none when the sandbox is disabled.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn prepare_picker_policy(
+        &self,
+        params: SandboxPreparePickerPolicyParams,
+    ) -> Result<SandboxPreparePickerPolicyResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::SANDBOX_PREPAREPICKERPOLICY, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Checks a batch of `@`-file picker suggestions against a policy prepared by `sandbox.preparePickerPolicy` and returns one allow decision per candidate, positionally aligned with the request. Batched deliberately: each check canonicalizes a path component-by-component through the real filesystem, so one call amortizes that over a single hop rather than dozens while the user types. A directory the policy does not itself allow can still be kept as a waypoint to an allowed subtree. An absent policy keeps every candidate.
+    ///
+    /// Wire method: `sandbox.filterPickerCandidates`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - A batch of file-picker candidates to check against a prepared policy.
+    ///
+    /// # Returns
+    ///
+    /// Per-candidate allow decisions, positionally aligned with the request.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn filter_picker_candidates(
+        &self,
+        params: SandboxFilterPickerCandidatesParams,
+    ) -> Result<SandboxFilterPickerCandidatesResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::SANDBOX_FILTERPICKERCANDIDATES,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// The sandbox a single named feature actually launches under, which is not the same as the session's sandbox. A feature is routed out of the sandbox by its own flag — `sandboxMcpServers`, `sandboxLspServers` — so an enabled session can still start one server confined and another free. Returns a disabled sandbox rather than an error when the host has no sandbox slice at all, so an absent config and an opted-out feature read alike at the launch site. A host must ask per feature rather than reuse the session config, because reading only `enabled` confines a server the user opted out of, or reports as sandboxed one that is not.
+    ///
+    /// Wire method: `sandbox.resolveForOptional`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - A sandbox config and the per-feature routing flag to resolve it for.
+    ///
+    /// # Returns
+    ///
+    /// The sandbox a named feature actually launches under.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn resolve_for_optional(
+        &self,
+        params: SandboxEffectiveForOptionalParams,
+    ) -> Result<SandboxEffectiveForOptionalResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::SANDBOX_RESOLVEFOROPTIONAL, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reports whether this machine can run an OS-level command sandbox at all. A host must ask before it offers sandboxing, because the answer is a property of the machine rather than of any setting: on Linux it depends on bubblewrap being installed, and on Windows on the OS build supporting BaseContainer. Probing it requires spawning a process the first time, so the answer is cached for the life of the runtime. A host that assumes support and enables the sandbox anyway produces a session in which every shell command fails.
+    ///
+    /// Wire method: `sandbox.checkPlatformSupport`.
+    ///
+    /// # Returns
+    ///
+    /// True when an OS-level sandbox can run on this host.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn check_platform_support(
+        &self,
+    ) -> Result<SandboxCheckPlatformSupportResult, Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self
+            .client
+            .call(rpc_methods::SANDBOX_CHECKPLATFORMSUPPORT, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reports whether this Windows host's BaseContainer implementation can reach the host's loopback interface directly, which is what a local-network policy needs to avoid routing through the egress proxy. Like `sandbox.checkPlatformSupport`, the answer is a property of the machine's OS build rather than of any setting, and resolving it the first time spawns a platform probe. A host that offers the direct local-network option on a machine that lacks the capability produces a session whose sandboxed commands cannot reach local services. Always false off Windows.
+    ///
+    /// Wire method: `sandbox.checkWindowsHostLoopbackSupport`.
+    ///
+    /// # Returns
+    ///
+    /// True when the sandbox on this host can reach host loopback directly.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn check_windows_host_loopback_support(
+        &self,
+    ) -> Result<SandboxCheckWindowsHostLoopbackSupportResult, Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self
+            .client
+            .call(
+                rpc_methods::SANDBOX_CHECKWINDOWSHOSTLOOPBACKSUPPORT,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// The explanation a host shows when it refuses an explicit request to turn the sandbox on for a machine that cannot run one. Carries the platform-specific remedy — install bubblewrap, update Windows — and the documentation link, so a host that got `false` from `sandbox.checkPlatformSupport` does not have to compose its own reason and cannot describe the same machine differently from the runtime's own spawn path.
+    ///
+    /// Wire method: `sandbox.getUnsupportedMessage`.
+    ///
+    /// # Returns
+    ///
+    /// The user-facing refusal, including the platform remedy and the documentation link.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn get_unsupported_message(
+        &self,
+    ) -> Result<SandboxGetUnsupportedMessageResult, Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self
+            .client
+            .call(
+                rpc_methods::SANDBOX_GETUNSUPPORTEDMESSAGE,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// The notice a host shows when a stored `sandbox` setting is being ignored for this session because the machine cannot enforce it. Distinct from `sandbox.getUnsupportedMessage`, which refuses an explicit request: this one reports that a setting the user already saved is inert, states that commands will run unsandboxed, and confirms the stored setting itself is left alone. A host that stays silent here leaves the user believing a sandbox is active.
+    ///
+    /// Wire method: `sandbox.getUnsupportedSettingDisabledNotice`.
+    ///
+    /// # Returns
+    ///
+    /// The user-facing notice that a saved sandbox setting is inert for this session.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn get_unsupported_setting_disabled_notice(
+        &self,
+    ) -> Result<SandboxGetUnsupportedSettingDisabledNoticeResult, Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self
+            .client
+            .call(
+                rpc_methods::SANDBOX_GETUNSUPPORTEDSETTINGDISABLEDNOTICE,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// The warning a host prints at startup when a session asked for a sandbox on a machine that cannot run one. The third of the unsupported notices, and the only one that depends on the policy in force: it names the remedy the reader can actually act on, which is the stored setting for an unmanaged host, an administrator for a managed one, and waiting for the policy to resolve when the sandbox stayed on only because the policy could not be determined. Returns no notice when the machine does support a sandbox, so a host can call it unconditionally on the startup path. A host that composes its own warning tells a managed user to change a setting their policy will overwrite.
+    ///
+    /// Wire method: `sandbox.getUnsupportedStartupNotice`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - The managed sandbox policy in force, which selects which remedy the notice offers.
+    ///
+    /// # Returns
+    ///
+    /// The startup warning, absent when the machine can run a sandbox.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn get_unsupported_startup_notice(
+        &self,
+        params: SandboxUnsupportedStartupNoticeParams,
+    ) -> Result<SandboxUnsupportedStartupNoticeResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::SANDBOX_GETUNSUPPORTEDSTARTUPNOTICE,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Whether one slash command stays reachable while sandbox enforcement is unavailable and the session is otherwise blocked. The permitted set is deliberately narrow — commands that only report state, and the few that let the user repair or leave the situation — and it is keyed on the arguments as well as the name, so `/sandbox status` is admitted where `/sandbox enable` is not. A host must ask rather than keep its own list: a command this returns false for is one the runtime would refuse anyway, and a divergent list either strands the user with no way out or admits a command that acts on an unenforced session.
+    ///
+    /// Wire method: `sandbox.checkEnforcementCommand`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - One slash command, as typed, to test against the enforcement-block allowlist.
+    ///
+    /// # Returns
+    ///
+    /// True when the command stays available while enforcement is blocked.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn check_enforcement_command(
+        &self,
+        params: SandboxEnforcementCommandAllowedParams,
+    ) -> Result<SandboxCheckEnforcementCommandResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::SANDBOX_CHECKENFORCEMENTCOMMAND,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Returns the documentation URL a host should point a user at when it declines or downgrades a sandbox setting. The runtime owns the address so every surface cites the same page and a host does not hard-code a link that later moves.
+    ///
+    /// Wire method: `sandbox.getDocsUrl`.
+    ///
+    /// # Returns
+    ///
+    /// The documentation URL a host cites when it declines or downgrades a sandbox setting.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn get_docs_url(&self) -> Result<SandboxDocsUrlResult, Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self
+            .client
+            .call(rpc_methods::SANDBOX_GETDOCSURL, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
     /// Reports whether the host running this runtime can run the command sandbox, without starting a session or spawning a sandboxed command.
     ///
     /// Wire method: `sandbox.getHostSupport`.
@@ -4049,6 +5345,69 @@ pub struct ClientRpcSandboxProxyCa<'a> {
 }
 
 impl<'a> ClientRpcSandboxProxyCa<'a> {
+    /// Reports whether this runtime process can offer installing the sandbox credential-proxy certificate authority into OS trust.
+    ///
+    /// Wire method: `sandbox.proxyCa.checkInstallationSupport`.
+    ///
+    /// # Returns
+    ///
+    /// True when this process can offer installing the sandbox credential-proxy certificate authority into OS trust.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn check_installation_support(
+        &self,
+    ) -> Result<SandboxProxyCaCheckInstallationSupportResult, Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self
+            .client
+            .call(
+                rpc_methods::SANDBOX_PROXYCA_CHECKINSTALLATIONSUPPORT,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reports whether this sandbox configuration uses the credential proxy and can need certificate-authority setup.
+    ///
+    /// Wire method: `sandbox.proxyCa.checkRelevance`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Identifies the credential hosts that the persistent certificate authority of the sandbox credential proxy must cover. The runtime always adds the hosts from the saved user settings.
+    ///
+    /// # Returns
+    ///
+    /// True when the sandbox configuration uses the credential proxy and can need certificate-authority setup.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn check_relevance(
+        &self,
+        params: SandboxProxyCaRequest,
+    ) -> Result<SandboxProxyCaCheckRelevanceResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::SANDBOX_PROXYCA_CHECKRELEVANCE,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
     /// Reports whether the persistent certificate authority of the sandbox credential proxy exists, whether OS trust includes it, and whether it must be rotated. Changes nothing.
     ///
     /// Wire method: `sandbox.proxyCa.getStatus`.
@@ -4193,6 +5552,158 @@ impl<'a> ClientRpcSandboxProxyCa<'a> {
         let _value = self
             .client
             .call(rpc_methods::SANDBOX_PROXYCA_REMOVE, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+}
+
+/// `sandbox.proxySecret.*` RPCs.
+#[derive(Clone, Copy)]
+pub struct ClientRpcSandboxProxySecret<'a> {
+    pub(crate) client: &'a Client,
+}
+
+impl<'a> ClientRpcSandboxProxySecret<'a> {
+    /// Reports where this runtime keeps the sandbox proxy password: the credential store directory and the entry identifier within it. Both are derived from the configuration directory this runtime was started with, so a host does not resolve them itself. Read this to recognize a `${secret:…}` value in stored sandbox settings as this runtime's own proxy password rather than a reference the user wrote by hand. Marked internal because it exists to carry a CLI call site off the napi boundary onto the SDK contract.
+    ///
+    /// Wire method: `sandbox.proxySecret.getLocation`.
+    ///
+    /// # Returns
+    ///
+    /// Where this runtime keeps the sandbox proxy password.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn get_location(&self) -> Result<SandboxProxySecretLocation, Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self
+            .client
+            .call(
+                rpc_methods::SANDBOX_PROXYSECRET_GETLOCATION,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reads the stored sandbox proxy password from the credential store `sandbox.proxySecret.getLocation` names, preferring the OS keychain and falling back to the on-disk store. Reports an absent value rather than failing when no entry exists. Marked internal because it exists to carry a CLI call site off the napi boundary onto the SDK contract.
+    ///
+    /// Wire method: `sandbox.proxySecret.get`.
+    ///
+    /// # Returns
+    ///
+    /// The stored sandbox proxy password, if one is present.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn get(&self) -> Result<SandboxProxySecretGetResult, Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self
+            .client
+            .call(rpc_methods::SANDBOX_PROXYSECRET_GET, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Stores the sandbox proxy password in the credential store `sandbox.proxySecret.getLocation` names, replacing any existing entry. Reports whether the OS keychain accepted it or it fell back to the on-disk store. Marked internal because it exists to carry a CLI call site off the napi boundary onto the SDK contract.
+    ///
+    /// Wire method: `sandbox.proxySecret.save`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - The sandbox proxy password to store.
+    ///
+    /// # Returns
+    ///
+    /// Where the sandbox proxy password was stored.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn save(
+        &self,
+        params: SandboxProxySecretSaveRequest,
+    ) -> Result<SandboxProxySecretSaveResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::SANDBOX_PROXYSECRET_SAVE, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Removes the stored sandbox proxy password from the credential store `sandbox.proxySecret.getLocation` names. Succeeds when no entry exists, so it is safe to call while clearing a proxy password whose origin is unknown. Marked internal because it exists to carry a CLI call site off the napi boundary onto the SDK contract.
+    ///
+    /// Wire method: `sandbox.proxySecret.delete`.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn delete(&self) -> Result<(), Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self
+            .client
+            .call(rpc_methods::SANDBOX_PROXYSECRET_DELETE, Some(wire_params))
+            .await?;
+        Ok(())
+    }
+}
+
+/// `sandbox.settings.*` RPCs.
+#[derive(Clone, Copy)]
+pub struct ClientRpcSandboxSettings<'a> {
+    pub(crate) client: &'a Client,
+}
+
+impl<'a> ClientRpcSandboxSettings<'a> {
+    /// Resolves a stored sandbox settings object into the effective one, filling every value the user left unset with its default. Read this to render or reason about the sandbox configuration a session would actually run under, rather than the sparse document the user wrote.
+    ///
+    /// Wire method: `sandbox.settings.applyDefaults`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - The stored sandbox settings to resolve against the defaults.
+    ///
+    /// # Returns
+    ///
+    /// The effective sandbox settings, with every unset value resolved to its default.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn apply_defaults(
+        &self,
+        params: SandboxApplyDefaultsRequest,
+    ) -> Result<SandboxSettingsApplyDefaultsResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::SANDBOX_SETTINGS_APPLYDEFAULTS,
+                Some(wire_params),
+            )
             .await?;
         Ok(serde_json::from_value(_value)?)
     }
@@ -5933,6 +7444,458 @@ pub struct ClientRpcUserSettings<'a> {
 }
 
 impl<'a> ClientRpcUserSettings<'a> {
+    /// Adds or removes one hook key in the user `disabledHooks` setting, rewriting settings.json in place and leaving every other setting untouched. Reports a typed outcome rather than failing the call, so a host can tell an unparseable settings file apart from a write that could not complete.
+    ///
+    /// Wire method: `user.settings.setHookDisabled`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - One hook to disable or re-enable.
+    ///
+    /// # Returns
+    ///
+    /// Outcome of rewriting the `disabledHooks` setting.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn set_hook_disabled(
+        &self,
+        params: UserSettingsSetHookDisabledRequest,
+    ) -> Result<UserSettingsSetHookDisabledResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::USER_SETTINGS_SETHOOKDISABLED,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reads the user's settings document exactly as `user.settings.load` does, but from a caller-supplied configuration directory instead of the one the server resolved for itself. Use this when a consumer scopes a session to its own Copilot home — the SDK's per-session `configDir` override — so the settings read match the directory that session actually uses. An absent or empty `configDir` resolves the server's own home, making this identical to `user.settings.load`. Hook-validation relaxations are deliberately not caller-supplied: they continue to come from the server's environment, so a consumer cannot widen the host's hook policy through this method.
+    ///
+    /// Wire method: `user.settings.loadForConfigDir`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Selects the configuration directory whose user settings to read.
+    ///
+    /// # Returns
+    ///
+    /// The stored user settings document, keyed by setting name.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn load_for_config_dir(
+        &self,
+        params: UserSettingsLoadForConfigDirRequest,
+    ) -> Result<UserSettingsLoadForConfigDirResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::USER_SETTINGS_LOADFORCONFIGDIR,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reads a repository's checked-in settings document as stored, normalized, together with any diagnostic raised while reading it. This is the repository half of the layering `user.settings.get` reports: `user.settings.load` reads the user's own document, and this reads the one a repository checks in to govern the keys `user.settings.governanceKeys` lists as repo-governable. A document that fails to parse, or that sets a key a repository may not govern, is reported through `warning` while the settings that did load are still returned, so a consumer surfaces the diagnostic and continues rather than failing the session. When `repoRoot` is the user's home directory the Claude-compatible configuration is skipped, so a home-directory session does not inherit a personal config as repository policy.
+    ///
+    /// Wire method: `user.settings.loadRepo`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Selects the repository whose checked-in settings to read.
+    ///
+    /// # Returns
+    ///
+    /// A repository's settings as stored, together with any diagnostic raised while reading them.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn load_repo(
+        &self,
+        params: UserSettingsLoadRepoRequest,
+    ) -> Result<UserSettingsLoadRepoResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::USER_SETTINGS_LOADREPO, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reads a repository's settings and merges them over a supplied user layer in one step, returning the settings a consumer should act on inside that repository. Use this rather than reading the two layers separately: the merge is per setting and collection-aware, so a repository adds to the collections it is allowed to influence without replacing the user's own entries, and a whole-document overlay would get that wrong. Any diagnostic raised while reading the repository layer is returned rather than printed, so the consumer decides how to surface it; the settings that did load are merged regardless.
+    ///
+    /// Wire method: `user.settings.loadAndMergeRepo`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - A repository to read settings from, and the user layer they are merged over.
+    ///
+    /// # Returns
+    ///
+    /// The settings a consumer should act on inside a repository, together with any diagnostic raised while reading the repository layer.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn load_and_merge_repo(
+        &self,
+        params: UserSettingsLoadAndMergeRepoRequest,
+    ) -> Result<UserSettingsLoadAndMergeRepoResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::USER_SETTINGS_LOADANDMERGEREPO,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reports the on-disk path of the settings document `user.settings.load` and `user.settings.set` read and write. Resolved the same way those methods resolve it, so a host that shows or opens the settings file names the file the runtime actually uses, including the extensionless legacy `settings` file when that is what is present.
+    ///
+    /// Wire method: `user.settings.getPath`.
+    ///
+    /// # Returns
+    ///
+    /// The on-disk location of the user's settings document.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn get_path(&self) -> Result<UserSettingsPathResult, Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self
+            .client
+            .call(rpc_methods::USER_SETTINGS_GETPATH, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reads the user's stored settings together with the diagnostic raised while reading them. This is `user.settings.load` plus the reason part of the document was ignored: that one answers the document alone, so a caller cannot tell a clean read from a salvaged one. Read this when the caller is about to write the file back, where accepting a partial parse would discard every value the loader could not read. The settings that did load are still reported alongside the warning, so a consumer may surface it and continue instead of failing.
+    ///
+    /// Wire method: `user.settings.loadWithWarning`.
+    ///
+    /// # Returns
+    ///
+    /// The user's stored settings, together with any diagnostic raised while reading them.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn load_with_warning(
+        &self,
+    ) -> Result<UserSettingsLoadWithWarningResult, Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self
+            .client
+            .call(
+                rpc_methods::USER_SETTINGS_LOADWITHWARNING,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Folds a user settings layer over a managed (enterprise policy) layer and returns the merged settings. The managed layer's governance keys win, `autoTier` resolves through its overridable form, and the two per-entry control maps (`enabledPlugins`, `extraKnownMarketplaces`) union across the layers and are then stamped back from the managed layer, so each entry an administrator declares wins while the user keeps control of the rest. The parameters are named for their layers rather than being a generic base/override pair: nothing about a settings object identifies which layer produced it, so the runtime cannot detect a transposed call, and transposing one resolves the governance keys in the user's favour instead of the administrator's. Supplying only one layer returns it unchanged, and supplying neither returns an empty object. Rejects a managed `autoTier` that is neither a user-configurable tier nor a single-key overridable form, rather than silently dropping it.
+    ///
+    /// Wire method: `user.settings.mergeManagedAndUser`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - The managed (enterprise policy) layer and the user layer to fold together. The field names carry the layer identity: nothing about a settings object identifies which layer produced it, so a generic base/override pair would let a caller transpose them and silently resolve the governance keys in the user's favour.
+    ///
+    /// # Returns
+    ///
+    /// The user layer folded over the managed layer.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn merge_managed_and_user(
+        &self,
+        params: UserSettingsMergeManagedAndUserParams,
+    ) -> Result<UserSettingsMergeManagedAndUserResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::USER_SETTINGS_MERGEMANAGEDANDUSER,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Folds a repository's settings layer into the user layer. Each repo-overridable key carries a directional policy chosen so a repository can only add restrictions and never relax the user's own. The two per-entry managed control maps are the exception those directional rules cannot express — a repository may legitimately enable plugins and declare marketplaces — so they are re-stamped afterwards from the runtime's ambient managed policy. That makes the result depend on the runtime process's managed state and not on the arguments alone: a host must call this rather than reimplement the fold, or a repository could relax a restriction the administrator imposed. Rejects when either layer is not a JSON object.
+    ///
+    /// Wire method: `user.settings.mergeRepoValue`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - The user layer and the repository layer to fold together.
+    ///
+    /// # Returns
+    ///
+    /// The repository layer folded into the user layer.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn merge_repo_value(
+        &self,
+        params: UserSettingsMergeRepoValueParams,
+    ) -> Result<UserSettingsMergeRepoValueResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::USER_SETTINGS_MERGEREPOVALUE, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Runs the one-time migration that moves a staff account's update channel to stable, and records that it ran. Idempotent and self-gating: it takes a lock over the global-state file, re-reads the completion stamp inside it, and returns `current` rather than migrating twice, so two hosts racing at startup cannot both migrate. Only a `migrated` status means the persisted settings changed and the caller should reload them. An account on the experimental channel is deliberately left alone and reported as `excluded-experimental`.
+    ///
+    /// Wire method: `user.settings.migrateStaffUpdateChannelOnce`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - The filesystem and environment facts a user-settings file is resolved from. Passed explicitly rather than read from the runtime's own process, so a host whose configuration directory differs from its process environment resolves the file it means.
+    ///
+    /// # Returns
+    ///
+    /// The outcome of the one-time staff update-channel migration.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn migrate_staff_update_channel_once(
+        &self,
+        params: UserSettingsHostContext,
+    ) -> Result<UserSettingsMigrateStaffUpdateChannelOnceResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::USER_SETTINGS_MIGRATESTAFFUPDATECHANNELONCE,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Runs the one-time reset that clears a staff account's pinned model selection, and reports the timestamp the host should record. Idempotent and self-gating: the reset is gated on a fixed cutoff, so a caller that passes back the timestamp it recorded gets `didReset: false` rather than a second reset. It applies to staff accounts only; any other account is reported as not reset without the settings document being opened. Only `didReset: true` means the persisted settings changed, and only then are the updated settings returned for the host to adopt.
+    ///
+    /// Wire method: `user.settings.resetStaffModelSelectionOnce`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Selects the configuration directory to run the one-time staff model-selection reset against, and supplies the caller's record of whether it has already run.
+    ///
+    /// # Returns
+    ///
+    /// The outcome of the one-time staff model-selection reset.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn reset_staff_model_selection_once(
+        &self,
+        params: UserSettingsResetStaffModelSelectionOnceRequest,
+    ) -> Result<UserSettingsResetStaffModelSelectionOnceResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::USER_SETTINGS_RESETSTAFFMODELSELECTIONONCE,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reports the top-level keys in the user settings document that the runtime does not recognize, phrased for display to the user. This is a separate question from the warning `user.settings.loadWithWarning` returns: that one describes parts of the document the loader had to ignore to load the rest, whereas an unknown key parses cleanly and is simply not a setting, so a host that surfaces only the load warning silently accepts a misspelled key that will never take effect. Nothing is reported when the document is absent, unreadable, or failed to load, because an unknown-key list derived from a document the runtime could not read would be misleading rather than helpful. Inspection never modifies the document.
+    ///
+    /// Wire method: `user.settings.getUnknownKeysWarning`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Selects the configuration directory whose user settings document should be inspected for unrecognized top-level keys.
+    ///
+    /// # Returns
+    ///
+    /// The unrecognized top-level keys found in the user settings document, already phrased for display.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn get_unknown_keys_warning(
+        &self,
+        params: UserSettingsUnknownKeysWarningRequest,
+    ) -> Result<UserSettingsUnknownKeysWarningResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::USER_SETTINGS_GETUNKNOWNKEYSWARNING,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Resolves the effective runtime settings for a host that is about to start a session, layering the given overrides over the settings documents, the environment and the platform defaults. A host cannot assemble this itself: the precedence between a user document, a repository document, the managed layers and the environment is the runtime's own rule, and a host that re-implements it drifts from the server it is configuring. The working directory, environment and platform are taken as arguments rather than read from the server process, so a host resolving settings for a directory other than its own gets that directory's answer. Nothing is written; this only computes.
+    ///
+    /// Wire method: `user.settings.buildRuntime`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - The overrides and host context to resolve effective runtime settings from.
+    ///
+    /// # Returns
+    ///
+    /// The effective runtime settings, keyed by setting name. Keys this runtime does not recognize are preserved rather than dropped, so a caller reading a document written by a newer runtime keeps every value.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn build_runtime(
+        &self,
+        params: UserSettingsBuildRuntimeRequest,
+    ) -> Result<UserSettingsBuildRuntimeResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::USER_SETTINGS_BUILDRUNTIME, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Runs the one-time migration that moves a staff account's log level to the current default, and records that it ran. Idempotent and self-gating: it takes a lock over the global-state file and re-reads the completion stamp inside it, so two hosts racing at startup cannot both migrate. Only `refreshed` can have changed the persisted settings, and the settings it returns are the document re-read after the write, so a host should adopt them rather than reloading separately and racing the next writer.
+    ///
+    /// Wire method: `user.settings.migrateStaffLogLevelOnce`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Selects the configuration directory to run the one-time staff log-level migration against, and supplies the caller's record of whether it has already run.
+    ///
+    /// # Returns
+    ///
+    /// The outcome of the one-time staff log-level migration.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn migrate_staff_log_level_once(
+        &self,
+        params: UserSettingsMigrateStaffLogLevelOnceRequest,
+    ) -> Result<UserSettingsMigrateStaffLogLevelOnceResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::USER_SETTINGS_MIGRATESTAFFLOGLEVELONCE,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Runs the one-time cleanup that removes obsolete CLI-owned settings and legacy rubber-duck keys from the user's settings document, and reports what it did. Idempotent and safe to call on every startup: with nothing obsolete left it reports `unchanged` and writes nothing. The cleanup preserves every key it does not recognize, so a setting written by a newer host is never dropped by an older one, and a document that fails to parse is reported `invalid` and left untouched rather than rewritten from a partial read. The cleaned document is not returned: it is written before this replies, so `user.settings.load` reads it authoritatively. A host that surfaces unrecognized keys through `user.settings.unknownKeys` wants this first, because the keys this retires would otherwise be shown to the user as if they were misspelled settings.
+    ///
+    /// Wire method: `user.settings.migrateObsoleteOnDisk`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Selects the configuration directory whose settings document to clean.
+    ///
+    /// # Returns
+    ///
+    /// The outcome of the one-time obsolete-settings cleanup.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub(crate) async fn migrate_obsolete_on_disk(
+        &self,
+        params: UserSettingsMigrateObsoleteOnDiskRequest,
+    ) -> Result<UserSettingsMigrateObsoleteOnDiskResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(
+                rpc_methods::USER_SETTINGS_MIGRATEOBSOLETEONDISK,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
     /// Lists every known user setting from settings.json, each with its effective value, its default, and whether it is at the default — so settings the user has never set still appear with their default value. Does not include repository- or enterprise-managed overrides that the runtime layers on top at session time.
     ///
     /// Wire method: `user.settings.get`.
@@ -7002,7 +8965,7 @@ impl<'a> SessionRpcAccountsLogin<'a> {
     ///
     /// # Parameters
     ///
-    /// * `params` - Begin an interactive login flow for a provider kind. Dispatch is kind-only.
+    /// * `params` - Begin an interactive login flow for a provider kind, optionally reusing a cached base identity or explicitly requesting provider account selection.
     ///
     /// # Returns
     ///
@@ -7016,6 +8979,41 @@ impl<'a> SessionRpcAccountsLogin<'a> {
     ///
     /// </div>
     pub async fn begin(&self, params: AuthLoginBeginRequest) -> Result<AuthLoginBegun, Error> {
+        let mut wire_params = serde_json::to_value(params)?;
+        wire_params["sessionId"] = serde_json::Value::String(self.session.id().to_string());
+        let _value = self
+            .session
+            .client()
+            .call(rpc_methods::SESSION_ACCOUNTS_LOGIN_BEGIN, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Begin an interactive login flow for a provider kind (dispatch is kind-only) and return its opaque flow id and first step.
+    ///
+    /// Wire method: `session.accounts.login.begin`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Begin an interactive login flow for a provider kind, optionally reusing a cached base identity or explicitly requesting provider account selection.
+    ///
+    /// # Returns
+    ///
+    /// A started login flow: its opaque id and first step.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    ///
+    /// Accepts [`AuthLoginBeginOptions`], including inputs added after [`AuthLoginBeginRequest`].
+    pub async fn begin_with_options(
+        &self,
+        params: AuthLoginBeginOptions,
+    ) -> Result<AuthLoginBegun, Error> {
         let mut wire_params = serde_json::to_value(params)?;
         wire_params["sessionId"] = serde_json::Value::String(self.session.id().to_string());
         let _value = self

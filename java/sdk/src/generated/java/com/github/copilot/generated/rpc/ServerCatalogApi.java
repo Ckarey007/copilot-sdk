@@ -62,4 +62,15 @@ public final class ServerCatalogApi {
         return caller.invoke("catalog.select", params, CatalogSelectionResult.class);
     }
 
+    /**
+     * Plans installing the resource an Agent Finder materialisation reference pins, without writing files and whatever its kind. The runtime retrieves the descriptor once, only from its fixed Agent Finder authority, verifies it, and plans by its resolution policy: a Skill (`agent-skill@1.0.0`) when the caller requires skill-confirmed-installation, an Agent Plugin (`plugin@1.0.0`) when it requires agent-plugin-confirmed-installation. Any other kind is refused as unsupported-resource. The outcome names the kind; apply a Skill plan with skills.applyInstall and an Agent Plugin plan with plugins.applyInstall. The review shows only verified data.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    public CompletableFuture<CatalogReferenceInstallationResult> planInstallFromReference(CatalogPlanInstallFromReferenceParams params) {
+        return caller.invoke("catalog.planInstallFromReference", params, CatalogReferenceInstallationResult.class);
+    }
+
 }

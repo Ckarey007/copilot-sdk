@@ -112,6 +112,18 @@ new CopilotClient(CopilotClientOptions? options = null)
 - `BaseDirectory` - Base directory for Copilot data (session state, config, etc.). Sets `COPILOT_HOME` on the spawned runtime process. When not set, the runtime defaults to `~/.copilot`. Useful in restricted environments where only specific directories are writable. Ignored when connecting via `RuntimeConnection.ForUri(...)`.
 - `EnableRemoteSessions` - Enables remote-session features.
 - `Environment` - Environment variables to pass to the runtime process.
+
+  For the native standalone runtime, set the `Environment` dictionary entry
+  `["COPILOT_GITHUB_TELEMETRY_DISABLED"] = "true"` before startup to disable direct
+  GitHub telemetry uploads for the entire host, including sessionless events.
+  Authentication, `OnGitHubTelemetry` forwarding, and user-configured
+  OpenTelemetry export remain unchanged. This is separate from
+  `EnableSessionTelemetry = false`, which disables only a session's pipeline.
+  The value must be exactly `"true"`; changing it requires a runtime restart.
+  The Node CLI host does not use this variable. In-process connections reject
+  per-client `Environment`; set the variable in the host process environment
+  before starting the runtime instead.
+
 - `Logger` - `ILogger` instance for SDK logging.
 - `GitHubToken` - GitHub token for authentication. When provided, takes priority over other auth methods.
 - `UseLoggedInUser` - Whether to use logged-in user for authentication (default: true, but false when `GitHubToken` is provided). Cannot be used with `RuntimeConnection.ForUri(...)`.
@@ -229,11 +241,13 @@ Create a new conversation session.
 - `InfiniteSessions` - Configure automatic context compaction (see below)
 - `WorkingDirectory` - Working directory for the session. When not set, the runtime uses its own process working directory.
 - `EnableSessionStore` - Enables the cross-session store for search and retrieval across sessions. When unset in `CopilotClientMode.CopilotCli`, the runtime default applies (enabled). In `CopilotClientMode.Empty`, defaults to disabled.
+- `EnableGitHubCacheStore` - Requests the read-only GitHub cache store (`github-cache-store` capability) on create or resume. The runtime registers the `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is also on. Defaults to disabled in every mode.
 - `GitHubTokenProvider` - Acquires session-scoped GitHub tokens on demand. Return `GitHubTokenProviderResult.FromToken` with a positive `ExpiresIn` value (production GitHub tokens typically use `8 * 60 * 60` seconds), or `GitHubTokenProviderResult.Cancel()`. Cannot be combined with `GitHubToken`.
 - `SkillProvider` - Experimental session-scoped skill provider. See [Skill providers (experimental)](#skill-providers-experimental).
 - `OnPermissionRequest` - Optional handler called before each tool execution to approve or deny it. When omitted, permission requests are emitted as events and left pending for manual resolution. `PermissionHandler.ApproveAll` approves requests when managed settings are disabled and throws when `EnableManagedSettings` is true. Custom handlers can inspect `ManagedApprovalRequired` for human-facing confirmation logic. See [Permission Handling](#permission-handling) section.
 - `OnUserInputRequest` - Handler for legacy question-and-answer requests from the agent. Enables the legacy `ask_user` tool. See [User Input Requests](#user-input-requests) section.
 - `AskUserVariant` - Selects the model-facing `ask_user` tool shape. Defaults to `AskUserVariant.Legacy`; use `AskUserVariant.Elicitation` with `OnElicitationRequest`.
+- `InteractiveUser` - Declares that a person types this session's messages, as in an editor chat panel. Enables the runtime's user-message analysis telemetry for user-authored messages; automated messages stay excluded. Defaults to off. Ignored for cloud sessions.
 - `Hooks` - Hook handlers for session lifecycle events. See [Session Hooks](#session-hooks) section.
 - `CanvasHandler` - Handles canvas open, close, and action callbacks. The SDK awaits
   asynchronous callbacks before replying, including callbacks without a result, unless
@@ -251,6 +265,7 @@ Resume an existing session. Returns the session with `WorkspacePath` populated i
 - `GitHubTokenProvider` - Replaces the session-scoped token provider when resuming. Cannot be combined with `GitHubToken`.
 - `SkillProvider` - Re-supplies the session-scoped skill provider when resuming.
 - `AskUserVariant` - Re-supplies the model-facing `ask_user` tool shape on cold resume.
+- `InteractiveUser` - Re-supplies the interactive-user declaration on cold resume. It is ignored when resuming a session that is already active.
 - `AllowTranscriptRecovery` - Repairs a damaged transcript when true. The default
   is true in all modes; set false to reject recovery. `session.TranscriptRecovery` contains
   `PlannedBackupPath`, `InvalidLineNumbers` (including torn-tail loss), and
@@ -1200,6 +1215,8 @@ No extra dependencies — uses built-in `System.Diagnostics.Activity`.
 
 An `OnPermissionRequest` handler is optional when you create or resume a session. When provided, it is called before the agent executes each tool (file writes, shell commands, custom tools, etc.) and returns a decision. When omitted, permission requests are emitted as events and left pending for the consumer to resolve with the pending permission RPC.
 
+Callbacks receive optional derived prompt context as `invocation.PromptRequest`, matching `PermissionRequestedData.PromptRequest`. The raw request's `ManagedApprovalRequired` remains managed-policy provenance and enforces one-shot restrictions. Only derived `commands`, `read`, `write`, `url`, and `workflow` prompts can clear the human requirement after Assisted approval; for missing or other prompt kinds, keep the raw marker authoritative.
+
 ### Approve All (simplest)
 
 Use the built-in `PermissionHandler.ApproveAll` helper to approve ordinary permission requests automatically:
@@ -1391,7 +1408,7 @@ var session = await client.CreateSessionAsync(new SessionConfig
 - `OnPreToolUse` - Intercept tool calls before execution. Can allow/deny or modify arguments.
 - `OnPostToolUse` - Process tool results after successful execution. Can modify results or add context.
 - `OnPostToolUseFailure` - Observe failed tool executions and inject extra context to guide the model's next step.
-- `OnUserPromptSubmitted` - Intercept user prompts. Can modify the prompt before processing.
+- `OnUserPromptSubmitted` - Intercept user prompts. Can modify the prompt before processing, or return `new UserPromptSubmittedHookOutput { Decision = "block", Reason = "..." }` to refuse it: no model turn runs, no user message is recorded, and the session emits an ephemeral `session.warning` (`warningType: "policy_blocked"`) carrying the reason.
 - `OnSessionStart` - Run logic when a session starts or resumes.
 - `OnSessionEnd` - Cleanup or logging when session ends.
 - `OnErrorOccurred` - Handle errors with retry/skip/abort strategies.

@@ -796,6 +796,73 @@ func TestClient_ForwardsCapiOptionsToSessionRequests(t *testing.T) {
 	}
 }
 
+func TestClient_ForwardsInteractiveUserToSessionRequests(t *testing.T) {
+	tests := []struct {
+		name  string
+		value *bool
+	}{
+		{"true", Bool(true)},
+		{"false", Bool(false)},
+		{"omitted", nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rpcClient, server, _ := newRuntimeShutdownRpcPair(t)
+			t.Cleanup(server.Stop)
+			client := &Client{
+				client:   rpcClient,
+				RPC:      rpc.NewServerRPC(rpcClient),
+				sessions: make(map[string]*Session),
+			}
+
+			createParams := make(chan json.RawMessage, 1)
+			server.SetRequestHandler("session.create", func(params json.RawMessage) (json.RawMessage, *jsonrpc2.Error) {
+				createParams <- append(json.RawMessage(nil), params...)
+				sessionID := sessionIDFromParams(t, params)
+				return []byte(`{"sessionId":"` + sessionID + `","workspacePath":"/workspace"}`), nil
+			})
+
+			_, err := client.CreateSession(t.Context(), &SessionConfig{InteractiveUser: tt.value})
+			if err != nil {
+				t.Fatalf("CreateSession failed: %v", err)
+			}
+			assertOptionalBoolJSONField(t, <-createParams, "interactiveUser", tt.value)
+
+			resumeParams := make(chan json.RawMessage, 1)
+			server.SetRequestHandler("session.resume", func(params json.RawMessage) (json.RawMessage, *jsonrpc2.Error) {
+				resumeParams <- append(json.RawMessage(nil), params...)
+				return []byte(`{"sessionId":"interactive-resume","workspacePath":"/workspace"}`), nil
+			})
+
+			_, err = client.ResumeSessionWithOptions(t.Context(), "interactive-resume", &ResumeSessionConfig{InteractiveUser: tt.value})
+			if err != nil {
+				t.Fatalf("ResumeSessionWithOptions failed: %v", err)
+			}
+			assertOptionalBoolJSONField(t, <-resumeParams, "interactiveUser", tt.value)
+		})
+	}
+}
+
+func assertOptionalBoolJSONField(t *testing.T, raw json.RawMessage, field string, want *bool) {
+	t.Helper()
+
+	var params map[string]any
+	if err := json.Unmarshal(raw, &params); err != nil {
+		t.Fatal(err)
+	}
+	got, present := params[field]
+	if want == nil {
+		if present {
+			t.Fatalf("%s = %v, want omitted", field, got)
+		}
+		return
+	}
+	if got != *want {
+		t.Fatalf("%s = %v, want %v", field, got, *want)
+	}
+}
+
 func TestClient_RefreshCustomInstructionsIsCreateOnly(t *testing.T) {
 	if _, ok := reflect.TypeOf(ResumeSessionConfig{}).FieldByName("RefreshCustomInstructions"); ok {
 		t.Fatal("ResumeSessionConfig must not expose RefreshCustomInstructions")
@@ -1147,6 +1214,68 @@ func assertAdditionalDirectories(t *testing.T, params json.RawMessage, want []st
 	}
 	if !reflect.DeepEqual(payload.AdditionalDirectories, want) {
 		t.Fatalf("additionalDirectories = %v, want %v", payload.AdditionalDirectories, want)
+	}
+}
+
+func TestClient_ForwardsGitHubCacheStoreToSessionRequests(t *testing.T) {
+	rpcClient, server, _ := newRuntimeShutdownRpcPair(t)
+	t.Cleanup(server.Stop)
+	client := &Client{
+		client:   rpcClient,
+		RPC:      rpc.NewServerRPC(rpcClient),
+		sessions: make(map[string]*Session),
+	}
+
+	createParams := make(chan json.RawMessage, 2)
+	server.SetRequestHandler("session.create", func(params json.RawMessage) (json.RawMessage, *jsonrpc2.Error) {
+		createParams <- append(json.RawMessage(nil), params...)
+		sessionID := sessionIDFromParams(t, params)
+		return []byte(`{"sessionId":"` + sessionID + `","workspacePath":"/workspace"}`), nil
+	})
+	resumeParams := make(chan json.RawMessage, 2)
+	server.SetRequestHandler("session.resume", func(params json.RawMessage) (json.RawMessage, *jsonrpc2.Error) {
+		resumeParams <- append(json.RawMessage(nil), params...)
+		return []byte(`{"sessionId":"` + sessionIDFromParams(t, params) + `","workspacePath":"/workspace"}`), nil
+	})
+
+	if _, err := client.CreateSession(t.Context(), &SessionConfig{EnableGitHubCacheStore: Bool(true)}); err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	assertGitHubCacheStoreParam(t, <-createParams, Bool(true))
+	if _, err := client.ResumeSessionWithOptions(
+		t.Context(),
+		"resumed-cache-store",
+		&ResumeSessionConfig{EnableGitHubCacheStore: Bool(false)},
+	); err != nil {
+		t.Fatalf("ResumeSessionWithOptions failed: %v", err)
+	}
+	assertGitHubCacheStoreParam(t, <-resumeParams, Bool(false))
+
+	if _, err := client.CreateSession(t.Context(), &SessionConfig{}); err != nil {
+		t.Fatalf("CreateSession without option failed: %v", err)
+	}
+	assertGitHubCacheStoreParam(t, <-createParams, nil)
+	if _, err := client.ResumeSessionWithOptions(t.Context(), "resumed-cache-store-unset", &ResumeSessionConfig{}); err != nil {
+		t.Fatalf("ResumeSessionWithOptions without option failed: %v", err)
+	}
+	assertGitHubCacheStoreParam(t, <-resumeParams, nil)
+}
+
+func assertGitHubCacheStoreParam(t *testing.T, params json.RawMessage, want *bool) {
+	t.Helper()
+	var payload map[string]any
+	if err := json.Unmarshal(params, &payload); err != nil {
+		t.Fatalf("failed to decode request params: %v", err)
+	}
+	got, present := payload["enableGitHubCacheStore"]
+	if want == nil {
+		if present {
+			t.Fatalf("enableGitHubCacheStore = %v, want omitted", got)
+		}
+		return
+	}
+	if got != *want {
+		t.Fatalf("enableGitHubCacheStore = %v (present=%v), want %v", got, present, *want)
 	}
 }
 

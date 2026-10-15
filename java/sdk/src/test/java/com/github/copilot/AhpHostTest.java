@@ -154,7 +154,7 @@ class AhpHostTest {
         var methods = Arrays.stream(ServerHostApi.class.getMethods())
                 .filter(method -> method.getDeclaringClass() == ServerHostApi.class).map(method -> method.getName())
                 .collect(Collectors.toSet());
-        assertEquals(Set.of("start", "dispose", "publishSession", "listSessions"), methods);
+        assertEquals(Set.of("start", "dispose", "publishSession", "unpublishSession", "listSessions"), methods);
     }
 
     @Test
@@ -356,6 +356,13 @@ class AhpHostTest {
             })));
             assertNull(host.getPid());
             assertEquals("ahp-session:/resident", await(host.publishSession("resident")).sessionUri());
+            assertTrue(await(host.unpublishSession("resident")).unpublished());
+            assertFalse(await(host.unpublishSession("resident")).unpublished());
+            assertEquals(2, server.unpublicationRequests.size());
+            for (var request : server.unpublicationRequests) {
+                assertEquals(host.getHostId(), request.path("hostId").asText());
+                assertEquals("resident", request.path("sessionId").asText());
+            }
             assertTrue(await(host.listSessions()).sessions().isEmpty());
             assertEquals(host.getHostId(), await(server.listSessionsRequest).path("hostId").asText());
             await(CompletableFuture.allOf(host.dispose(), host.dispose()));
@@ -372,6 +379,7 @@ class AhpHostTest {
         final ServerSocket listener = new ServerSocket(0);
         final CompletableFuture<JsonRpcClient> connected = new CompletableFuture<>();
         final CopyOnWriteArrayList<JsonNode> sessionRequests = new CopyOnWriteArrayList<>();
+        final CopyOnWriteArrayList<JsonNode> unpublicationRequests = new CopyOnWriteArrayList<>();
         final AtomicInteger disposals = new AtomicInteger();
         final CompletableFuture<String> startEntered = new CompletableFuture<>();
         final CompletableFuture<JsonNode> startRequest = new CompletableFuture<>();
@@ -419,6 +427,10 @@ class AhpHostTest {
                                 (id, params) -> respond(transport, id,
                                         Map.of("sessionId", params.get("sessionId").asText(), "sessionUri",
                                                 "ahp-session:/" + params.get("sessionId").asText())));
+                        transport.registerMethodHandler("host.unpublishSession", (id, params) -> {
+                            unpublicationRequests.add(params);
+                            respond(transport, id, Map.of("unpublished", unpublicationRequests.size() == 1));
+                        });
                         transport.registerMethodHandler("host.listSessions", (id, params) -> {
                             listSessionsRequest.complete(params);
                             respond(transport, id, Map.of("sessions", List.of()));

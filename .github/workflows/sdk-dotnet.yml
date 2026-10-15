@@ -24,9 +24,9 @@ permissions:
 
 jobs:
   dotnet-linux-x64:
-    name: ".NET (ubuntu-latest, CAPI)"
+    name: ".NET (ubuntu-26.04-2core-agent-runtime, CAPI)"
     if: inputs.platform == 'all' || inputs.platform == 'linux-x64'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-26.04-2core-ar-mq' || 'ubuntu-26.04-2core-agent-runtime' }}
     defaults:
       run:
         shell: bash
@@ -90,7 +90,7 @@ jobs:
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: dotnet-test-diagnostics-ubuntu-latest-capi-${{ github.run_attempt }}
+          name: dotnet-test-diagnostics-ubuntu-26.04-2core-agent-runtime-capi-${{ github.run_attempt }}
           path: ${{ inputs.sdk-home }}/dotnet/TestResults/
           if-no-files-found: warn
           retention-days: 7
@@ -98,7 +98,7 @@ jobs:
   dotnet-darwin-arm64:
     name: ".NET (macos-26-xlarge-agent-runtime, default, CAPI)"
     if: inputs.platform == 'all' || inputs.platform == 'darwin-arm64'
-    runs-on: macos-26-xlarge-agent-runtime
+    runs-on: ${{ github.event_name == 'merge_group' && 'macos-26-xlarge-ar-mq' || 'macos-26-xlarge-agent-runtime' }}
     defaults:
       run:
         shell: bash
@@ -148,9 +148,9 @@ jobs:
           retention-days: 7
 
   dotnet-win32-x64:
-    name: ".NET (windows-latest, ${{ matrix.framework }}, ${{ matrix.suite.name }}, CAPI)"
+    name: ".NET (windows-2025-4core-agent-runtime, ${{ matrix.framework }}, ${{ matrix.suite.name }}, CAPI)"
     if: inputs.platform == 'all' || inputs.platform == 'win32-x64'
-    runs-on: windows-latest
+    runs-on: ${{ github.event_name == 'merge_group' && 'windows-2025-4core-ar-mq' || 'windows-2025-4core-agent-runtime' }}
     strategy:
       fail-fast: false
       matrix:
@@ -208,7 +208,7 @@ jobs:
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: dotnet-test-diagnostics-windows-latest-${{ matrix.framework }}-${{ matrix.suite.name }}-capi-${{ github.run_attempt }}
+          name: dotnet-test-diagnostics-windows-2025-4core-agent-runtime-${{ matrix.framework }}-${{ matrix.suite.name }}-capi-${{ github.run_attempt }}
           path: ${{ inputs.sdk-home }}/dotnet/TestResults/
           if-no-files-found: warn
           retention-days: 7
@@ -216,7 +216,7 @@ jobs:
   dotnet-musl-x64:
     name: ".NET (Alpine x64, CAPI)"
     if: inputs.platform == 'all' || inputs.platform == 'linuxmusl-x64'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-26.04-2core-ar-mq' || 'ubuntu-26.04-2core-agent-runtime' }}
     env:
       COPILOT_SDK_E2E_BACKEND: capi
     steps:

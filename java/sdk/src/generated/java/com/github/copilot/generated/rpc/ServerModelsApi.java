@@ -61,4 +61,28 @@ public final class ServerModelsApi {
         return caller.invoke("models.getBuiltInCatalog", java.util.Map.of(), ModelsGetBuiltInCatalogResult.class);
     }
 
+    /**
+     * Reports the unit of each model's published token prices: AI Credits or nano-AIU. Pair these units with models.list prices by model ID and use identical account-selection options for both calls. When options are omitted, the current account and its model providers are used.
+     * <p>
+     * Invokes the method with no params, applying the runtime defaults.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    public CompletableFuture<ModelsListTokenPriceUnitsResult> listTokenPriceUnits() {
+        return listTokenPriceUnits(null);
+    }
+
+    /**
+     * Reports the unit of each model's published token prices: AI Credits or nano-AIU. Pair these units with models.list prices by model ID and use identical account-selection options for both calls. When options are omitted, the current account and its model providers are used.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    public CompletableFuture<ModelsListTokenPriceUnitsResult> listTokenPriceUnits(ModelsListTokenPriceUnitsParams params) {
+        return caller.invoke("models.listTokenPriceUnits", params == null ? java.util.Map.of() : params, ModelsListTokenPriceUnitsResult.class);
+    }
+
 }

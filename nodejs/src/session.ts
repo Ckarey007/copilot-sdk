@@ -45,7 +45,9 @@ import type {
     McpAuthHandler,
     McpAuthRequest,
     PermissionHandler,
+    PermissionHandlerInvocation,
     PermissionRequest,
+    PermissionRequestedData,
     PermissionRequestResult,
     ContextTier,
     ReasoningEffort,
@@ -181,6 +183,27 @@ function deserializeHookInput(raw: unknown): unknown {
         workingDirectory: cwd,
         ...(stop_hook_active === undefined ? {} : { stopHookActive: stop_hook_active }),
     };
+}
+
+/**
+ * The CLI sends the `error` of an errorOccurred or sessionEnd hook input as an
+ * error object (`{ name, message, stack }` or `{ message }`), where the hook
+ * input types declare a string. The object's message becomes the error, and an
+ * object without a string message becomes its JSON. Other values pass through.
+ */
+function normalizeHookError(hookType: string, input: unknown): unknown {
+    if (hookType !== "errorOccurred" && hookType !== "sessionEnd") {
+        return input;
+    }
+    if (!input || typeof input !== "object" || !("error" in input)) {
+        return input;
+    }
+    const { error } = input as { error: unknown };
+    if (!error || typeof error !== "object" || Array.isArray(error)) {
+        return input;
+    }
+    const { message } = error as { message?: unknown };
+    return { ...input, error: typeof message === "string" ? message : JSON.stringify(error) };
 }
 
 function isOpenCanvasInstance(value: unknown): value is OpenCanvasInstance {
@@ -1245,16 +1268,13 @@ export class CopilotSession {
                 }
             }
         } else if (event.type === "permission.requested") {
-            const { requestId, permissionRequest, resolvedByHook } = event.data as {
-                requestId: string;
-                permissionRequest: PermissionRequest;
-                resolvedByHook?: boolean;
-            };
+            const { requestId, permissionRequest, promptRequest, resolvedByHook } =
+                event.data as PermissionRequestedData;
             if (resolvedByHook) {
                 return; // Already resolved by a permissionRequest hook; no client action needed.
             }
             if (this.permissionHandler) {
-                void this._executePermissionAndRespond(requestId, permissionRequest);
+                void this._executePermissionAndRespond(requestId, permissionRequest, promptRequest);
             }
         } else if (event.type === "mcp.oauth_required") {
             const data = event.data as McpAuthRequest | undefined;
@@ -1450,13 +1470,16 @@ export class CopilotSession {
      */
     private async _executePermissionAndRespond(
         requestId: string,
-        permissionRequest: PermissionRequest
+        permissionRequest: PermissionRequest,
+        promptRequest?: PermissionRequestedData["promptRequest"]
     ): Promise<void> {
         try {
-            const handlerResult = await this.permissionHandler!(permissionRequest, {
+            const invocation: PermissionHandlerInvocation = {
                 sessionId: this.sessionId,
                 managedSettingsEnabled: this.managedSettingsEnabled,
-            });
+                ...(promptRequest === undefined ? {} : { promptRequest }),
+            };
+            const handlerResult = await this.permissionHandler!(permissionRequest, invocation);
             const isAttributed = isAttributedPermissionResult(handlerResult);
             const result: PermissionRequestResult = isAttributed
                 ? handlerResult.result
@@ -2364,7 +2387,7 @@ export class CopilotSession {
         // is left alone — the user-facing handler types still cast unknown to the
         // specific HookInput, so a runtime type mismatch surfaces as a normal
         // TypeError in user code rather than being silently masked.
-        const normalized = deserializeHookInput(input);
+        const normalized = normalizeHookError(hookType, deserializeHookInput(input));
 
         type GenericHandler = (
             input: unknown,

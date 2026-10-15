@@ -21,6 +21,8 @@ conversations:
 
 
           You are now in interactive mode. Start implementing the plan now, in this same response. Approving the plan is
-          your go-signal, so do not stop to ask whether to proceed or wait for another message.
+          your go-signal, so do not stop to ask whether to proceed or wait for another message. Do NOT call
+          task_complete or claim the task is done until you have actually implemented the plan — approving the plan is
+          not the same as completing it.
       - role: assistant
         content: The scenario client plan was approved.

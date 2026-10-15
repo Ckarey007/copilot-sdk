@@ -2,38 +2,35 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { approveAll, CopilotClient, RuntimeConnection } from "../../src/index.js";
 import { createSdkTestContext } from "./harness/sdkTestContext.js";
 
 describe("Per-session GitHub auth", async () => {
     const { copilotClient: client, openAiEndpoint, env, workDir } = await createSdkTestContext();
 
-    // Redirect GitHub API calls (e.g., fetchCopilotUser) to the proxy
-    // so per-session auth token resolution can be tested
-    env.COPILOT_DEBUG_GITHUB_API_URL = env.COPILOT_API_URL;
+    beforeAll(async () => {
+        // Configure per-token responses after the replay proxy is ready.
+        const proxyUrl = env.COPILOT_API_URL;
+        await openAiEndpoint.setCopilotUserByToken("token-alice", {
+            login: "alice",
+            copilot_plan: "individual_pro",
+            endpoints: {
+                api: proxyUrl,
+                telemetry: "https://localhost:1/telemetry",
+            },
+            analytics_tracking_id: "alice-tracking-id",
+        });
 
-    // Configure per-token responses on the proxy.
-    // endpoints.api points back to the proxy so subsequent CAPI calls are also intercepted.
-    const proxyUrl = env.COPILOT_API_URL;
-    await openAiEndpoint.setCopilotUserByToken("token-alice", {
-        login: "alice",
-        copilot_plan: "individual_pro",
-        endpoints: {
-            api: proxyUrl,
-            telemetry: "https://localhost:1/telemetry",
-        },
-        analytics_tracking_id: "alice-tracking-id",
-    });
-
-    await openAiEndpoint.setCopilotUserByToken("token-bob", {
-        login: "bob",
-        copilot_plan: "business",
-        endpoints: {
-            api: proxyUrl,
-            telemetry: "https://localhost:1/telemetry",
-        },
-        analytics_tracking_id: "bob-tracking-id",
+        await openAiEndpoint.setCopilotUserByToken("token-bob", {
+            login: "bob",
+            copilot_plan: "business",
+            endpoints: {
+                api: proxyUrl,
+                telemetry: "https://localhost:1/telemetry",
+            },
+            analytics_tracking_id: "bob-tracking-id",
+        });
     });
 
     it("should create session with gitHubToken and check auth status", async () => {

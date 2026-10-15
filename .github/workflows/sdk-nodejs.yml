@@ -1,6 +1,6 @@
 # Invoked by sdk.yml to run Node.js SDK builds, tests, packaging checks,
 # documentation validation, full subprocess coverage, and focused in-process
-# smoke coverage on standard platforms and x64 musl.
+# smoke coverage on standard platforms and x64 musl, plus full in-process E2Es on Linux.
 name: "SDK Node.js"
 
 env:
@@ -34,8 +34,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.platform == 'linux-x64' && '["ubuntu-latest"]' || inputs.platform == 'darwin-arm64' && '["macos-26-agent-runtime"]' || inputs.platform == 'win32-x64' && '["windows-latest"]' || '["ubuntu-latest","macos-26-agent-runtime","windows-latest"]') }}
-    runs-on: ${{ matrix.os }}
+        os: ${{ fromJSON(inputs.platform == 'linux-x64' && '["ubuntu-26.04-4core-agent-runtime"]' || inputs.platform == 'darwin-arm64' && '["macos-26-agent-runtime"]' || inputs.platform == 'win32-x64' && '["windows-2025-4core-agent-runtime"]' || '["ubuntu-26.04-4core-agent-runtime","macos-26-agent-runtime","windows-2025-4core-agent-runtime"]') }}
+    runs-on: ${{ github.event_name == 'merge_group' && fromJSON('{"ubuntu-26.04-4core-agent-runtime":"ubuntu-26.04-4core-ar-mq","macos-26-agent-runtime":"macos-26-ar-mq","windows-2025-4core-agent-runtime":"windows-2025-4core-ar-mq"}')[matrix.os] || matrix.os }}
     defaults:
       run:
         shell: bash
@@ -91,6 +91,7 @@ jobs:
         id: subprocess
         env:
           COPILOT_HMAC_KEY: ${{ secrets.COPILOT_DEVELOPER_CLI_INTEGRATION_HMAC_KEY }}
+          VITEST_MAX_WORKERS: ${{ runner.os == 'Linux' && '4' || '' }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = "merge_group" ] || [ "$GITHUB_EVENT_NAME" = "pull_request" ] || [ "$GITHUB_EVENT_NAME" = "push" ]; then
             npm test -- --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/sdk-nodejs-results.json"
@@ -120,12 +121,48 @@ jobs:
           npm run extract
           npm run validate:ts
 
+  # Keep full in-process coverage separate from the required CAPI result.
+  nodejs-inprocess:
+    name: "Node.js (ubuntu-26.04-4core-agent-runtime, in-process, CAPI)"
+    if: github.event_name != 'merge_group' && (inputs.platform == 'all' || inputs.platform == 'linux-x64')
+    runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-26.04-4core-ar-mq' || 'ubuntu-26.04-4core-agent-runtime' }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.sdk-home }}/nodejs
+    env:
+      COPILOT_SDK_DEFAULT_CONNECTION: inprocess
+      VITEST_MAX_WORKERS: 4
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/download-sdk-runtime
+        with:
+          artifact-name: executable-sdk-Linux-X64-gnu
+          path: ${{ github.workspace }}
+      - run: node "$SDK_HOME/scripts/ci/runtime-artifact.mjs" restore && node "$SDK_HOME/scripts/ci/runtime-artifact.mjs" prepare
+        working-directory: .
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ inputs.sdk-home }}/nodejs/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npm ci --ignore-scripts
+        working-directory: ${{ inputs.sdk-home }}/test/harness
+      - name: Test in-process E2Es
+        env:
+          COPILOT_HMAC_KEY: ${{ secrets.COPILOT_DEVELOPER_CLI_INTEGRATION_HMAC_KEY }}
+        run: npm test -- test/e2e
+
   # Keep each BYOK backend on its own runner; shared runtime E2E coverage belongs
   # in TypeScript rather than repeating these sweeps across SDK languages.
   nodejs-backends:
-    name: "Node.js (ubuntu-latest, ${{ matrix.backend }})"
+    name: "Node.js (ubuntu-26.04-2core-agent-runtime, ${{ matrix.backend }})"
     if: github.event_name != 'merge_group' && (inputs.platform == 'all' || inputs.platform == 'linux-x64')
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-26.04-2core-ar-mq' || 'ubuntu-26.04-2core-agent-runtime' }}
     strategy:
       fail-fast: false
       matrix:
@@ -163,7 +200,7 @@ jobs:
   nodejs-musl-x64:
     name: "Node.js (Alpine x64, CAPI)"
     if: inputs.platform == 'all' || inputs.platform == 'linuxmusl-x64'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-26.04-2core-ar-mq' || 'ubuntu-26.04-2core-agent-runtime' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -182,6 +219,7 @@ jobs:
           sdk-root: /workspace/${{ inputs.sdk-home }}
           workdir: /workspace/${{ inputs.sdk-home }}/nodejs
           command: |
+            apk add --no-cache git-daemon
             npm ci --ignore-scripts
             (cd "$COPILOT_SDK_ROOT/scripts/codegen" && npm ci --ignore-scripts)
             npm run build

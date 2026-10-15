@@ -5,7 +5,7 @@
         "url": "https://github.com/github/copilot-sdk.git"
     },
     "version": "0.0.0-dev",
-    "copilotCliVersion": "1.0.97-0",
+    "copilotCliVersion": "1.0.99-1",
     "description": "TypeScript SDK for programmatic control of GitHub Copilot CLI via JSON-RPC",
     "main": "./dist/cjs/index.js",
     "types": "./dist/index.d.ts",
@@ -43,6 +43,7 @@
         "prepare:runtime": "tsx scripts/prepare-runtime.ts",
         "test": "vitest run",
         "test:unit": "vitest run --exclude=\"test/e2e/**\"",
+        "test:codegen": "vitest run --exclude=\"test/e2e/**\" codegen.test.ts legacy-parameters.test.ts",
         "test:watch": "vitest",
         "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" --ignore-path .prettierignore",
         "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" --ignore-path .prettierignore",
@@ -79,6 +80,7 @@
         "@typescript-eslint/parser": "^8.54.0",
         "esbuild": "^0.28.1",
         "eslint": "^9.0.0",
+        "file-entry-cache": "file:./scripts/eslint-file-cache",
         "glob": "^13.0.1",
         "hpke-js": "^1.8.0",
         "json-schema": "^0.4.0",
@@ -94,6 +96,9 @@
     },
     "engines": {
         "node": "^20.19.0 || >=22.12.0"
+    },
+    "overrides": {
+        "file-entry-cache": "$file-entry-cache"
     },
     "files": [
         "dist/**/*",

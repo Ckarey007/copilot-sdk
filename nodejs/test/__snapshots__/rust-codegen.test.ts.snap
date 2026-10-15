@@ -1,0 +1,290 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Rust shared schema baseline > renders event payloads and serde discriminators 1`] = `
+"//! Auto-generated from session-events.schema.json — do not edit manually.
+
+#![allow(deprecated)]
+
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+
+use crate::types::{RequestId, SessionId};
+
+/// Identifies the kind of session event.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SessionEventType {
+    #[serde(rename = "sample.updated")]
+    SampleUpdated,
+    /// Unknown event type for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Typed session event data, discriminated by the event \`type\` field.
+///
+/// Use with [\`TypedSessionEvent\`] for fully typed event handling.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+pub enum SessionEventData {
+    #[serde(rename = "sample.updated")]
+    SampleUpdated(SampleUpdatedData),
+}
+
+/// A session event with typed data payload.
+///
+/// The common event fields (id, timestamp, parentId, ephemeral, agentId)
+/// are available directly. The event-specific data is in the \`payload\`
+/// field as a [\`SessionEventData\`] enum.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TypedSessionEvent {
+    /// Unique event identifier (UUID v4).
+    pub id: String,
+    /// ISO 8601 timestamp when the event was created.
+    pub timestamp: String,
+    /// ID of the preceding event in the chain.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    /// When true, the event is transient and not persisted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral: Option<bool>,
+    /// Sub-agent instance identifier. Absent for events from the root /
+    /// main agent and session-level events.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// The typed event payload (discriminated by event type).
+    #[serde(flatten)]
+    pub payload: SessionEventData,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SampleUpdatedData {
+    pub message: String,
+    pub sequence: i32,
+    pub active: bool,
+    pub tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+"
+`;
+
+exports[`Rust shared schema baseline > renders types, server/session calls, and nested namespaces 1`] = `
+{
+  "api_types.rs": "//! Auto-generated from api.schema.json — do not edit manually.
+
+#![allow(clippy::large_enum_variant)]
+#![allow(deprecated)]
+#![allow(dead_code)]
+#![allow(rustdoc::invalid_html_tags)]
+
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+
+use crate::types::{RequestId, SessionId};
+
+/// JSON-RPC method name constants.
+pub mod rpc_methods {
+    /// \`sample.get\`
+    pub const SAMPLE_GET: &str = "sample.get";
+    /// \`sample.ping\`
+    pub const SAMPLE_PING: &str = "sample.ping";
+    /// \`sample.nested.list\`
+    pub const SAMPLE_NESTED_LIST: &str = "sample.nested.list";
+    /// \`session.sample.get\`
+    pub const SESSION_SAMPLE_GET: &str = "session.sample.get";
+}
+
+/// An item returned by the sample service.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SampleItem {
+    pub id: String,
+    pub count: i32,
+    pub active: bool,
+    pub score: f64,
+    pub tags: Vec<String>,
+    pub labels: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SampleGetRequest {
+    pub id: String,
+}
+
+/// An item returned by the sample service.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SampleGetResult {
+    pub id: String,
+    pub count: i32,
+    pub active: bool,
+    pub score: f64,
+    pub tags: Vec<String>,
+    pub labels: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SampleListResult {
+    pub items: Vec<SampleItem>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSampleGetRequest {
+    pub id: String,
+}
+
+/// An item returned by the sample service.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSampleGetResult {
+    pub id: String,
+    pub count: i32,
+    pub active: bool,
+    pub score: f64,
+    pub tags: Vec<String>,
+    pub labels: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+",
+  "rpc.rs": "//! Auto-generated typed JSON-RPC namespace — do not edit manually.
+//!
+//! Generated from \`api.schema.json\` by \`scripts/codegen/rust.ts\`. The
+//! [\`ClientRpc\`] and [\`SessionRpc\`] view structs let callers reach every
+//! protocol method through a typed namespace tree, so wire method names
+//! and request/response shapes live in exactly one place — this file.
+
+#![allow(missing_docs)]
+#![allow(clippy::too_many_arguments)]
+#![allow(deprecated)]
+#![allow(dead_code)]
+
+use super::api_types::{rpc_methods, *};
+use crate::session::Session;
+use crate::{Client, Error};
+
+/// Typed view over the [\`Client\`]'s server-level RPC namespace.
+#[derive(Clone, Copy)]
+pub struct ClientRpc<'a> {
+    pub(crate) client: &'a Client,
+}
+
+impl<'a> ClientRpc<'a> {
+    /// \`sample.*\` sub-namespace.
+    pub fn sample(&self) -> ClientRpcSample<'a> {
+        ClientRpcSample { client: self.client }
+    }
+
+}
+
+/// \`sample.*\` RPCs.
+#[derive(Clone, Copy)]
+pub struct ClientRpcSample<'a> {
+    pub(crate) client: &'a Client,
+}
+
+impl<'a> ClientRpcSample<'a> {
+    /// \`sample.nested.*\` sub-namespace.
+    pub fn nested(&self) -> ClientRpcSampleNested<'a> {
+        ClientRpcSampleNested { client: self.client }
+    }
+
+    /// Look up an item.
+    ///
+    /// Wire method: \`sample.get\`.
+    ///
+    /// # Returns
+    ///
+    /// An item returned by the sample service.
+    pub async fn get(&self, params: SampleGetRequest) -> Result<SampleItem, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self.client.call(rpc_methods::SAMPLE_GET, Some(wire_params)).await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Calls \`sample.ping\`.
+    ///
+    /// Wire method: \`sample.ping\`.
+    pub async fn ping(&self) -> Result<(), Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self.client.call(rpc_methods::SAMPLE_PING, Some(wire_params)).await?;
+        Ok(())
+    }
+
+}
+
+/// \`sample.nested.*\` RPCs.
+#[derive(Clone, Copy)]
+pub struct ClientRpcSampleNested<'a> {
+    pub(crate) client: &'a Client,
+}
+
+impl<'a> ClientRpcSampleNested<'a> {
+    /// Calls \`sample.nested.list\`.
+    ///
+    /// Wire method: \`sample.nested.list\`.
+    pub async fn list(&self) -> Result<SampleListResult, Error> {
+        let wire_params = serde_json::json!({});
+        let _value = self.client.call(rpc_methods::SAMPLE_NESTED_LIST, Some(wire_params)).await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+}
+
+/// Typed view over a [\`Session\`]'s RPC namespace.
+#[derive(Clone, Copy)]
+pub struct SessionRpc<'a> {
+    pub(crate) session: &'a Session,
+}
+
+impl<'a> SessionRpc<'a> {
+    /// \`session.sample.*\` sub-namespace.
+    pub fn sample(&self) -> SessionRpcSample<'a> {
+        SessionRpcSample { session: self.session }
+    }
+
+}
+
+/// \`session.sample.*\` RPCs.
+#[derive(Clone, Copy)]
+pub struct SessionRpcSample<'a> {
+    pub(crate) session: &'a Session,
+}
+
+impl<'a> SessionRpcSample<'a> {
+    /// Calls \`session.sample.get\`.
+    ///
+    /// Wire method: \`session.sample.get\`.
+    ///
+    /// # Returns
+    ///
+    /// An item returned by the sample service.
+    pub async fn get(&self, params: SessionSampleGetRequest) -> Result<SampleItem, Error> {
+        let mut wire_params = serde_json::to_value(params)?;
+        wire_params["sessionId"] = serde_json::Value::String(self.session.id().to_string());
+        let _value = self.session.client().call(rpc_methods::SESSION_SAMPLE_GET, Some(wire_params)).await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+}
+",
+}
+`;

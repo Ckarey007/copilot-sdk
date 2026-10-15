@@ -124,13 +124,14 @@ Transport-specific phases are optional. For example, `port_wait_ms` is present
 only for TCP and `process_spawn_ms` is absent for external and in-process
 transports.
 
-On Windows, SDK-spawned CLI processes start suspended and are assigned to a
-private kill-on-close Job Object before their initial thread resumes. Thread
-lookup captures only that child's process snapshot, rather than enumerating
-machine-wide threads. The Job cleans up the CLI and its ordinary descendants on
-client shutdown, final-client drop, or abrupt termination of the SDK host.
-Descendants explicitly launched with `CREATE_BREAKAWAY_FROM_JOB` can leave this
-Job and survive its cleanup.
+Windows CLI children normally join a private kill-on-close Job before resuming.
+PSS lookup falls back to Toolhelp. Only `OpenThread` access denial permits an
+ordinary-spawn retry after terminating the original. This logged fallback uses
+best-effort Job assignment: early descendants can escape, and assignment failure
+leaves only direct-child cleanup, without crash-safe SDK-host-exit ownership.
+
+Descendants explicitly launched with `CREATE_BREAKAWAY_FROM_JOB` can leave the
+SDK-owned Job and survive its cleanup.
 
 **`ClientOptions`:**
 
@@ -145,6 +146,18 @@ Job and survive its cleanup.
 | `transport`         | `Transport`                 | `Default`, `Stdio`, `InProcess`, `Tcp`, or `External`             |
 | `extension_launch_provider` | `Option<Arc<dyn ExtensionLaunchProvider>>` | Connection-global extension launch resolver |
 | `installation_confirmation_handler` | `Option<Arc<dyn InstallationConfirmationHandler>>` | Experimental connection-global human installation review |
+
+For the native standalone runtime, include
+`("COPILOT_GITHUB_TELEMETRY_DISABLED".into(), "true".into())` in
+`ClientOptions::env` before startup to disable direct GitHub telemetry uploads for
+the entire host, including sessionless events. Authentication,
+`on_github_telemetry` forwarding, and user-configured OpenTelemetry export remain
+unchanged. This is separate from
+`SessionConfig::with_enable_session_telemetry(false)`, which disables only a
+session's pipeline. The value must be exactly `"true"`; changing it requires a
+runtime restart. The Node CLI host does not use this variable.
+`Transport::InProcess` rejects per-client `env`; set the variable in the host
+process environment before starting the runtime instead.
 
 With the default `CliProgram::Resolve`, managed stdio and TCP transports resolve an explicit `CliProgram::Path(path)`, `COPILOT_CLI_PATH`, then the bundled `copilot-runtime` wrapper and adjacent `runtime.node`. In-process transport loads the native runtime library adjacent to that resolved runtime bundle. There is no PATH scanning.
 
@@ -667,6 +680,8 @@ The SDK exposes five focused handler traits, one per CLI callback type. Implemen
 
 The CLI's `requestPermission` / `requestElicitation` / `requestUserInput` / etc. wire flags are derived automatically from which traits you've installed — clients that don't install a handler are silently skipped, letting another connected client handle the request.
 
+`Session::subscribe()` exposes permission events through an observation-only stream, and `PermissionHandler` receives the same `PermissionRequestData`. Call `data.prompt_request()` for optional derived prompt context. The raw `managed_approval_required` field remains managed-policy provenance and enforces one-shot restrictions. Only derived `Commands`, `Read`, `Write`, `Url`, and `Workflow` prompts can clear the human requirement after Assisted approval; for missing or other prompt kinds, keep the raw marker authoritative.
+
 ```rust,ignore
 use std::sync::Arc;
 use async_trait::async_trait;
@@ -729,6 +744,12 @@ Use `with_ask_user_variant(AskUserVariant::Elicitation)` together with
 `with_elicitation_handler(...)` to expose the structured form-based `ask_user`
 tool. The default remains `AskUserVariant::Legacy`. Re-supply the option and
 handler through `ResumeSessionConfig` on a cold resume.
+
+Use `with_interactive_user(true)` to declare that a person types the session's
+messages, as in an editor chat panel. This enables the runtime's user-message
+analysis telemetry for user-authored messages; automated messages stay
+excluded. The default is off, and cloud sessions ignore it. Re-supply it through
+`ResumeSessionConfig` on a cold resume.
 
 For rotating per-session GitHub credentials, install a `GitHubTokenProvider`
 instead of setting `github_token`:
@@ -852,7 +873,30 @@ let session = client
     .await?;
 ```
 
-**Hook events:** `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmitted`, `UserPromptTransformed`, `SessionStart`, `SessionEnd`, `ErrorOccurred`, `AgentStop`, `SubagentStart`, and `SubagentStop`. Each carries typed input/output structs. `PostToolUse` only fires on success; override `on_post_tool_use_failure` to observe failed tool calls. `on_subagent_start` can inject `additional_context` into the child agent's initial prompt; `on_subagent_stop` can return a `decision` of `"block"` with a `reason` to continue the child or a `modified_response` to replace its final answer. Return `HookOutput::None` for events you don't handle.
+**Hook events:** `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmitted`, `UserPromptTransformed`, `SessionStart`, `SessionEnd`, `ErrorOccurred`, `AgentStop`, `SubagentStart`, and `SubagentStop`. Each carries typed input/output structs. `PostToolUse` only fires on success; override `on_post_tool_use_failure` to observe failed tool calls. `on_subagent_start` can inject `additional_context` into the child agent's initial prompt; `on_subagent_stop` can return a `decision` of `"block"` with a `reason` to continue the child or a `modified_response` to replace its final answer. `on_user_prompt_submitted` can return a `decision` of `"block"` with a `reason` to refuse the prompt: no model turn runs, no user message is recorded, and the session emits an ephemeral `session.warning` (`warningType: "policy_blocked"`) carrying the reason. `UserPromptSubmittedOutput` gained the `decision` and `reason` fields for this; a struct literal that names every field must add them or use `..Default::default()`. Return `HookOutput::None` for events you don't handle.
+
+To inspect runtime-provided actor metadata, override `SessionHooks::on_hook_with_actor`.
+Its typed `HookActor` exposes optional `agent_id()`, `agent_type()`, and `parent_agent_id()` getters.
+Root hooks and older runtimes can omit these fields; existing `SubagentStopInput` actor fields remain unchanged.
+The default implementation delegates to `on_hook`, which retains the existing per-hook dispatch.
+Existing implementations, input struct literals, and exact destructuring patterns therefore need no migration.
+The enriched wire fields are opt-in metadata, not new fields on the legacy Rust input structs.
+
+```rust,no_run
+# use async_trait::async_trait;
+# use github_copilot_sdk::hooks::{HookActor, HookEvent, HookOutput, SessionHooks};
+struct ActorAwareHooks;
+
+#[async_trait]
+impl SessionHooks for ActorAwareHooks {
+    async fn on_hook_with_actor(&self, event: HookEvent, actor: HookActor) -> HookOutput {
+        if let Some(id) = actor.agent_id() {
+            eprintln!("Hook actor: {id}");
+        }
+        self.on_hook(event).await
+    }
+}
+```
 
 ### System Message Transforms
 
@@ -1069,7 +1113,13 @@ let config = SessionConfig::default()
     .with_elicitation_handler(Arc::new(MyElicitation));
 ```
 
-The handler receives a message, optional JSON Schema for form fields, and an optional mode. Known modes include `Form` and `Url`, but the mode may be absent or an unknown future value.
+The handler receives a message, optional JSON Schema for form fields, and an optional mode. The schema retains the wire object's field order and metadata, including keys not modeled by the generated event type. Known modes include `Form` and `Url`, but the mode may be absent or an unknown future value.
+
+Wire-schema preservation is a Rust SDK guarantee, not a guarantee shared by
+every SDK. For applications targeting multiple SDK languages, constrain form
+schemas to the [portable elicitation schema contract](../README.md#portable-elicitation-schemas):
+the modeled `type`, `properties`, and optional `required` fields, without
+depending on additional top-level metadata or property insertion order.
 
 ### User Input Requests
 
@@ -1213,6 +1263,8 @@ config.infinite_sessions = Some(infinite);
 The CLI emits `session.compaction_start` / `session.compaction_complete` events around each compaction. The session id remains stable across compactions; resume with `Client::resume_session` to pick up a prior conversation. Workspace state lives under `~/.copilot/session-state/{sessionId}` by default — override with `workspace_path` to relocate.
 
 `enable_session_store` on `SessionConfig` enables the cross-session store for search and retrieval across sessions. When unset in the default client mode, the runtime default applies (enabled). In `Empty` mode, defaults to disabled.
+
+`enable_github_cache_store` on `SessionConfig` and `ResumeSessionConfig` (builder `with_enable_github_cache_store`) requests the read-only GitHub cache store (`github-cache-store` capability) on create or resume. The runtime registers the `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is also on. Defaults to disabled in every mode.
 
 ### Memory
 

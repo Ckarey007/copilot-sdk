@@ -2,7 +2,7 @@
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *--------------------------------------------------------------------------------------------*/
 
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { CopilotClient, approveAll, RuntimeConnection } from "../../src/index.js";
 import type { SessionEvent } from "../../src/index.js";
 import {
@@ -167,19 +167,22 @@ describe("UI Elicitation Multi-Client Capabilities", async () => {
     });
     const client1 = ctx.copilotClient;
 
-    // Trigger connection so we can read the port
-    const initSession = await client1.createSession({ onPermissionRequest: approveAll });
-    await initSession.disconnect();
-
-    const { runtimePort } = client1 as unknown as { runtimePort: number };
-    const client2 = new CopilotClient({
-        connection: RuntimeConnection.forUri(`localhost:${runtimePort}`, {
-            connectionToken: tcpConnectionToken,
-        }),
+    let runtimePort: number;
+    let client2: CopilotClient;
+    beforeAll(async () => {
+        // Trigger connection after the context has created its working directory.
+        const initSession = await client1.createSession({ onPermissionRequest: approveAll });
+        await initSession.disconnect();
+        ({ runtimePort } = client1 as unknown as { runtimePort: number });
+        client2 = new CopilotClient({
+            connection: RuntimeConnection.forUri(`localhost:${runtimePort}`, {
+                connectionToken: tcpConnectionToken,
+            }),
+        });
     });
 
     afterAll(async () => {
-        await client2.stop();
+        await client2?.stop();
     });
 
     it(

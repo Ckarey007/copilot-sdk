@@ -288,9 +288,6 @@ fn append_hostless_runtime_tree<W: Write>(
             .read_to_end(&mut bytes)
             .unwrap_or_else(|e| panic!("failed to read npm package entry bytes: {e}"));
         let mode = entry.header().mode().unwrap_or(0o644);
-        if destination == Path::new("runtime.node") {
-            runtime = Some(bytes.clone());
-        }
         append_archive_file(
             archive,
             destination
@@ -299,6 +296,9 @@ fn append_hostless_runtime_tree<W: Write>(
             &bytes,
             mode,
         );
+        if destination == Path::new("runtime.node") {
+            runtime = Some(bytes);
+        }
     }
     runtime.unwrap_or_else(|| {
         panic!(
@@ -742,6 +742,7 @@ fn extract_to_cache(
     let decoder = flate2::read::GzDecoder::new(archive);
     let mut source = tar::Archive::new(decoder);
     let mut runtime = None;
+    let mut found_runtime = false;
     for entry in source
         .entries()
         .unwrap_or_else(|e| panic!("failed to read npm package entries: {e}"))
@@ -765,13 +766,16 @@ fn extract_to_cache(
             .read_to_end(&mut bytes)
             .unwrap_or_else(|e| panic!("failed to read npm package entry bytes: {e}"));
         let executable = entry.header().mode().unwrap_or(0o644) & 0o111 != 0;
-        if destination == Path::new("runtime.node") {
-            runtime = Some(bytes.clone());
-        }
         install_cached_file_path(install_dir, &destination, &bytes, executable);
+        if destination == Path::new("runtime.node") {
+            found_runtime = true;
+            if include_runtime {
+                runtime = Some(bytes);
+            }
+        }
     }
-    let runtime = runtime.expect("verified runtime.node is present");
-    if include_runtime {
+    assert!(found_runtime, "verified runtime.node is present");
+    if let Some(runtime) = runtime {
         install_cached_file(
             install_dir,
             platform.runtime_library_name(),
@@ -1099,7 +1103,10 @@ fn archive_zip_entry_size(zip_bytes: &[u8], binary_name: &str) -> Option<u64> {
     };
     (0..archive.len()).find_map(|index| {
         archive.by_index(index).ok().and_then(|entry| {
-            (entry.name() == binary_name || entry.name().ends_with(&format!("/{binary_name}")))
+            let name = entry
+                .name()
+                .unwrap_or_else(|e| panic!("failed to read zip entry {index} name: {e}"));
+            (name == binary_name || name.ends_with(&format!("/{binary_name}")))
                 .then(|| entry.size())
         })
     })

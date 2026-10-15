@@ -978,7 +978,7 @@ public sealed partial class CopilotSession : IAsyncDisposable
                         if (handler is null)
                             return; // This client doesn't handle permissions; another client will.
 
-                        await ExecutePermissionAndRespondAsync(data.RequestId, data.PermissionRequest, handler);
+                        await ExecutePermissionAndRespondAsync(data.RequestId, data.PermissionRequest, data.PromptRequest, handler);
                         break;
                     }
 
@@ -1431,14 +1431,19 @@ public sealed partial class CopilotSession : IAsyncDisposable
     /// <summary>
     /// Executes a permission handler and sends the result back via the HandlePendingPermissionRequest RPC.
     /// </summary>
-    private async Task ExecutePermissionAndRespondAsync(string requestId, PermissionRequest permissionRequest, Func<PermissionRequest, PermissionInvocation, Task<PermissionDecision>> handler)
+    private async Task ExecutePermissionAndRespondAsync(
+        string requestId,
+        PermissionRequest permissionRequest,
+        PermissionPromptRequest? promptRequest,
+        Func<PermissionRequest, PermissionInvocation, Task<PermissionDecision>> handler)
     {
         try
         {
             var invocation = new PermissionInvocation
             {
                 SessionId = SessionId,
-                ManagedSettingsEnabled = _managedSettingsEnabled
+                ManagedSettingsEnabled = _managedSettingsEnabled,
+                PromptRequest = promptRequest
             };
 
             var permissionTimestamp = Stopwatch.GetTimestamp();

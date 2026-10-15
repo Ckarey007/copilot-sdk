@@ -18,7 +18,7 @@ pub use crate::copilot_request_handler::{
     CopilotHttpRequest, CopilotHttpResponse, CopilotHttpResponseBody, CopilotRequestContext,
     CopilotRequestError, CopilotRequestHandler, CopilotRequestTransport, CopilotWebSocketForwarder,
     CopilotWebSocketForwarderBuilder, CopilotWebSocketHandler, CopilotWebSocketMessage,
-    CopilotWebSocketResponse, WebSocketTransform, forward_http,
+    CopilotWebSocketResponse, WebSocketContextTransform, WebSocketTransform, forward_http,
 };
 use crate::generated::api_types::{CurrentToolMetadata, OpenCanvasInstance};
 pub use crate::generated::api_types::{
@@ -2181,6 +2181,11 @@ pub struct SessionConfig {
     pub enable_host_git_operations: Option<bool>,
     /// When true, enables the session store for this session.
     pub enable_session_store: Option<bool>,
+    /// When true, requests the read-only GitHub cache store for this session.
+    ///
+    /// The runtime registers `github_sql` only when its `GITHUB_CACHE_STORE`
+    /// feature flag is enabled. Defaults to disabled.
+    pub enable_github_cache_store: Option<bool>,
     /// When true, enables skills for this session.
     pub enable_skills: Option<bool>,
     /// **Experimental.** Supplies session-scoped skills from the SDK host.
@@ -2389,6 +2394,12 @@ pub struct SessionConfig {
     /// defaults remain mutable. Set via
     /// [`with_enforce_managed_model_defaults`](Self::with_enforce_managed_model_defaults).
     pub enforce_managed_model_defaults: Option<bool>,
+    /// Declares that a human drives this session's conversation, enabling
+    /// user-message analysis telemetry for user-authored messages. Automated
+    /// messages remain excluded. Defaults to false for SDK sessions. Ignored for
+    /// cloud sessions. Set via
+    /// [`with_interactive_user`](Self::with_interactive_user).
+    pub interactive_user: Option<bool>,
     /// Optional managed-settings layer injected at session bootstrap. Currently
     /// carries a [`permissions`](ManagedSettingsPermissions) object that composes
     /// restrictively with any server- or device-level managed settings. This
@@ -2536,6 +2547,7 @@ impl std::fmt::Debug for SessionConfig {
                 &self.enable_host_git_operations,
             )
             .field("enable_session_store", &self.enable_session_store)
+            .field("enable_github_cache_store", &self.enable_github_cache_store)
             .field("enable_skills", &self.enable_skills)
             .field(
                 "skill_provider",
@@ -2593,6 +2605,7 @@ impl std::fmt::Debug for SessionConfig {
                 "enforce_managed_model_defaults",
                 &self.enforce_managed_model_defaults,
             )
+            .field("interactive_user", &self.interactive_user)
             .field("enable_experimental_mode", &self.enable_experimental_mode)
             .field("managed_settings", &self.managed_settings)
             .field(
@@ -2679,6 +2692,7 @@ impl Default for SessionConfig {
             enable_file_hooks: None,
             enable_host_git_operations: None,
             enable_session_store: None,
+            enable_github_cache_store: None,
             enable_skills: None,
             skill_provider: None,
             embedding_cache_storage: None,
@@ -2722,6 +2736,7 @@ impl Default for SessionConfig {
             exp_assignments: None,
             enable_managed_settings: None,
             enforce_managed_model_defaults: None,
+            interactive_user: None,
             managed_settings: None,
             session_fs_provider: None,
             permission_handler: None,
@@ -2850,6 +2865,7 @@ impl SessionConfig {
             enable_file_hooks: self.enable_file_hooks,
             enable_host_git_operations: self.enable_host_git_operations,
             enable_session_store: self.enable_session_store,
+            enable_github_cache_store: self.enable_github_cache_store,
             enable_skills: self.enable_skills,
             has_skill_provider: has_skill_provider.then_some(true),
             request_user_input,
@@ -2899,6 +2915,7 @@ impl SessionConfig {
             exp_assignments: self.exp_assignments,
             enable_managed_settings: self.enable_managed_settings,
             enforce_managed_model_defaults: self.enforce_managed_model_defaults,
+            interactive_user: self.interactive_user,
             is_experimental_mode: self.enable_experimental_mode,
             managed_settings: self.managed_settings,
         };
@@ -3283,6 +3300,12 @@ impl SessionConfig {
         self
     }
 
+    /// Set [`Self::enable_github_cache_store`].
+    pub fn with_enable_github_cache_store(mut self, value: bool) -> Self {
+        self.enable_github_cache_store = Some(value);
+        self
+    }
+
     /// Set [`Self::enable_skills`].
     pub fn with_enable_skills(mut self, value: bool) -> Self {
         self.enable_skills = Some(value);
@@ -3659,6 +3682,12 @@ impl SessionConfig {
         self
     }
 
+    /// Declare that a human drives this session's conversation.
+    pub fn with_interactive_user(mut self, interactive_user: bool) -> Self {
+        self.interactive_user = Some(interactive_user);
+        self
+    }
+
     /// Inject a managed-settings layer (currently permission rules) at session
     /// bootstrap. This layer is startup-only and is not persisted, so it must be
     /// re-supplied on resume to remain in effect. Can be combined with
@@ -3776,6 +3805,11 @@ pub struct ResumeSessionConfig {
     pub enable_host_git_operations: Option<bool>,
     /// When true, enables the session store on resume.
     pub enable_session_store: Option<bool>,
+    /// When true, requests the read-only GitHub cache store on resume.
+    ///
+    /// The runtime registers `github_sql` only when its `GITHUB_CACHE_STORE`
+    /// feature flag is enabled. Defaults to disabled.
+    pub enable_github_cache_store: Option<bool>,
     /// When true, enables skills on resume.
     pub enable_skills: Option<bool>,
     /// **Experimental.** Supplies session-scoped skills from the SDK host.
@@ -3924,6 +3958,11 @@ pub struct ResumeSessionConfig {
     /// Re-applies managed model lock enforcement on resume. See
     /// [`SessionConfig::enforce_managed_model_defaults`].
     pub enforce_managed_model_defaults: Option<bool>,
+    /// Re-supplies that a human drives this session so a session loaded from
+    /// storage keeps the declaration. It is not persisted and is ignored if the
+    /// session is already active in the runtime. Set via
+    /// [`with_interactive_user`](Self::with_interactive_user).
+    pub interactive_user: Option<bool>,
     /// Optional managed-settings layer injected on resume. See
     /// [`SessionConfig::managed_settings`]. This layer is not persisted, so it
     /// must be re-supplied on resume to remain in effect; omitting it clears the
@@ -4048,6 +4087,7 @@ impl std::fmt::Debug for ResumeSessionConfig {
                 &self.enable_host_git_operations,
             )
             .field("enable_session_store", &self.enable_session_store)
+            .field("enable_github_cache_store", &self.enable_github_cache_store)
             .field("enable_skills", &self.enable_skills)
             .field(
                 "skill_provider",
@@ -4104,6 +4144,7 @@ impl std::fmt::Debug for ResumeSessionConfig {
                 "enforce_managed_model_defaults",
                 &self.enforce_managed_model_defaults,
             )
+            .field("interactive_user", &self.interactive_user)
             .field("enable_experimental_mode", &self.enable_experimental_mode)
             .field("managed_settings", &self.managed_settings)
             .field(
@@ -4222,6 +4263,7 @@ impl ResumeSessionConfig {
             enable_file_hooks: self.enable_file_hooks,
             enable_host_git_operations: self.enable_host_git_operations,
             enable_session_store: self.enable_session_store,
+            enable_github_cache_store: self.enable_github_cache_store,
             enable_skills: self.enable_skills,
             has_skill_provider: has_skill_provider.then_some(true),
             request_user_input,
@@ -4270,6 +4312,7 @@ impl ResumeSessionConfig {
             exp_assignments: self.exp_assignments,
             enable_managed_settings: self.enable_managed_settings,
             enforce_managed_model_defaults: self.enforce_managed_model_defaults,
+            interactive_user: self.interactive_user,
             is_experimental_mode: self.enable_experimental_mode,
             managed_settings: self.managed_settings,
             suppress_resume_event: self.suppress_resume_event,
@@ -4339,6 +4382,7 @@ impl ResumeSessionConfig {
             enable_file_hooks: None,
             enable_host_git_operations: None,
             enable_session_store: None,
+            enable_github_cache_store: None,
             enable_skills: None,
             skill_provider: None,
             embedding_cache_storage: None,
@@ -4381,6 +4425,7 @@ impl ResumeSessionConfig {
             exp_assignments: None,
             enable_managed_settings: None,
             enforce_managed_model_defaults: None,
+            interactive_user: None,
             managed_settings: None,
             session_fs_provider: None,
             suppress_resume_event: None,
@@ -4736,6 +4781,12 @@ impl ResumeSessionConfig {
     /// Set [`Self::enable_session_store`].
     pub fn with_enable_session_store(mut self, value: bool) -> Self {
         self.enable_session_store = Some(value);
+        self
+    }
+
+    /// Set [`Self::enable_github_cache_store`].
+    pub fn with_enable_github_cache_store(mut self, value: bool) -> Self {
+        self.enable_github_cache_store = Some(value);
         self
     }
 
@@ -5110,6 +5161,12 @@ impl ResumeSessionConfig {
     /// Enforce locked managed model controls after resume.
     pub fn with_enforce_managed_model_defaults(mut self, enforce: bool) -> Self {
         self.enforce_managed_model_defaults = Some(enforce);
+        self
+    }
+
+    /// Re-supply that a human drives this session.
+    pub fn with_interactive_user(mut self, interactive_user: bool) -> Self {
+        self.interactive_user = Some(interactive_user);
         self
     }
 
@@ -6662,6 +6719,27 @@ pub struct PermissionRequestData {
     /// CLI version, so we preserve it as `Value`.
     #[serde(flatten)]
     pub extra: Value,
+}
+
+impl PermissionRequestData {
+    /// Returns the derived user-facing prompt supplied by newer runtimes.
+    ///
+    /// The raw request retains managed-policy provenance. Only `commands`,
+    /// `read`, `write`, `url`, and `workflow` prompts can clear that human
+    /// requirement after Assisted approval. For missing or other prompt kinds,
+    /// keep the raw marker authoritative.
+    ///
+    /// `Ok(None)` indicates an older runtime without the derived prompt.
+    /// Unknown future prompt kinds return a deserialization error.
+    pub fn prompt_request(
+        &self,
+    ) -> Result<Option<crate::session_events::PermissionPromptRequest>, serde_json::Error> {
+        self.extra
+            .get("promptRequest")
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()
+    }
 }
 
 /// Data sent by the CLI with an `exitPlanMode.request` RPC call.

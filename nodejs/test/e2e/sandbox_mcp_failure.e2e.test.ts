@@ -65,7 +65,10 @@ describe("Sandboxed MCP connection failures", async () => {
                                 error: server?.error,
                                 sandboxContext: server?.error?.includes("inside the sandbox."),
                                 routingAdvice: server?.error?.includes(
-                                    '"sandbox.sandboxMcpServers": false'
+                                    "run MCP servers outside the sandbox"
+                                ),
+                                settingNameLeak: server?.error?.includes(
+                                    "sandbox.sandboxMcpServers"
                                 ),
                                 transportTypeLeak: server?.error?.includes("rmcp::"),
                             };
@@ -77,6 +80,7 @@ describe("Sandboxed MCP connection failures", async () => {
                         error: expect.stringContaining("MCP_STARTUP_DIAGNOSTIC"),
                         sandboxContext: enabled && sandboxMcpServers,
                         routingAdvice: enabled && sandboxMcpServers,
+                        settingNameLeak: false,
                         transportTypeLeak: false,
                     });
             }

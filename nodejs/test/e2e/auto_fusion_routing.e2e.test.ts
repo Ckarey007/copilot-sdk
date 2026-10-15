@@ -264,6 +264,7 @@ describe.skipIf(isByokBackend).each([
                 ...(version === "2" ? { plan_version: version } : {}),
             }),
         ]);
+        expect(handler.plans[0]).not.toHaveProperty("ensemble");
         if (version === "1") expect(handler.plans[0]).not.toHaveProperty("plan_version");
         expect(handler.auto).toEqual([]);
         expect(events.some((event) => event.type === "session.fusion_route_failed")).toBe(false);
@@ -344,7 +345,8 @@ describe.skipIf(isByokBackend).each([
                 )?.data.content
             ).toBe(REPLY);
             expect(handler.plans).toHaveLength(3);
-            expect(handler.auto.at(-1)).toMatchObject({ tier: "Balance-V2" });
+            expect(handler.plans.some((plan) => "ensemble" in plan)).toBe(false);
+            expect(handler.auto.at(-1)).toMatchObject({ tier: "Balance-V2", ensemble: true });
             expect(await resumed.rpc.model.getCurrent()).toMatchObject({
                 modelId: "auto",
                 autoTier: "Balance-V2",
@@ -707,6 +709,7 @@ describe.skipIf(isByokBackend).each(["1", "2"] as const)(
                     ...(version === "2" ? { plan_version: "2" } : {}),
                 }),
             ]);
+            expect(handler.plans[0]).not.toHaveProperty("ensemble");
             expect(events).toEqual(
                 expect.arrayContaining([
                     expect.objectContaining({
@@ -773,6 +776,7 @@ describe.skipIf(isByokBackend).each(["1", "2"] as const)(
                     expect.objectContaining({ fusion_mode: "hydrafusion-max" }),
                     expect.objectContaining({ fusion_mode: "hydrafusion" }),
                 ]);
+                expect(handler.plans.some((plan) => "ensemble" in plan)).toBe(false);
                 expect(
                     events
                         .filter((event) => event.type === "session.fusion_resolved")

@@ -3,7 +3,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { createHash, randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { appendFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
@@ -16,9 +16,56 @@ import {
     type UserPromptTransformedHookInput,
 } from "../../src/index.js";
 import { createSdkTestContext } from "./harness/sdkTestContext.js";
+import { withFinalAssistantMessage } from "./harness/sdkTestHelper.js";
 
 const MODEL = "gpt-image-2.5-sunburst";
 const FINAL = "IMAGE_EDIT_SDK_FINISHED";
+const GENERATION_NANO_AIU = 598_500_000;
+const EDIT_NANO_AIU = 854_000_000;
+
+function imageServiceUsage(edit: boolean) {
+    const textTokens = edit ? 20 : 21;
+    const imageTokens = edit ? 320 : 0;
+    return {
+        usage: {
+            input_tokens: textTokens + imageTokens,
+            output_tokens: 196,
+            total_tokens: textTokens + imageTokens + 196,
+            input_tokens_details: { text_tokens: textTokens, image_tokens: imageTokens },
+            output_tokens_details: { text_tokens: 0, image_tokens: 196 },
+        },
+        copilot_usage: {
+            total_nano_aiu: edit ? EDIT_NANO_AIU : GENERATION_NANO_AIU,
+            token_details: [
+                {
+                    token_type: "input",
+                    token_count: textTokens,
+                    batch_size: 1_000_000,
+                    cost_per_batch: 500_000_000_000,
+                    model: MODEL,
+                },
+                ...(edit
+                    ? [
+                          {
+                              token_type: "image_input",
+                              token_count: imageTokens,
+                              batch_size: 1_000_000,
+                              cost_per_batch: 800_000_000_000,
+                              model: MODEL,
+                          },
+                      ]
+                    : []),
+                {
+                    token_type: "image_output",
+                    token_count: 196,
+                    batch_size: 1_000_000,
+                    cost_per_batch: 3_000_000_000_000,
+                    model: MODEL,
+                },
+            ],
+        },
+    };
+}
 
 function png(red: number, width = 1): string {
     function chunk(name: string, data: Buffer): Buffer {
@@ -67,6 +114,7 @@ class ImageHandler extends CopilotRequestHandler {
     outputImage = EDITED;
     supportedEndpoints = ["/v1/images/generations", "/v1/images/edits"];
     nextArguments: Record<string, unknown> | undefined;
+    imageResultOverrides: Record<string, unknown> = {};
     private calls = 0;
 
     protected override async sendRequest(
@@ -98,6 +146,8 @@ class ImageHandler extends CopilotRequestHandler {
                 created: 1,
                 data: [{ b64_json: this.outputImage }],
                 output_format: "png",
+                ...imageServiceUsage(path.endsWith("/edits")),
+                ...this.imageResultOverrides,
             });
         }
         if (path.endsWith("/chat/completions")) {
@@ -174,12 +224,19 @@ describe("Native image editing", async () => {
         onPermissionRequest: approveAll,
     };
 
-    it("edits an explicit attachment and can reuse the generated result after resume", async () => {
+    it("edits an explicit attachment and can reuse the generated result after resume", async ({
+        onTestFailed,
+    }) => {
+        let phase = "starting";
+        onTestFailed(() => {
+            console.error(`Image edit diagnostic phase: ${phase}`);
+        });
         const handler = new ImageHandler();
         const client = createClient({ requestHandler: handler });
         try {
             await client.start();
             const session = await client.createSession(options);
+            phase = "first edit";
             const events: SessionEvent[] = [];
             session.on((event) => events.push(event));
             handler.nextArguments = {
@@ -191,6 +248,7 @@ describe("Native image editing", async () => {
                 attachments: [{ type: "blob", mimeType: "image/png", data: SOURCE }],
             });
             expect(reply?.data.content).toBe(FINAL);
+            phase = "disabling";
             const completion = events.find((event) => event.type === "tool.execution_complete");
             expect(completion?.data.error).toBeUndefined();
             expect(completion?.data.success).toBe(true);
@@ -205,15 +263,91 @@ describe("Native image editing", async () => {
                     stream: false,
                 },
             ]);
+            expect(completion?.data.toolUsage).toMatchObject({
+                requestId: expect.any(String),
+                model: MODEL,
+                provider: { id: "copilot", kind: "copilot" },
+                accounting: { sourceSessionId: session.sessionId, sequence: expect.any(Number) },
+                inputTokens: 340,
+                outputTokens: 196,
+                totalTokens: 536,
+                inputTokensDetails: { textTokens: 20, imageTokens: 320 },
+                outputTokensDetails: { textTokens: 0, imageTokens: 196 },
+                copilotUsage: {
+                    totalNanoAiu: EDIT_NANO_AIU,
+                    tokenDetails: expect.arrayContaining([
+                        expect.objectContaining({ tokenType: "image_input", tokenCount: 320 }),
+                        expect.objectContaining({ tokenType: "image_output", tokenCount: 196 }),
+                    ]),
+                },
+            });
+            expect(completion?.data.toolUsage?.accounting?.usageId).toBe(
+                completion?.data.toolUsage?.requestId
+            );
+            expect(completion?.data.result?.structuredContent).toMatchObject({
+                imageGeneration: {
+                    usage: imageServiceUsage(true).usage,
+                    copilotUsage: imageServiceUsage(true).copilot_usage,
+                },
+            });
+            expect(completion?.data.result).not.toHaveProperty("toolUsage");
+            expect(await session.rpc.usage.getMetrics()).toMatchObject({
+                totalNanoAiu: EDIT_NANO_AIU,
+                providerModelMetrics: expect.arrayContaining([
+                    expect.objectContaining({
+                        provider: expect.objectContaining({ id: "copilot", kind: "copilot" }),
+                        modelId: MODEL,
+                        metrics: expect.objectContaining({
+                            totalNanoAiu: EDIT_NANO_AIU,
+                            aiCreditsStatus: "complete",
+                        }),
+                    }),
+                ]),
+                modelMetrics: {
+                    [MODEL]: {
+                        requests: { count: 1 },
+                        usage: { inputTokens: 340, outputTokens: 196 },
+                        totalNanoAiu: EDIT_NANO_AIU,
+                    },
+                },
+            });
+            expect(
+                await session.rpc.options.update({ imageGeneration: { enabled: false } })
+            ).toMatchObject({ success: true });
+            expect(await session.rpc.usage.getMetrics()).toMatchObject({
+                totalNanoAiu: EDIT_NANO_AIU,
+                modelMetrics: {
+                    [MODEL]: {
+                        requests: { count: 1 },
+                        usage: { inputTokens: 340, outputTokens: 196 },
+                        totalNanoAiu: EDIT_NANO_AIU,
+                    },
+                },
+            });
             const sessionId = session.sessionId;
+            phase = "disconnecting";
             await session.disconnect();
+            phase = "stopping";
             await client.stop();
+            phase = "restarting";
             await client.start();
+            phase = "resuming";
             const resumed = await client.resumeSession(sessionId, options);
+            phase = "reading restored history";
+            const history = await resumed.getEvents();
+            const replayed = history
+                .filter((event) => event.type === "tool.execution_complete")
+                .at(-1);
+            expect(replayed?.data.toolUsage).toEqual(completion?.data.toolUsage);
+            expect(replayed?.data.result?.structuredContent).toEqual(
+                completion?.data.result?.structuredContent
+            );
+            expect((await resumed.rpc.usage.getMetrics()).totalNanoAiu).toBe(EDIT_NANO_AIU);
             handler.nextArguments = {
                 prompt: "Make the result brighter",
                 input_images: [{ image_id: imageId(EDITED) }],
             };
+            phase = "second edit";
             expect(
                 (await resumed.sendAndWait({ prompt: "Make the generated image brighter." }))?.data
                     .content
@@ -223,6 +357,182 @@ describe("Native image editing", async () => {
                 { image_url: `data:image/png;base64,${EDITED}` },
             ]);
             expect(handler.generations).toHaveLength(0);
+            expect(await resumed.rpc.usage.getMetrics()).toMatchObject({
+                totalNanoAiu: EDIT_NANO_AIU * 2,
+                modelMetrics: {
+                    [MODEL]: {
+                        requests: { count: 2 },
+                        usage: { inputTokens: 680, outputTokens: 392 },
+                        totalNanoAiu: EDIT_NANO_AIU * 2,
+                    },
+                },
+            });
+            await resumed.disconnect();
+            phase = "done";
+        } finally {
+            await client.stop();
+        }
+    });
+
+    it.each([
+        { name: "fresh approval succeeds", approveOnResume: true, success: true },
+        { name: "fresh approval returns a billed failure", approveOnResume: true, success: false },
+        {
+            name: "recorded approval is interrupted without replay",
+            approveOnResume: false,
+            success: false,
+        },
+    ])("preserves image accounting on resume when $name", async ({ approveOnResume, success }) => {
+        const handler = new ImageHandler();
+        const client = createClient({ requestHandler: handler });
+        const toolCallId = "approved-image-resume";
+        try {
+            await client.start();
+            const session = await client.createSession(options);
+            const sessionId = session.sessionId;
+            handler.nextArguments = { prompt: "A green circle" };
+            expect(
+                (await session.sendAndWait({ prompt: "Generate a green circle." }))?.data.content
+            ).toBe(FINAL);
+            await client.rpc.sessions.save({ sessionId });
+            await session.disconnect();
+            await client.stop();
+            const logPath = join(env.COPILOT_HOME, "session-state", sessionId, "events.jsonl");
+            const log = await readFile(logPath, "utf8");
+            const history = log
+                .trim()
+                .split("\n")
+                .map((line): SessionEvent => JSON.parse(line));
+            let parentId = history.at(-1)?.id ?? null;
+            const args = { prompt: "A blue circle" };
+            // Recorded approval cannot prove an image POST was never dispatched.
+            // Fresh approval after resume is the boundary that permits new execution.
+            const pending = [
+                {
+                    type: "user.message" as const,
+                    data: { content: "Generate a blue circle." },
+                },
+                {
+                    type: "assistant.message" as const,
+                    data: {
+                        messageId: randomUUID(),
+                        content: "",
+                        model: options.model,
+                        toolRequests: [{ toolCallId, name: "image_generation", arguments: args }],
+                    },
+                },
+                {
+                    type: "permission.requested" as const,
+                    data: {
+                        requestId: "approved-image-permission",
+                        permissionRequest: {
+                            kind: "custom-tool" as const,
+                            toolCallId,
+                            toolName: "image_generation",
+                            toolDescription: "Generate image",
+                            args,
+                        },
+                    },
+                },
+                {
+                    type: "permission.completed" as const,
+                    data: {
+                        requestId: "approved-image-permission",
+                        result: { kind: "approved" as const },
+                        decisionSource: "human_response" as const,
+                        toolCallId,
+                    },
+                },
+            ];
+            const events: SessionEvent[] = pending
+                .filter((event) => !approveOnResume || event.type !== "permission.completed")
+                .map((event) => {
+                    const envelope = {
+                        ...event,
+                        id: randomUUID(),
+                        timestamp: new Date().toISOString(),
+                        parentId,
+                    };
+                    parentId = envelope.id;
+                    return envelope;
+                });
+            await appendFile(
+                logPath,
+                `${log.endsWith("\n") ? "" : "\n"}${events.map((event) => JSON.stringify(event)).join("\n")}\n`
+            );
+            if (approveOnResume && !success) {
+                handler.imageResultOverrides = {
+                    data: [{ b64_json: Buffer.from("not a PNG").toString("base64") }],
+                };
+            }
+            await client.start();
+            const resumed = await client.resumeSession(sessionId, {
+                ...options,
+                continuePendingWork: true,
+                onPermissionRequest: () => ({ kind: "no-result" }),
+            });
+            if (approveOnResume) {
+                await expect
+                    .poll(
+                        async () =>
+                            (await resumed.rpc.permissions.pendingRequests()).items.map(
+                                (request) => request.requestId
+                            ),
+                        { timeout: 20_000 }
+                    )
+                    .toContain("approved-image-permission");
+                // Fresh approval starts a background continuation. Observe its final
+                // reply and idle before a follow-up sendAndWait can capture that idle.
+                const continuation = await withFinalAssistantMessage(resumed, async () => {
+                    expect(
+                        await resumed.rpc.permissions.handlePendingPermissionRequest({
+                            requestId: "approved-image-permission",
+                            result: { kind: "approve-once" },
+                        })
+                    ).toMatchObject({ success: true });
+                });
+                expect(continuation.data.content).toBe(FINAL);
+            }
+            await expect
+                .poll(
+                    async () =>
+                        (await resumed.getEvents()).find(
+                            (event) =>
+                                event.type === "tool.execution_complete" &&
+                                event.data.toolCallId === toolCallId
+                        ),
+                    { timeout: 20_000 }
+                )
+                .toBeDefined();
+            const completions = (await resumed.getEvents()).filter(
+                (event) =>
+                    event.type === "tool.execution_complete" && event.data.toolCallId === toolCallId
+            );
+            expect(completions).toHaveLength(1);
+            expect(completions[0].data.success, JSON.stringify(completions[0].data)).toBe(success);
+            const expectedGenerations = approveOnResume ? 2 : 1;
+            expect(handler.generations, JSON.stringify(completions[0].data)).toHaveLength(
+                expectedGenerations
+            );
+            // Validate the final assistant response arrived (guards against truncated captures).
+            expect(
+                (await resumed.sendAndWait({ prompt: "Confirm the image work is complete." }))?.data
+                    .content
+            ).toBe(FINAL);
+            expect((await resumed.rpc.usage.getMetrics()).totalNanoAiu).toBe(
+                GENERATION_NANO_AIU * expectedGenerations
+            );
+            if (approveOnResume) {
+                expect(completions[0].data.toolUsage).toMatchObject({
+                    model: MODEL,
+                    inputTokens: 21,
+                    outputTokens: 196,
+                    copilotUsage: { totalNanoAiu: GENERATION_NANO_AIU },
+                });
+            } else {
+                expect(completions[0].data.error).toMatchObject({ code: "interrupted" });
+                expect(completions[0].data.toolUsage).toBeUndefined();
+            }
             await resumed.disconnect();
         } finally {
             await client.stop();
@@ -235,6 +545,8 @@ describe("Native image editing", async () => {
         try {
             await client.start();
             const session = await client.createSession(options);
+            const events: SessionEvent[] = [];
+            session.on((event) => events.push(event));
             handler.nextArguments = { prompt: "A fresh landscape" };
             expect(
                 (
@@ -247,6 +559,23 @@ describe("Native image editing", async () => {
             expect(handler.edits).toHaveLength(0);
             expect(handler.generations).toHaveLength(1);
             expect(handler.generations[0]).not.toHaveProperty("images");
+            const completed = events
+                .filter((event) => event.type === "tool.execution_complete")
+                .at(-1);
+            expect(completed?.data.toolUsage).toMatchObject({
+                model: MODEL,
+                inputTokens: 21,
+                outputTokens: 196,
+                inputTokensDetails: { textTokens: 21, imageTokens: 0 },
+                copilotUsage: { totalNanoAiu: GENERATION_NANO_AIU },
+            });
+            expect(completed?.data.result?.structuredContent).toMatchObject({
+                imageGeneration: {
+                    usage: imageServiceUsage(false).usage,
+                    copilotUsage: imageServiceUsage(false).copilot_usage,
+                },
+            });
+            expect((await session.rpc.usage.getMetrics()).totalNanoAiu).toBe(GENERATION_NANO_AIU);
             await session.disconnect();
         } finally {
             await client.stop();
@@ -273,6 +602,112 @@ describe("Native image editing", async () => {
             const completion = events.find((event) => event.type === "tool.execution_complete");
             expect(completion?.data.error?.message).toMatch(/^image_generation_input_unavailable:/);
             expect(completion?.data.success).toBe(false);
+            expect(completion?.data.toolUsage).toBeUndefined();
+            expect((await session.rpc.usage.getMetrics()).totalNanoAiu).toBe(0);
+            await session.disconnect();
+        } finally {
+            await client.stop();
+        }
+    });
+
+    it.each([
+        {
+            name: "missing billing",
+            overrides: { copilot_usage: undefined },
+            inputTokens: 21,
+            nanoAiu: undefined,
+        },
+        {
+            name: "missing tokens",
+            overrides: { usage: undefined },
+            inputTokens: undefined,
+            nanoAiu: GENERATION_NANO_AIU,
+        },
+        {
+            name: "reported zero",
+            overrides: { copilot_usage: { total_nano_aiu: 0 } },
+            inputTokens: 21,
+            nanoAiu: 0,
+        },
+        {
+            name: "both unavailable",
+            overrides: { usage: undefined, copilot_usage: undefined },
+            inputTokens: undefined,
+            nanoAiu: undefined,
+        },
+    ])(
+        "keeps $name distinct in the SDK tool event",
+        async ({ overrides, inputTokens, nanoAiu }) => {
+            const handler = new ImageHandler();
+            handler.imageResultOverrides = overrides;
+            handler.nextArguments = { prompt: "A blue circle" };
+            const client = createClient({ requestHandler: handler });
+            try {
+                await client.start();
+                const session = await client.createSession(options);
+                const events: SessionEvent[] = [];
+                session.on((event) => events.push(event));
+                expect(
+                    (await session.sendAndWait({ prompt: "Generate a blue circle." }))?.data.content
+                ).toBe(FINAL);
+                const completed = events
+                    .filter((event) => event.type === "tool.execution_complete")
+                    .at(-1);
+                expect(completed?.data.success).toBe(true);
+                expect(completed?.data.toolUsage).toMatchObject({
+                    requestId: expect.any(String),
+                    model: MODEL,
+                    provider: { id: "copilot", kind: "copilot" },
+                });
+                expect(completed?.data.toolUsage?.inputTokens).toBe(inputTokens);
+                expect(completed?.data.toolUsage?.copilotUsage?.totalNanoAiu).toBe(nanoAiu);
+                if (inputTokens === undefined) {
+                    expect(completed?.data.toolUsage).not.toHaveProperty("outputTokens");
+                    expect(completed?.data.toolUsage).not.toHaveProperty("totalTokens");
+                }
+                const metrics = await session.rpc.usage.getMetrics();
+                expect(metrics.totalNanoAiu).toBe(nanoAiu ?? 0);
+                expect(metrics.modelMetrics[MODEL]?.aiCreditsStatus).toBe(
+                    nanoAiu === undefined ? "unavailable" : "complete"
+                );
+                if (nanoAiu === undefined) {
+                    expect(completed?.data.toolUsage).not.toHaveProperty("copilotUsage");
+                    expect(metrics.aiCreditsStatus).toBe("unavailable");
+                }
+                await session.disconnect();
+            } finally {
+                await client.stop();
+            }
+        }
+    );
+
+    it("reports the known charge when local image decoding fails", async () => {
+        const handler = new ImageHandler();
+        handler.imageResultOverrides = {
+            data: [{ b64_json: Buffer.from("not a PNG").toString("base64") }],
+        };
+        handler.nextArguments = { prompt: "A blue circle" };
+        const client = createClient({ requestHandler: handler });
+        try {
+            await client.start();
+            const session = await client.createSession(options);
+            const events: SessionEvent[] = [];
+            session.on((event) => events.push(event));
+            expect(
+                (await session.sendAndWait({ prompt: "Generate a blue circle." }))?.data.content
+            ).toBe(FINAL);
+            const completed = events
+                .filter((event) => event.type === "tool.execution_complete")
+                .at(-1);
+            expect(completed?.data.success).toBe(false);
+            expect(completed?.data.toolUsage).toMatchObject({
+                model: MODEL,
+                inputTokens: 21,
+                outputTokens: 196,
+                copilotUsage: { totalNanoAiu: GENERATION_NANO_AIU },
+            });
+            expect(completed?.data.result).toBeUndefined();
+            expect((await session.rpc.usage.getMetrics()).totalNanoAiu).toBe(GENERATION_NANO_AIU);
             await session.disconnect();
         } finally {
             await client.stop();

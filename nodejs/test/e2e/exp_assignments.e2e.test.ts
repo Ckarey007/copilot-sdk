@@ -15,6 +15,23 @@ import { retry } from "./harness/sdkTestHelper.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEST_MCP_SERVER = resolve(__dirname, "../../../test/harness/test-mcp-server.mjs");
+const SEMANTIC_FACTORIAL_FLAG = "copilot_cli_semantic_code_search_factorial";
+
+function semanticFactorialAssignment(
+    cell: "eager_current" | "deferred_current" | "eager_focused" | "deferred_focused"
+): CopilotExpAssignmentResponse {
+    return {
+        Features: [SEMANTIC_FACTORIAL_FLAG],
+        Flights: { [SEMANTIC_FACTORIAL_FLAG]: cell },
+        Configs: [
+            {
+                Id: "default",
+                Parameters: { [SEMANTIC_FACTORIAL_FLAG]: cell },
+            },
+        ],
+        AssignmentContext: `sdk-semantic-${cell}`,
+    };
+}
 
 describe("create-time ExP assignments", async () => {
     const { copilotClient: client } = await createSdkTestContext();
@@ -46,8 +63,52 @@ describe("create-time ExP assignments", async () => {
             try {
                 await session.rpc.tools.initializeAndValidate();
                 const { tools } = await session.rpc.tools.getCurrentMetadata();
+                expect(tools).not.toBeNull();
+                if (tools === null) {
+                    throw new Error("tool metadata was not initialized");
+                }
                 const names = tools.map((tool) => tool.name);
                 expect(names.includes("semantic_code_search")).toBe(expected);
+            } finally {
+                await session.disconnect();
+            }
+        }
+    });
+
+    it("selects every semantic search factorial cell", async () => {
+        for (const [cell, focused, deferred] of [
+            ["eager_current", false, false],
+            ["deferred_current", false, true],
+            ["eager_focused", true, false],
+            ["deferred_focused", true, true],
+        ] as const) {
+            const session = await client.createSession({
+                onPermissionRequest: approveAll,
+                expAssignments: semanticFactorialAssignment(cell),
+            });
+
+            try {
+                await session.rpc.tools.initializeAndValidate();
+                const semantic = ((await session.rpc.tools.getCurrentMetadata()).tools ?? []).find(
+                    (tool) => tool.name === "semantic_code_search"
+                );
+                expect(semantic, cell).toBeDefined();
+                expect(semantic?.description.startsWith("Find code by behavior"), cell).toBe(
+                    focused
+                );
+                expect(
+                    semantic?.input_schema?.properties &&
+                        typeof semantic.input_schema.properties === "object" &&
+                        "query" in semantic.input_schema.properties
+                        ? (
+                              semantic.input_schema.properties.query as {
+                                  description?: string;
+                              }
+                          ).description?.startsWith("Ask one focused question")
+                        : false,
+                    cell
+                ).toBe(focused);
+                expect(semantic?.deferLoading, cell).toBe(deferred ? true : undefined);
             } finally {
                 await session.disconnect();
             }
@@ -68,49 +129,44 @@ describe("create-time ExP assignments", async () => {
         try {
             await malformedCreate.rpc.tools.initializeAndValidate();
             const { tools } = await malformedCreate.rpc.tools.getCurrentMetadata();
+            expect(tools).not.toBeNull();
+            if (tools === null) {
+                throw new Error("tool metadata was not initialized");
+            }
             expect(tools.map((tool) => tool.name)).not.toContain("semantic_code_search");
         } finally {
             await malformedCreate.disconnect();
         }
 
-        const eager = await client.createSession({
+        const focusedDeferred = await client.createSession({
             onPermissionRequest: approveAll,
-            expAssignments: {
-                Features: ["copilot_cli_semantic_code_search_mode"],
-                Flights: {
-                    copilot_cli_semantic_code_search_mode: "eager",
-                },
-                Configs: [
-                    {
-                        Id: "default",
-                        Parameters: {
-                            copilot_cli_semantic_code_search_mode: "eager",
-                        },
-                    },
-                ],
-                AssignmentContext: "sdk-semantic-eager",
-            },
+            expAssignments: semanticFactorialAssignment("deferred_focused"),
         });
         try {
-            await eager.rpc.tools.initializeAndValidate();
-            expect(
-                (await eager.rpc.tools.getCurrentMetadata()).tools.map((tool) => tool.name)
-            ).toContain("semantic_code_search");
+            await focusedDeferred.rpc.tools.initializeAndValidate();
+            const semantic = (
+                (await focusedDeferred.rpc.tools.getCurrentMetadata()).tools ?? []
+            ).find((tool) => tool.name === "semantic_code_search");
+            expect(semantic?.description).toMatch(/^Find code by behavior/);
+            expect(semantic?.deferLoading).toBe(true);
 
-            const resumed = await client.resumeSession(eager.sessionId, {
+            const resumed = await client.resumeSession(focusedDeferred.sessionId, {
                 onPermissionRequest: approveAll,
                 expAssignments: malformed,
             });
             try {
                 await resumed.rpc.tools.initializeAndValidate();
-                expect(
-                    (await resumed.rpc.tools.getCurrentMetadata()).tools.map((tool) => tool.name)
-                ).toContain("semantic_code_search");
+                const resumedSemantic = (
+                    (await resumed.rpc.tools.getCurrentMetadata()).tools ?? []
+                ).find((tool) => tool.name === "semantic_code_search");
+                expect(resumedSemantic?.description).toBe(semantic?.description);
+                expect(resumedSemantic?.input_schema).toEqual(semantic?.input_schema);
+                expect(resumedSemantic?.deferLoading).toBe(true);
             } finally {
                 await resumed.disconnect();
             }
         } finally {
-            await eager.disconnect();
+            await focusedDeferred.disconnect();
         }
     });
 
@@ -118,15 +174,15 @@ describe("create-time ExP assignments", async () => {
         const session = await client.createSession({
             onPermissionRequest: approveAll,
             expAssignments: {
-                Features: ["copilot_cli_blackbird_lexical_search"],
+                Features: ["copilot_cli_blackbird_lexical_search_v2_mode"],
                 Flights: {
-                    copilot_cli_blackbird_lexical_search: "treatment",
+                    copilot_cli_blackbird_lexical_search_v2_mode: "native_auto",
                 },
                 Configs: [
                     {
                         Id: "default",
                         Parameters: {
-                            copilot_cli_blackbird_lexical_search: true,
+                            copilot_cli_blackbird_lexical_search_v2_mode: "native_auto",
                         },
                     },
                 ],
@@ -165,7 +221,7 @@ describe("create-time ExP assignments", async () => {
             for (const operation of ["initialize first turn", "reuse catalog on second turn"]) {
                 await session.rpc.tools.initializeAndValidate();
                 const { tools } = await session.rpc.tools.getCurrentMetadata();
-                const names = tools.map((tool) => tool.name);
+                const names = (tools ?? []).map((tool) => tool.name);
                 expect(names).toContain("lexical_code_search");
                 expect(
                     names,

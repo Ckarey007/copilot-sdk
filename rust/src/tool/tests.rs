@@ -73,12 +73,62 @@ fn tool_parameters_serialize_in_deterministic_order() {
 
     // Pin the exact top-level key order so a regression to any
     // order-randomizing container is caught, not just internal drift.
+    // Keys are sorted even when `serde_json/preserve_order` is enabled,
+    // as it is in this crate.
     let tool = build();
     let keys: Vec<&str> = tool.parameters.keys().map(String::as_str).collect();
     assert_eq!(
         keys,
         ["additionalProperties", "properties", "required", "type"]
     );
+}
+
+#[test]
+fn tool_parameters_sort_keys_of_schemas_built_from_hash_maps() {
+    // A schema converted from a `HashMap` carries that map's per-process
+    // iteration order into an insertion-ordered `Value`. The tool definition
+    // must not depend on it, at any depth.
+    let properties: std::collections::HashMap<String, serde_json::Value> = [
+        "zeta", "alpha", "mu", "beta", "omega", "gamma", "kappa", "delta",
+    ]
+    .into_iter()
+    .map(|name| {
+        let field: std::collections::HashMap<&str, &str> =
+            [("type", "string"), ("description", name)].into();
+        (name.to_string(), serde_json::to_value(field).unwrap())
+    })
+    .collect();
+    let mut schema = serde_json::Map::new();
+    schema.insert("type".into(), "object".into());
+    schema.insert(
+        "properties".into(),
+        serde_json::to_value(properties).unwrap(),
+    );
+
+    let parameters = tool_parameters(serde_json::Value::Object(schema));
+
+    assert_eq!(
+        parameters.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["properties", "type"]
+    );
+    let properties = parameters["properties"].as_object().unwrap();
+    assert_eq!(
+        properties.keys().map(String::as_str).collect::<Vec<_>>(),
+        [
+            "alpha", "beta", "delta", "gamma", "kappa", "mu", "omega", "zeta"
+        ]
+    );
+    for field in properties.values() {
+        assert_eq!(
+            field
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["description", "type"]
+        );
+    }
 }
 
 #[test]

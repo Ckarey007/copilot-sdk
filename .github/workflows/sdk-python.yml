@@ -29,8 +29,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(inputs.platform == 'linux-x64' && '["ubuntu-latest"]' || inputs.platform == 'darwin-arm64' && '["macos-26-agent-runtime"]' || inputs.platform == 'win32-x64' && '["windows-latest"]' || '["ubuntu-latest","macos-26-agent-runtime","windows-latest"]') }}
-    runs-on: ${{ matrix.os }}
+        os: ${{ fromJSON(inputs.platform == 'linux-x64' && '["ubuntu-26.04-2core-agent-runtime"]' || inputs.platform == 'darwin-arm64' && '["macos-26-agent-runtime"]' || inputs.platform == 'win32-x64' && '["windows-2025-4core-agent-runtime"]' || '["ubuntu-26.04-2core-agent-runtime","macos-26-agent-runtime","windows-2025-4core-agent-runtime"]') }}
+    runs-on: ${{ github.event_name == 'merge_group' && fromJSON('{"ubuntu-26.04-2core-agent-runtime":"ubuntu-26.04-2core-ar-mq","macos-26-agent-runtime":"macos-26-ar-mq","windows-2025-4core-agent-runtime":"windows-2025-4core-ar-mq"}')[matrix.os] || matrix.os }}
     defaults:
       run:
         shell: bash
@@ -101,7 +101,7 @@ jobs:
   python-musl-x64:
     name: "Python (Alpine x64)"
     if: inputs.platform == 'all' || inputs.platform == 'linuxmusl-x64'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'merge_group' && 'ubuntu-26.04-2core-ar-mq' || 'ubuntu-26.04-2core-agent-runtime' }}
     steps:
       - uses: actions/checkout@v7
         with:

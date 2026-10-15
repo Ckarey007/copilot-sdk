@@ -280,8 +280,8 @@ public final class SessionRpc {
      * @since 1.0.0
      */
     @CopilotExperimental
-    public CompletableFuture<Void> cancelAllBackgroundAgents() {
-        return caller.invoke("session.cancelAllBackgroundAgents", java.util.Map.of("sessionId", this.sessionId), Void.class);
+    public CompletableFuture<Long> cancelAllBackgroundAgents() {
+        return caller.invoke("session.cancelAllBackgroundAgents", java.util.Map.of("sessionId", this.sessionId), Long.class);
     }
 
     /**

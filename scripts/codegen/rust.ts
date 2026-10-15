@@ -1059,7 +1059,11 @@ function emitRustStruct(
 		const prop = propSchema as JSONSchema7;
 		const isReq = required.has(propName);
 		const rustField = safeRustFieldName(propName);
-		const rustType = resolveRustType(prop, typeName, propName, isReq, ctx);
+		let rustType = resolveRustType(prop, typeName, propName, isReq, ctx);
+		if (typeName === "ToolExecutionCompleteData" && propName === "toolUsage") {
+			// Image usage must not enlarge the shared session-event enum inline.
+			rustType = wrapOption(`Box<${stripOption(rustType)}>`, !rustType.startsWith("Option<"));
+		}
 		const strictBooleanConst = ctx.strictBooleanConstFields
 			.get(typeName)
 			?.get(propName);
