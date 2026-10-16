@@ -66,6 +66,12 @@ public final class ModelCallFailureEvent extends SessionEvent {
         @JsonProperty("requestBodyWireBytes") Long requestBodyWireBytes,
         /** Content-Encoding applied to the failed request body; identity when uncompressed */
         @JsonProperty("requestBodyEncoding") ModelCallRequestBodyEncoding requestBodyEncoding,
+        /** Uncompressed fallback that produced this outcome; absent when the body was sent with the requested encoding */
+        @JsonProperty("requestBodyCompressionFallback") ModelCallRequestBodyCompressionFallback requestBodyCompressionFallback,
+        /** Content-Encoding the request asked for before the uncompressed fallback; present only with requestBodyCompressionFallback */
+        @JsonProperty("requestBodyCompressionFallbackFrom") ModelCallRequestBodyEncoding requestBodyCompressionFallbackFrom,
+        /** HTTP status that rejected the compressed body before the uncompressed resend; present only when requestBodyCompressionFallback is retried */
+        @JsonProperty("requestBodyCompressionRejectedStatus") Long requestBodyCompressionRejectedStatus,
         /** Zero-based orchestrator retry index of the failed attempt */
         @JsonProperty("retryAttempt") Long retryAttempt,
         /** Why the failed call was carried by the HTTP fallback of a WebSocket-capable dispatcher; absent when no fallback occurred */
@@ -92,6 +98,8 @@ public final class ModelCallFailureEvent extends SessionEvent {
         @JsonProperty("byokKind") String byokKind,
         /** Fixed-set provider family serving the bring-your-own-key model for the failed call (for example "openai", "anthropic", "azure_openai", "ollama", "llama_cpp", or "other"). Never the caller-supplied provider name. Absent for Copilot-served models. */
         @JsonProperty("modelProvider") String modelProvider,
+        /** Fixed-set configured provider type of the bring-your-own-key model for the failed call: "openai", "azure", "anthropic", "local_model" (a user-configured local model), "winml" (a Copilot-managed Windows ML model), or "other". Never the caller-supplied provider name. Absent for Copilot-served models. */
+        @JsonProperty("providerType") String providerType,
         /** Whether the session selected Auto mode for the failed call */
         @JsonProperty("isAuto") Boolean isAuto,
         /** Reasoning effort level used for the failed model call, if applicable */

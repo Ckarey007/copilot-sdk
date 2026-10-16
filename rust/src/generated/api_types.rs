@@ -6326,7 +6326,7 @@ pub struct CatalogSearchRequest {
     /// Maximum number of candidates to return. Defaults to 10 when omitted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<i32>,
-    /// Numbered navigation using metadata from an earlier response. Requires catalog-search-pagination and the same query, kinds and effective limit. Omit for a fresh first-page search.
+    /// Numbered navigation using metadata from an earlier response. Requires catalog-search-pagination and the same query, kinds, categories and effective limit. Omit for a fresh first-page search.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub page: Option<CatalogSearchPage>,
     /// Free-text search query. Persisted as tool input for session continuity, but omitted from telemetry.
@@ -6350,6 +6350,8 @@ pub struct CatalogSearchOptions {
     #[serde(flatten)]
     legacy: CatalogSearchRequest,
     #[serde(skip_serializing_if = "Option::is_none")]
+    categories: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     policy_session_id: Option<String>,
 }
 
@@ -6364,6 +6366,7 @@ impl CatalogSearchOptions {
                 kinds: None,
                 page: None,
             },
+            categories: None,
             policy_session_id: None,
         }
     }
@@ -6380,9 +6383,15 @@ impl CatalogSearchOptions {
         self
     }
 
-    /// Numbered navigation using metadata from an earlier response. Requires catalog-search-pagination and the same query, kinds and effective limit. Omit for a fresh first-page search.
+    /// Numbered navigation using metadata from an earlier response. Requires catalog-search-pagination and the same query, kinds, categories and effective limit. Omit for a fresh first-page search.
     pub fn page(mut self, value: CatalogSearchPage) -> Self {
         self.legacy.page = Some(value);
+        self
+    }
+
+    /// Restrict results to resources in at least one of these server-defined workflow categories, such as `design` or `test`. Requires the `catalog-search-categories` capability. Each value is a lowercase slug; the known set is not exhaustive, and a category the server does not recognise matches nothing. Omit to search every category.
+    pub fn categories(mut self, value: Vec<String>) -> Self {
+        self.categories = Some(value);
         self
     }
 
@@ -27035,6 +27044,9 @@ pub struct SessionOpenOptions {
     /// Opt in to capturing file changes for session rewind and session diff. Capture cannot reconstruct changes made before it was enabled. On create it starts capture from the first turn. It is also honored on resume: for a session that already has tracked prior turns, tracking continues automatically even if this is omitted; passing it on resume additionally enables tracking for an eligible session that has no prior root turn yet. Resuming a session whose prior root turns were never tracked has no restorable baseline, so tracking stays disabled for it and rewind reports file change tracking as unavailable; the resume itself still succeeds, so sessions that predate tracking remain loadable. The opt-in is only rejected when the session can never track (a subagent session, or one without local session storage). It is intentionally absent from the mutable options update because enabling it after edits have occurred would create an incomplete, misleading baseline. Subagents share the parent session's capture store and are not tracked as separate rewind points: a file a subagent writes is attributed to whichever root user turn was open when the capture was staged, just before the tool body ran. A turn cannot open while a staged capture is still in flight, so a subagent tool that staged under the spawning turn stays attributed to it however late the write lands, while a capture it stages after the user's next message belongs to that later turn. Attribution decides which turn's rewind point counts and file preview include that write; it does not narrow which rewinds revert it, because a rewind restores every capture from the selected turn onward, so the earlier spawning turn reverts it as well.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enable_file_change_tracking: Option<bool>,
+    /// Live gate for repository-origin file hooks, including the primary repository, trusted repository-configured roots, and accepted startup additional directories (including CLI --add-dir). False suppresses these hooks; explicit hookDirectories and SDK callbacks are independent. Additional-root eligibility and the DISABLE_ADDITIONAL_DIRECTORY_HOOKS escape hatch are captured at create/cold resume, not expanded by later grants or feature-flag changes. Discovery uses containing Git roots, so supply only trusted repositories: commands and prompts need no further approval. Policy, hook-disable settings, and sandbox rules still apply. Provider-backed sessions skip repository hooks with a warning on omission, skip silently on false, and reject explicit true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enable_file_hooks: Option<bool>,
     /// Opt-in: self-fetch and enforce enterprise managed settings, including managed hook policies, at session bootstrap.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enable_managed_settings: Option<bool>,
@@ -44798,6 +44810,9 @@ pub enum CatalogCapability {
     /// Understands catalog.getSavedFeed and catalog.getGeneratedFeed, which retrieve a saved or generated feed with entries projected exactly like catalog.search candidates. Requires catalog-search-credential-required; add catalog-search-session-bound to bind the retrieval to a selected session.
     #[serde(rename = "catalog-feeds")]
     CatalogFeeds,
+    /// Understands the optional `categories` filter on catalog.search, which the runtime forwards to the catalog authority. Required to send the filter, so an older runtime refuses the request instead of silently returning unfiltered results.
+    #[serde(rename = "catalog-search-categories")]
+    CatalogSearchCategories,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]
@@ -45093,6 +45108,9 @@ pub enum CatalogInvalidRequestField {
     /// The trust tier filter was empty, repeated a tier or named an unknown tier.
     #[serde(rename = "trustTiers")]
     TrustTiers,
+    /// The category filter was empty, too long, repeated a category or contained a value that is not a lowercase slug.
+    #[serde(rename = "categories")]
+    Categories,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]

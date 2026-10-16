@@ -33,6 +33,30 @@ flowchart LR
 
 All hooks are **optional**—register only the ones you need. Returning `null` (or the language equivalent) from any hook tells the SDK to continue with default behavior.
 
+## Repository hooks from additional directories
+
+Repository filesystem hooks are separate from the SDK callbacks described in
+this guide. To load them from additional directories during local session
+creation or cold resume, supply `additionalDirectories`; CLI `--add-dir` also participates by default.
+`DISABLE_ADDITIONAL_DIRECTORY_HOOKS=true` restores primary-only scope;
+`enableFileHooks` can enable or disable repository hooks through `session.rpc.options.update`; explicit SDK hook directories and callbacks are independent.
+
+Discovery uses each accepted directory's containing Git root, or the directory
+itself when it is outside a Git repository. For example, supplying
+`B\packages\core` inside repository `B` admits `B\.github\hooks` and B's repository
+hook settings, not just configuration inside `B\packages\core`.
+
+> [!WARNING]
+> Supply only trusted startup directories. This authorizes hook commands
+> and hook-provided prompts from all eligible startup directories without
+> additional per-directory or per-hook approval. Later file-access grants
+> do not authorize hooks. Existing managed policy, hook-disable controls, and
+> sandbox rules still apply; they do not make malicious hook content safe.
+
+Later directory grants do not add hook sources. A cold resume must resupply the
+directories; later grants or escape-hatch updates cannot change retained
+authorization.
+
 ## Registering hooks
 
 Callback `hooks` remain separate from file-backed `hookDirectories`. For packaged hook configurations and adjacent resources, see [customization discovery locations](./customization-locations.md).

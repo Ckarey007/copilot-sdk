@@ -3276,6 +3276,11 @@ type CatalogSearchPagination struct {
 // Experimental: CatalogSearchRequest is part of an experimental API and may change or be
 // removed.
 type CatalogSearchRequest struct {
+	// Restrict results to resources in at least one of these server-defined workflow
+	// categories, such as `design` or `test`. Requires the `catalog-search-categories`
+	// capability. Each value is a lowercase slug; the known set is not exhaustive, and a
+	// category the server does not recognise matches nothing. Omit to search every category.
+	Categories []string `json:"categories,omitzero"`
 	// Protocol version and capabilities the caller requires.
 	Contract CatalogClientContract `json:"contract"`
 	// Restrict results to these candidate kinds. Agent Plugins are opt-in and require the
@@ -3286,8 +3291,8 @@ type CatalogSearchRequest struct {
 	// Maximum number of candidates to return. Defaults to 10 when omitted.
 	Limit *int32 `json:"limit,omitempty"`
 	// Numbered navigation using metadata from an earlier response. Requires
-	// catalog-search-pagination and the same query, kinds and effective limit. Omit for a fresh
-	// first-page search.
+	// catalog-search-pagination and the same query, kinds, categories and effective limit. Omit
+	// for a fresh first-page search.
 	Page *CatalogSearchPage `json:"page,omitempty"`
 	// Select an existing attached local session. Requires authenticated, session-bound search.
 	// The runtime never creates, resumes or reconfigures a session to honour this selector.
@@ -19540,6 +19545,16 @@ type SessionOpenOptions struct {
 	// narrow which rewinds revert it, because a rewind restores every capture from the selected
 	// turn onward, so the earlier spawning turn reverts it as well.
 	EnableFileChangeTracking *bool `json:"enableFileChangeTracking,omitempty"`
+	// Live gate for repository-origin file hooks, including the primary repository, trusted
+	// repository-configured roots, and accepted startup additional directories (including CLI
+	// --add-dir). False suppresses these hooks; explicit hookDirectories and SDK callbacks are
+	// independent. Additional-root eligibility and the DISABLE_ADDITIONAL_DIRECTORY_HOOKS
+	// escape hatch are captured at create/cold resume, not expanded by later grants or
+	// feature-flag changes. Discovery uses containing Git roots, so supply only trusted
+	// repositories: commands and prompts need no further approval. Policy, hook-disable
+	// settings, and sandbox rules still apply. Provider-backed sessions skip repository hooks
+	// with a warning on omission, skip silently on false, and reject explicit true.
+	EnableFileHooks *bool `json:"enableFileHooks,omitempty"`
 	// Opt-in: self-fetch and enforce enterprise managed settings, including managed hook
 	// policies, at session bootstrap.
 	EnableManagedSettings *bool `json:"enableManagedSettings,omitempty"`
@@ -27013,6 +27028,10 @@ const (
 	// agent-plugin-confirmed-installation for Agent Plugins. Advertised only by runtimes with
 	// the Skill installation engine linked.
 	CatalogCapabilityCatalogReferenceInstallation CatalogCapability = "catalog-reference-installation"
+	// Understands the optional `categories` filter on catalog.search, which the runtime
+	// forwards to the catalog authority. Required to send the filter, so an older runtime
+	// refuses the request instead of silently returning unfiltered results.
+	CatalogCapabilityCatalogSearchCategories CatalogCapability = "catalog-search-categories"
 	// Requires an eligible credential for the selected GitHub.com account before search egress
 	// and prohibits client-side anonymous retry, including after HTTP 401 or 403. The
 	// credential is scoped to the fixed catalog authority without redirect forwarding. Neither
@@ -27175,6 +27194,9 @@ type CatalogInvalidRequestField string
 const (
 	// The supplied card was missing its media type, URL, or data.
 	CatalogInvalidRequestFieldCard CatalogInvalidRequestField = "card"
+	// The category filter was empty, too long, repeated a category or contained a value that is
+	// not a lowercase slug.
+	CatalogInvalidRequestFieldCategories CatalogInvalidRequestField = "categories"
 	// The negotiation block was missing or malformed.
 	CatalogInvalidRequestFieldContract CatalogInvalidRequestField = "contract"
 	// The saved feed ID, or the generated feed strategy or key, was missing or malformed.

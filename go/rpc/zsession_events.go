@@ -1503,6 +1503,9 @@ type ModelCallFailureData struct {
 	ParentToolCallID *string `json:"parentToolCallId,omitempty"`
 	// GitHub request tracing ID (x-github-request-id header) for server-side log correlation
 	ProviderCallID *string `json:"providerCallId,omitempty"`
+	// Fixed-set configured provider type of the bring-your-own-key model for the failed call: "openai", "azure", "anthropic", "local_model" (a user-configured local model), "winml" (a Copilot-managed Windows ML model), or "other". Never the caller-supplied provider name. Absent for Copilot-served models.
+	// Internal: ProviderType is part of the SDK's internal API surface and is not intended for external use.
+	ProviderType *string `json:"providerType,omitempty"`
 	// Per-quota usage snapshots parsed from the failed response's quota headers, keyed by quota identifier. Present when the error response carried quota headers (e.g. a 402 once the additional spend limit is reached) so the UI can refresh the quota display on failure.
 	// Internal: QuotaSnapshots is part of the SDK's internal API surface and is not intended for external use.
 	QuotaSnapshots map[string]AssistantUsageQuotaSnapshot `json:"quotaSnapshots,omitzero"`
@@ -1510,6 +1513,12 @@ type ModelCallFailureData struct {
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
 	// Serialized (uncompressed) byte length of the failed request body, before any Content-Encoding. A content-free size signal.
 	RequestBodyBytes *int64 `json:"requestBodyBytes,omitempty"`
+	// Uncompressed fallback that produced this outcome; absent when the body was sent with the requested encoding
+	RequestBodyCompressionFallback *ModelCallRequestBodyCompressionFallback `json:"requestBodyCompressionFallback,omitempty"`
+	// Content-Encoding the request asked for before the uncompressed fallback; present only with requestBodyCompressionFallback
+	RequestBodyCompressionFallbackFrom *ModelCallRequestBodyEncoding `json:"requestBodyCompressionFallbackFrom,omitempty"`
+	// HTTP status that rejected the compressed body before the uncompressed resend; present only when requestBodyCompressionFallback is retried
+	RequestBodyCompressionRejectedStatus *int32 `json:"requestBodyCompressionRejectedStatus,omitempty"`
 	// Content-Encoding applied to the failed request body; identity when uncompressed
 	RequestBodyEncoding *ModelCallRequestBodyEncoding `json:"requestBodyEncoding,omitempty"`
 	// Byte length of the failed request body actually sent on the wire, after any Content-Encoding. Equals requestBodyBytes when the body was not compressed.
@@ -1894,6 +1903,9 @@ type AssistantUsageData struct {
 	Provider *ModelProviderRef `json:"provider,omitempty"`
 	// GitHub request tracing ID (x-github-request-id header) for server-side log correlation
 	ProviderCallID *string `json:"providerCallId,omitempty"`
+	// Fixed-set configured provider type of the bring-your-own-key model: "openai", "azure", "anthropic", "local_model" (a user-configured local model), "winml" (a Copilot-managed Windows ML model), or "other". Never the caller-supplied provider name. Absent for Copilot-served models.
+	// Internal: ProviderType is part of the SDK's internal API surface and is not intended for external use.
+	ProviderType *string `json:"providerType,omitempty"`
 	// Per-quota resource usage snapshots, keyed by quota identifier
 	// Internal: QuotaSnapshots is part of the SDK's internal API surface and is not intended for external use.
 	QuotaSnapshots map[string]AssistantUsageQuotaSnapshot `json:"quotaSnapshots,omitzero"`
@@ -1907,6 +1919,12 @@ type AssistantUsageData struct {
 	RejectedPredictionTokens *int64 `json:"rejectedPredictionTokens,omitempty"`
 	// Serialized (uncompressed) byte length of the request body, before any Content-Encoding. A content-free size signal.
 	RequestBodyBytes *int64 `json:"requestBodyBytes,omitempty"`
+	// Uncompressed fallback that produced this outcome; absent when the body was sent with the requested encoding
+	RequestBodyCompressionFallback *ModelCallRequestBodyCompressionFallback `json:"requestBodyCompressionFallback,omitempty"`
+	// Content-Encoding the request asked for before the uncompressed fallback; present only with requestBodyCompressionFallback
+	RequestBodyCompressionFallbackFrom *ModelCallRequestBodyEncoding `json:"requestBodyCompressionFallbackFrom,omitempty"`
+	// HTTP status that rejected the compressed body before the uncompressed resend; present only when requestBodyCompressionFallback is retried
+	RequestBodyCompressionRejectedStatus *int32 `json:"requestBodyCompressionRejectedStatus,omitempty"`
 	// Content-Encoding applied to the request body of the attempt that produced this outcome; identity when uncompressed
 	RequestBodyEncoding *ModelCallRequestBodyEncoding `json:"requestBodyEncoding,omitempty"`
 	// Byte length of the request body actually sent on the wire for the attempt that produced this outcome, after any Content-Encoding. Equals requestBodyBytes when the body was not compressed.
@@ -6646,6 +6664,16 @@ const (
 	ModelCallFinishedOutcomeRejected ModelCallFinishedOutcome = "rejected"
 	// The provider response was accepted for continued agent processing.
 	ModelCallFinishedOutcomeSuccess ModelCallFinishedOutcome = "success"
+)
+
+// How the runtime fell back to an uncompressed request body after a compressed body was rejected
+type ModelCallRequestBodyCompressionFallback string
+
+const (
+	// Request body compression was already turned off for the session by an earlier rejection, so the body was sent uncompressed.
+	ModelCallRequestBodyCompressionFallbackDisabled ModelCallRequestBodyCompressionFallback = "disabled"
+	// A compressed body was rejected with HTTP 400 or 415 and this outcome comes from the single uncompressed resend.
+	ModelCallRequestBodyCompressionFallbackRetried ModelCallRequestBodyCompressionFallback = "retried"
 )
 
 // Content-Encoding applied to the request body sent on the wire

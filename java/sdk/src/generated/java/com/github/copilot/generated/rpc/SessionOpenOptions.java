@@ -181,6 +181,8 @@ public record SessionOpenOptions(
     @JsonProperty("configDir") String configDir,
     /** Additional content-exclusion policies to merge into the session policy set. */
     @JsonProperty("additionalContentExclusionPolicies") List<SessionOpenOptionsAdditionalContentExclusionPolicy> additionalContentExclusionPolicies,
+    /** Live gate for repository-origin file hooks, including the primary repository, trusted repository-configured roots, and accepted startup additional directories (including CLI --add-dir). False suppresses these hooks; explicit hookDirectories and SDK callbacks are independent. Additional-root eligibility and the DISABLE_ADDITIONAL_DIRECTORY_HOOKS escape hatch are captured at create/cold resume, not expanded by later grants or feature-flag changes. Discovery uses containing Git roots, so supply only trusted repositories: commands and prompts need no further approval. Policy, hook-disable settings, and sandbox rules still apply. Provider-backed sessions skip repository hooks with a warning on omission, skip silently on false, and reject explicit true. */
+    @JsonProperty("enableFileHooks") Boolean enableFileHooks,
     /** Memory configuration for this session. */
     @JsonProperty("memory") MemoryConfiguration memory,
     /** Capabilities enabled for this session. */

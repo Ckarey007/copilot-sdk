@@ -85,6 +85,8 @@ public final class AssistantUsageEvent extends SessionEvent {
         @JsonProperty("byokKind") String byokKind,
         /** Fixed-set provider family serving the bring-your-own-key model (for example "openai", "anthropic", "azure_openai", "ollama", "llama_cpp", or "other"). Never the caller-supplied provider name. Absent for Copilot-served models. */
         @JsonProperty("modelProvider") String modelProvider,
+        /** Fixed-set configured provider type of the bring-your-own-key model: "openai", "azure", "anthropic", "local_model" (a user-configured local model), "winml" (a Copilot-managed Windows ML model), or "other". Never the caller-supplied provider name. Absent for Copilot-served models. */
+        @JsonProperty("providerType") String providerType,
         /** Whether Auto mode was selected for this model call */
         @JsonProperty("isAuto") Boolean isAuto,
         /** Effective maximum prompt-token limit used for this model call */
@@ -103,6 +105,12 @@ public final class AssistantUsageEvent extends SessionEvent {
         @JsonProperty("requestBodyWireBytes") Long requestBodyWireBytes,
         /** Content-Encoding applied to the request body of the attempt that produced this outcome; identity when uncompressed */
         @JsonProperty("requestBodyEncoding") ModelCallRequestBodyEncoding requestBodyEncoding,
+        /** Uncompressed fallback that produced this outcome; absent when the body was sent with the requested encoding */
+        @JsonProperty("requestBodyCompressionFallback") ModelCallRequestBodyCompressionFallback requestBodyCompressionFallback,
+        /** Content-Encoding the request asked for before the uncompressed fallback; present only with requestBodyCompressionFallback */
+        @JsonProperty("requestBodyCompressionFallbackFrom") ModelCallRequestBodyEncoding requestBodyCompressionFallbackFrom,
+        /** HTTP status that rejected the compressed body before the uncompressed resend; present only when requestBodyCompressionFallback is retried */
+        @JsonProperty("requestBodyCompressionRejectedStatus") Long requestBodyCompressionRejectedStatus,
         /** Why the call was carried by the HTTP fallback of a WebSocket-capable dispatcher; absent when no fallback occurred */
         @JsonProperty("websocketFallbackReason") ModelCallWebSocketFallbackReason websocketFallbackReason,
         /** Milliseconds spent on the WebSocket attempt before falling back to HTTP */

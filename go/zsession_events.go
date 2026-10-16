@@ -192,6 +192,7 @@ type (
 	ModelCallFinalResultData                                       = rpc.ModelCallFinalResultData
 	ModelCallFinishedData                                          = rpc.ModelCallFinishedData
 	ModelCallFinishedOutcome                                       = rpc.ModelCallFinishedOutcome
+	ModelCallRequestBodyCompressionFallback                        = rpc.ModelCallRequestBodyCompressionFallback
 	ModelCallRequestBodyEncoding                                   = rpc.ModelCallRequestBodyEncoding
 	ModelCallStartData                                             = rpc.ModelCallStartData
 	ModelCallWebSocketFallbackErrorKind                            = rpc.ModelCallWebSocketFallbackErrorKind
@@ -746,6 +747,8 @@ const (
 	ModelCallFinishedOutcomeError                                        = rpc.ModelCallFinishedOutcomeError
 	ModelCallFinishedOutcomeRejected                                     = rpc.ModelCallFinishedOutcomeRejected
 	ModelCallFinishedOutcomeSuccess                                      = rpc.ModelCallFinishedOutcomeSuccess
+	ModelCallRequestBodyCompressionFallbackDisabled                      = rpc.ModelCallRequestBodyCompressionFallbackDisabled
+	ModelCallRequestBodyCompressionFallbackRetried                       = rpc.ModelCallRequestBodyCompressionFallbackRetried
 	ModelCallRequestBodyEncodingGzip                                     = rpc.ModelCallRequestBodyEncodingGzip
 	ModelCallRequestBodyEncodingIdentity                                 = rpc.ModelCallRequestBodyEncodingIdentity
 	ModelCallRequestBodyEncodingZstd                                     = rpc.ModelCallRequestBodyEncodingZstd

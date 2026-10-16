@@ -506,6 +506,7 @@ class TestClientOptions:
                 reasoning_summary="detailed",
                 context_tier="long_context",
                 enable_citations=True,
+                enable_file_hooks=True,
                 capi={"enable_web_socket_responses": False},
                 mcp_oauth_token_storage="persistent",
                 custom_agents=[
@@ -593,6 +594,7 @@ class TestClientOptions:
                 assert params["reasoningSummary"] == "detailed"
                 assert params["contextTier"] == "long_context"
                 assert params["enableCitations"] is True
+                assert params["enableFileHooks"] is True
                 assert params["capi"]["enableWebSocketResponses"] is False
                 assert params["mcpOAuthTokenStorage"] == "persistent"
                 assert params["agent"] == "agent-one"
@@ -709,6 +711,7 @@ class TestClientOptions:
                 reasoning_summary="none",
                 context_tier="default",
                 continue_pending_work=True,
+                enable_file_hooks=True,
                 mcp_oauth_token_storage="persistent",
                 plugin_directories=["plugins-resume"],
                 large_output={
@@ -741,6 +744,7 @@ class TestClientOptions:
                 assert params["reasoningSummary"] == "none"
                 assert params["contextTier"] == "default"
                 assert params["continuePendingWork"] is True
+                assert params["enableFileHooks"] is True
                 assert params["mcpOAuthTokenStorage"] == "persistent"
                 assert params["pluginDirectories"][0] == "plugins-resume"
                 assert params["largeOutput"]["enabled"] is False

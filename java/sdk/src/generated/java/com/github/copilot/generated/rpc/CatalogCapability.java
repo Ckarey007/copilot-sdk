@@ -51,7 +51,9 @@ public enum CatalogCapability {
     /** The {@code catalog-reference-installation} variant. */
     CATALOG_REFERENCE_INSTALLATION("catalog-reference-installation"),
     /** The {@code catalog-feeds} variant. */
-    CATALOG_FEEDS("catalog-feeds");
+    CATALOG_FEEDS("catalog-feeds"),
+    /** The {@code catalog-search-categories} variant. */
+    CATALOG_SEARCH_CATEGORIES("catalog-search-categories");
 
     private final String value;
     CatalogCapability(String value) { this.value = value; }

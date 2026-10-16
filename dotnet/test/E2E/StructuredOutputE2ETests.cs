@@ -15,11 +15,11 @@ public partial class StructuredOutputE2ETests(E2ETestFixture fixture, ITestOutpu
     : E2ETestBase(fixture, "structured_output", output)
 {
     private SessionConfig StructuredSessionConfig() => E2ETestBackendConfiguration.Current != E2ETestBackend.Capi
-        ? new() { AvailableTools = [] }
+        ? new() { AvailableTools = ["custom:*"] }
         : new()
         {
             Model = "gpt-4.1",
-            AvailableTools = [],
+            AvailableTools = ["custom:*"],
             Provider = new ProviderConfig
             {
                 Type = "openai",

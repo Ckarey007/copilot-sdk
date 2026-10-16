@@ -4185,6 +4185,10 @@ pub struct AssistantUsageData {
     /// GitHub request tracing ID (x-github-request-id header) for server-side log correlation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_call_id: Option<String>,
+    /// Fixed-set configured provider type of the bring-your-own-key model: "openai", "azure", "anthropic", "local_model" (a user-configured local model), "winml" (a Copilot-managed Windows ML model), or "other". Never the caller-supplied provider name. Absent for Copilot-served models.
+    #[doc(hidden)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) provider_type: Option<String>,
     /// Per-quota resource usage snapshots, keyed by quota identifier
     #[doc(hidden)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -4204,6 +4208,15 @@ pub struct AssistantUsageData {
     /// Serialized (uncompressed) byte length of the request body, before any Content-Encoding. A content-free size signal.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_body_bytes: Option<i64>,
+    /// Uncompressed fallback that produced this outcome; absent when the body was sent with the requested encoding
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_body_compression_fallback: Option<ModelCallRequestBodyCompressionFallback>,
+    /// Content-Encoding the request asked for before the uncompressed fallback; present only with requestBodyCompressionFallback
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_body_compression_fallback_from: Option<ModelCallRequestBodyEncoding>,
+    /// HTTP status that rejected the compressed body before the uncompressed resend; present only when requestBodyCompressionFallback is retried
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_body_compression_rejected_status: Option<i32>,
     /// Content-Encoding applied to the request body of the attempt that produced this outcome; identity when uncompressed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_body_encoding: Option<ModelCallRequestBodyEncoding>,
@@ -4452,6 +4465,10 @@ pub struct ModelCallFailureData {
     /// GitHub request tracing ID (x-github-request-id header) for server-side log correlation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_call_id: Option<String>,
+    /// Fixed-set configured provider type of the bring-your-own-key model for the failed call: "openai", "azure", "anthropic", "local_model" (a user-configured local model), "winml" (a Copilot-managed Windows ML model), or "other". Never the caller-supplied provider name. Absent for Copilot-served models.
+    #[doc(hidden)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) provider_type: Option<String>,
     /// Per-quota usage snapshots parsed from the failed response's quota headers, keyed by quota identifier. Present when the error response carried quota headers (e.g. a 402 once the additional spend limit is reached) so the UI can refresh the quota display on failure.
     #[doc(hidden)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -4462,6 +4479,15 @@ pub struct ModelCallFailureData {
     /// Serialized (uncompressed) byte length of the failed request body, before any Content-Encoding. A content-free size signal.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_body_bytes: Option<i64>,
+    /// Uncompressed fallback that produced this outcome; absent when the body was sent with the requested encoding
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_body_compression_fallback: Option<ModelCallRequestBodyCompressionFallback>,
+    /// Content-Encoding the request asked for before the uncompressed fallback; present only with requestBodyCompressionFallback
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_body_compression_fallback_from: Option<ModelCallRequestBodyEncoding>,
+    /// HTTP status that rejected the compressed body before the uncompressed resend; present only when requestBodyCompressionFallback is retried
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_body_compression_rejected_status: Option<i32>,
     /// Content-Encoding applied to the failed request body; identity when uncompressed
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_body_encoding: Option<ModelCallRequestBodyEncoding>,
@@ -10390,6 +10416,21 @@ pub enum AssistantUsageApiEndpoint {
     /// WebSocket Responses API endpoint.
     #[serde(rename = "ws:/responses")]
     WsResponses,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// How the runtime fell back to an uncompressed request body after a compressed body was rejected
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ModelCallRequestBodyCompressionFallback {
+    /// A compressed body was rejected with HTTP 400 or 415 and this outcome comes from the single uncompressed resend.
+    #[serde(rename = "retried")]
+    Retried,
+    /// Request body compression was already turned off for the session by an earlier rejection, so the body was sent uncompressed.
+    #[serde(rename = "disabled")]
+    Disabled,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]

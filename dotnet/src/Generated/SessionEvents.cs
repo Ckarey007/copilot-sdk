@@ -5284,6 +5284,12 @@ public sealed partial class AssistantUsageData
     [JsonPropertyName("providerCallId")]
     public string? ProviderCallId { get; set; }
 
+    /// <summary>Fixed-set configured provider type of the bring-your-own-key model: "openai", "azure", "anthropic", "local_model" (a user-configured local model), "winml" (a Copilot-managed Windows ML model), or "other". Never the caller-supplied provider name. Absent for Copilot-served models.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonInclude]
+    [JsonPropertyName("providerType")]
+    internal string? ProviderType { get; set; }
+
     /// <summary>Per-quota resource usage snapshots, keyed by quota identifier.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonInclude]
@@ -5314,6 +5320,21 @@ public sealed partial class AssistantUsageData
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("requestBodyBytes")]
     public long? RequestBodyBytes { get; set; }
+
+    /// <summary>Uncompressed fallback that produced this outcome; absent when the body was sent with the requested encoding.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("requestBodyCompressionFallback")]
+    public ModelCallRequestBodyCompressionFallback? RequestBodyCompressionFallback { get; set; }
+
+    /// <summary>Content-Encoding the request asked for before the uncompressed fallback; present only with requestBodyCompressionFallback.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("requestBodyCompressionFallbackFrom")]
+    public ModelCallRequestBodyEncoding? RequestBodyCompressionFallbackFrom { get; set; }
+
+    /// <summary>HTTP status that rejected the compressed body before the uncompressed resend; present only when requestBodyCompressionFallback is retried.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("requestBodyCompressionRejectedStatus")]
+    public int? RequestBodyCompressionRejectedStatus { get; set; }
 
     /// <summary>Content-Encoding applied to the request body of the attempt that produced this outcome; identity when uncompressed.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -5648,6 +5669,12 @@ public sealed partial class ModelCallFailureData
     [JsonPropertyName("providerCallId")]
     public string? ProviderCallId { get; set; }
 
+    /// <summary>Fixed-set configured provider type of the bring-your-own-key model for the failed call: "openai", "azure", "anthropic", "local_model" (a user-configured local model), "winml" (a Copilot-managed Windows ML model), or "other". Never the caller-supplied provider name. Absent for Copilot-served models.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonInclude]
+    [JsonPropertyName("providerType")]
+    internal string? ProviderType { get; set; }
+
     /// <summary>Per-quota usage snapshots parsed from the failed response's quota headers, keyed by quota identifier. Present when the error response carried quota headers (e.g. a 402 once the additional spend limit is reached) so the UI can refresh the quota display on failure.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonInclude]
@@ -5663,6 +5690,21 @@ public sealed partial class ModelCallFailureData
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("requestBodyBytes")]
     public long? RequestBodyBytes { get; set; }
+
+    /// <summary>Uncompressed fallback that produced this outcome; absent when the body was sent with the requested encoding.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("requestBodyCompressionFallback")]
+    public ModelCallRequestBodyCompressionFallback? RequestBodyCompressionFallback { get; set; }
+
+    /// <summary>Content-Encoding the request asked for before the uncompressed fallback; present only with requestBodyCompressionFallback.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("requestBodyCompressionFallbackFrom")]
+    public ModelCallRequestBodyEncoding? RequestBodyCompressionFallbackFrom { get; set; }
+
+    /// <summary>HTTP status that rejected the compressed body before the uncompressed resend; present only when requestBodyCompressionFallback is retried.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("requestBodyCompressionRejectedStatus")]
+    public int? RequestBodyCompressionRejectedStatus { get; set; }
 
     /// <summary>Content-Encoding applied to the failed request body; identity when uncompressed.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -18500,6 +18542,67 @@ public readonly struct AssistantUsageApiEndpoint : IEquatable<AssistantUsageApiE
         public override void Write(Utf8JsonWriter writer, AssistantUsageApiEndpoint value, JsonSerializerOptions options)
         {
             GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(AssistantUsageApiEndpoint));
+        }
+    }
+}
+
+/// <summary>How the runtime fell back to an uncompressed request body after a compressed body was rejected.</summary>
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct ModelCallRequestBodyCompressionFallback : IEquatable<ModelCallRequestBodyCompressionFallback>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="ModelCallRequestBodyCompressionFallback"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="ModelCallRequestBodyCompressionFallback"/>.</param>
+    [JsonConstructor]
+    public ModelCallRequestBodyCompressionFallback(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="ModelCallRequestBodyCompressionFallback"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>A compressed body was rejected with HTTP 400 or 415 and this outcome comes from the single uncompressed resend.</summary>
+    public static ModelCallRequestBodyCompressionFallback Retried { get; } = new("retried");
+
+    /// <summary>Request body compression was already turned off for the session by an earlier rejection, so the body was sent uncompressed.</summary>
+    public static ModelCallRequestBodyCompressionFallback Disabled { get; } = new("disabled");
+
+    /// <summary>Returns a value indicating whether two <see cref="ModelCallRequestBodyCompressionFallback"/> instances are equivalent.</summary>
+    public static bool operator ==(ModelCallRequestBodyCompressionFallback left, ModelCallRequestBodyCompressionFallback right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="ModelCallRequestBodyCompressionFallback"/> instances are not equivalent.</summary>
+    public static bool operator !=(ModelCallRequestBodyCompressionFallback left, ModelCallRequestBodyCompressionFallback right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is ModelCallRequestBodyCompressionFallback other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(ModelCallRequestBodyCompressionFallback other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{ModelCallRequestBodyCompressionFallback}"/> for serializing <see cref="ModelCallRequestBodyCompressionFallback"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<ModelCallRequestBodyCompressionFallback>
+    {
+        /// <inheritdoc />
+        public override ModelCallRequestBodyCompressionFallback Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, ModelCallRequestBodyCompressionFallback value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(ModelCallRequestBodyCompressionFallback));
         }
     }
 }

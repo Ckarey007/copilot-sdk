@@ -48,7 +48,7 @@ async fn should_forward_advanced_session_creation_options_to_the_cli() {
                 .with_embedding_cache_storage("in-memory")
                 .with_organization_custom_instructions("organization guidance")
                 .with_enable_on_demand_instruction_discovery(true)
-                .with_enable_file_hooks(false)
+                .with_enable_file_hooks(true)
                 .with_enable_host_git_operations(false)
                 .with_enable_session_store(false)
                 .with_enable_github_cache_store(true)
@@ -116,7 +116,7 @@ async fn should_forward_advanced_session_creation_options_to_the_cli() {
                 json!("organization guidance"),
             ),
             ("enableOnDemandInstructionDiscovery", json!(true)),
-            ("enableFileHooks", json!(false)),
+            ("enableFileHooks", json!(true)),
             ("enableHostGitOperations", json!(false)),
             ("enableSessionStore", json!(false)),
             ("enableGitHubCacheStore", json!(true)),
@@ -287,6 +287,7 @@ async fn should_forward_advanced_session_resume_options_to_the_cli() {
                 .with_working_directory(working_dir.clone())
                 .with_config_directory(config_dir.clone())
                 .with_enable_config_discovery(false)
+                .with_enable_file_hooks(true)
                 .with_suppress_resume_event(true)
                 .with_continue_pending_work(false)
                 .with_streaming(true)
@@ -340,6 +341,7 @@ async fn should_forward_advanced_session_resume_options_to_the_cli() {
             ("workingDirectory", json!(path_string(&working_dir))),
             ("configDir", json!(path_string(&config_dir))),
             ("enableConfigDiscovery", json!(false)),
+            ("enableFileHooks", json!(true)),
             ("disableResume", json!(true)),
             ("continuePendingWork", json!(false)),
             ("streaming", json!(true)),

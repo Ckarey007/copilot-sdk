@@ -965,6 +965,14 @@ export type AssistantUsageApiEndpoint =
   /** WebSocket Responses API endpoint. */
   | "ws:/responses";
 /**
+ * How the runtime fell back to an uncompressed request body after a compressed body was rejected
+ */
+export type ModelCallRequestBodyCompressionFallback =
+  /** A compressed body was rejected with HTTP 400 or 415 and this outcome comes from the single uncompressed resend. */
+  | "retried"
+  /** Request body compression was already turned off for the session by an earlier rejection, so the body was sent uncompressed. */
+  | "disabled";
+/**
  * Content-Encoding applied to the request body sent on the wire
  */
 export type ModelCallRequestBodyEncoding =
@@ -7166,6 +7174,12 @@ export interface AssistantUsageData {
    */
   providerCallId?: string;
   /**
+   * Fixed-set configured provider type of the bring-your-own-key model: "openai", "azure", "anthropic", "local_model" (a user-configured local model), "winml" (a Copilot-managed Windows ML model), or "other". Never the caller-supplied provider name. Absent for Copilot-served models.
+   *
+   * @internal
+   */
+  providerType?: string;
+  /**
    * Per-quota resource usage snapshots, keyed by quota identifier
    *
    * @internal
@@ -7190,6 +7204,12 @@ export interface AssistantUsageData {
    * Serialized (uncompressed) byte length of the request body, before any Content-Encoding. A content-free size signal.
    */
   requestBodyBytes?: number;
+  requestBodyCompressionFallback?: ModelCallRequestBodyCompressionFallback;
+  requestBodyCompressionFallbackFrom?: ModelCallRequestBodyEncoding;
+  /**
+   * HTTP status that rejected the compressed body before the uncompressed resend; present only when requestBodyCompressionFallback is retried
+   */
+  requestBodyCompressionRejectedStatus?: number;
   requestBodyEncoding?: ModelCallRequestBodyEncoding;
   /**
    * Byte length of the request body actually sent on the wire for the attempt that produced this outcome, after any Content-Encoding. Equals requestBodyBytes when the body was not compressed.
@@ -7498,6 +7518,12 @@ export interface ModelCallFailureData {
    */
   providerCallId?: string;
   /**
+   * Fixed-set configured provider type of the bring-your-own-key model for the failed call: "openai", "azure", "anthropic", "local_model" (a user-configured local model), "winml" (a Copilot-managed Windows ML model), or "other". Never the caller-supplied provider name. Absent for Copilot-served models.
+   *
+   * @internal
+   */
+  providerType?: string;
+  /**
    * Per-quota usage snapshots parsed from the failed response's quota headers, keyed by quota identifier. Present when the error response carried quota headers (e.g. a 402 once the additional spend limit is reached) so the UI can refresh the quota display on failure.
    *
    * @internal
@@ -7513,6 +7539,12 @@ export interface ModelCallFailureData {
    * Serialized (uncompressed) byte length of the failed request body, before any Content-Encoding. A content-free size signal.
    */
   requestBodyBytes?: number;
+  requestBodyCompressionFallback?: ModelCallRequestBodyCompressionFallback;
+  requestBodyCompressionFallbackFrom?: ModelCallRequestBodyEncoding;
+  /**
+   * HTTP status that rejected the compressed body before the uncompressed resend; present only when requestBodyCompressionFallback is retried
+   */
+  requestBodyCompressionRejectedStatus?: number;
   requestBodyEncoding?: ModelCallRequestBodyEncoding;
   /**
    * Byte length of the failed request body actually sent on the wire, after any Content-Encoding. Equals requestBodyBytes when the body was not compressed.

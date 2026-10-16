@@ -10234,6 +10234,10 @@ public sealed class CatalogSearchPage
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public sealed class CatalogSearchRequest
 {
+    /// <summary>Restrict results to resources in at least one of these server-defined workflow categories, such as `design` or `test`. Requires the `catalog-search-categories` capability. Each value is a lowercase slug; the known set is not exhaustive, and a category the server does not recognise matches nothing. Omit to search every category.</summary>
+    [JsonPropertyName("categories")]
+    public IList<string>? Categories { get; set; }
+
     /// <summary>Protocol version and capabilities the caller requires.</summary>
     [JsonPropertyName("contract")]
     public required CatalogClientContract Contract { get; set; }
@@ -10246,7 +10250,7 @@ public sealed class CatalogSearchRequest
     [JsonPropertyName("limit")]
     public int? Limit { get; set; }
 
-    /// <summary>Numbered navigation using metadata from an earlier response. Requires catalog-search-pagination and the same query, kinds and effective limit. Omit for a fresh first-page search.</summary>
+    /// <summary>Numbered navigation using metadata from an earlier response. Requires catalog-search-pagination and the same query, kinds, categories and effective limit. Omit for a fresh first-page search.</summary>
     [JsonPropertyName("page")]
     public CatalogSearchPage? Page { get; set; }
 
@@ -34784,6 +34788,9 @@ public readonly struct CatalogCapability : IEquatable<CatalogCapability>
     /// <summary>Understands catalog.getSavedFeed and catalog.getGeneratedFeed, which retrieve a saved or generated feed with entries projected exactly like catalog.search candidates. Requires catalog-search-credential-required; add catalog-search-session-bound to bind the retrieval to a selected session.</summary>
     public static CatalogCapability CatalogFeeds { get; } = new("catalog-feeds");
 
+    /// <summary>Understands the optional `categories` filter on catalog.search, which the runtime forwards to the catalog authority. Required to send the filter, so an older runtime refuses the request instead of silently returning unfiltered results.</summary>
+    public static CatalogCapability CatalogSearchCategories { get; } = new("catalog-search-categories");
+
     /// <summary>Returns a value indicating whether two <see cref="CatalogCapability"/> instances are equivalent.</summary>
     public static bool operator ==(CatalogCapability left, CatalogCapability right) => left.Equals(right);
 
@@ -35794,6 +35801,9 @@ public readonly struct CatalogInvalidRequestField : IEquatable<CatalogInvalidReq
 
     /// <summary>The trust tier filter was empty, repeated a tier or named an unknown tier.</summary>
     public static CatalogInvalidRequestField TrustTiers { get; } = new("trustTiers");
+
+    /// <summary>The category filter was empty, too long, repeated a category or contained a value that is not a lowercase slug.</summary>
+    public static CatalogInvalidRequestField Categories { get; } = new("categories");
 
     /// <summary>Returns a value indicating whether two <see cref="CatalogInvalidRequestField"/> instances are equivalent.</summary>
     public static bool operator ==(CatalogInvalidRequestField left, CatalogInvalidRequestField right) => left.Equals(right);
@@ -52818,7 +52828,7 @@ public sealed class ServerCatalogApi
     /// <param name="query">Free-text search query. Persisted as tool input for session continuity, but omitted from telemetry.</param>
     /// <param name="limit">Maximum number of candidates to return. Defaults to 10 when omitted.</param>
     /// <param name="kinds">Restrict results to these candidate kinds. Agent Plugins are opt-in and require the `agent-plugin-discovery` capability so protocol-v3 clients generated before that variant cannot receive an unknown result; when omitted, the backwards-compatible MCP server and AI skill kinds are searched.</param>
-    /// <param name="page">Numbered navigation using metadata from an earlier response. Requires catalog-search-pagination and the same query, kinds and effective limit. Omit for a fresh first-page search.</param>
+    /// <param name="page">Numbered navigation using metadata from an earlier response. Requires catalog-search-pagination and the same query, kinds, categories and effective limit. Omit for a fresh first-page search.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>Outcome of a catalog.search call: either bounded inert candidates, or one typed refusal. Never a partial success.</returns>
     public async Task<CatalogSearchResult> SearchAsync(CatalogClientContract contract, string query, int? limit = null, IList<CatalogCandidateKind>? kinds = null, CatalogSearchPage? page = null, CancellationToken cancellationToken = default)
@@ -60198,6 +60208,7 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(GitHub.Copilot.ModelCallFinishedData), TypeInfoPropertyName = "SessionEventsModelCallFinishedData")]
 [JsonSerializable(typeof(GitHub.Copilot.ModelCallFinishedEvent), TypeInfoPropertyName = "SessionEventsModelCallFinishedEvent")]
 [JsonSerializable(typeof(GitHub.Copilot.ModelCallFinishedOutcome), TypeInfoPropertyName = "SessionEventsModelCallFinishedOutcome")]
+[JsonSerializable(typeof(GitHub.Copilot.ModelCallRequestBodyCompressionFallback), TypeInfoPropertyName = "SessionEventsModelCallRequestBodyCompressionFallback")]
 [JsonSerializable(typeof(GitHub.Copilot.ModelCallRequestBodyEncoding), TypeInfoPropertyName = "SessionEventsModelCallRequestBodyEncoding")]
 [JsonSerializable(typeof(GitHub.Copilot.ModelCallStartData), TypeInfoPropertyName = "SessionEventsModelCallStartData")]
 [JsonSerializable(typeof(GitHub.Copilot.ModelCallStartEvent), TypeInfoPropertyName = "SessionEventsModelCallStartEvent")]

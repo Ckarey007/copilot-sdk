@@ -740,7 +740,7 @@ public class SessionRequestBuilderTest {
     void testBuildResumeRequestPropagatesGranularMultitenancyFields() {
         var config = new ResumeSessionConfig().setSkipEmbeddingRetrieval(false)
                 .setOrganizationCustomInstructions("Resume org instructions")
-                .setEnableOnDemandInstructionDiscovery(true).setEnableFileHooks(false).setEnableHostGitOperations(true)
+                .setEnableOnDemandInstructionDiscovery(true).setEnableFileHooks(true).setEnableHostGitOperations(true)
                 .setEnableSessionStore(false).setEnableSkills(true);
 
         ResumeSessionRequest request = SessionRequestBuilder.buildResumeRequest("sid-11", config);
@@ -748,7 +748,7 @@ public class SessionRequestBuilderTest {
         assertFalse(request.getSkipEmbeddingRetrieval());
         assertEquals("Resume org instructions", request.getOrganizationCustomInstructions());
         assertTrue(request.getEnableOnDemandInstructionDiscovery());
-        assertFalse(request.getEnableFileHooks());
+        assertTrue(request.getEnableFileHooks());
         assertTrue(request.getEnableHostGitOperations());
         assertFalse(request.getEnableSessionStore());
         assertTrue(request.getEnableSkills());

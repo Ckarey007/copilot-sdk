@@ -3836,12 +3836,17 @@ class AssistantUsageData:
     provider: ModelProviderRef | None = None
     provider_call_id: str | None = None
     # Internal: this field is an internal SDK API and is not part of the public surface.
+    _provider_type: str | None = None
+    # Internal: this field is an internal SDK API and is not part of the public surface.
     _quota_snapshots: dict[str, _AssistantUsageQuotaSnapshot] | None = None
     reasoning_effort: str | None = None
     reasoning_summary: ReasoningSummary | None = None
     reasoning_tokens: int | None = None
     rejected_prediction_tokens: int | None = None
     request_body_bytes: int | None = None
+    request_body_compression_fallback: ModelCallRequestBodyCompressionFallback | None = None
+    request_body_compression_fallback_from: ModelCallRequestBodyEncoding | None = None
+    request_body_compression_rejected_status: int | None = None
     request_body_encoding: ModelCallRequestBodyEncoding | None = None
     request_body_wire_bytes: int | None = None
     rte: bool | None = None
@@ -3903,12 +3908,16 @@ class AssistantUsageData:
         parent_tool_call_id = from_union([from_none, from_str], obj.get("parentToolCallId"))
         provider = from_union([from_none, ModelProviderRef.from_dict], obj.get("provider"))
         provider_call_id = from_union([from_none, from_str], obj.get("providerCallId"))
+        _provider_type = from_union([from_none, from_str], obj.get("providerType"))
         _quota_snapshots = from_union([from_none, lambda x: from_dict(_AssistantUsageQuotaSnapshot.from_dict, x)], obj.get("quotaSnapshots"))
         reasoning_effort = from_union([from_none, from_str], obj.get("reasoningEffort"))
         reasoning_summary = from_union([from_none, lambda x: parse_enum(ReasoningSummary, x)], obj.get("reasoningSummary"))
         reasoning_tokens = from_union([from_none, from_int], obj.get("reasoningTokens"))
         rejected_prediction_tokens = from_union([from_none, from_int], obj.get("rejectedPredictionTokens"))
         request_body_bytes = from_union([from_none, from_int], obj.get("requestBodyBytes"))
+        request_body_compression_fallback = from_union([from_none, lambda x: parse_enum(ModelCallRequestBodyCompressionFallback, x)], obj.get("requestBodyCompressionFallback"))
+        request_body_compression_fallback_from = from_union([from_none, lambda x: parse_enum(ModelCallRequestBodyEncoding, x)], obj.get("requestBodyCompressionFallbackFrom"))
+        request_body_compression_rejected_status = from_union([from_none, from_int], obj.get("requestBodyCompressionRejectedStatus"))
         request_body_encoding = from_union([from_none, lambda x: parse_enum(ModelCallRequestBodyEncoding, x)], obj.get("requestBodyEncoding"))
         request_body_wire_bytes = from_union([from_none, from_int], obj.get("requestBodyWireBytes"))
         rte = from_union([from_none, from_bool], obj.get("rte"))
@@ -3963,12 +3972,16 @@ class AssistantUsageData:
             parent_tool_call_id=parent_tool_call_id,
             provider=provider,
             provider_call_id=provider_call_id,
+            _provider_type=_provider_type,
             _quota_snapshots=_quota_snapshots,
             reasoning_effort=reasoning_effort,
             reasoning_summary=reasoning_summary,
             reasoning_tokens=reasoning_tokens,
             rejected_prediction_tokens=rejected_prediction_tokens,
             request_body_bytes=request_body_bytes,
+            request_body_compression_fallback=request_body_compression_fallback,
+            request_body_compression_fallback_from=request_body_compression_fallback_from,
+            request_body_compression_rejected_status=request_body_compression_rejected_status,
             request_body_encoding=request_body_encoding,
             request_body_wire_bytes=request_body_wire_bytes,
             rte=rte,
@@ -4061,6 +4074,8 @@ class AssistantUsageData:
             result["provider"] = from_union([from_none, lambda x: to_class(ModelProviderRef, x)], self.provider)
         if self.provider_call_id is not None:
             result["providerCallId"] = from_union([from_none, from_str], self.provider_call_id)
+        if self._provider_type is not None:
+            result["providerType"] = from_union([from_none, from_str], self._provider_type)
         if self._quota_snapshots is not None:
             result["quotaSnapshots"] = from_union([from_none, lambda x: from_dict(lambda x: to_class(_AssistantUsageQuotaSnapshot, x), x)], self._quota_snapshots)
         if self.reasoning_effort is not None:
@@ -4073,6 +4088,12 @@ class AssistantUsageData:
             result["rejectedPredictionTokens"] = from_union([from_none, to_int], self.rejected_prediction_tokens)
         if self.request_body_bytes is not None:
             result["requestBodyBytes"] = from_union([from_none, to_int], self.request_body_bytes)
+        if self.request_body_compression_fallback is not None:
+            result["requestBodyCompressionFallback"] = from_union([from_none, lambda x: to_enum(ModelCallRequestBodyCompressionFallback, x)], self.request_body_compression_fallback)
+        if self.request_body_compression_fallback_from is not None:
+            result["requestBodyCompressionFallbackFrom"] = from_union([from_none, lambda x: to_enum(ModelCallRequestBodyEncoding, x)], self.request_body_compression_fallback_from)
+        if self.request_body_compression_rejected_status is not None:
+            result["requestBodyCompressionRejectedStatus"] = from_union([from_none, to_int], self.request_body_compression_rejected_status)
         if self.request_body_encoding is not None:
             result["requestBodyEncoding"] = from_union([from_none, lambda x: to_enum(ModelCallRequestBodyEncoding, x)], self.request_body_encoding)
         if self.request_body_wire_bytes is not None:
@@ -6583,9 +6604,14 @@ class ModelCallFailureData:
     parent_tool_call_id: str | None = None
     provider_call_id: str | None = None
     # Internal: this field is an internal SDK API and is not part of the public surface.
+    _provider_type: str | None = None
+    # Internal: this field is an internal SDK API and is not part of the public surface.
     _quota_snapshots: dict[str, _AssistantUsageQuotaSnapshot] | None = None
     reasoning_effort: str | None = None
     request_body_bytes: int | None = None
+    request_body_compression_fallback: ModelCallRequestBodyCompressionFallback | None = None
+    request_body_compression_fallback_from: ModelCallRequestBodyEncoding | None = None
+    request_body_compression_rejected_status: int | None = None
     request_body_encoding: ModelCallRequestBodyEncoding | None = None
     request_body_wire_bytes: int | None = None
     request_fingerprint: ModelCallFailureRequestFingerprint | None = None
@@ -6626,9 +6652,13 @@ class ModelCallFailureData:
         model_provider = from_union([from_none, from_str], obj.get("modelProvider"))
         parent_tool_call_id = from_union([from_none, from_str], obj.get("parentToolCallId"))
         provider_call_id = from_union([from_none, from_str], obj.get("providerCallId"))
+        _provider_type = from_union([from_none, from_str], obj.get("providerType"))
         _quota_snapshots = from_union([from_none, lambda x: from_dict(_AssistantUsageQuotaSnapshot.from_dict, x)], obj.get("quotaSnapshots"))
         reasoning_effort = from_union([from_none, from_str], obj.get("reasoningEffort"))
         request_body_bytes = from_union([from_none, from_int], obj.get("requestBodyBytes"))
+        request_body_compression_fallback = from_union([from_none, lambda x: parse_enum(ModelCallRequestBodyCompressionFallback, x)], obj.get("requestBodyCompressionFallback"))
+        request_body_compression_fallback_from = from_union([from_none, lambda x: parse_enum(ModelCallRequestBodyEncoding, x)], obj.get("requestBodyCompressionFallbackFrom"))
+        request_body_compression_rejected_status = from_union([from_none, from_int], obj.get("requestBodyCompressionRejectedStatus"))
         request_body_encoding = from_union([from_none, lambda x: parse_enum(ModelCallRequestBodyEncoding, x)], obj.get("requestBodyEncoding"))
         request_body_wire_bytes = from_union([from_none, from_int], obj.get("requestBodyWireBytes"))
         request_fingerprint = from_union([from_none, ModelCallFailureRequestFingerprint.from_dict], obj.get("requestFingerprint"))
@@ -6666,9 +6696,13 @@ class ModelCallFailureData:
             model_provider=model_provider,
             parent_tool_call_id=parent_tool_call_id,
             provider_call_id=provider_call_id,
+            _provider_type=_provider_type,
             _quota_snapshots=_quota_snapshots,
             reasoning_effort=reasoning_effort,
             request_body_bytes=request_body_bytes,
+            request_body_compression_fallback=request_body_compression_fallback,
+            request_body_compression_fallback_from=request_body_compression_fallback_from,
+            request_body_compression_rejected_status=request_body_compression_rejected_status,
             request_body_encoding=request_body_encoding,
             request_body_wire_bytes=request_body_wire_bytes,
             request_fingerprint=request_fingerprint,
@@ -6729,12 +6763,20 @@ class ModelCallFailureData:
             result["parentToolCallId"] = from_union([from_none, from_str], self.parent_tool_call_id)
         if self.provider_call_id is not None:
             result["providerCallId"] = from_union([from_none, from_str], self.provider_call_id)
+        if self._provider_type is not None:
+            result["providerType"] = from_union([from_none, from_str], self._provider_type)
         if self._quota_snapshots is not None:
             result["quotaSnapshots"] = from_union([from_none, lambda x: from_dict(lambda x: to_class(_AssistantUsageQuotaSnapshot, x), x)], self._quota_snapshots)
         if self.reasoning_effort is not None:
             result["reasoningEffort"] = from_union([from_none, from_str], self.reasoning_effort)
         if self.request_body_bytes is not None:
             result["requestBodyBytes"] = from_union([from_none, to_int], self.request_body_bytes)
+        if self.request_body_compression_fallback is not None:
+            result["requestBodyCompressionFallback"] = from_union([from_none, lambda x: to_enum(ModelCallRequestBodyCompressionFallback, x)], self.request_body_compression_fallback)
+        if self.request_body_compression_fallback_from is not None:
+            result["requestBodyCompressionFallbackFrom"] = from_union([from_none, lambda x: to_enum(ModelCallRequestBodyEncoding, x)], self.request_body_compression_fallback_from)
+        if self.request_body_compression_rejected_status is not None:
+            result["requestBodyCompressionRejectedStatus"] = from_union([from_none, to_int], self.request_body_compression_rejected_status)
         if self.request_body_encoding is not None:
             result["requestBodyEncoding"] = from_union([from_none, lambda x: to_enum(ModelCallRequestBodyEncoding, x)], self.request_body_encoding)
         if self.request_body_wire_bytes is not None:
@@ -15596,6 +15638,14 @@ class ModelCallFinishedOutcome(Enum):
     REJECTED = "rejected"
 
 
+class ModelCallRequestBodyCompressionFallback(Enum):
+    "How the runtime fell back to an uncompressed request body after a compressed body was rejected"
+    # A compressed body was rejected with HTTP 400 or 415 and this outcome comes from the single uncompressed resend.
+    RETRIED = "retried"
+    # Request body compression was already turned off for the session by an earlier rejection, so the body was sent uncompressed.
+    DISABLED = "disabled"
+
+
 class ModelCallRequestBodyEncoding(Enum):
     "Content-Encoding applied to the request body sent on the wire"
     # The request body was sent uncompressed (including every WebSocket request).
@@ -16947,6 +16997,7 @@ __all__ = [
     "ModelCallFinalResultData",
     "ModelCallFinishedData",
     "ModelCallFinishedOutcome",
+    "ModelCallRequestBodyCompressionFallback",
     "ModelCallRequestBodyEncoding",
     "ModelCallStartData",
     "ModelCallWebSocketFallbackErrorKind",

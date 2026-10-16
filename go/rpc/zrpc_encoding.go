@@ -8831,6 +8831,7 @@ func (r *SessionOpenOptions) UnmarshalJSON(data []byte) error {
 		DisabledSkills                         []string                                             `json:"disabledSkills,omitzero"`
 		EnableCitations                        *bool                                                `json:"enableCitations,omitempty"`
 		EnableFileChangeTracking               *bool                                                `json:"enableFileChangeTracking,omitempty"`
+		EnableFileHooks                        *bool                                                `json:"enableFileHooks,omitempty"`
 		EnableManagedSettings                  *bool                                                `json:"enableManagedSettings,omitempty"`
 		EnableOnDemandInstructionDiscovery     *bool                                                `json:"enableOnDemandInstructionDiscovery,omitempty"`
 		EnableScriptSafety                     *bool                                                `json:"enableScriptSafety,omitempty"`
@@ -8923,6 +8924,7 @@ func (r *SessionOpenOptions) UnmarshalJSON(data []byte) error {
 	r.DisabledSkills = raw.DisabledSkills
 	r.EnableCitations = raw.EnableCitations
 	r.EnableFileChangeTracking = raw.EnableFileChangeTracking
+	r.EnableFileHooks = raw.EnableFileHooks
 	r.EnableManagedSettings = raw.EnableManagedSettings
 	r.EnableOnDemandInstructionDiscovery = raw.EnableOnDemandInstructionDiscovery
 	r.EnableScriptSafety = raw.EnableScriptSafety

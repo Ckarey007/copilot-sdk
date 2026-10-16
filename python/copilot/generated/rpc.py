@@ -1958,6 +1958,7 @@ class CatalogCapability(Enum):
     AI_SKILL_DISCOVERY = "ai-skill-discovery"
     CATALOG_FEEDS = "catalog-feeds"
     CATALOG_REFERENCE_INSTALLATION = "catalog-reference-installation"
+    CATALOG_SEARCH_CATEGORIES = "catalog-search-categories"
     CATALOG_SEARCH_CREDENTIAL_REQUIRED = "catalog-search-credential-required"
     CATALOG_SEARCH_PAGINATION = "catalog-search-pagination"
     CATALOG_SEARCH_SESSION_BOUND = "catalog-search-session-bound"
@@ -2127,6 +2128,7 @@ class CatalogInvalidRequestField(Enum):
     Which request field was rejected locally or by the catalog authority
     """
     CARD = "card"
+    CATEGORIES = "categories"
     CONTRACT = "contract"
     FEED = "feed"
     KINDS = "kinds"
@@ -2565,8 +2567,8 @@ class CatalogSearchPage:
     promised.
 
     Numbered navigation using metadata from an earlier response. Requires
-    catalog-search-pagination and the same query, kinds and effective limit. Omit for a fresh
-    first-page search.
+    catalog-search-pagination and the same query, kinds, categories and effective limit. Omit
+    for a fresh first-page search.
     """
     number: int
     """Requested one-based page. Must not exceed either the token's signed pageCount or the
@@ -44984,6 +44986,12 @@ class CatalogSearchRequest:
     """Free-text search query. Persisted as tool input for session continuity, but omitted from
     telemetry.
     """
+    categories: list[str] | None = field(default=None, kw_only=True)
+    """Restrict results to resources in at least one of these server-defined workflow
+    categories, such as `design` or `test`. Requires the `catalog-search-categories`
+    capability. Each value is a lowercase slug; the known set is not exhaustive, and a
+    category the server does not recognise matches nothing. Omit to search every category.
+    """
     kinds: list[CatalogCandidateKind] | None = None
     """Restrict results to these candidate kinds. Agent Plugins are opt-in and require the
     `agent-plugin-discovery` capability so protocol-v3 clients generated before that variant
@@ -44995,8 +45003,8 @@ class CatalogSearchRequest:
 
     page: CatalogSearchPage | None = None
     """Numbered navigation using metadata from an earlier response. Requires
-    catalog-search-pagination and the same query, kinds and effective limit. Omit for a fresh
-    first-page search.
+    catalog-search-pagination and the same query, kinds, categories and effective limit. Omit
+    for a fresh first-page search.
     """
     policy_session_id: str | None = field(default=None, kw_only=True)
     """Select an existing attached local session. Requires authenticated, session-bound search.
@@ -45008,16 +45016,19 @@ class CatalogSearchRequest:
         assert isinstance(obj, dict)
         contract = CatalogClientContract.from_dict(obj.get("contract"))
         query = from_str(obj.get("query"))
+        categories = from_union([lambda x: from_list(from_str, x), from_none], obj.get("categories"))
         kinds = from_union([lambda x: from_list(CatalogCandidateKind, x), from_none], obj.get("kinds"))
         limit = from_union([from_int, from_none], obj.get("limit"))
         page = from_union([CatalogSearchPage.from_dict, from_none], obj.get("page"))
         policy_session_id = from_union([from_str, from_none], obj.get("policySessionId"))
-        return CatalogSearchRequest(contract, query, kinds, limit, page, policy_session_id=policy_session_id)
+        return CatalogSearchRequest(contract, query, kinds, limit, page, policy_session_id=policy_session_id, categories=categories)
 
     def to_dict(self) -> dict:
         result: dict = {}
         result["contract"] = to_class(CatalogClientContract, self.contract)
         result["query"] = from_str(self.query)
+        if self.categories is not None:
+            result["categories"] = from_union([lambda x: from_list(from_str, x), from_none], self.categories)
         if self.kinds is not None:
             result["kinds"] = from_union([lambda x: from_list(lambda x: to_enum(CatalogCandidateKind, x), x), from_none], self.kinds)
         if self.limit is not None:
@@ -56162,6 +56173,17 @@ class SessionOpenOptions:
     narrow which rewinds revert it, because a rewind restores every capture from the selected
     turn onward, so the earlier spawning turn reverts it as well.
     """
+    enable_file_hooks: bool | None = None
+    """Live gate for repository-origin file hooks, including the primary repository, trusted
+    repository-configured roots, and accepted startup additional directories (including CLI
+    --add-dir). False suppresses these hooks; explicit hookDirectories and SDK callbacks are
+    independent. Additional-root eligibility and the DISABLE_ADDITIONAL_DIRECTORY_HOOKS
+    escape hatch are captured at create/cold resume, not expanded by later grants or
+    feature-flag changes. Discovery uses containing Git roots, so supply only trusted
+    repositories: commands and prompts need no further approval. Policy, hook-disable
+    settings, and sandbox rules still apply. Provider-backed sessions skip repository hooks
+    with a warning on omission, skip silently on false, and reject explicit true.
+    """
     enable_managed_settings: bool | None = None
     """Opt-in: self-fetch and enforce enterprise managed settings, including managed hook
     policies, at session bootstrap.
@@ -56407,6 +56429,7 @@ class SessionOpenOptions:
         disabled_skills = from_union([lambda x: from_list(from_str, x), from_none], obj.get("disabledSkills"))
         enable_citations = from_union([from_bool, from_none], obj.get("enableCitations"))
         enable_file_change_tracking = from_union([from_bool, from_none], obj.get("enableFileChangeTracking"))
+        enable_file_hooks = from_union([from_bool, from_none], obj.get("enableFileHooks"))
         enable_managed_settings = from_union([from_bool, from_none], obj.get("enableManagedSettings"))
         enable_on_demand_instruction_discovery = from_union([from_bool, from_none], obj.get("enableOnDemandInstructionDiscovery"))
         enable_script_safety = from_union([from_bool, from_none], obj.get("enableScriptSafety"))
@@ -56463,7 +56486,7 @@ class SessionOpenOptions:
         verbosity = from_union([Verbosity, from_none], obj.get("verbosity"))
         working_directory = from_union([from_str, from_none], obj.get("workingDirectory"))
         working_directory_context = from_union([SessionContext.from_dict, from_none], obj.get("workingDirectoryContext"))
-        return SessionOpenOptions(additional_content_exclusion_policies, additional_directories, agent_context, agent_directories, allow_all_mcp_server_instructions, ask_user_disabled, auth_client_id_metadata_url, auth_info, auto_tier_is_explicit, available_tools, capi, client_kind, client_name, coauthor_enabled, config_dir, continue_on_auto_mode, copilot_url, custom_agents_local_only, detached_from_spawning_parent_engagement_id, detached_from_spawning_parent_session_id, disabled_instruction_sources, disabled_mcp_servers, disabled_skills, enable_citations, enable_file_change_tracking, enable_managed_settings, enable_on_demand_instruction_discovery, enable_script_safety, enable_skills, enable_streaming, enforce_managed_model_defaults, env_value_mode, events_log_directory, events_log_includes_subagents, excluded_builtin_agents, excluded_tools, exp_assignments, feature_flags, has_skill_provider, hook_directories, ignored_skills_locations, included_builtin_agents, included_builtin_skills, installed_plugins, instruction_directories, integration_id, interactive_user, is_experimental_mode, log_interactive_shells, lsp_client_name, managed_mcp_servers, managed_settings, max_inline_binary_bytes, memory, model, model_capabilities_overrides, models, name, provider, providers, reasoning_effort, reasoning_summary, refresh_custom_instructions, remote_defaulted_on, remote_exporting, remote_steerable, running_in_interactive_mode, sandbox_config, sandbox_config_source, session_capabilities, session_id, session_limits, shell, shell_init_profile, shell_process_flags, skill_directories, skip_custom_instructions, trajectory_file, verbosity, working_directory, working_directory_context)
+        return SessionOpenOptions(additional_content_exclusion_policies, additional_directories, agent_context, agent_directories, allow_all_mcp_server_instructions, ask_user_disabled, auth_client_id_metadata_url, auth_info, auto_tier_is_explicit, available_tools, capi, client_kind, client_name, coauthor_enabled, config_dir, continue_on_auto_mode, copilot_url, custom_agents_local_only, detached_from_spawning_parent_engagement_id, detached_from_spawning_parent_session_id, disabled_instruction_sources, disabled_mcp_servers, disabled_skills, enable_citations, enable_file_change_tracking, enable_file_hooks, enable_managed_settings, enable_on_demand_instruction_discovery, enable_script_safety, enable_skills, enable_streaming, enforce_managed_model_defaults, env_value_mode, events_log_directory, events_log_includes_subagents, excluded_builtin_agents, excluded_tools, exp_assignments, feature_flags, has_skill_provider, hook_directories, ignored_skills_locations, included_builtin_agents, included_builtin_skills, installed_plugins, instruction_directories, integration_id, interactive_user, is_experimental_mode, log_interactive_shells, lsp_client_name, managed_mcp_servers, managed_settings, max_inline_binary_bytes, memory, model, model_capabilities_overrides, models, name, provider, providers, reasoning_effort, reasoning_summary, refresh_custom_instructions, remote_defaulted_on, remote_exporting, remote_steerable, running_in_interactive_mode, sandbox_config, sandbox_config_source, session_capabilities, session_id, session_limits, shell, shell_init_profile, shell_process_flags, skill_directories, skip_custom_instructions, trajectory_file, verbosity, working_directory, working_directory_context)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -56517,6 +56540,8 @@ class SessionOpenOptions:
             result["enableCitations"] = from_union([from_bool, from_none], self.enable_citations)
         if self.enable_file_change_tracking is not None:
             result["enableFileChangeTracking"] = from_union([from_bool, from_none], self.enable_file_change_tracking)
+        if self.enable_file_hooks is not None:
+            result["enableFileHooks"] = from_union([from_bool, from_none], self.enable_file_hooks)
         if self.enable_managed_settings is not None:
             result["enableManagedSettings"] = from_union([from_bool, from_none], self.enable_managed_settings)
         if self.enable_on_demand_instruction_discovery is not None:

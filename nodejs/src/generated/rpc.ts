@@ -1049,7 +1049,9 @@ export type CatalogCapability =
   /** Understands catalog.planInstallFromReference, which plans installing whatever resource an Agent Finder materialisation reference pins. It plans only kinds whose installation capability the caller also requires: skill-confirmed-installation for Skills, agent-plugin-confirmed-installation for Agent Plugins. Advertised only by runtimes with the Skill installation engine linked. */
   | "catalog-reference-installation"
   /** Understands catalog.getSavedFeed and catalog.getGeneratedFeed, which retrieve a saved or generated feed with entries projected exactly like catalog.search candidates. Requires catalog-search-credential-required; add catalog-search-session-bound to bind the retrieval to a selected session. */
-  | "catalog-feeds";
+  | "catalog-feeds"
+  /** Understands the optional `categories` filter on catalog.search, which the runtime forwards to the catalog authority. Required to send the filter, so an older runtime refuses the request instead of silently returning unfiltered results. */
+  | "catalog-search-categories";
 /**
  * Bounded extensible wire-feature identifier. Known values are described by `CatalogCapability`; newer callers may send future identifiers so an older runtime can return a typed negotiation refusal instead of failing schema validation. Capability negotiation establishes contract understanding, while each operation's result separately reports runtime availability.
  *
@@ -1189,7 +1191,9 @@ export type CatalogInvalidRequestField =
   /** The saved feed ID, or the generated feed strategy or key, was missing or malformed. */
   | "feed"
   /** The trust tier filter was empty, repeated a tier or named an unknown tier. */
-  | "trustTiers";
+  | "trustTiers"
+  /** The category filter was empty, too long, repeated a category or contained a value that is not a lowercase slug. */
+  | "categories";
 /**
  * How a card failed validation
  *
@@ -11090,6 +11094,23 @@ export interface CatalogSearchRequest {
     | [CatalogCandidateKind]
     | [CatalogCandidateKind, CatalogCandidateKind]
     | [CatalogCandidateKind, CatalogCandidateKind, CatalogCandidateKind];
+  /**
+   * Restrict results to resources in at least one of these server-defined workflow categories, such as `design` or `test`. Requires the `catalog-search-categories` capability. Each value is a lowercase slug; the known set is not exhaustive, and a category the server does not recognise matches nothing. Omit to search every category.
+   *
+   * @minItems 1
+   * @maxItems 10
+   */
+  categories?:
+    | [string]
+    | [string, string]
+    | [string, string, string]
+    | [string, string, string, string]
+    | [string, string, string, string, string]
+    | [string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string, string]
+    | [string, string, string, string, string, string, string, string, string, string];
   page?: CatalogSearchPage;
 }
 /**
@@ -28989,6 +29010,10 @@ export interface SessionOpenOptions {
    * @experimental
    */
   additionalContentExclusionPolicies?: SessionOpenOptionsAdditionalContentExclusionPolicy[];
+  /**
+   * Live gate for repository-origin file hooks, including the primary repository, trusted repository-configured roots, and accepted startup additional directories (including CLI --add-dir). False suppresses these hooks; explicit hookDirectories and SDK callbacks are independent. Additional-root eligibility and the DISABLE_ADDITIONAL_DIRECTORY_HOOKS escape hatch are captured at create/cold resume, not expanded by later grants or feature-flag changes. Discovery uses containing Git roots, so supply only trusted repositories: commands and prompts need no further approval. Policy, hook-disable settings, and sandbox rules still apply. Provider-backed sessions skip repository hooks with a warning on omission, skip silently on false, and reject explicit true.
+   */
+  enableFileHooks?: boolean;
   memory?: MemoryConfiguration;
   /**
    * Capabilities enabled for this session.

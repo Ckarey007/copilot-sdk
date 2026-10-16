@@ -1754,7 +1754,10 @@ public class SessionConfig {
     }
 
     /**
-     * Sets whether file-based hooks from {@code .github/hooks/} are enabled.
+     * Controls repository-origin hooks, including accepted startup additional
+     * roots. This gate supports live updates. Additional-root eligibility and
+     * {@code DISABLE_ADDITIONAL_DIRECTORY_HOOKS} remain startup-scoped. Explicit
+     * hook directories and callbacks are independent.
      *
      * @param enableFileHooks
      *            {@code true} to enable file hooks, {@code false} to disable them
