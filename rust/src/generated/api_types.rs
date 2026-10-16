@@ -9521,6 +9521,9 @@ pub struct EnvironmentsListRequest {
 pub struct EnvironmentsListResult {
     /// Safe discovery records without relay bootstrap credentials.
     pub environments: Vec<GitHubEnvironment>,
+    /// Server-requested minimum delay before automatically listing again, in milliseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_after_ms: Option<i64>,
 }
 
 /// Cursor, batch size, and optional long-poll/filter parameters for reading session events.

@@ -26,6 +26,8 @@ import javax.annotation.processing.Generated;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record EnvironmentsListResult(
     /** Safe discovery records without relay bootstrap credentials. */
-    @JsonProperty("environments") List<GitHubEnvironment> environments
+    @JsonProperty("environments") List<GitHubEnvironment> environments,
+    /** Server-requested minimum delay before automatically listing again, in milliseconds. */
+    @JsonProperty("retryAfterMs") Long retryAfterMs
 ) {
 }

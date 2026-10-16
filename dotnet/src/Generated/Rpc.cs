@@ -2624,6 +2624,10 @@ public sealed class EnvironmentsListResult
     /// <summary>Safe discovery records without relay bootstrap credentials.</summary>
     [JsonPropertyName("environments")]
     public IList<GitHubEnvironment> Environments { get => field ??= []; set; }
+
+    /// <summary>Server-requested minimum delay before automatically listing again, in milliseconds.</summary>
+    [JsonPropertyName("retryAfterMs")]
+    public long? RetryAfterMs { get; set; }
 }
 
 /// <summary>Optional discovery filters supported by GitHub Mission Control.</summary>

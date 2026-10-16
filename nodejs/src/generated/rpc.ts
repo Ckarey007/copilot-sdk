@@ -13786,6 +13786,10 @@ export interface EnvironmentsListResult {
    * Safe discovery records without relay bootstrap credentials.
    */
   environments: GitHubEnvironment[];
+  /**
+   * Server-requested minimum delay before automatically listing again, in milliseconds.
+   */
+  retryAfterMs?: number;
 }
 /**
  * Cursor, batch size, and optional long-poll/filter parameters for reading session events.

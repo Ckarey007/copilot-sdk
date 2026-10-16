@@ -48273,15 +48273,21 @@ class EnvironmentsListResult:
     environments: list[GitHubEnvironment]
     """Safe discovery records without relay bootstrap credentials."""
 
+    retry_after_ms: int | None = None
+    """Server-requested minimum delay before automatically listing again, in milliseconds."""
+
     @staticmethod
     def from_dict(obj: Any) -> 'EnvironmentsListResult':
         assert isinstance(obj, dict)
         environments = from_list(GitHubEnvironment.from_dict, obj.get("environments"))
-        return EnvironmentsListResult(environments)
+        retry_after_ms = from_union([from_int, from_none], obj.get("retryAfterMs"))
+        return EnvironmentsListResult(environments, retry_after_ms)
 
     def to_dict(self) -> dict:
         result: dict = {}
         result["environments"] = from_list(lambda x: to_class(GitHubEnvironment, x), self.environments)
+        if self.retry_after_ms is not None:
+            result["retryAfterMs"] = from_union([from_int, from_none], self.retry_after_ms)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.

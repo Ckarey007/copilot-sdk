@@ -5488,6 +5488,8 @@ type EnvironmentsListRequest struct {
 type EnvironmentsListResult struct {
 	// Safe discovery records without relay bootstrap credentials.
 	Environments []GitHubEnvironment `json:"environments"`
+	// Server-requested minimum delay before automatically listing again, in milliseconds.
+	RetryAfterMs *int64 `json:"retryAfterMs,omitempty"`
 }
 
 // Cursor, batch size, and optional long-poll/filter parameters for reading session events.
