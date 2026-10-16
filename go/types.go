@@ -583,6 +583,8 @@ const (
 	MCPAuthResultKindToken = "token"
 	// MCPAuthResultKindCancelled indicates that the host declined the request.
 	MCPAuthResultKindCancelled = "cancelled"
+	// MCPAuthResultKindRuntimeRefresh hands an advertised Refresh back to its original runtime operation.
+	MCPAuthResultKindRuntimeRefresh = "runtimeRefresh"
 )
 
 // MCPAuthResultToken returns a token result for an MCP OAuth request.
@@ -595,6 +597,12 @@ func MCPAuthResultCancelled() *MCPAuthResult {
 	return &MCPAuthResult{Kind: MCPAuthResultKindCancelled}
 }
 
+// MCPAuthResultRuntimeRefresh requests noninteractive renewal for an advertised Refresh.
+// Response acceptance is not token installation or reconnect completion.
+func MCPAuthResultRuntimeRefresh() *MCPAuthResult {
+	return &MCPAuthResult{Kind: MCPAuthResultKindRuntimeRefresh}
+}
+
 // MCPAuthInvocation provides context about an MCP auth handler invocation.
 type MCPAuthInvocation struct {
 	SessionID string
@@ -602,6 +610,12 @@ type MCPAuthInvocation struct {
 
 // MCPAuthHandler handles MCP OAuth requests from the runtime.
 type MCPAuthHandler func(request MCPAuthRequest, invocation MCPAuthInvocation) (*MCPAuthResult, error)
+
+// MCPAuthRuntimeRefreshHandler opts into runtime-owned refresh without changing
+// legacy request or invocation literals. runtimeRefreshSupported is false when
+// omitted. Return MCPAuthResultRuntimeRefresh only for an advertised Refresh.
+// Other requests retain the host's existing token or cancellation policy.
+type MCPAuthRuntimeRefreshHandler func(request MCPAuthRequest, invocation MCPAuthInvocation, runtimeRefreshSupported bool) (*MCPAuthResult, error)
 
 // UserInputRequest represents a request for user input from the agent
 type UserInputRequest struct {

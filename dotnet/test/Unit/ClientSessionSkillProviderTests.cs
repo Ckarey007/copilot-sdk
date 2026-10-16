@@ -118,7 +118,8 @@ public sealed partial class ClientSessionLifetimeTests
                     Description = "Advanced skill",
                     UserInvocable = false,
                     DisableModelInvocation = true,
-                    ArgumentHint = "<topic>"
+                    ArgumentHint = "<topic>",
+                    Directory = "/skills/advanced"
                 }
             ])
         };
@@ -132,13 +133,16 @@ public sealed partial class ClientSessionLifetimeTests
         Assert.False(skills[0].TryGetProperty("userInvocable", out _));
         Assert.False(skills[0].TryGetProperty("disableModelInvocation", out _));
         Assert.False(skills[0].TryGetProperty("argumentHint", out _));
+        Assert.False(skills[0].TryGetProperty("directory", out _), skills[0].ToString());
         Assert.False(skills[0].TryGetProperty("UserInvocable", out _));
         Assert.False(skills[0].TryGetProperty("DisableModelInvocation", out _));
         Assert.False(skills[0].TryGetProperty("ArgumentHint", out _));
+        Assert.False(skills[0].TryGetProperty("Directory", out _));
         Assert.Equal("advanced", skills[1].GetProperty("name").GetString());
         Assert.False(skills[1].GetProperty("userInvocable").GetBoolean());
         Assert.True(skills[1].GetProperty("disableModelInvocation").GetBoolean());
         Assert.Equal("<topic>", skills[1].GetProperty("argumentHint").GetString());
+        Assert.Equal("/skills/advanced", skills[1].GetProperty("directory").GetString());
     }
 
     [Fact]

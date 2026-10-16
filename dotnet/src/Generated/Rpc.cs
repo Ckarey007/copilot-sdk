@@ -3610,6 +3610,401 @@ public sealed class ModelsListTokenPriceUnitsRequest
     public string? SelectionId { get; set; }
 }
 
+/// <summary>License published with an eligible Azure ML model.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AzureMlLicense
+{
+    /// <summary>Bounded display label for the model license.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+}
+
+/// <summary>Validated local runtime requirements for an Azure ML model.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AzureMlProfile
+{
+    /// <summary>Sanitized model-picker display label.</summary>
+    [JsonPropertyName("displayName")]
+    public string DisplayName { get; set; } = string.Empty;
+
+    /// <summary>Published download size, when available.</summary>
+    [JsonPropertyName("downloadBytes")]
+    public long? DownloadBytes { get; set; }
+
+    /// <summary>Published license, when available.</summary>
+    [JsonPropertyName("license")]
+    public AzureMlLicense? License { get; set; }
+
+    /// <summary>Maximum context window accepted by the model.</summary>
+    [JsonPropertyName("maxContextWindowTokens")]
+    public long MaxContextWindowTokens { get; set; }
+
+    /// <summary>Maximum output tokens produced by the model.</summary>
+    [JsonPropertyName("maxOutputTokens")]
+    public long MaxOutputTokens { get; set; }
+
+    /// <summary>Maximum input tokens accepted by the model.</summary>
+    [JsonPropertyName("maxPromptTokens")]
+    public long MaxPromptTokens { get; set; }
+
+    /// <summary>Peak disk use during installation, when available.</summary>
+    [JsonPropertyName("peakDiskBytes")]
+    public long? PeakDiskBytes { get; set; }
+
+    /// <summary>Recommended graphics memory, when available.</summary>
+    [JsonPropertyName("recommendedVramBytes")]
+    public long? RecommendedVramBytes { get; set; }
+
+    /// <summary>Validated local runtime configuration.</summary>
+    [JsonPropertyName("serveOptions")]
+    public JsonElement ServeOptions { get; set; }
+
+    /// <summary>Whether the model supports tool calls.</summary>
+    [JsonPropertyName("supportsToolCalls")]
+    public bool SupportsToolCalls { get; set; }
+}
+
+/// <summary>Eligible Azure ML model version and its provider metadata.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AzureMlModel
+{
+    /// <summary>Provider metadata retained for registration.</summary>
+    [JsonPropertyName("metadata")]
+    public JsonElement Metadata { get; set; }
+
+    /// <summary>Stable model-family name.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Validated Windows ML requirements.</summary>
+    [JsonPropertyName("profile")]
+    public AzureMlProfile Profile { get => field ??= new(); set; }
+
+    /// <summary>Registry that owns this model version.</summary>
+    [JsonPropertyName("registry")]
+    public AzureMlRegistry Registry { get; set; }
+
+    /// <summary>Exact published model version.</summary>
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = string.Empty;
+}
+
+/// <summary>Redacted warning for a skipped model or registry.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AzureMlCatalogWarning
+{
+    /// <summary>Safe reason without signed access details.</summary>
+    [JsonPropertyName("kind")]
+    public string Kind { get; set; } = string.Empty;
+
+    /// <summary>Model family, or `catalog` for registry-wide errors.</summary>
+    [JsonPropertyName("modelName")]
+    public string ModelName { get; set; } = string.Empty;
+
+    /// <summary>Registry associated with the warning.</summary>
+    [JsonPropertyName("registry")]
+    public AzureMlRegistry Registry { get; set; }
+
+    /// <summary>Version, if one was available.</summary>
+    [JsonPropertyName("version")]
+    public string? Version { get; set; }
+}
+
+/// <summary>Eligible models and redacted validation warnings.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AzureMlCatalogResult
+{
+    /// <summary>Model versions suitable for local use.</summary>
+    [JsonPropertyName("models")]
+    public IList<AzureMlModel> Models { get => field ??= []; set; }
+
+    /// <summary>Skipped model and catalog errors without sensitive access details.</summary>
+    [JsonPropertyName("warnings")]
+    public IList<AzureMlCatalogWarning> Warnings { get => field ??= []; set; }
+}
+
+/// <summary>Lists models eligible for local use before a chat session exists.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class AzureMlCatalogRequest
+{
+    /// <summary>Ask for the staff registry; the server also verifies its own authenticated identity.</summary>
+    [JsonPropertyName("includeDev")]
+    public bool IncludeDev { get; set; }
+
+    /// <summary>An explicit user refresh retries a cached sign-in failure.</summary>
+    [JsonPropertyName("retryMode")]
+    public AzureMlCatalogRetryMode? RetryMode { get; set; }
+}
+
+/// <summary>Eligible Azure ML model version and its provider metadata.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AzureMlLatestResult
+{
+    /// <summary>Provider metadata retained for registration.</summary>
+    [JsonPropertyName("metadata")]
+    public JsonElement Metadata { get; set; }
+
+    /// <summary>Stable model-family name.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Validated Windows ML requirements.</summary>
+    [JsonPropertyName("profile")]
+    public AzureMlProfile Profile { get => field ??= new(); set; }
+
+    /// <summary>Registry that owns this model version.</summary>
+    [JsonPropertyName("registry")]
+    public AzureMlRegistry Registry { get; set; }
+
+    /// <summary>Exact published model version.</summary>
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = string.Empty;
+}
+
+/// <summary>Selects an Azure ML model family.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class AzureMlLatestRequest
+{
+    /// <summary>Exact model-family name.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Registry that owns the model.</summary>
+    [JsonPropertyName("registry")]
+    public AzureMlRegistry Registry { get; set; }
+}
+
+/// <summary>Resolved artifact facts without signed download URLs.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AzureMlResolveResult
+{
+    /// <summary>Other paths relative to the version directory.</summary>
+    [JsonPropertyName("extraFiles")]
+    public IList<string> ExtraFiles { get => field ??= []; set; }
+
+    /// <summary>Maximum supported local concurrency.</summary>
+    [JsonPropertyName("maxConcurrent")]
+    public long MaxConcurrent { get; set; }
+
+    /// <summary>GGUF path relative to the version directory.</summary>
+    [JsonPropertyName("primaryPath")]
+    public string PrimaryPath { get; set; } = string.Empty;
+
+    /// <summary>Validated local runtime settings.</summary>
+    [JsonPropertyName("serveOptions")]
+    public JsonElement ServeOptions { get; set; }
+
+    /// <summary>Exact bytes across all files in this version.</summary>
+    [JsonPropertyName("totalBytes")]
+    public long TotalBytes { get; set; }
+}
+
+/// <summary>Selects an immutable model version.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class AzureMlResolveRequest
+{
+    /// <summary>Exact model-family name.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Registry that owns the model.</summary>
+    [JsonPropertyName("registry")]
+    public AzureMlRegistry Registry { get; set; }
+
+    /// <summary>Exact published version.</summary>
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = string.Empty;
+}
+
+/// <summary>Completed and verified Azure ML model files.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AzureMlDownloadResult
+{
+    /// <summary>Installed companion file paths.</summary>
+    [JsonPropertyName("extraFiles")]
+    public IList<string> ExtraFiles { get => field ??= []; set; }
+
+    /// <summary>Published manifest path.</summary>
+    [JsonPropertyName("manifestPath")]
+    public string ManifestPath { get; set; } = string.Empty;
+
+    /// <summary>Maximum supported local concurrency.</summary>
+    [JsonPropertyName("maxConcurrent")]
+    public long MaxConcurrent { get; set; }
+
+    /// <summary>Installed GGUF path.</summary>
+    [JsonPropertyName("primaryPath")]
+    public string PrimaryPath { get; set; } = string.Empty;
+
+    /// <summary>Bytes received over the network during this run, including discarded bytes.</summary>
+    [JsonPropertyName("receivedBytes")]
+    public long? ReceivedBytes { get; set; }
+
+    /// <summary>Whether a partial from a prior run continued after the server accepted its range.</summary>
+    [JsonPropertyName("resumed")]
+    public bool? Resumed { get; set; }
+
+    /// <summary>Whether all prior verified files were reused.</summary>
+    [JsonPropertyName("reused")]
+    public bool Reused { get; set; }
+
+    /// <summary>Validated local runtime settings.</summary>
+    [JsonPropertyName("serveOptions")]
+    public JsonElement ServeOptions { get; set; }
+
+    /// <summary>Exact bytes across the model version.</summary>
+    [JsonPropertyName("totalBytes")]
+    public long TotalBytes { get; set; }
+
+    /// <summary>Transient transfer failures retried during this run.</summary>
+    [JsonPropertyName("totalFailures")]
+    public long? TotalFailures { get; set; }
+}
+
+/// <summary>Downloads a model version to its configured local library.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class AzureMlDownloadRequest
+{
+    /// <summary>Version directory under this server's Azure ML library.</summary>
+    [JsonPropertyName("destination")]
+    public string Destination { get; set; } = string.Empty;
+
+    /// <summary>Optional connection-owned lease that spans the caller's complete family mutation.</summary>
+    [JsonPropertyName("leaseId")]
+    public string? LeaseId { get; set; }
+
+    /// <summary>Exact model-family name.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Registry that owns the model.</summary>
+    [JsonPropertyName("registry")]
+    public AzureMlRegistry Registry { get; set; }
+
+    /// <summary>Unique request identifier for progress and explicit cancellation.</summary>
+    [JsonPropertyName("requestId")]
+    public string RequestId { get; set; } = string.Empty;
+
+    /// <summary>Exact published version.</summary>
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = string.Empty;
+}
+
+/// <summary>Opaque handle to a connection-owned family mutation interval.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AzureMlAcquireFamilyResult
+{
+    /// <summary>Server-generated handle, valid only on the originating SDK connection.</summary>
+    [JsonPropertyName("leaseId")]
+    public string LeaseId { get; set; } = string.Empty;
+}
+
+/// <summary>Identifies a family in the server's Azure ML model library.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class AzureMlAcquireFamilyRequest
+{
+    /// <summary>Exact model-family name.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Registry that owns the model family.</summary>
+    [JsonPropertyName("registry")]
+    public AzureMlRegistry Registry { get; set; }
+}
+
+/// <summary>Empty acknowledgement for a completed host lifecycle operation.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AzureMlReleaseFamilyResult
+{
+}
+
+/// <summary>Releases a family mutation interval owned by this SDK connection.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class AzureMlReleaseFamilyRequest
+{
+    /// <summary>Server-generated handle from `azureMl.acquireFamily`.</summary>
+    [JsonPropertyName("leaseId")]
+    public string LeaseId { get; set; } = string.Empty;
+
+    /// <summary>Exact model-family name.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Registry that owns the acquired family.</summary>
+    [JsonPropertyName("registry")]
+    public AzureMlRegistry Registry { get; set; }
+}
+
+/// <summary>Progress and retry facts for one active download.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AzureMlDownloadStatus
+{
+    /// <summary>Bytes completed across all files.</summary>
+    [JsonPropertyName("completedBytes")]
+    public long CompletedBytes { get; set; }
+
+    /// <summary>Configured retry limit, if the transfer is retrying.</summary>
+    [JsonPropertyName("maxAttempts")]
+    public long? MaxAttempts { get; set; }
+
+    /// <summary>Current transfer phase.</summary>
+    [JsonPropertyName("phase")]
+    public string Phase { get; set; } = string.Empty;
+
+    /// <summary>Next retry attempt, if the transfer is retrying.</summary>
+    [JsonPropertyName("retryAttempt")]
+    public long? RetryAttempt { get; set; }
+
+    /// <summary>Planned delay before retry, if the transfer is retrying.</summary>
+    [JsonPropertyName("retryDelayMs")]
+    public long? RetryDelayMs { get; set; }
+
+    /// <summary>Redacted failure reason, if the transfer is retrying.</summary>
+    [JsonPropertyName("retryReason")]
+    public string? RetryReason { get; set; }
+
+    /// <summary>Exact bytes expected across all files.</summary>
+    [JsonPropertyName("totalBytes")]
+    public long TotalBytes { get; set; }
+}
+
+/// <summary>Selects an active connection-owned download.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class AzureMlStatusRequest
+{
+    /// <summary>Identifier supplied when this connection started the download.</summary>
+    [JsonPropertyName("requestId")]
+    public string RequestId { get; set; } = string.Empty;
+}
+
+/// <summary>Selects an active connection-owned download.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class AzureMlCancelRequest
+{
+    /// <summary>Identifier supplied when this connection started the download.</summary>
+    [JsonPropertyName("requestId")]
+    public string RequestId { get; set; } = string.Empty;
+}
+
+/// <summary>Empty acknowledgement for a completed host lifecycle operation.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AzureMlDiscardResult
+{
+}
+
+/// <summary>Selects an inactive Azure ML version for cleanup.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class AzureMlDiscardRequest
+{
+    /// <summary>Version directory under this server's Azure ML library.</summary>
+    [JsonPropertyName("destination")]
+    public string Destination { get; set; } = string.Empty;
+
+    /// <summary>Optional connection-owned lease that spans the caller's complete family mutation.</summary>
+    [JsonPropertyName("leaseId")]
+    public string? LeaseId { get; set; }
+}
+
 /// <summary>The accepted policies, parsed and normalized. A rejected input is reported as an error rather than in this result.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public sealed class ContentExclusionValidatePoliciesResult
@@ -21179,6 +21574,10 @@ public sealed class McpConfiguredServerState
     /// <summary>Observed connection status. This is not a configuration or readiness guarantee.</summary>
     [JsonPropertyName("status")]
     public McpServerStatus Status { get; set; }
+
+    /// <summary>Whether the server's current connection has loaded its tool list (from tools/list or a cached snapshot). A connected server without loaded tools is still loading them; the change is signalled by session.mcp_server_tools_loaded. Absent when the runtime does not report it.</summary>
+    [JsonPropertyName("toolsLoaded")]
+    public bool? ToolsLoaded { get; set; }
 }
 
 /// <summary>Effective MCP configuration entry. Configuration enablement is distinct from the optional live observation.</summary>
@@ -21761,6 +22160,7 @@ public sealed class McpOauthHandlePendingResult
     UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FallBackToBaseType)]
 [JsonDerivedType(typeof(McpOauthPendingRequestResponseToken), "token")]
 [JsonDerivedType(typeof(McpOauthPendingRequestResponseCancelled), "cancelled")]
+[JsonDerivedType(typeof(McpOauthPendingRequestResponseRuntimeRefresh), "runtimeRefresh")]
 public partial class McpOauthPendingRequestResponse
 {
     /// <summary>The type discriminator.</summary>
@@ -21801,7 +22201,20 @@ public partial class McpOauthPendingRequestResponseCancelled : McpOauthPendingRe
     public override string Kind => "cancelled";
 }
 
-/// <summary>Pending MCP OAuth request ID and host-provided token or cancellation response.</summary>
+/// <summary>
+/// Delegate noninteractive refresh to the original runtime authorization operation.
+/// Valid only for a Refresh request advertising runtimeRefreshSupported.
+/// </summary>
+/// <remarks>The <c>runtimeRefresh</c> variant of <see cref="McpOauthPendingRequestResponse"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class McpOauthPendingRequestResponseRuntimeRefresh : McpOauthPendingRequestResponse
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "runtimeRefresh";
+}
+
+/// <summary>Pending MCP OAuth request ID and host token, cancellation, or advertised runtime refresh response.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 internal sealed class McpOauthHandlePendingRequest
 {
@@ -34493,6 +34906,132 @@ public readonly struct TokenPriceUnit : IEquatable<TokenPriceUnit>
         public override void Write(Utf8JsonWriter writer, TokenPriceUnit value, JsonSerializerOptions options)
         {
             GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(TokenPriceUnit));
+        }
+    }
+}
+
+
+/// <summary>Registry that owns an Azure ML model version.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct AzureMlRegistry : IEquatable<AzureMlRegistry>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="AzureMlRegistry"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="AzureMlRegistry"/>.</param>
+    [JsonConstructor]
+    public AzureMlRegistry(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="AzureMlRegistry"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>Public Azure ML model registry.</summary>
+    public static AzureMlRegistry Azureml { get; } = new("azureml");
+
+    /// <summary>Microsoft staff development registry.</summary>
+    public static AzureMlRegistry AzuremlDev { get; } = new("azureml-dev");
+
+    /// <summary>Returns a value indicating whether two <see cref="AzureMlRegistry"/> instances are equivalent.</summary>
+    public static bool operator ==(AzureMlRegistry left, AzureMlRegistry right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="AzureMlRegistry"/> instances are not equivalent.</summary>
+    public static bool operator !=(AzureMlRegistry left, AzureMlRegistry right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is AzureMlRegistry other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(AzureMlRegistry other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{AzureMlRegistry}"/> for serializing <see cref="AzureMlRegistry"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<AzureMlRegistry>
+    {
+        /// <inheritdoc />
+        public override AzureMlRegistry Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, AzureMlRegistry value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(AzureMlRegistry));
+        }
+    }
+}
+
+
+/// <summary>How catalog discovery handles a recent sign-in failure.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct AzureMlCatalogRetryMode : IEquatable<AzureMlCatalogRetryMode>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="AzureMlCatalogRetryMode"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="AzureMlCatalogRetryMode"/>.</param>
+    [JsonConstructor]
+    public AzureMlCatalogRetryMode(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="AzureMlCatalogRetryMode"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>Reuse a recent failure for automatic background discovery.</summary>
+    public static AzureMlCatalogRetryMode Background { get; } = new("background");
+
+    /// <summary>Retry sign-in after an explicit refresh.</summary>
+    public static AzureMlCatalogRetryMode Explicit { get; } = new("explicit");
+
+    /// <summary>Returns a value indicating whether two <see cref="AzureMlCatalogRetryMode"/> instances are equivalent.</summary>
+    public static bool operator ==(AzureMlCatalogRetryMode left, AzureMlCatalogRetryMode right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="AzureMlCatalogRetryMode"/> instances are not equivalent.</summary>
+    public static bool operator !=(AzureMlCatalogRetryMode left, AzureMlCatalogRetryMode right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is AzureMlCatalogRetryMode other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(AzureMlCatalogRetryMode other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{AzureMlCatalogRetryMode}"/> for serializing <see cref="AzureMlCatalogRetryMode"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<AzureMlCatalogRetryMode>
+    {
+        /// <inheritdoc />
+        public override AzureMlCatalogRetryMode Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, AzureMlCatalogRetryMode value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(AzureMlCatalogRetryMode));
         }
     }
 }
@@ -50011,6 +50550,12 @@ public sealed class ServerRpc
         Interlocked.CompareExchange(ref field, new(_rpc), null) ??
         field;
 
+    /// <summary>AzureMl APIs.</summary>
+    public ServerAzureMlApi AzureMl =>
+        field ??
+        Interlocked.CompareExchange(ref field, new(_rpc), null) ??
+        field;
+
     /// <summary>ContentExclusion APIs.</summary>
     public ServerContentExclusionApi ContentExclusion =>
         field ??
@@ -51598,6 +52143,142 @@ public sealed class ServerModelsApi
     {
         ArgumentNullException.ThrowIfNull(request);
         return await CopilotClient.InvokeRpcAsync<ModelTokenPriceUnitList>(_rpc, "models.listTokenPriceUnits", [request], cancellationToken);
+    }
+}
+
+/// <summary>Provides server-scoped AzureMl APIs.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class ServerAzureMlApi
+{
+    private readonly JsonRpc _rpc;
+
+    internal ServerAzureMlApi(JsonRpc rpc)
+    {
+        _rpc = rpc;
+    }
+
+    /// <summary>Lists eligible Azure ML local models and redacted warnings before a chat session exists.</summary>
+    /// <param name="includeDev">Ask for the staff registry; the server also verifies its own authenticated identity.</param>
+    /// <param name="retryMode">An explicit user refresh retries a cached sign-in failure.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Eligible models and redacted validation warnings.</returns>
+    public async Task<AzureMlCatalogResult> CatalogAsync(bool includeDev, AzureMlCatalogRetryMode? retryMode = null, CancellationToken cancellationToken = default)
+    {
+        var request = new AzureMlCatalogRequest { IncludeDev = includeDev, RetryMode = retryMode };
+        return await CopilotClient.InvokeRpcAsync<AzureMlCatalogResult>(_rpc, "azureMl.catalog", [request], cancellationToken);
+    }
+
+    /// <summary>Revalidates the newest eligible version of one Azure ML model family.</summary>
+    /// <param name="registry">Registry that owns the model.</param>
+    /// <param name="name">Exact model-family name.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Eligible Azure ML model version and its provider metadata.</returns>
+    public async Task<AzureMlLatestResult> LatestAsync(AzureMlRegistry registry, string name, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        var request = new AzureMlLatestRequest { Registry = registry, Name = name };
+        return await CopilotClient.InvokeRpcAsync<AzureMlLatestResult>(_rpc, "azureMl.latest", [request], cancellationToken);
+    }
+
+    /// <summary>Resolves immutable artifact facts without returning signed access URLs.</summary>
+    /// <param name="registry">Registry that owns the model.</param>
+    /// <param name="name">Exact model-family name.</param>
+    /// <param name="version">Exact published version.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Resolved artifact facts without signed download URLs.</returns>
+    public async Task<AzureMlResolveResult> ResolveAsync(AzureMlRegistry registry, string name, string version, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(version);
+
+        var request = new AzureMlResolveRequest { Registry = registry, Name = name, Version = version };
+        return await CopilotClient.InvokeRpcAsync<AzureMlResolveResult>(_rpc, "azureMl.resolve", [request], cancellationToken);
+    }
+
+    /// <summary>Downloads and verifies a connection-owned model version, returning only after placement and manifest publication.</summary>
+    /// <param name="requestId">Unique request identifier for progress and explicit cancellation.</param>
+    /// <param name="registry">Registry that owns the model.</param>
+    /// <param name="name">Exact model-family name.</param>
+    /// <param name="version">Exact published version.</param>
+    /// <param name="destination">Version directory under this server's Azure ML library.</param>
+    /// <param name="leaseId">Optional connection-owned lease that spans the caller's complete family mutation.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Completed and verified Azure ML model files.</returns>
+    public async Task<AzureMlDownloadResult> DownloadAsync(string requestId, AzureMlRegistry registry, string name, string version, string destination, string? leaseId = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(requestId);
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(version);
+        ArgumentNullException.ThrowIfNull(destination);
+
+        var request = new AzureMlDownloadRequest { RequestId = requestId, Registry = registry, Name = name, Version = version, Destination = destination, LeaseId = leaseId };
+        return await CopilotClient.InvokeRpcAsync<AzureMlDownloadResult>(_rpc, "azureMl.download", [request], cancellationToken);
+    }
+
+    /// <summary>Acquires a connection-owned model-family mutation lease across transfer, activation, registration, and cleanup.</summary>
+    /// <param name="registry">Registry that owns the model family.</param>
+    /// <param name="name">Exact model-family name.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Opaque handle to a connection-owned family mutation interval.</returns>
+    public async Task<AzureMlAcquireFamilyResult> AcquireFamilyAsync(AzureMlRegistry registry, string name, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        var request = new AzureMlAcquireFamilyRequest { Registry = registry, Name = name };
+        return await CopilotClient.InvokeRpcAsync<AzureMlAcquireFamilyResult>(_rpc, "azureMl.acquireFamily", [request], cancellationToken);
+    }
+
+    /// <summary>Releases a connection-owned family lease after its active download and cleanup operations complete.</summary>
+    /// <param name="leaseId">Server-generated handle from `azureMl.acquireFamily`.</param>
+    /// <param name="registry">Registry that owns the acquired family.</param>
+    /// <param name="name">Exact model-family name.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Empty acknowledgement for a completed host lifecycle operation.</returns>
+    public async Task<AzureMlReleaseFamilyResult> ReleaseFamilyAsync(string leaseId, AzureMlRegistry registry, string name, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(leaseId);
+        ArgumentNullException.ThrowIfNull(name);
+
+        var request = new AzureMlReleaseFamilyRequest { LeaseId = leaseId, Registry = registry, Name = name };
+        return await CopilotClient.InvokeRpcAsync<AzureMlReleaseFamilyResult>(_rpc, "azureMl.releaseFamily", [request], cancellationToken);
+    }
+
+    /// <summary>Returns progress for an active download owned by this connection, or null after completion.</summary>
+    /// <param name="requestId">Identifier supplied when this connection started the download.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Active Azure ML download progress or null.</returns>
+    public async Task<AzureMlDownloadStatus?> StatusAsync(string requestId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(requestId);
+
+        var request = new AzureMlStatusRequest { RequestId = requestId };
+        return await CopilotClient.InvokeRpcAsync<AzureMlDownloadStatus?>(_rpc, "azureMl.status", [request], cancellationToken);
+    }
+
+    /// <summary>Cancels a connection-owned download; the download call reports terminal cleanup separately.</summary>
+    /// <param name="requestId">Identifier supplied when this connection started the download.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Whether an active connection-owned transfer accepted cancellation.</returns>
+    public async Task<bool> CancelAsync(string requestId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(requestId);
+
+        var request = new AzureMlCancelRequest { RequestId = requestId };
+        return await CopilotClient.InvokeRpcAsync<bool>(_rpc, "azureMl.cancel", [request], cancellationToken);
+    }
+
+    /// <summary>Discards an inactive model version under the server-owned Azure ML library.</summary>
+    /// <param name="destination">Version directory under this server's Azure ML library.</param>
+    /// <param name="leaseId">Optional connection-owned lease that spans the caller's complete family mutation.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Empty acknowledgement for a completed host lifecycle operation.</returns>
+    public async Task<AzureMlDiscardResult> DiscardAsync(string destination, string? leaseId = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(destination);
+
+        var request = new AzureMlDiscardRequest { Destination = destination, LeaseId = leaseId };
+        return await CopilotClient.InvokeRpcAsync<AzureMlDiscardResult>(_rpc, "azureMl.discard", [request], cancellationToken);
     }
 }
 
@@ -56578,7 +57259,7 @@ public sealed class McpOauthApi
         _session = session;
     }
 
-    /// <summary>Resolves a pending MCP OAuth request with a host-provided token or cancellation. The pending request is emitted as mcp.oauth_required with the data necessary to authorize the request.</summary>
+    /// <summary>Resolves a pending MCP OAuth request with a host-provided token, cancellation, or a noninteractive runtime refresh handoff when the request advertises runtimeRefreshSupported. Acceptance resolves the host response, not credential installation, reconnect, or the original tool invocation.</summary>
     /// <param name="requestId">OAuth request identifier from the mcp.oauth_required event.</param>
     /// <param name="result">Host response to the pending OAuth request.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
@@ -60182,6 +60863,9 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(GitHub.Copilot.McpOauthCompletedEvent), TypeInfoPropertyName = "SessionEventsMcpOauthCompletedEvent")]
 [JsonSerializable(typeof(GitHub.Copilot.McpOauthCompletionOutcome), TypeInfoPropertyName = "SessionEventsMcpOauthCompletionOutcome")]
 [JsonSerializable(typeof(GitHub.Copilot.McpOauthHttpResponse), TypeInfoPropertyName = "SessionEventsMcpOauthHttpResponse")]
+[JsonSerializable(typeof(GitHub.Copilot.McpOauthRecoveryCompletedData), TypeInfoPropertyName = "SessionEventsMcpOauthRecoveryCompletedData")]
+[JsonSerializable(typeof(GitHub.Copilot.McpOauthRecoveryCompletedEvent), TypeInfoPropertyName = "SessionEventsMcpOauthRecoveryCompletedEvent")]
+[JsonSerializable(typeof(GitHub.Copilot.McpOauthRecoveryCompletedOutcome), TypeInfoPropertyName = "SessionEventsMcpOauthRecoveryCompletedOutcome")]
 [JsonSerializable(typeof(GitHub.Copilot.McpOauthRequestReason), TypeInfoPropertyName = "SessionEventsMcpOauthRequestReason")]
 [JsonSerializable(typeof(GitHub.Copilot.McpOauthRequiredData), TypeInfoPropertyName = "SessionEventsMcpOauthRequiredData")]
 [JsonSerializable(typeof(GitHub.Copilot.McpOauthRequiredEvent), TypeInfoPropertyName = "SessionEventsMcpOauthRequiredEvent")]
@@ -60564,6 +61248,27 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(AutopilotObjectiveCreditLimit))]
 [JsonSerializable(typeof(AutopilotObjectiveGetStateResult))]
 [JsonSerializable(typeof(AutopilotObjectiveState))]
+[JsonSerializable(typeof(AzureMlAcquireFamilyRequest))]
+[JsonSerializable(typeof(AzureMlAcquireFamilyResult))]
+[JsonSerializable(typeof(AzureMlCancelRequest))]
+[JsonSerializable(typeof(AzureMlCatalogRequest))]
+[JsonSerializable(typeof(AzureMlCatalogResult))]
+[JsonSerializable(typeof(AzureMlCatalogWarning))]
+[JsonSerializable(typeof(AzureMlDiscardRequest))]
+[JsonSerializable(typeof(AzureMlDiscardResult))]
+[JsonSerializable(typeof(AzureMlDownloadRequest))]
+[JsonSerializable(typeof(AzureMlDownloadResult))]
+[JsonSerializable(typeof(AzureMlDownloadStatus))]
+[JsonSerializable(typeof(AzureMlLatestRequest))]
+[JsonSerializable(typeof(AzureMlLatestResult))]
+[JsonSerializable(typeof(AzureMlLicense))]
+[JsonSerializable(typeof(AzureMlModel))]
+[JsonSerializable(typeof(AzureMlProfile))]
+[JsonSerializable(typeof(AzureMlReleaseFamilyRequest))]
+[JsonSerializable(typeof(AzureMlReleaseFamilyResult))]
+[JsonSerializable(typeof(AzureMlResolveRequest))]
+[JsonSerializable(typeof(AzureMlResolveResult))]
+[JsonSerializable(typeof(AzureMlStatusRequest))]
 [JsonSerializable(typeof(BuiltInModelCatalog))]
 [JsonSerializable(typeof(BuiltInModelCatalogEntry))]
 [JsonSerializable(typeof(BuiltinAgentSummary))]

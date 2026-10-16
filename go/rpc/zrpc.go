@@ -1876,6 +1876,283 @@ type AutoTierStatus struct {
 	Reason *string `json:"reason,omitempty"`
 }
 
+// Opaque handle to a connection-owned family mutation interval.
+// Experimental: AzureMlAcquireFamilyResult is part of an experimental API and may change or
+// be removed.
+type AzureMlAcquireFamilyResult struct {
+	// Server-generated handle, valid only on the originating SDK connection.
+	LeaseID string `json:"leaseId"`
+}
+
+// Whether an active connection-owned transfer accepted cancellation.
+// Experimental: AzureMlCancelResult is part of an experimental API and may change or be
+// removed.
+type AzureMlCancelResult bool
+
+// Lists models eligible for local use before a chat session exists.
+// Experimental: AzureMlCatalogRequest is part of an experimental API and may change or be
+// removed.
+type AzureMlCatalogRequest struct {
+	// Ask for the staff registry; the server also verifies its own authenticated identity.
+	IncludeDev bool `json:"includeDev"`
+	// An explicit user refresh retries a cached sign-in failure.
+	RetryMode *AzureMlCatalogRetryMode `json:"retryMode,omitempty"`
+}
+
+// Eligible models and redacted validation warnings.
+// Experimental: AzureMlCatalogResult is part of an experimental API and may change or be
+// removed.
+type AzureMlCatalogResult struct {
+	// Model versions suitable for local use.
+	Models []AzureMlModel `json:"models"`
+	// Skipped model and catalog errors without sensitive access details.
+	Warnings []AzureMlCatalogWarning `json:"warnings"`
+}
+
+// Redacted warning for a skipped model or registry.
+// Experimental: AzureMlCatalogWarning is part of an experimental API and may change or be
+// removed.
+type AzureMlCatalogWarning struct {
+	// Safe reason without signed access details.
+	Kind string `json:"kind"`
+	// Model family, or `catalog` for registry-wide errors.
+	ModelName string `json:"modelName"`
+	// Registry associated with the warning.
+	Registry AzureMlRegistry `json:"registry"`
+	// Version, if one was available.
+	Version *string `json:"version,omitempty"`
+}
+
+// Selects an inactive Azure ML version for cleanup.
+// Experimental: AzureMlDiscardRequest is part of an experimental API and may change or be
+// removed.
+type AzureMlDiscardRequest struct {
+	// Version directory under this server's Azure ML library.
+	Destination string `json:"destination"`
+	// Optional connection-owned lease that spans the caller's complete family mutation.
+	LeaseID *string `json:"leaseId,omitempty"`
+}
+
+// Empty acknowledgement for a completed host lifecycle operation.
+// Experimental: AzureMlDiscardResult is part of an experimental API and may change or be
+// removed.
+type AzureMlDiscardResult struct {
+}
+
+// Selects an active connection-owned download.
+// Experimental: AzureMlDownloadIDRequest is part of an experimental API and may change or
+// be removed.
+type AzureMlDownloadIDRequest struct {
+	// Identifier supplied when this connection started the download.
+	RequestID string `json:"requestId"`
+}
+
+// Downloads a model version to its configured local library.
+// Experimental: AzureMlDownloadRequest is part of an experimental API and may change or be
+// removed.
+type AzureMlDownloadRequest struct {
+	// Version directory under this server's Azure ML library.
+	Destination string `json:"destination"`
+	// Optional connection-owned lease that spans the caller's complete family mutation.
+	LeaseID *string `json:"leaseId,omitempty"`
+	// Exact model-family name.
+	Name string `json:"name"`
+	// Registry that owns the model.
+	Registry AzureMlRegistry `json:"registry"`
+	// Unique request identifier for progress and explicit cancellation.
+	RequestID string `json:"requestId"`
+	// Exact published version.
+	Version string `json:"version"`
+}
+
+// Completed and verified Azure ML model files.
+// Experimental: AzureMlDownloadResult is part of an experimental API and may change or be
+// removed.
+type AzureMlDownloadResult struct {
+	// Installed companion file paths.
+	ExtraFiles []string `json:"extraFiles"`
+	// Published manifest path.
+	ManifestPath string `json:"manifestPath"`
+	// Maximum supported local concurrency.
+	MaxConcurrent int64 `json:"maxConcurrent"`
+	// Installed GGUF path.
+	PrimaryPath string `json:"primaryPath"`
+	// Bytes received over the network during this run, including discarded bytes.
+	ReceivedBytes *int64 `json:"receivedBytes,omitempty"`
+	// Whether a partial from a prior run continued after the server accepted its range.
+	Resumed *bool `json:"resumed,omitempty"`
+	// Whether all prior verified files were reused.
+	Reused bool `json:"reused"`
+	// Validated local runtime settings.
+	ServeOptions any `json:"serveOptions"`
+	// Exact bytes across the model version.
+	TotalBytes int64 `json:"totalBytes"`
+	// Transient transfer failures retried during this run.
+	TotalFailures *int64 `json:"totalFailures,omitempty"`
+}
+
+// Progress and retry facts for one active download.
+// Experimental: AzureMlDownloadStatus is part of an experimental API and may change or be
+// removed.
+type AzureMlDownloadStatus struct {
+	// Bytes completed across all files.
+	CompletedBytes int64 `json:"completedBytes"`
+	// Configured retry limit, if the transfer is retrying.
+	MaxAttempts *int64 `json:"maxAttempts,omitempty"`
+	// Current transfer phase.
+	Phase string `json:"phase"`
+	// Next retry attempt, if the transfer is retrying.
+	RetryAttempt *int64 `json:"retryAttempt,omitempty"`
+	// Planned delay before retry, if the transfer is retrying.
+	RetryDelayMs *int64 `json:"retryDelayMs,omitempty"`
+	// Redacted failure reason, if the transfer is retrying.
+	RetryReason *string `json:"retryReason,omitempty"`
+	// Exact bytes expected across all files.
+	TotalBytes int64 `json:"totalBytes"`
+}
+
+// Opaque handle to a connection-owned family mutation interval.
+// Experimental: AzureMlFamilyLeaseResult is part of an experimental API and may change or
+// be removed.
+type AzureMlFamilyLeaseResult struct {
+	// Server-generated handle, valid only on the originating SDK connection.
+	LeaseID string `json:"leaseId"`
+}
+
+// Releases a family mutation interval owned by this SDK connection.
+// Experimental: AzureMlFamilyReleaseRequest is part of an experimental API and may change
+// or be removed.
+type AzureMlFamilyReleaseRequest struct {
+	// Server-generated handle from `azureMl.acquireFamily`.
+	LeaseID string `json:"leaseId"`
+	// Exact model-family name.
+	Name string `json:"name"`
+	// Registry that owns the acquired family.
+	Registry AzureMlRegistry `json:"registry"`
+}
+
+// Identifies a family in the server's Azure ML model library.
+// Experimental: AzureMlFamilyRequest is part of an experimental API and may change or be
+// removed.
+type AzureMlFamilyRequest struct {
+	// Exact model-family name.
+	Name string `json:"name"`
+	// Registry that owns the model family.
+	Registry AzureMlRegistry `json:"registry"`
+}
+
+// Selects an Azure ML model family.
+// Experimental: AzureMlLatestRequest is part of an experimental API and may change or be
+// removed.
+type AzureMlLatestRequest struct {
+	// Exact model-family name.
+	Name string `json:"name"`
+	// Registry that owns the model.
+	Registry AzureMlRegistry `json:"registry"`
+}
+
+// Eligible Azure ML model version and its provider metadata.
+// Experimental: AzureMlLatestResult is part of an experimental API and may change or be
+// removed.
+type AzureMlLatestResult struct {
+	// Provider metadata retained for registration.
+	Metadata any `json:"metadata"`
+	// Stable model-family name.
+	Name string `json:"name"`
+	// Validated Windows ML requirements.
+	Profile AzureMlProfile `json:"profile"`
+	// Registry that owns this model version.
+	Registry AzureMlRegistry `json:"registry"`
+	// Exact published model version.
+	Version string `json:"version"`
+}
+
+// License published with an eligible Azure ML model.
+// Experimental: AzureMlLicense is part of an experimental API and may change or be removed.
+type AzureMlLicense struct {
+	// Bounded display label for the model license.
+	Name string `json:"name"`
+}
+
+// Eligible Azure ML model version and its provider metadata.
+// Experimental: AzureMlModel is part of an experimental API and may change or be removed.
+type AzureMlModel struct {
+	// Provider metadata retained for registration.
+	Metadata any `json:"metadata"`
+	// Stable model-family name.
+	Name string `json:"name"`
+	// Validated Windows ML requirements.
+	Profile AzureMlProfile `json:"profile"`
+	// Registry that owns this model version.
+	Registry AzureMlRegistry `json:"registry"`
+	// Exact published model version.
+	Version string `json:"version"`
+}
+
+// Validated local runtime requirements for an Azure ML model.
+// Experimental: AzureMlProfile is part of an experimental API and may change or be removed.
+type AzureMlProfile struct {
+	// Sanitized model-picker display label.
+	DisplayName string `json:"displayName"`
+	// Published download size, when available.
+	DownloadBytes *int64 `json:"downloadBytes,omitempty"`
+	// Published license, when available.
+	License *AzureMlLicense `json:"license,omitempty"`
+	// Maximum context window accepted by the model.
+	MaxContextWindowTokens int64 `json:"maxContextWindowTokens"`
+	// Maximum output tokens produced by the model.
+	MaxOutputTokens int64 `json:"maxOutputTokens"`
+	// Maximum input tokens accepted by the model.
+	MaxPromptTokens int64 `json:"maxPromptTokens"`
+	// Peak disk use during installation, when available.
+	PeakDiskBytes *int64 `json:"peakDiskBytes,omitempty"`
+	// Recommended graphics memory, when available.
+	RecommendedVramBytes *int64 `json:"recommendedVramBytes,omitempty"`
+	// Validated local runtime configuration.
+	ServeOptions any `json:"serveOptions"`
+	// Whether the model supports tool calls.
+	SupportsToolCalls bool `json:"supportsToolCalls"`
+}
+
+// Empty acknowledgement for a completed host lifecycle operation.
+// Experimental: AzureMlReleaseFamilyResult is part of an experimental API and may change or
+// be removed.
+type AzureMlReleaseFamilyResult struct {
+}
+
+// Selects an immutable model version.
+// Experimental: AzureMlResolveRequest is part of an experimental API and may change or be
+// removed.
+type AzureMlResolveRequest struct {
+	// Exact model-family name.
+	Name string `json:"name"`
+	// Registry that owns the model.
+	Registry AzureMlRegistry `json:"registry"`
+	// Exact published version.
+	Version string `json:"version"`
+}
+
+// Resolved artifact facts without signed download URLs.
+// Experimental: AzureMlResolveResult is part of an experimental API and may change or be
+// removed.
+type AzureMlResolveResult struct {
+	// Other paths relative to the version directory.
+	ExtraFiles []string `json:"extraFiles"`
+	// Maximum supported local concurrency.
+	MaxConcurrent int64 `json:"maxConcurrent"`
+	// GGUF path relative to the version directory.
+	PrimaryPath string `json:"primaryPath"`
+	// Validated local runtime settings.
+	ServeOptions any `json:"serveOptions"`
+	// Exact bytes across all files in this version.
+	TotalBytes int64 `json:"totalBytes"`
+}
+
+// Active Azure ML download progress or null.
+// Experimental: AzureMlStatusResult is part of an experimental API and may change or be
+// removed.
+type AzureMlStatusResult = *AzureMlDownloadStatus
+
 // A shipped agent, named and described.
 // Experimental: BuiltinAgentSummary is part of an experimental API and may change or be
 // removed.
@@ -9237,6 +9514,11 @@ type MCPConfiguredServerState struct {
 	Error *string `json:"error,omitempty"`
 	// Observed connection status. This is not a configuration or readiness guarantee.
 	Status MCPServerStatus `json:"status"`
+	// Whether the server's current connection has loaded its tool list (from tools/list or a
+	// cached snapshot). A connected server without loaded tools is still loading them; the
+	// change is signalled by session.mcp_server_tools_loaded. Absent when the runtime does not
+	// report it.
+	ToolsLoaded *bool `json:"toolsLoaded,omitempty"`
 }
 
 // Credential-free authentication identity used to configure GitHub MCP.
@@ -10190,7 +10472,8 @@ type MCPOauthFetchProtectedResourceMetadataResult struct {
 	MetadataText *string `json:"metadataText,omitempty"`
 }
 
-// Pending MCP OAuth request ID and host-provided token or cancellation response.
+// Pending MCP OAuth request ID and host token, cancellation, or advertised runtime refresh
+// response.
 // Experimental: MCPOauthHandlePendingRequest is part of an experimental API and may change
 // or be removed.
 type MCPOauthHandlePendingRequest struct {
@@ -10323,6 +10606,16 @@ type MCPOauthPendingRequestResponseCancelled struct {
 func (MCPOauthPendingRequestResponseCancelled) mcpOauthPendingRequestResponse() {}
 func (MCPOauthPendingRequestResponseCancelled) Kind() MCPOauthPendingRequestResponseKind {
 	return MCPOauthPendingRequestResponseKindCancelled
+}
+
+// Delegate noninteractive refresh to the original runtime authorization operation.
+// Valid only for a Refresh request advertising runtimeRefreshSupported.
+type MCPOauthPendingRequestResponseRuntimeRefresh struct {
+}
+
+func (MCPOauthPendingRequestResponseRuntimeRefresh) mcpOauthPendingRequestResponse() {}
+func (MCPOauthPendingRequestResponseRuntimeRefresh) Kind() MCPOauthPendingRequestResponseKind {
+	return MCPOauthPendingRequestResponseKindRuntimeRefresh
 }
 
 type MCPOauthPendingRequestResponseToken struct {
@@ -22294,6 +22587,14 @@ type SkillProviderDescriptor struct {
 	ArgumentHint *string `json:"argumentHint,omitempty"`
 	// Description used in skill catalogs without fetching content.
 	Description string `json:"description"`
+	// Absolute path to the folder that holds the skill's supporting files (scripts, references,
+	// templates, assets), in the session's path conventions: the host OS for local disk, or the
+	// registered SessionFs conventions. When the skill is activated the runtime lists the
+	// folder's files for the model through the session's filesystem, with the same rules as a
+	// file-based skill's folder; it never reads or copies them. On local disk the folder
+	// becomes a read-only skill root, like a configured skill directory. It is not shown in
+	// skill catalogs.
+	Directory *string `json:"directory,omitempty"`
 	// Whether model invocation is disabled. Defaults to false.
 	DisableModelInvocation *bool `json:"disableModelInvocation,omitempty"`
 	// Invocation and display name.
@@ -22334,10 +22635,10 @@ type SkillProviderReadRequest struct {
 	SessionID string `json:"sessionId"`
 }
 
-// Text-only SKILL.md content returned by an SDK session's skill provider. YAML frontmatter
-// is optional: fields it omits come from the catalog descriptor, fields it declares must
-// match the descriptor, and `allowed-tools` is read only from frontmatter. Related files
-// and assets are not supported.
+// SKILL.md content returned by an SDK session's skill provider. YAML frontmatter is
+// optional: fields it omits come from the catalog descriptor, fields it declares must match
+// the descriptor, and `allowed-tools` is read only from frontmatter. Supporting files come
+// from the descriptor's `directory`.
 // Experimental: SkillProviderReadResult is part of an experimental API and may change or be
 // removed.
 // Internal: SkillProviderReadResult is an internal SDK API and is not part of the public
@@ -26763,6 +27064,29 @@ const (
 	AutoTierIntelligence AutoTier = "intelligence"
 )
 
+// How catalog discovery handles a recent sign-in failure.
+// Experimental: AzureMlCatalogRetryMode is part of an experimental API and may change or be
+// removed.
+type AzureMlCatalogRetryMode string
+
+const (
+	// Reuse a recent failure for automatic background discovery.
+	AzureMlCatalogRetryModeBackground AzureMlCatalogRetryMode = "background"
+	// Retry sign-in after an explicit refresh.
+	AzureMlCatalogRetryModeExplicit AzureMlCatalogRetryMode = "explicit"
+)
+
+// Registry that owns an Azure ML model version.
+// Experimental: AzureMlRegistry is part of an experimental API and may change or be removed.
+type AzureMlRegistry string
+
+const (
+	// Public Azure ML model registry.
+	AzureMlRegistryAzureml AzureMlRegistry = "azureml"
+	// Microsoft staff development registry.
+	AzureMlRegistryAzuremlDev AzureMlRegistry = "azureml-dev"
+)
+
 // Custom input-format kind.
 // Experimental: BuiltinToolFormatType is part of an experimental API and may change or be
 // removed.
@@ -29177,8 +29501,9 @@ const (
 type MCPOauthPendingRequestResponseKind string
 
 const (
-	MCPOauthPendingRequestResponseKindCancelled MCPOauthPendingRequestResponseKind = "cancelled"
-	MCPOauthPendingRequestResponseKindToken     MCPOauthPendingRequestResponseKind = "token"
+	MCPOauthPendingRequestResponseKindCancelled      MCPOauthPendingRequestResponseKind = "cancelled"
+	MCPOauthPendingRequestResponseKindRuntimeRefresh MCPOauthPendingRequestResponseKind = "runtimeRefresh"
+	MCPOauthPendingRequestResponseKindToken          MCPOauthPendingRequestResponseKind = "token"
 )
 
 // Why a passive MCP OAuth probe determined authentication is needed.
@@ -32582,6 +32907,186 @@ func (a *ServerAgentsAPI) GetDiscoveryPaths(ctx context.Context, params *AgentsG
 	return &result, nil
 }
 
+// Experimental: ServerAzureMlAPI contains experimental APIs that may change or be removed.
+type ServerAzureMlAPI serverAPI
+
+// AcquireFamily acquires a connection-owned model-family mutation lease across transfer,
+// activation, registration, and cleanup.
+//
+// RPC method: azureMl.acquireFamily.
+//
+// Parameters: Identifies a family in the server's Azure ML model library.
+//
+// Returns: Opaque handle to a connection-owned family mutation interval.
+func (a *ServerAzureMlAPI) AcquireFamily(ctx context.Context, params *AzureMlFamilyRequest) (*AzureMlAcquireFamilyResult, error) {
+	raw, err := a.client.Request(ctx, "azureMl.acquireFamily", params)
+	if err != nil {
+		return nil, err
+	}
+	var result AzureMlAcquireFamilyResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Cancels a connection-owned download; the download call reports terminal cleanup
+// separately.
+//
+// RPC method: azureMl.cancel.
+//
+// Parameters: Selects an active connection-owned download.
+//
+// Returns: Whether an active connection-owned transfer accepted cancellation.
+func (a *ServerAzureMlAPI) Cancel(ctx context.Context, params *AzureMlDownloadIDRequest) (*AzureMlCancelResult, error) {
+	raw, err := a.client.Request(ctx, "azureMl.cancel", params)
+	if err != nil {
+		return nil, err
+	}
+	var result AzureMlCancelResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Catalog lists eligible Azure ML local models and redacted warnings before a chat session
+// exists.
+//
+// RPC method: azureMl.catalog.
+//
+// Parameters: Lists models eligible for local use before a chat session exists.
+//
+// Returns: Eligible models and redacted validation warnings.
+func (a *ServerAzureMlAPI) Catalog(ctx context.Context, params *AzureMlCatalogRequest) (*AzureMlCatalogResult, error) {
+	raw, err := a.client.Request(ctx, "azureMl.catalog", params)
+	if err != nil {
+		return nil, err
+	}
+	var result AzureMlCatalogResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Discards an inactive model version under the server-owned Azure ML library.
+//
+// RPC method: azureMl.discard.
+//
+// Parameters: Selects an inactive Azure ML version for cleanup.
+//
+// Returns: Empty acknowledgement for a completed host lifecycle operation.
+func (a *ServerAzureMlAPI) Discard(ctx context.Context, params *AzureMlDiscardRequest) (*AzureMlDiscardResult, error) {
+	raw, err := a.client.Request(ctx, "azureMl.discard", params)
+	if err != nil {
+		return nil, err
+	}
+	var result AzureMlDiscardResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Downloads and verifies a connection-owned model version, returning only after placement
+// and manifest publication.
+//
+// RPC method: azureMl.download.
+//
+// Parameters: Downloads a model version to its configured local library.
+//
+// Returns: Completed and verified Azure ML model files.
+func (a *ServerAzureMlAPI) Download(ctx context.Context, params *AzureMlDownloadRequest) (*AzureMlDownloadResult, error) {
+	raw, err := a.client.Request(ctx, "azureMl.download", params)
+	if err != nil {
+		return nil, err
+	}
+	var result AzureMlDownloadResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Latest revalidates the newest eligible version of one Azure ML model family.
+//
+// RPC method: azureMl.latest.
+//
+// Parameters: Selects an Azure ML model family.
+//
+// Returns: Eligible Azure ML model version and its provider metadata.
+func (a *ServerAzureMlAPI) Latest(ctx context.Context, params *AzureMlLatestRequest) (*AzureMlLatestResult, error) {
+	raw, err := a.client.Request(ctx, "azureMl.latest", params)
+	if err != nil {
+		return nil, err
+	}
+	var result AzureMlLatestResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ReleaseFamily releases a connection-owned family lease after its active download and
+// cleanup operations complete.
+//
+// RPC method: azureMl.releaseFamily.
+//
+// Parameters: Releases a family mutation interval owned by this SDK connection.
+//
+// Returns: Empty acknowledgement for a completed host lifecycle operation.
+func (a *ServerAzureMlAPI) ReleaseFamily(ctx context.Context, params *AzureMlFamilyReleaseRequest) (*AzureMlReleaseFamilyResult, error) {
+	raw, err := a.client.Request(ctx, "azureMl.releaseFamily", params)
+	if err != nil {
+		return nil, err
+	}
+	var result AzureMlReleaseFamilyResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Resolves immutable artifact facts without returning signed access URLs.
+//
+// RPC method: azureMl.resolve.
+//
+// Parameters: Selects an immutable model version.
+//
+// Returns: Resolved artifact facts without signed download URLs.
+func (a *ServerAzureMlAPI) Resolve(ctx context.Context, params *AzureMlResolveRequest) (*AzureMlResolveResult, error) {
+	raw, err := a.client.Request(ctx, "azureMl.resolve", params)
+	if err != nil {
+		return nil, err
+	}
+	var result AzureMlResolveResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// Status returns progress for an active download owned by this connection, or null after
+// completion.
+//
+// RPC method: azureMl.status.
+//
+// Parameters: Selects an active connection-owned download.
+//
+// Returns: Active Azure ML download progress or null.
+func (a *ServerAzureMlAPI) Status(ctx context.Context, params *AzureMlDownloadIDRequest) (*AzureMlDownloadStatus, error) {
+	raw, err := a.client.Request(ctx, "azureMl.status", params)
+	if err != nil {
+		return nil, err
+	}
+	var result *AzureMlDownloadStatus
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // Experimental: ServerCatalogAPI contains experimental APIs that may change or be removed.
 type ServerCatalogAPI serverAPI
 
@@ -35354,6 +35859,7 @@ type ServerRPC struct {
 	Account          *ServerAccountAPI
 	AgentRegistry    *ServerAgentRegistryAPI
 	Agents           *ServerAgentsAPI
+	AzureMl          *ServerAzureMlAPI
 	Catalog          *ServerCatalogAPI
 	Commands         *ServerCommandsAPI
 	Connectors       *ServerConnectorsAPI
@@ -35424,6 +35930,7 @@ func NewServerRPC(client *jsonrpc2.Client) *ServerRPC {
 	r.Account = (*ServerAccountAPI)(&r.common)
 	r.AgentRegistry = (*ServerAgentRegistryAPI)(&r.common)
 	r.Agents = (*ServerAgentsAPI)(&r.common)
+	r.AzureMl = (*ServerAzureMlAPI)(&r.common)
 	r.Catalog = (*ServerCatalogAPI)(&r.common)
 	r.Commands = (*ServerCommandsAPI)(&r.common)
 	r.Connectors = (*ServerConnectorsAPI)(&r.common)
@@ -40961,13 +41468,15 @@ func (a *MCPOauthAPI) Complete(ctx context.Context, params *MCPOauthCompleteRequ
 	return &result, nil
 }
 
-// HandlePendingRequest resolves a pending MCP OAuth request with a host-provided token or
-// cancellation. The pending request is emitted as mcp.oauth_required with the data
-// necessary to authorize the request.
+// HandlePendingRequest resolves a pending MCP OAuth request with a host-provided token,
+// cancellation, or a noninteractive runtime refresh handoff when the request advertises
+// runtimeRefreshSupported. Acceptance resolves the host response, not credential
+// installation, reconnect, or the original tool invocation.
 //
 // RPC method: session.mcp.oauth.handlePendingRequest.
 //
-// Parameters: Pending MCP OAuth request ID and host-provided token or cancellation response.
+// Parameters: Pending MCP OAuth request ID and host token, cancellation, or advertised
+// runtime refresh response.
 //
 // Returns: Indicates whether the pending MCP OAuth response was accepted.
 func (a *MCPOauthAPI) HandlePendingRequest(ctx context.Context, params *MCPOauthHandlePendingRequest) (*MCPOauthHandlePendingResult, error) {

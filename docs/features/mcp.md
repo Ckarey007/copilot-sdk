@@ -431,6 +431,77 @@ client-supplied `Forwarded` or `X-Forwarded-*` headers. The runtime validates th
 origin, port, path, state, and OAuth response before accepting delivery. Token
 exchange, persistence, and MCP reconnect then continue asynchronously.
 
+### Handing a rejected access token back to the runtime
+
+For a host OAuth request with `reason: "refresh"` and
+`runtimeRefreshSupported: true`, your handler can return
+`{ "kind": "runtimeRefresh" }` instead of acquiring a replacement access token.
+The runtime performs noninteractive renewal using its existing saved grant
+inside the original authorization operation. It does not start a new consent
+flow or call the independent `authenticationStateChanged` refresh RPC.
+The replacement retains its saved-grant provenance, so later scoped stored-token
+adoption remains available. A token supplied directly by a host is not marked as
+a stored token and cannot be overwritten by that adoption path.
+
+Only return this response when the pending request advertises support. A missing
+capability is false and retains the legacy token/cancellation contract. If a
+handler returns the handoff for a request without the capability, the SDK sends
+`cancelled` instead, so the pending request does not remain open. A supplied
+token takes precedence over the handoff, and a cancellation stays a cancellation.
+
+| SDK | Capability | Handoff result |
+| --- | --- | --- |
+| Node.js | `request.runtimeRefreshSupported` | `{ kind: "runtimeRefresh" }` |
+| Python | `request["runtimeRefreshSupported"]` | `{"kind": "runtimeRefresh"}` |
+| Go | `MCPAuthRuntimeRefreshHandler` capability argument | `MCPAuthResultRuntimeRefresh()` |
+| .NET | `McpAuthContext.RuntimeRefreshSupported` | `McpAuthResult.RefreshInRuntime()` |
+| Java | `McpAuthHandler.handleWithRuntimeRefresh` capability argument | `McpAuthResponse.runtimeRefresh()` |
+| Rust | `McpAuthHandler::handle_with_runtime_refresh` | `McpAuthResponse::RuntimeRefresh` |
+
+Response acceptance acknowledges the handoff, not refresh, reconnect, or tool
+completion. For an accepted handoff, `mcp.oauth_completed` is emitted once, when
+the original authorization reservation reaches its terminal outcome. Its
+`outcome` uses only the existing values: `token` when recovery succeeded, and
+`cancelled` when it was cancelled or failed. The persisted
+`mcp.oauth_recovery_completed` event carries the same `requestId` and
+`serverName` and distinguishes the terminal outcome, including reconnect:
+`succeeded`, `cancelled`, or `failed`. SDK versions that predate this event
+receive it as an unknown event type.
+
+Until the runtime accepts a `runtimeRefresh` response, existing replies keep
+their earlier meaning. A host `{ kind: "cancelled" }` reply declines the
+request; for a `refresh` request, the runtime can then request reauthorization.
+If no host replies, the runtime falls back to its ordinary local OAuth handling,
+including cached credentials, and emits no `mcp.oauth_recovery_completed` event.
+This change does not reclassify a host `cancelled` reply as Stop. The original
+invocation is preserved only through an accepted `runtimeRefresh` handoff.
+
+After acceptance, the original
+invocation can retry after credential installation and reconnect pass the
+existing session, configuration, policy, and permission fences. Stopping the
+main turn or ending the session cancels the original authorization reservation;
+the stopped invocation cannot later retry or publish a result. An already-issued
+rotating-grant exchange can finish persisting its replacement after cancellation,
+but cannot install stale credentials, reconnect, or resume the canceled
+invocation.
+
+An unavailable saved grant or failed refresh terminates the original invocation
+without requesting interactive reauthorization. A failed reconnect also
+terminates the invocation; successfully obtaining a token is not a successful
+tool result.
+
+Concurrent invocations join the exact in-flight authorization attempt and receive
+its terminal result. A connected server, a retained access token, or a later
+successful attempt is not evidence that their attempt succeeded. Each surviving
+invocation still rechecks its own catalog and tool permission before retrying;
+joined failure does not start another interactive authorization.
+
+OAuth HTTP deadlines apply to individual requests, not the complete handoff or
+grant-storage settlement. Cancellation can return before an issued exchange
+settles, and session disposal waits for tracked settlement workers. There is no
+overall settlement deadline, so hosts must not treat cancellation, handoff
+acceptance, or an HTTP timeout as proof that all storage work has finished.
+
 ## Session-scoped MCP diagnostics
 
 Set `diagnostics: { sources: { mcp: { level: "debug" } } }` when you create or

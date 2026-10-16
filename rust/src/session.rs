@@ -25,8 +25,8 @@ use crate::generated::session_events::{
 };
 use crate::handler::{
     AutoModeSwitchHandler, AutoModeSwitchResponse, ElicitationHandler, ExitPlanModeHandler,
-    McpAuthHandler, McpAuthRequest, McpAuthResult, PermissionHandler, PermissionResult,
-    UserInputHandler, UserInputResponse,
+    McpAuthHandler, McpAuthRequest, McpAuthResponse, McpAuthResult, PermissionHandler,
+    PermissionResult, UserInputHandler, UserInputResponse,
 };
 use crate::hooks::SessionHooks;
 use crate::provider_token::BearerTokenProvider;
@@ -3496,6 +3496,7 @@ async fn handle_notification(
                         return;
                     }
                 };
+            let runtime_refresh_supported = data.runtime_refresh_supported.unwrap_or(false);
             let request = McpAuthRequest {
                 request_id: request_id.clone(),
                 server_name: data.server_name,
@@ -3515,7 +3516,7 @@ async fn handle_notification(
             let nested_startup_tasks = startup_tasks.cloned();
             let _ = spawn_startup_tracked(
                 async move {
-                    let cancel = McpAuthResult::Cancelled;
+                    let cancel = McpAuthResponse::Legacy(McpAuthResult::Cancelled);
                     let handler_task = spawn_startup_tracked(
                         {
                             let sid = sid.clone();
@@ -3528,7 +3529,12 @@ async fn handle_notification(
                             async move {
                                 let handler_start = Instant::now();
                                 let response = mcp_auth_handler
-                                    .handle(sid.clone(), request_id.clone(), request)
+                                    .handle_with_runtime_refresh(
+                                        sid.clone(),
+                                        request_id.clone(),
+                                        request,
+                                        runtime_refresh_supported,
+                                    )
                                     .await;
                                 tracing::debug!(
                                     elapsed_ms = handler_start.elapsed().as_millis(),
@@ -3559,7 +3565,7 @@ async fn handle_notification(
                             Some(serde_json::json!({
                                 "sessionId": sid,
                                 "requestId": request_id,
-                                "result": result.into_wire(),
+                                "result": result.into_wire_for_request(runtime_refresh_supported),
                             })),
                         )
                         .await;

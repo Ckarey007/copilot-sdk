@@ -373,6 +373,20 @@ assistant should use skills, because empty mode disables skill loading by
 default. Skill providers are local-session only and are rejected for cloud
 sessions.
 
+#### Supporting files (experimental)
+
+To give a provider skill supporting files, such as scripts, references,
+templates, and assets, set its descriptor's `directory` to the absolute path of
+the local folder that holds them:
+
+```java
+new SkillProviderDescriptor("release-notes", "Writes release notes in the team's format.",
+    null, null, null, "/srv/skills/release-notes")
+```
+
+When the skill is activated, the runtime lists the folder's files for the model.
+See [Supporting files](../docs/features/skills.md#supporting-files-experimental) for details.
+
 ### Typed MCP installation and removal payloads (breaking change)
 
 Three payloads in the experimental MCP installation and removal workflow are now sealed

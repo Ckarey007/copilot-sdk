@@ -88,6 +88,21 @@ public sealed class SkillProviderDescriptor
     [JsonPropertyName("argumentHint")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ArgumentHint { get; set; }
+
+    /// <summary>
+    /// Absolute path to the folder that holds the skill's supporting files (scripts, references,
+    /// templates, assets), in the session's path conventions: the host OS for local disk, or the
+    /// registered SessionFs conventions.
+    /// </summary>
+    /// <remarks>
+    /// When the skill is activated, the runtime lists the folder's files for the model through the
+    /// session's filesystem, with the same rules as a file-based skill's folder; it never reads or
+    /// copies them. On local disk the folder becomes a read-only skill root, like a configured skill
+    /// directory. It is not shown in skill catalogs. The SDK does not validate the path.
+    /// </remarks>
+    [JsonPropertyName("directory")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Directory { get; set; }
 }
 
 /// <summary>
@@ -1384,6 +1399,9 @@ public sealed class McpAuthContext
     /// <summary>Why the runtime is requesting host-provided OAuth credentials.</summary>
     public McpOauthRequestReason Reason { get; set; }
 
+    /// <summary>Whether this Refresh request supports noninteractive runtime handoff. Missing means false.</summary>
+    public bool RuntimeRefreshSupported { get; set; }
+
     /// <summary>Parsed WWW-Authenticate parameters from the MCP server, if available.</summary>
     public McpOauthWWWAuthenticateParams? WwwAuthenticateParams { get; set; }
 
@@ -1419,6 +1437,9 @@ public sealed class McpAuthResult
     /// <summary>Whether the request should be cancelled instead of resolved with a token.</summary>
     public bool Cancelled { get; set; }
 
+    /// <summary>Hand an advertised Refresh back to its original runtime operation. Ignored when cancelled, when a token is supplied, or when the request does not advertise <see cref="McpAuthContext.RuntimeRefreshSupported"/>; ignored results send cancellation.</summary>
+    public bool RuntimeRefresh { get; set; }
+
     /// <summary>Host-provided token data. Ignored when <see cref="Cancelled"/> is true.</summary>
     public McpAuthToken? Token { get; set; }
 
@@ -1427,6 +1448,9 @@ public sealed class McpAuthResult
 
     /// <summary>Create a cancellation result.</summary>
     public static McpAuthResult Cancel() => new() { Cancelled = true };
+
+    /// <summary>Create a noninteractive refresh handoff. Acceptance is not reconnect completion.</summary>
+    public static McpAuthResult RefreshInRuntime() => new() { RuntimeRefresh = true };
 }
 
 // ============================================================================

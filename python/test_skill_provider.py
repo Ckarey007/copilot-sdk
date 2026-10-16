@@ -139,6 +139,18 @@ def test_skill_provider_is_runtime_checkable_and_exported() -> None:
     }
 
 
+def test_skill_provider_descriptor_keeps_its_positional_arguments() -> None:
+    # `directory` was added after release, so it must not shift earlier positional arguments.
+    descriptor = SkillProviderDescriptor("Review", "review", "[target]", True, False)
+    assert descriptor.to_dict() == {
+        "argumentHint": "[target]",
+        "description": "Review",
+        "disableModelInvocation": True,
+        "name": "review",
+        "userInvocable": False,
+    }
+
+
 @pytest.mark.asyncio
 async def test_create_and_resume_send_skill_provider_flag_only_when_configured() -> None:
     client = CopilotClient(connection=RuntimeConnection.for_uri("localhost:1234"))
@@ -258,6 +270,7 @@ async def test_skill_provider_dispatch_serializes_descriptors_and_reads_markdown
                 name="beta",
                 description="Beta skill",
                 argument_hint="ARG",
+                directory="/srv/skills/beta",
                 disable_model_invocation=True,
                 user_invocable=False,
             ),
@@ -277,6 +290,7 @@ async def test_skill_provider_dispatch_serializes_descriptors_and_reads_markdown
             {
                 "argumentHint": "ARG",
                 "description": "Beta skill",
+                "directory": "/srv/skills/beta",
                 "disableModelInvocation": True,
                 "name": "beta",
                 "userInvocable": False,

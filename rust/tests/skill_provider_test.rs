@@ -559,6 +559,7 @@ async fn dispatches_list_read_empty_and_not_found() {
                 name: "deploy".to_string(),
                 description: "Deploys service".to_string(),
                 argument_hint: Some("[environment]".to_string()),
+                directory: Some("/skills/deploy".to_string()),
                 disable_model_invocation: Some(true),
                 user_invocable: Some(false),
             },
@@ -588,6 +589,10 @@ async fn dispatches_list_read_empty_and_not_found() {
     assert_eq!(
         response["result"]["skills"][1]["argumentHint"],
         "[environment]"
+    );
+    assert_eq!(
+        response["result"]["skills"][1]["directory"],
+        "/skills/deploy"
     );
     assert_eq!(
         response["result"]["skills"][1]["disableModelInvocation"],

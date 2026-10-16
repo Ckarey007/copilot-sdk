@@ -47,6 +47,8 @@ public final class ServerRpc {
     public final ServerHooksApi hooks;
     /** API methods for the {@code models} namespace. */
     public final ServerModelsApi models;
+    /** API methods for the {@code azureMl} namespace. */
+    public final ServerAzureMlApi azureMl;
     /** API methods for the {@code contentExclusion} namespace. */
     public final ServerContentExclusionApi contentExclusion;
     /** API methods for the {@code tools} namespace. */
@@ -110,6 +112,7 @@ public final class ServerRpc {
         this.host = new ServerHostApi(caller);
         this.hooks = new ServerHooksApi(caller);
         this.models = new ServerModelsApi(caller);
+        this.azureMl = new ServerAzureMlApi(caller);
         this.contentExclusion = new ServerContentExclusionApi(caller);
         this.tools = new ServerToolsApi(caller);
         this.account = new ServerAccountApi(caller);

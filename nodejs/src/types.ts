@@ -2235,6 +2235,8 @@ export interface McpAuthRequest {
     serverUrl: string;
     /** Why the runtime is requesting host-provided OAuth credentials. */
     reason: "initial" | "refresh" | "reauth" | "upscope";
+    /** Whether this Refresh request supports noninteractive runtime handoff. Missing means false. */
+    runtimeRefreshSupported?: boolean;
     /** Parsed WWW-Authenticate parameters from the MCP server. */
     wwwAuthenticateParams?: McpAuthWwwAuthenticateParams;
     /** Raw RFC 9728 protected-resource metadata JSON fetched by the runtime, if available. */
@@ -2258,9 +2260,13 @@ export interface McpAuthToken {
  *
  * Return `null`/`undefined` or `{ kind: "cancelled" }` to cancel the pending
  * OAuth request. Return `{ kind: "token", ... }` to provide host-acquired
- * OAuth token data.
+ * OAuth token data. Return `{ kind: "runtimeRefresh" }` only for a Refresh
+ * request advertising `runtimeRefreshSupported`; acceptance is not reconnect completion.
  */
-export type McpAuthResult = ({ kind: "token" } & McpAuthToken) | { kind: "cancelled" };
+export type McpAuthResult =
+    | ({ kind: "token" } & McpAuthToken)
+    | { kind: "cancelled" }
+    | { kind: "runtimeRefresh" };
 
 /** Callback invoked when an MCP server requires OAuth and the SDK host opted in. */
 export type McpAuthHandler = (

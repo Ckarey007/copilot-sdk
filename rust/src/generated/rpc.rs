@@ -43,6 +43,13 @@ impl<'a> ClientRpc<'a> {
         }
     }
 
+    /// `azureMl.*` sub-namespace.
+    pub fn azure_ml(&self) -> ClientRpcAzureMl<'a> {
+        ClientRpcAzureMl {
+            client: self.client,
+        }
+    }
+
     /// `catalog.*` sub-namespace.
     pub fn catalog(&self) -> ClientRpcCatalog<'a> {
         ClientRpcCatalog {
@@ -938,6 +945,287 @@ impl<'a> ClientRpcAgents<'a> {
                 rpc_methods::AGENTS_CUSTOMAGENTINITIALMODELDECISION,
                 Some(wire_params),
             )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+}
+
+/// `azureMl.*` RPCs.
+#[derive(Clone, Copy)]
+pub struct ClientRpcAzureMl<'a> {
+    pub(crate) client: &'a Client,
+}
+
+impl<'a> ClientRpcAzureMl<'a> {
+    /// Lists eligible Azure ML local models and redacted warnings before a chat session exists.
+    ///
+    /// Wire method: `azureMl.catalog`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Lists models eligible for local use before a chat session exists.
+    ///
+    /// # Returns
+    ///
+    /// Eligible models and redacted validation warnings.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn catalog(
+        &self,
+        params: AzureMlCatalogRequest,
+    ) -> Result<AzureMlCatalogResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::AZUREML_CATALOG, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Revalidates the newest eligible version of one Azure ML model family.
+    ///
+    /// Wire method: `azureMl.latest`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Selects an Azure ML model family.
+    ///
+    /// # Returns
+    ///
+    /// Eligible Azure ML model version and its provider metadata.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn latest(&self, params: AzureMlLatestRequest) -> Result<AzureMlModel, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::AZUREML_LATEST, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Resolves immutable artifact facts without returning signed access URLs.
+    ///
+    /// Wire method: `azureMl.resolve`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Selects an immutable model version.
+    ///
+    /// # Returns
+    ///
+    /// Resolved artifact facts without signed download URLs.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn resolve(
+        &self,
+        params: AzureMlResolveRequest,
+    ) -> Result<AzureMlResolveResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::AZUREML_RESOLVE, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Downloads and verifies a connection-owned model version, returning only after placement and manifest publication.
+    ///
+    /// Wire method: `azureMl.download`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Downloads a model version to its configured local library.
+    ///
+    /// # Returns
+    ///
+    /// Completed and verified Azure ML model files.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn download(
+        &self,
+        params: AzureMlDownloadRequest,
+    ) -> Result<AzureMlDownloadResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::AZUREML_DOWNLOAD, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Acquires a connection-owned model-family mutation lease across transfer, activation, registration, and cleanup.
+    ///
+    /// Wire method: `azureMl.acquireFamily`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Identifies a family in the server's Azure ML model library.
+    ///
+    /// # Returns
+    ///
+    /// Opaque handle to a connection-owned family mutation interval.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn acquire_family(
+        &self,
+        params: AzureMlFamilyRequest,
+    ) -> Result<AzureMlFamilyLeaseResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::AZUREML_ACQUIREFAMILY, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Releases a connection-owned family lease after its active download and cleanup operations complete.
+    ///
+    /// Wire method: `azureMl.releaseFamily`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Releases a family mutation interval owned by this SDK connection.
+    ///
+    /// # Returns
+    ///
+    /// Empty acknowledgement for a completed host lifecycle operation.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn release_family(
+        &self,
+        params: AzureMlFamilyReleaseRequest,
+    ) -> Result<HostEmptyResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::AZUREML_RELEASEFAMILY, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Returns progress for an active download owned by this connection, or null after completion.
+    ///
+    /// Wire method: `azureMl.status`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Selects an active connection-owned download.
+    ///
+    /// # Returns
+    ///
+    /// Active Azure ML download progress or null.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn status(
+        &self,
+        params: AzureMlDownloadIdRequest,
+    ) -> Result<AzureMlStatusResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::AZUREML_STATUS, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Cancels a connection-owned download; the download call reports terminal cleanup separately.
+    ///
+    /// Wire method: `azureMl.cancel`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Selects an active connection-owned download.
+    ///
+    /// # Returns
+    ///
+    /// Whether an active connection-owned transfer accepted cancellation.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn cancel(
+        &self,
+        params: AzureMlDownloadIdRequest,
+    ) -> Result<AzureMlCancelResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::AZUREML_CANCEL, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Discards an inactive model version under the server-owned Azure ML library.
+    ///
+    /// Wire method: `azureMl.discard`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Selects an inactive Azure ML version for cleanup.
+    ///
+    /// # Returns
+    ///
+    /// Empty acknowledgement for a completed host lifecycle operation.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn discard(&self, params: AzureMlDiscardRequest) -> Result<HostEmptyResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::AZUREML_DISCARD, Some(wire_params))
             .await?;
         Ok(serde_json::from_value(_value)?)
     }
@@ -12771,13 +13059,13 @@ pub struct SessionRpcMcpOauth<'a> {
 }
 
 impl<'a> SessionRpcMcpOauth<'a> {
-    /// Resolves a pending MCP OAuth request with a host-provided token or cancellation. The pending request is emitted as mcp.oauth_required with the data necessary to authorize the request.
+    /// Resolves a pending MCP OAuth request with a host-provided token, cancellation, or a noninteractive runtime refresh handoff when the request advertises runtimeRefreshSupported. Acceptance resolves the host response, not credential installation, reconnect, or the original tool invocation.
     ///
     /// Wire method: `session.mcp.oauth.handlePendingRequest`.
     ///
     /// # Parameters
     ///
-    /// * `params` - Pending MCP OAuth request ID and host-provided token or cancellation response.
+    /// * `params` - Pending MCP OAuth request ID and host token, cancellation, or advertised runtime refresh response.
     ///
     /// # Returns
     ///

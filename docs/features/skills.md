@@ -614,7 +614,76 @@ Read skill returns the skill's `SKILL.md` text. YAML frontmatter is optional:
 * `allowed-tools` is read only from frontmatter.
 * If the first line of the text is `---`, the runtime parses it as frontmatter, so don't start a body-only skill with a Markdown thematic break.
 
-Provider skills are text-only. They have no base directory, so they can't reference bundled scripts, templates, or other files. `skills.list` reports them with the source `sdk` and an empty `path`.
+By default, provider skills are text-only: they have no base directory, so they can't reference bundled scripts, templates, or other files. To give a provider skill such files, see [Supporting files](#supporting-files-experimental). `skills.list` reports provider skills with the source `sdk` and an empty `path`, with or without supporting files.
+
+### Supporting files (experimental)
+
+A provider skill can come with supporting files, such as scripts, references, templates, and assets, the same way a file-based skill's folder can. Your application keeps each skill's files in a folder it controls and sets `directory` on the listed skill to that folder's absolute path.
+
+When the model activates the skill, the runtime lists the folder the same way it lists a file-based skill's folder. The model gets the same "Base directory for this skill" line and related-files list that a file-based skill gets, in place of the text-only notice, and reads the files with its ordinary file tools. The runtime never reads, copies, or writes the files itself.
+
+```typescript
+import { approveAll, CopilotClient, type SkillProvider } from "@github/copilot-sdk";
+
+const skillProvider: SkillProvider = {
+    listSkills: () => [
+        {
+            name: "release-notes",
+            description: "Writes release notes in the team's format.",
+            directory: "/srv/skills/release-notes",
+        },
+    ],
+    readSkill: (name) =>
+        name === "release-notes"
+            ? "Run `python3 scripts/changelog.py` and fill in `templates/notes.md`."
+            : null,
+};
+
+const client = new CopilotClient();
+const session = await client.createSession({
+    onPermissionRequest: approveAll,
+    skillProvider,
+});
+```
+
+Each SDK sets the folder on its listed-skill type:
+
+| SDK | Field |
+|---|---|
+| Node.js | `directory: "/srv/skills/release-notes"` |
+| Python | `directory="/srv/skills/release-notes"` |
+| Go | `Directory: copilot.String("/srv/skills/release-notes")` |
+| .NET | `Directory = "/srv/skills/release-notes"` |
+| Java | The sixth `SkillProviderDescriptor` constructor argument |
+| Rust | `directory: Some("/srv/skills/release-notes".into())` |
+
+#### Where the folder lives
+
+Put all of a skill's files under its `directory`, one folder per skill. The folder must be reachable where the runtime runs:
+
+* **Local disk.** Without a session filesystem, `directory` is a path on the machine or container that runs the runtime. The model can read the files with any file tool, and it can run scripts.
+* **Session filesystem ([`sessionFs`](../setup/multi-tenancy.md#sessionfs)).** With a `sessionFs` handler, `directory` uses the handler's path conventions, and your handler serves the files; the runtime lists the folder through it. `view`, `create`, `edit`, and `apply_patch` reach the files. `grep`, `glob`, and shell commands don't, so scripts can't run. The Java SDK has no `sessionFs`, so Java providers use local disk.
+
+The runtime lists the folder after read skill returns, so you can create the folder lazily in read skill. If the folder is missing or empty, or can't be listed within 15 seconds of the runtime calling read skill, the model still gets the base directory line, with no related-files list, as for a file-based skill. If your `sessionFs` handler is disconnected when the runtime lists skills, those skills are text-only until the next listing.
+
+#### Access
+
+* **Local disk.** From the time skills are listed, the runtime treats each enabled provider skill's `directory` like a configured `skillDirectories` folder: reads under it skip the outside-workspace path prompt, and sandboxed processes get read-only access to it. Reads still go to your permission handler, as they do for file-based skills. Don't return a broad directory, such as your home folder or a folder that holds every tenant's files.
+* **Session filesystem.** The runtime adds no access for the folder. Have your permission handler approve reads under it, and when the sandbox is on, add the folder to the sandbox's `readonlyPaths`.
+
+Your application owns the folder: where it lives, how long it exists, cleaning it up, and keeping the model from changing it. The read-only access covers only sandboxed processes. Outside the sandbox, or when the folder is inside the workspace, the model can write to it unless your permission handler, or your `sessionFs` handler, refuses.
+
+#### Writing the skill
+
+* Refer to supporting files by their path relative to the skill's folder, such as `references/guide.md`. The model is told the folder's absolute path.
+* Run scripts through an interpreter, such as `python3 scripts/changelog.py` or `bash scripts/build.sh`, as [Using scripts in skills](https://agentskills.io/skill-creation/using-scripts) describes. Scripts run only when the folder is on local disk.
+
+#### Rules and limits
+
+* `directory` must be absolute in the session's path conventions; on a Windows-style session filesystem it needs a drive or UNC prefix. It's resolved the way file tools resolve paths, so `.` and `..` segments and repeated or trailing separators are removed, and it can't resolve to a filesystem root. It counts toward the catalog's 1 MiB metadata limit, and it isn't shown in skill catalogs. An invalid `directory` rejects the whole catalog, like any other invalid listed skill.
+* The related-files list follows the file-based rules: build and dependency folders, such as `node_modules`, `bin`, `obj`, and `dist`, are hidden; a folder with more than 50 entries is summarized; files nested more than 10 folders deep are not listed; `SKILL.md` is never listed; and at most 100 files are shown.
+* After the conversation is compacted, the model keeps the skill's instructions but not its folder path. Invoking the skill again shows it. File-based skills keep their path.
+* Supporting files need a Copilot CLI at least as new as the SDK release that adds them. An older CLI rejects the whole skill catalog when any listed skill has a `directory`. Providers that don't set `directory` work with older CLIs.
 
 ### Serving existing SKILL.md files
 

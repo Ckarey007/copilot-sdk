@@ -5468,6 +5468,12 @@ func unmarshalMCPOauthPendingRequestResponse(data []byte) (MCPOauthPendingReques
 			return nil, err
 		}
 		return &d, nil
+	case MCPOauthPendingRequestResponseKindRuntimeRefresh:
+		var d MCPOauthPendingRequestResponseRuntimeRefresh
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
 	case MCPOauthPendingRequestResponseKindToken:
 		var d MCPOauthPendingRequestResponseToken
 		if err := json.Unmarshal(data, &d); err != nil {
@@ -5492,6 +5498,17 @@ func (r RawMCPOauthPendingRequestResponseData) MarshalJSON() ([]byte, error) {
 
 func (r MCPOauthPendingRequestResponseCancelled) MarshalJSON() ([]byte, error) {
 	type alias MCPOauthPendingRequestResponseCancelled
+	return json.Marshal(struct {
+		Kind MCPOauthPendingRequestResponseKind `json:"kind"`
+		alias
+	}{
+		Kind:  r.Kind(),
+		alias: alias(r),
+	})
+}
+
+func (r MCPOauthPendingRequestResponseRuntimeRefresh) MarshalJSON() ([]byte, error) {
+	type alias MCPOauthPendingRequestResponseRuntimeRefresh
 	return json.Marshal(struct {
 		Kind MCPOauthPendingRequestResponseKind `json:"kind"`
 		alias

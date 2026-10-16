@@ -118,6 +118,7 @@ fn callback_state_is_retained_until_connection_close_succeeds() {
     }));
     let shared = FfiShared {
         host_shutdown: test_host_shutdown,
+        owns_host: true,
         connection_write: test_connection_write,
         connection_close: test_connection_close,
         server_id: AtomicU32::new(11),

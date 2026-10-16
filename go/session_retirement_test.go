@@ -17,7 +17,10 @@ func TestSession_RetirementClearsCallbackRoots(t *testing.T) {
 	entry := session.handlers[0]
 	session.registerTools([]Tool{{Name: "tool", Handler: func(ToolInvocation) (ToolResult, error) { return ToolResult{}, nil }}})
 	session.registerPermissionHandler(PermissionHandler.ApproveAll)
-	session.registerMCPAuthHandler(func(MCPAuthRequest, MCPAuthInvocation) (*MCPAuthResult, error) { return nil, nil })
+	session.registerMCPAuthHandlers(
+		func(MCPAuthRequest, MCPAuthInvocation) (*MCPAuthResult, error) { return nil, nil },
+		func(MCPAuthRequest, MCPAuthInvocation, bool) (*MCPAuthResult, error) { return nil, nil },
+	)
 	session.registerUserInputHandler(func(UserInputRequest, UserInputInvocation) (UserInputResponse, error) {
 		return UserInputResponse{}, nil
 	})
@@ -51,6 +54,7 @@ func TestSession_RetirementClearsCallbackRoots(t *testing.T) {
 		"tools":                session.toolHandlers != nil,
 		"permissions":          session.permissionHandler != nil,
 		"MCP auth":             session.mcpAuthHandler != nil,
+		"MCP runtime refresh":  session.mcpAuthRefreshHandler != nil,
 		"user input":           session.userInputHandler != nil,
 		"exit plan mode":       session.exitPlanModeHandler != nil,
 		"auto mode switch":     session.autoModeSwitchHandler != nil,

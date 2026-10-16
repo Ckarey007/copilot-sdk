@@ -385,6 +385,8 @@ pub enum SessionEventType {
     McpOauthRequired,
     #[serde(rename = "mcp.oauth_completed")]
     McpOauthCompleted,
+    #[serde(rename = "mcp.oauth_recovery_completed")]
+    McpOauthRecoveryCompleted,
     #[serde(rename = "mcp.headers_refresh_required")]
     McpHeadersRefreshRequired,
     #[serde(rename = "mcp.headers_refresh_completed")]
@@ -503,6 +505,8 @@ pub enum SessionEventType {
     SessionMcpServersLoaded,
     #[serde(rename = "session.mcp_server_status_changed")]
     SessionMcpServerStatusChanged,
+    #[serde(rename = "session.mcp_server_tools_loaded")]
+    SessionMcpServerToolsLoaded,
     #[serde(rename = "session.mcp_server_removed")]
     SessionMcpServerRemoved,
     #[serde(rename = "session.mcp_server_needs_reconnect")]
@@ -931,6 +935,8 @@ pub enum SessionEventData {
     McpOauthRequired(McpOauthRequiredData),
     #[serde(rename = "mcp.oauth_completed")]
     McpOauthCompleted(McpOauthCompletedData),
+    #[serde(rename = "mcp.oauth_recovery_completed")]
+    McpOauthRecoveryCompleted(McpOauthRecoveryCompletedData),
     #[serde(rename = "mcp.headers_refresh_required")]
     McpHeadersRefreshRequired(McpHeadersRefreshRequiredData),
     #[serde(rename = "mcp.headers_refresh_completed")]
@@ -1049,6 +1055,8 @@ pub enum SessionEventData {
     SessionMcpServersLoaded(SessionMcpServersLoadedData),
     #[serde(rename = "session.mcp_server_status_changed")]
     SessionMcpServerStatusChanged(SessionMcpServerStatusChangedData),
+    #[serde(rename = "session.mcp_server_tools_loaded")]
+    SessionMcpServerToolsLoaded(SessionMcpServerToolsLoadedData),
     #[serde(rename = "session.mcp_server_removed")]
     SessionMcpServerRemoved(SessionMcpServerRemovedData),
     #[serde(rename = "session.mcp_server_needs_reconnect")]
@@ -7967,6 +7975,9 @@ pub struct McpOauthRequiredData {
     /// Raw OAuth protected-resource metadata document fetched for the MCP server, if available
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resource_metadata: Option<String>,
+    /// Whether this Refresh request accepts kind runtimeRefresh to continue noninteractive grant renewal within its original authorization reservation. Missing or false means unsupported; the host must retain its legacy response behavior.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_refresh_supported: Option<bool>,
     /// Display name of the MCP server that requires OAuth
     pub server_name: String,
     /// URL of the MCP server that requires OAuth
@@ -7983,10 +7994,22 @@ pub struct McpOauthRequiredData {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpOauthCompletedData {
-    /// How the pending OAuth request was completed
+    /// How the pending OAuth request was completed. An accepted runtimeRefresh handoff completes once at its authorization terminal: token when recovery succeeded, cancelled when it was cancelled or failed; see mcp.oauth_recovery_completed for the exact outcome.
     pub outcome: McpOauthCompletionOutcome,
     /// Request ID of the resolved OAuth request
     pub request_id: RequestId,
+}
+
+/// Session event "mcp.oauth_recovery_completed". Terminal outcome of a runtime-owned MCP OAuth recovery accepted through a runtimeRefresh handoff
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpOauthRecoveryCompletedData {
+    /// Terminal outcome of the original authorization reservation, including reconnect
+    pub outcome: McpOauthRecoveryCompletedOutcome,
+    /// Request ID of the MCP OAuth request whose runtimeRefresh handoff was accepted
+    pub request_id: RequestId,
+    /// Name of the MCP server whose authorization recovery completed
+    pub server_name: String,
 }
 
 /// Session event "mcp.headers_refresh_required". Dynamic headers refresh request for a remote MCP server
@@ -8712,6 +8735,16 @@ pub struct SessionMcpServerStatusChangedData {
     pub server_name: String,
     /// Connection status: connected, failed, needs-auth, pending, disabled, stopped, or not_configured
     pub status: McpServerStatus,
+}
+
+/// Session event "session.mcp_server_tools_loaded". Payload of `session.mcp_server_tools_loaded`, emitted once per connection when an MCP server's tools first become available from tools/list or a cached snapshot. A connected server is still loading tools if this event has not fired since the server last left connected; it can precede connected when the tools come from a cached snapshot.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMcpServerToolsLoadedData {
+    /// Name of the MCP server whose tools loaded
+    pub server_name: String,
+    /// Number of tools the server listed
+    pub tool_count: i64,
 }
 
 /// Session event "session.mcp_server_removed". Payload of `session.mcp_server_removed` identifying an MCP server the graph no longer runs.
@@ -12341,6 +12374,24 @@ pub enum McpOauthCompletionOutcome {
     /// The request completed without an OAuth provider.
     #[serde(rename = "cancelled")]
     Cancelled,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Terminal outcome of the original authorization reservation, including reconnect
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum McpOauthRecoveryCompletedOutcome {
+    /// Credentials were renewed and the server reconnected.
+    #[serde(rename = "succeeded")]
+    Succeeded,
+    /// The recovery was cancelled before it completed.
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    /// Credential renewal or reconnect failed, or the server was dropped.
+    #[serde(rename = "failed")]
+    Failed,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]

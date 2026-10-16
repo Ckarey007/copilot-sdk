@@ -520,10 +520,13 @@ class RpcHandlerDispatcherTest {
     @Test
     void skillProviderListAndReadSuccess() throws Exception {
         CopilotSession session = createSession("s1");
-        session.registerSkillProvider(skillProvider(
-                () -> CompletableFuture.completedFuture(
-                        List.of(new SkillProviderDescriptor("docs", "Documentation", null, null, "topic"))),
-                name -> CompletableFuture.completedFuture("# " + name)));
+        session.registerSkillProvider(
+                skillProvider(
+                        () -> CompletableFuture.completedFuture(
+                                List.of(new SkillProviderDescriptor("docs", "Documentation", null, null, "topic"),
+                                        new SkillProviderDescriptor("scripted", "Has supporting files", null, null,
+                                                null, "/skills/scripted"))),
+                        name -> CompletableFuture.completedFuture("# " + name)));
 
         ObjectNode listParams = MAPPER.createObjectNode();
         listParams.put("sessionId", "s1");
@@ -536,6 +539,8 @@ class RpcHandlerDispatcherTest {
         assertEquals("topic", descriptor.path("argumentHint").asText());
         assertFalse(descriptor.has("userInvocable"));
         assertFalse(descriptor.has("disableModelInvocation"));
+        assertFalse(descriptor.has("directory"));
+        assertEquals("/skills/scripted", listResponse.at("/result/skills/1/directory").asText());
 
         ObjectNode readParams = MAPPER.createObjectNode();
         readParams.put("sessionId", "s1");

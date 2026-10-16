@@ -208,6 +208,23 @@ cancelled when the runtime abandons the request: the call times out, the
 session disconnects or is deleted, or a resume replaces the provider. It is not
 cancelled when the connection closes or the client is force-stopped.
 
+### Supporting files (experimental)
+
+To give a provider skill supporting files, such as scripts, references,
+templates, and assets, set its descriptor's `Directory` to the absolute path of
+the folder that holds them:
+
+```go
+rpc.SkillProviderDescriptor{
+    Name:        "release-notes",
+    Description: "Writes release notes in the team's format.",
+    Directory:   copilot.String("/srv/skills/release-notes"),
+}
+```
+
+When the skill is activated, the runtime lists the folder's files for the model.
+See [Supporting files](../docs/features/skills.md#supporting-files-experimental) for details.
+
 ## Installation confirmation (experimental)
 
 Set `ClientOptions.InstallationConfirmationHandler` to receive the runtime's

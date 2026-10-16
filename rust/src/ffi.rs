@@ -66,6 +66,7 @@ extern "C" fn on_outbound(user_data: *mut c_void, bytes: *const u8, len: usize) 
 /// only the bound fn pointers and connection state.
 pub(crate) struct FfiShared {
     host_shutdown: HostShutdownFn,
+    owns_host: bool,
     connection_write: ConnectionWriteFn,
     connection_close: ConnectionCloseFn,
     server_id: AtomicU32,
@@ -83,7 +84,20 @@ unsafe impl Send for FfiShared {}
 unsafe impl Sync for FfiShared {}
 
 impl FfiShared {
-    /// Close the connection, shut the host down, and free the callback state.
+    pub(crate) fn library_path(&self) -> &Path {
+        &self.library_path
+    }
+
+    pub(crate) fn owns_host(&self) -> bool {
+        self.owns_host
+    }
+
+    pub(crate) fn connection_id(&self) -> Option<u32> {
+        let id = self.connection_id.load(Ordering::SeqCst);
+        (id != 0 && !self.closed.load(Ordering::SeqCst)).then_some(id)
+    }
+
+    /// Close the connection, shut down an owned host, and free the callback state.
     /// Idempotent; called from [`Client::stop`], drop, and on startup failure.
     pub(crate) fn close(&self) {
         let _operation = self.operation_lock.lock();
@@ -105,6 +119,7 @@ impl FfiShared {
                         .swap(std::ptr::null_mut(), Ordering::SeqCst) as usize;
                 let connection_close = self.connection_close;
                 let host_shutdown = self.host_shutdown;
+                let owns_host = self.owns_host;
                 let library_path = self.library_path.clone();
                 if let Err(error) = std::thread::Builder::new()
                     .name("copilot-ffi-cleanup".to_owned())
@@ -113,7 +128,7 @@ impl FfiShared {
                             std::thread::sleep(std::time::Duration::from_millis(100));
                         }
                         release_callback_state(state);
-                        if server != 0 && !unsafe { host_shutdown(server) } {
+                        if owns_host && server != 0 && !unsafe { host_shutdown(server) } {
                             warn!(
                                 library = %library_path.display(),
                                 server_id = server,
@@ -138,7 +153,7 @@ impl FfiShared {
             .callback_state
             .swap(std::ptr::null_mut(), Ordering::SeqCst) as usize;
         release_callback_state(state);
-        if server != 0 && !unsafe { (self.host_shutdown)(server) } {
+        if self.owns_host && server != 0 && !unsafe { (self.host_shutdown)(server) } {
             warn!(
                 library = %self.library_path.display(),
                 server_id = server,
@@ -248,6 +263,7 @@ pub(crate) struct FfiHost {
     integration_id: Option<String>,
     environment: Vec<(String, String)>,
     args: Vec<String>,
+    attached_server_id: Option<u32>,
     host_start: HostStartFn,
     host_shutdown: HostShutdownFn,
     connection_open: ConnectionOpenFn,
@@ -267,6 +283,8 @@ impl FfiHost {
         integration_id: Option<&str>,
         environment: Vec<(String, String)>,
         args: Vec<String>,
+        attached_server_id: Option<u32>,
+        attached_library_path: Option<&Path>,
     ) -> Result<Self, Error> {
         let runtime_entrypoint = std::fs::canonicalize(runtime_entrypoint).map_err(|e| {
             Error::with_message(
@@ -287,13 +305,28 @@ impl FfiHost {
                 )
             })?
             .map(path_for_child_process);
-        let library_path = std::fs::canonicalize(resolve_library_path(&runtime_entrypoint)?)
-            .map_err(|e| {
-                Error::with_message(
+        let selected_library = match (attached_server_id, attached_library_path) {
+            (Some(_), Some(path)) => path.to_path_buf(),
+            (Some(_), None) => {
+                return Err(Error::with_message(
                     ErrorKind::InvalidConfig,
-                    format!("failed to resolve in-process runtime library: {e}"),
-                )
-            })?;
+                    "an attached server requires the runtime image already loaded by its host",
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(Error::with_message(
+                    ErrorKind::InvalidConfig,
+                    "an explicit runtime image requires an attached server",
+                ));
+            }
+            (None, None) => resolve_library_path(&runtime_entrypoint)?,
+        };
+        let library_path = std::fs::canonicalize(selected_library).map_err(|e| {
+            Error::with_message(
+                ErrorKind::InvalidConfig,
+                format!("failed to resolve in-process runtime library: {e}"),
+            )
+        })?;
         let lib = load_library(&library_path)?;
 
         let host_start = *bind::<HostStartFn>(lib, b"copilot_runtime_host_start\0", &library_path)?;
@@ -312,6 +345,7 @@ impl FfiHost {
             integration_id: integration_id.map(str::to_owned),
             environment,
             args,
+            attached_server_id,
             host_start,
             host_shutdown,
             connection_open,
@@ -345,7 +379,11 @@ impl FfiHost {
             None => (std::ptr::null(), 0),
         };
 
-        let server_id = unsafe { (self.host_start)(argv.as_ptr(), argv.len(), env_ptr, env_len) };
+        let owns_host = self.attached_server_id.is_none();
+        let server_id = match self.attached_server_id {
+            Some(server_id) => server_id,
+            None => unsafe { (self.host_start)(argv.as_ptr(), argv.len(), env_ptr, env_len) },
+        };
 
         if server_id == 0 {
             return Err(Error::with_message(
@@ -377,7 +415,9 @@ impl FfiHost {
         };
         if connection_id == 0 {
             drop(unsafe { Box::from_raw(state_ptr) });
-            unsafe { (self.host_shutdown)(server_id) };
+            if owns_host {
+                unsafe { (self.host_shutdown)(server_id) };
+            }
             return Err(Error::with_message(
                 ErrorKind::InvalidConfig,
                 "copilot_runtime_connection_open failed",
@@ -386,6 +426,7 @@ impl FfiHost {
 
         let shared = Arc::new(FfiShared {
             host_shutdown: self.host_shutdown,
+            owns_host,
             connection_write: self.connection_write,
             connection_close: self.connection_close,
             server_id: AtomicU32::new(server_id),

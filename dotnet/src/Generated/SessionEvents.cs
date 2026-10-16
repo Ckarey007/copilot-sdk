@@ -66,6 +66,7 @@ namespace GitHub.Copilot;
 [JsonDerivedType(typeof(McpHeadersRefreshCompletedEvent), "mcp.headers_refresh_completed")]
 [JsonDerivedType(typeof(McpHeadersRefreshRequiredEvent), "mcp.headers_refresh_required")]
 [JsonDerivedType(typeof(McpOauthCompletedEvent), "mcp.oauth_completed")]
+[JsonDerivedType(typeof(McpOauthRecoveryCompletedEvent), "mcp.oauth_recovery_completed")]
 [JsonDerivedType(typeof(McpOauthRequiredEvent), "mcp.oauth_required")]
 [JsonDerivedType(typeof(McpPromptsListChangedEvent), "mcp.prompts.list_changed")]
 [JsonDerivedType(typeof(McpResourcesListChangedEvent), "mcp.resources.list_changed")]
@@ -125,6 +126,7 @@ namespace GitHub.Copilot;
 [JsonDerivedType(typeof(SessionMcpServerNeedsReconnectEvent), "session.mcp_server_needs_reconnect")]
 [JsonDerivedType(typeof(SessionMcpServerRemovedEvent), "session.mcp_server_removed")]
 [JsonDerivedType(typeof(SessionMcpServerStatusChangedEvent), "session.mcp_server_status_changed")]
+[JsonDerivedType(typeof(SessionMcpServerToolsLoadedEvent), "session.mcp_server_tools_loaded")]
 [JsonDerivedType(typeof(SessionMcpServersLoadedEvent), "session.mcp_servers_loaded")]
 [JsonDerivedType(typeof(SessionModeChangedEvent), "session.mode_changed")]
 [JsonDerivedType(typeof(SessionModeNoticeDeliveredEvent), "session.mode_notice_delivered")]
@@ -527,6 +529,8 @@ internal sealed partial class SessionEventJsonConverter : JsonConverter<SessionE
             case 28:
                 if (type.SequenceEqual("mcp.headers_refresh_required"u8))
                     return SessionEventsJsonContext.Default.McpHeadersRefreshRequiredEvent;
+                if (type.SequenceEqual("mcp.oauth_recovery_completed"u8))
+                    return SessionEventsJsonContext.Default.McpOauthRecoveryCompletedEvent;
                 if (type.SequenceEqual("session.fusion_route_started"u8))
                     return SessionEventsJsonContext.Default.SessionFusionRouteStartedEvent;
                 break;
@@ -563,6 +567,8 @@ internal sealed partial class SessionEventJsonConverter : JsonConverter<SessionE
                     return SessionEventsJsonContext.Default.SessionCanvasRegistryChangedEvent;
                 if (type.SequenceEqual("session.managed_plugin_progress"u8))
                     return SessionEventsJsonContext.Default.SessionManagedPluginProgressEvent;
+                if (type.SequenceEqual("session.mcp_server_tools_loaded"u8))
+                    return SessionEventsJsonContext.Default.SessionMcpServerToolsLoadedEvent;
                 break;
             case 32:
                 if (type.SequenceEqual("assistant.fusion_phase_completed"u8))
@@ -2183,6 +2189,19 @@ public sealed partial class McpOauthCompletedEvent : SessionEvent
     public required McpOauthCompletedData Data { get; set; }
 }
 
+/// <summary>Terminal outcome of a runtime-owned MCP OAuth recovery accepted through a runtimeRefresh handoff.</summary>
+/// <remarks>Represents the <c>mcp.oauth_recovery_completed</c> event.</remarks>
+public sealed partial class McpOauthRecoveryCompletedEvent : SessionEvent
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Type => "mcp.oauth_recovery_completed";
+
+    /// <summary>The <c>mcp.oauth_recovery_completed</c> event payload.</summary>
+    [JsonPropertyName("data")]
+    public required McpOauthRecoveryCompletedData Data { get; set; }
+}
+
 /// <summary>Dynamic headers refresh request for a remote MCP server.</summary>
 /// <remarks>Represents the <c>mcp.headers_refresh_required</c> event.</remarks>
 public sealed partial class McpHeadersRefreshRequiredEvent : SessionEvent
@@ -2592,6 +2611,19 @@ public sealed partial class SessionMcpServerStatusChangedEvent : SessionEvent
     /// <summary>The <c>session.mcp_server_status_changed</c> event payload.</summary>
     [JsonPropertyName("data")]
     public required SessionMcpServerStatusChangedData Data { get; set; }
+}
+
+/// <summary>Payload of `session.mcp_server_tools_loaded`, emitted once per connection when an MCP server's tools first become available from tools/list or a cached snapshot. A connected server is still loading tools if this event has not fired since the server last left connected; it can precede connected when the tools come from a cached snapshot.</summary>
+/// <remarks>Represents the <c>session.mcp_server_tools_loaded</c> event.</remarks>
+public sealed partial class SessionMcpServerToolsLoadedEvent : SessionEvent
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Type => "session.mcp_server_tools_loaded";
+
+    /// <summary>The <c>session.mcp_server_tools_loaded</c> event payload.</summary>
+    [JsonPropertyName("data")]
+    public required SessionMcpServerToolsLoadedData Data { get; set; }
 }
 
 /// <summary>Payload of `session.mcp_server_removed` identifying an MCP server the graph no longer runs.</summary>
@@ -7149,6 +7181,11 @@ public sealed partial class McpOauthRequiredData
     [JsonPropertyName("resourceMetadata")]
     public string? ResourceMetadata { get; set; }
 
+    /// <summary>Whether this Refresh request accepts kind runtimeRefresh to continue noninteractive grant renewal within its original authorization reservation. Missing or false means unsupported; the host must retain its legacy response behavior.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("runtimeRefreshSupported")]
+    public bool? RuntimeRefreshSupported { get; set; }
+
     /// <summary>Display name of the MCP server that requires OAuth.</summary>
     [JsonPropertyName("serverName")]
     public required string ServerName { get; set; }
@@ -7171,13 +7208,29 @@ public sealed partial class McpOauthRequiredData
 /// <summary>MCP OAuth request completion notification.</summary>
 public sealed partial class McpOauthCompletedData
 {
-    /// <summary>How the pending OAuth request was completed.</summary>
+    /// <summary>How the pending OAuth request was completed. An accepted runtimeRefresh handoff completes once at its authorization terminal: token when recovery succeeded, cancelled when it was cancelled or failed; see mcp.oauth_recovery_completed for the exact outcome.</summary>
     [JsonPropertyName("outcome")]
     public required McpOauthCompletionOutcome Outcome { get; set; }
 
     /// <summary>Request ID of the resolved OAuth request.</summary>
     [JsonPropertyName("requestId")]
     public required string RequestId { get; set; }
+}
+
+/// <summary>Terminal outcome of a runtime-owned MCP OAuth recovery accepted through a runtimeRefresh handoff.</summary>
+public sealed partial class McpOauthRecoveryCompletedData
+{
+    /// <summary>Terminal outcome of the original authorization reservation, including reconnect.</summary>
+    [JsonPropertyName("outcome")]
+    public required McpOauthRecoveryCompletedOutcome Outcome { get; set; }
+
+    /// <summary>Request ID of the MCP OAuth request whose runtimeRefresh handoff was accepted.</summary>
+    [JsonPropertyName("requestId")]
+    public required string RequestId { get; set; }
+
+    /// <summary>Name of the MCP server whose authorization recovery completed.</summary>
+    [JsonPropertyName("serverName")]
+    public required string ServerName { get; set; }
 }
 
 /// <summary>Dynamic headers refresh request for a remote MCP server.</summary>
@@ -7828,6 +7881,18 @@ public sealed partial class SessionMcpServerStatusChangedData
     /// <summary>Connection status: connected, failed, needs-auth, pending, disabled, stopped, or not_configured.</summary>
     [JsonPropertyName("status")]
     public required McpServerStatus Status { get; set; }
+}
+
+/// <summary>Payload of `session.mcp_server_tools_loaded`, emitted once per connection when an MCP server's tools first become available from tools/list or a cached snapshot. A connected server is still loading tools if this event has not fired since the server last left connected; it can precede connected when the tools come from a cached snapshot.</summary>
+public sealed partial class SessionMcpServerToolsLoadedData
+{
+    /// <summary>Name of the MCP server whose tools loaded.</summary>
+    [JsonPropertyName("serverName")]
+    public required string ServerName { get; set; }
+
+    /// <summary>Number of tools the server listed.</summary>
+    [JsonPropertyName("toolCount")]
+    public required long ToolCount { get; set; }
 }
 
 /// <summary>Payload of `session.mcp_server_removed` identifying an MCP server the graph no longer runs.</summary>
@@ -22540,6 +22605,70 @@ public readonly struct McpOauthCompletionOutcome : IEquatable<McpOauthCompletion
     }
 }
 
+/// <summary>Terminal outcome of the original authorization reservation, including reconnect.</summary>
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct McpOauthRecoveryCompletedOutcome : IEquatable<McpOauthRecoveryCompletedOutcome>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="McpOauthRecoveryCompletedOutcome"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="McpOauthRecoveryCompletedOutcome"/>.</param>
+    [JsonConstructor]
+    public McpOauthRecoveryCompletedOutcome(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="McpOauthRecoveryCompletedOutcome"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>Credentials were renewed and the server reconnected.</summary>
+    public static McpOauthRecoveryCompletedOutcome Succeeded { get; } = new("succeeded");
+
+    /// <summary>The recovery was cancelled before it completed.</summary>
+    public static McpOauthRecoveryCompletedOutcome Cancelled { get; } = new("cancelled");
+
+    /// <summary>Credential renewal or reconnect failed, or the server was dropped.</summary>
+    public static McpOauthRecoveryCompletedOutcome Failed { get; } = new("failed");
+
+    /// <summary>Returns a value indicating whether two <see cref="McpOauthRecoveryCompletedOutcome"/> instances are equivalent.</summary>
+    public static bool operator ==(McpOauthRecoveryCompletedOutcome left, McpOauthRecoveryCompletedOutcome right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="McpOauthRecoveryCompletedOutcome"/> instances are not equivalent.</summary>
+    public static bool operator !=(McpOauthRecoveryCompletedOutcome left, McpOauthRecoveryCompletedOutcome right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is McpOauthRecoveryCompletedOutcome other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(McpOauthRecoveryCompletedOutcome other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{McpOauthRecoveryCompletedOutcome}"/> for serializing <see cref="McpOauthRecoveryCompletedOutcome"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<McpOauthRecoveryCompletedOutcome>
+    {
+        /// <inheritdoc />
+        public override McpOauthRecoveryCompletedOutcome Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, McpOauthRecoveryCompletedOutcome value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(McpOauthRecoveryCompletedOutcome));
+        }
+    }
+}
+
 /// <summary>Why dynamic headers are being requested.</summary>
 [JsonConverter(typeof(Converter))]
 [DebuggerDisplay("{Value,nq}")]
@@ -23921,6 +24050,8 @@ public readonly struct ExtensionsLoadedExtensionStatus : IEquatable<ExtensionsLo
 [JsonSerializable(typeof(McpOauthCompletedData))]
 [JsonSerializable(typeof(McpOauthCompletedEvent))]
 [JsonSerializable(typeof(McpOauthHttpResponse))]
+[JsonSerializable(typeof(McpOauthRecoveryCompletedData))]
+[JsonSerializable(typeof(McpOauthRecoveryCompletedEvent))]
 [JsonSerializable(typeof(McpOauthRequiredData))]
 [JsonSerializable(typeof(McpOauthRequiredEvent))]
 [JsonSerializable(typeof(McpOauthRequiredStaticClientConfig))]
@@ -24118,6 +24249,8 @@ public readonly struct ExtensionsLoadedExtensionStatus : IEquatable<ExtensionsLo
 [JsonSerializable(typeof(SessionMcpServerRemovedEvent))]
 [JsonSerializable(typeof(SessionMcpServerStatusChangedData))]
 [JsonSerializable(typeof(SessionMcpServerStatusChangedEvent))]
+[JsonSerializable(typeof(SessionMcpServerToolsLoadedData))]
+[JsonSerializable(typeof(SessionMcpServerToolsLoadedEvent))]
 [JsonSerializable(typeof(SessionMcpServersLoadedData))]
 [JsonSerializable(typeof(SessionMcpServersLoadedEvent))]
 [JsonSerializable(typeof(SessionModeChangedData))]

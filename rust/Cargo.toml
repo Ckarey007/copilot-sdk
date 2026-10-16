@@ -32,10 +32,11 @@ name = "github_copilot_sdk"
 [features]
 default = ["bundled-cli"]
 runtime = []
-bundled-cli = ["runtime", "dep:tar", "dep:flate2", "dep:zip"]
+bundled-cli = ["runtime", "network-forwarding", "dep:tar", "dep:flate2", "dep:zip"]
 in-process = ["runtime", "dep:libloading"]
 local-runtime = ["in-process"]
 bundled-in-process = ["bundled-cli", "in-process"]
+network-forwarding = ["dep:native-tls", "dep:reqwest", "dep:tokio-tungstenite"]
 derive = ["dep:schemars"]
 test-support = []
 
@@ -74,15 +75,15 @@ base64 = "0.23"
 bytes = "1"
 http = "1"
 futures-util = "0.3"
-native-tls = "0.2"
-reqwest = { version = "0.13", default-features = false, features = ["stream", "http2", "native-tls"] }
-tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "native-tls"] }
+native-tls = { version = "0.2", optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["stream", "http2", "native-tls"], optional = true }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "native-tls"], optional = true }
 
 # Linux has no universal OS TLS provider. Bundle the same OpenSSL implementation
 # for Cargo consumers, including musl, instead of requiring system development
 # files or a deployed shared libssl. Bazel uses its existing static OpenSSL.
 [target.'cfg(target_os = "linux")'.dependencies]
-native-tls = { version = "0.2", features = ["vendored"] }
+native-tls = { version = "0.2", features = ["vendored"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 # Archive acquisition only needs flate2; don't compile the Zopfli compressor
@@ -117,7 +118,7 @@ serial_test = "4"
 sha2 = "0.10"
 tar = "0.4"
 tempfile = "3"
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { version = "1", features = ["fs", "rt-multi-thread"] }
 ureq = { version = "3", default-features = false, features = ["native-tls"] }
 zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 

@@ -392,6 +392,27 @@ executable is a version-matched standalone Copilot binary, omit that variable
 and set `COPILOT_AUTO_UPDATE=false` so its embedded distribution remains
 selected.
 
+### Azure ML model acquisition (experimental)
+
+`client.rpc().azure_ml()` works before a chat session exists. `catalog`,
+`latest`, and `resolve` return eligible model facts without signed download
+URLs. A development-registry request also needs server-verified Microsoft staff
+access. `download` completes only after the runtime verifies the files and
+publishes the manifest. Use `status` for progress and `cancel` to request
+cleanup; the pending `download` call reports the final result.
+
+A client that also changes model activation or registration must hold one
+connection-owned `acquire_family` lease across that full operation. Pass its
+`lease_id` to `download` and `discard`, then call `release_family` after the
+client's last change. The runtime holds the existing family and compatibility
+locks until the operation completes. A standalone `download` or `discard`
+without a lease holds those locks for its own call. Disconnect cancels active
+transfers and retains their locks through cleanup.
+
+The [Rust SDK example](examples/azure_ml_acquisition.rs) shows a lease and
+status query without a network request or a model download. Build the matching
+CLI first, then set `COPILOT_CLI_PATH` to that CLI when you run the example.
+
 ### Session
 
 Created via `Client::create_session` or `Client::resume_session`. Owns an internal event loop that dispatches CLI callbacks to the focused handler traits you install on `SessionConfig`, and broadcasts session events through `subscribe()`.
@@ -512,6 +533,27 @@ task, so provider implementations must be safe for concurrent calls. When the
 runtime cancels a call, for example after its 30-second limit or when the
 session disconnects, the SDK drops the provider future; await cancel-safe work
 so that dropping it stops the lookup.
+
+##### Supporting files (experimental)
+
+To give a provider skill supporting files, such as scripts, references,
+templates, and assets, set its descriptor's `directory` to the absolute path of
+the folder that holds them:
+
+```rust
+# use github_copilot_sdk::skill_provider::SkillProviderDescriptor;
+# let _ =
+SkillProviderDescriptor {
+    name: "release-notes".to_string(),
+    description: "Writes release notes in the team's format.".to_string(),
+    directory: Some("/srv/skills/release-notes".to_string()),
+    ..Default::default()
+}
+# ;
+```
+
+When the skill is activated, the runtime lists the folder's files for the model.
+See [Supporting files](../docs/features/skills.md#supporting-files-experimental) for details.
 
 #### Typed RPC namespace
 
@@ -1845,6 +1887,7 @@ and `CARGO_CFG_TARGET_ENV` (cross-compilation works).
 | `bundled-cli` | ✓ | Enables `runtime` and embeds the managed wrapper pair and compatible CLI artifact. |
 | `in-process` | — | Enables `Transport::InProcess` while preserving the selected runtime acquisition policy. |
 | `local-runtime` | — | Enables `in-process` and, when `bundled-cli` is disabled, disables SDK-managed runtime download, extraction, and embedding. The application must supply a compatible runtime package through `COPILOT_CLI_PATH`. |
+| `network-forwarding` | ✓ (via `bundled-cli`) | Enables the default HTTP, TLS, and WebSocket request handler. Without it, an application can supply a custom `CopilotRequestHandler`. |
 | `bundled-in-process` | — | Enables `in-process`, implies `bundled-cli`, and additionally embeds the platform-native runtime library. |
 | `derive` | — | `schema_for::<T>()` for generating JSON Schema from Rust types (adds `schemars`). |
 
@@ -1857,6 +1900,9 @@ github-copilot-sdk = { version = "1", features = ["bundled-in-process"] }
 
 # Enable the in-process transport with an application-supplied runtime.
 github-copilot-sdk = { version = "1", default-features = false, features = ["local-runtime"] }
+
+# Keep the default network handler with an application-supplied runtime.
+github-copilot-sdk = { version = "1", default-features = false, features = ["local-runtime", "network-forwarding"] }
 
 # Opt out of bundling, but retain managed startup and build-machine runtime caching.
 github-copilot-sdk = { version = "1", default-features = false, features = ["runtime"] }

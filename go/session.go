@@ -77,6 +77,7 @@ type Session struct {
 	permissionMux               sync.RWMutex
 	managedSettings             bool
 	mcpAuthHandler              MCPAuthHandler
+	mcpAuthRefreshHandler       MCPAuthRuntimeRefreshHandler
 	mcpAuthMu                   sync.RWMutex
 	userInputHandler            UserInputHandler
 	userInputMux                sync.RWMutex
@@ -1167,27 +1168,40 @@ func (s *Session) getElicitationHandler() ElicitationHandler {
 	return s.elicitationHandler
 }
 
-func (s *Session) registerMCPAuthHandler(handler MCPAuthHandler) {
+func (s *Session) registerMCPAuthHandlers(handler MCPAuthHandler, refreshHandler MCPAuthRuntimeRefreshHandler) {
 	s.mcpAuthMu.Lock()
 	defer s.mcpAuthMu.Unlock()
 	s.mcpAuthHandler = handler
+	s.mcpAuthRefreshHandler = refreshHandler
 }
 
-func (s *Session) getMCPAuthHandler() MCPAuthHandler {
+func (s *Session) getMCPAuthHandlers() (MCPAuthHandler, MCPAuthRuntimeRefreshHandler) {
 	s.mcpAuthMu.RLock()
 	defer s.mcpAuthMu.RUnlock()
-	return s.mcpAuthHandler
+	return s.mcpAuthHandler, s.mcpAuthRefreshHandler
 }
 
-func (s *Session) handleMCPAuthRequest(request MCPAuthRequest) {
-	handler := s.getMCPAuthHandler()
-	if handler == nil {
+func (s *Session) handleMCPAuthRequest(request MCPAuthRequest, runtimeRefreshSupported bool) {
+	handler, refreshHandler := s.getMCPAuthHandlers()
+	if handler == nil && refreshHandler == nil {
+		log.Printf(
+			"Received MCP OAuth request without a registered MCP auth handler. SessionId=%s, RequestId=%s",
+			s.SessionID,
+			request.RequestID,
+		)
 		return
 	}
 
 	ctx := context.Background()
 	cancel := &rpc.MCPOauthPendingRequestResponseCancelled{}
-	result, err := handler(request, MCPAuthInvocation{SessionID: s.SessionID})
+	invocation := MCPAuthInvocation{SessionID: s.SessionID}
+	var result *MCPAuthResult
+	var err error
+	if refreshHandler != nil {
+		result, err = refreshHandler(request, invocation, runtimeRefreshSupported)
+	} else {
+		result, err = handler(request, invocation)
+	}
 	if err != nil {
 		log.Printf(
 			"MCP OAuth handler failed. SessionId=%s, RequestId=%s, Error=%v",
@@ -1196,7 +1210,15 @@ func (s *Session) handleMCPAuthRequest(request MCPAuthRequest) {
 			err,
 		)
 	}
-	if err != nil || result == nil || result.Kind == MCPAuthResultKindCancelled || result.Token == nil {
+	hasToken := result != nil && result.Token != nil && result.Token.AccessToken != ""
+	if err == nil && result != nil && !hasToken && result.Kind == MCPAuthResultKindRuntimeRefresh && runtimeRefreshSupported {
+		s.RPC.MCP.Oauth().HandlePendingRequest(ctx, &rpc.MCPOauthHandlePendingRequest{
+			RequestID: request.RequestID,
+			Result:    &rpc.MCPOauthPendingRequestResponseRuntimeRefresh{},
+		})
+		return
+	}
+	if err != nil || result == nil || result.Kind == MCPAuthResultKindCancelled || !hasToken {
 		s.RPC.MCP.Oauth().HandlePendingRequest(ctx, &rpc.MCPOauthHandlePendingRequest{
 			RequestID: request.RequestID,
 			Result:    cancel,
@@ -1695,6 +1717,7 @@ func (s *Session) retireEventProcessing(graceful bool) {
 
 		s.mcpAuthMu.Lock()
 		s.mcpAuthHandler = nil
+		s.mcpAuthRefreshHandler = nil
 		s.mcpAuthMu.Unlock()
 
 		s.userInputMux.Lock()
@@ -1755,16 +1778,7 @@ func (s *Session) handleBroadcastEvent(event SessionEvent) {
 		s.executePermissionAndRespond(d.RequestID, d.PermissionRequest, d.PromptRequest, handler)
 
 	case *MCPOauthRequiredData:
-		handler := s.getMCPAuthHandler()
 		if d.RequestID == "" {
-			return
-		}
-		if handler == nil {
-			log.Printf(
-				"Received MCP OAuth request without a registered MCP auth handler. SessionId=%s, RequestId=%s",
-				s.SessionID,
-				d.RequestID,
-			)
 			return
 		}
 		var staticClientConfig *MCPAuthStaticClientConfig
@@ -1799,7 +1813,7 @@ func (s *Session) handleBroadcastEvent(event SessionEvent) {
 				Error:               d.WwwAuthenticateParams.Error,
 			}
 		}
-		s.handleMCPAuthRequest(request)
+		s.handleMCPAuthRequest(request, d.RuntimeRefreshSupported != nil && *d.RuntimeRefreshSupported)
 
 	case *CommandExecuteData:
 		s.executeCommandAndRespond(d.RequestID, d.CommandName, d.Command, d.Args)

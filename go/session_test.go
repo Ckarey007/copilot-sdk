@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -611,6 +612,21 @@ func TestSession_SetToolsAlreadyCancelledWhileBlockedDoesNotSend(t *testing.T) {
 }
 
 func TestSession_MCPAuthRequestSendsHostToken(t *testing.T) {
+	testSessionMCPAuthRequestResponse(t, false)
+}
+
+func TestSession_MCPAuthRequestSendsRuntimeRefresh(t *testing.T) {
+	testSessionMCPAuthRequestResponse(t, true)
+}
+
+func testSessionMCPAuthRequestResponse(t *testing.T, runtimeRefresh bool) {
+	t.Helper()
+	reason := rpc.MCPOauthRequestReasonInitial
+	var supported *bool
+	if runtimeRefresh {
+		reason = rpc.MCPOauthRequestReasonRefresh
+		supported = &runtimeRefresh
+	}
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
 	defer stdinR.Close()
@@ -669,13 +685,18 @@ func TestSession_MCPAuthRequestSendsHostToken(t *testing.T) {
 		RPC:       rpc.NewSessionRPC(client, "session-1"),
 	}
 	var observedRequest MCPAuthRequest
-	session.registerMCPAuthHandler(func(request MCPAuthRequest, invocation MCPAuthInvocation) (*MCPAuthResult, error) {
+	var observedCapability bool
+	session.registerMCPAuthHandlers(nil, func(request MCPAuthRequest, invocation MCPAuthInvocation, runtimeRefreshSupported bool) (*MCPAuthResult, error) {
 		observedRequest = request
+		observedCapability = runtimeRefreshSupported
 		if invocation.SessionID != "session-1" {
 			t.Fatalf("expected invocation session-1, got %s", invocation.SessionID)
 		}
 		if request.RequestID != "oauth-request" {
 			t.Fatalf("expected oauth-request, got %s", request.RequestID)
+		}
+		if runtimeRefreshSupported {
+			return MCPAuthResultRuntimeRefresh(), nil
 		}
 		tokenType := "Bearer"
 		return MCPAuthResultToken(&MCPAuthToken{
@@ -691,11 +712,12 @@ func TestSession_MCPAuthRequestSendsHostToken(t *testing.T) {
 	scope := "configured.read"
 	session.handleBroadcastEvent(SessionEvent{
 		Data: &MCPOauthRequiredData{
-			RequestID:        "oauth-request",
-			Reason:           rpc.MCPOauthRequestReasonInitial,
-			ServerName:       "oauth-server",
-			ServerURL:        "https://example.com/mcp",
-			ResourceMetadata: &resourceMetadata,
+			RequestID:               "oauth-request",
+			Reason:                  reason,
+			RuntimeRefreshSupported: supported,
+			ServerName:              "oauth-server",
+			ServerURL:               "https://example.com/mcp",
+			ResourceMetadata:        &resourceMetadata,
 			StaticClientConfig: &MCPOauthRequiredStaticClientConfig{
 				ClientID:     "static-client",
 				ClientSecret: &clientSecret,
@@ -711,8 +733,11 @@ func TestSession_MCPAuthRequestSendsHostToken(t *testing.T) {
 	if observedRequest.ResourceMetadata == nil || *observedRequest.ResourceMetadata != `{"resource":"https://example.com/mcp"}` {
 		t.Fatalf("expected resource metadata to be propagated, got %#v", observedRequest.ResourceMetadata)
 	}
-	if observedRequest.Reason != MCPOauthRequestReasonInitial {
-		t.Fatalf("expected initial reason, got %q", observedRequest.Reason)
+	if observedRequest.Reason != reason {
+		t.Fatalf("expected reason %q, got %q", reason, observedRequest.Reason)
+	}
+	if observedCapability != runtimeRefresh {
+		t.Fatalf("expected runtimeRefreshSupported %v, got %v", runtimeRefresh, observedCapability)
 	}
 	if observedRequest.WwwAuthenticateParams == nil {
 		t.Fatal("expected WWW-Authenticate params to be propagated")
@@ -742,6 +767,12 @@ func TestSession_MCPAuthRequestSendsHostToken(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected result object, got %T", params["result"])
 		}
+		if runtimeRefresh {
+			if result["kind"] != "runtimeRefresh" || len(result) != 1 {
+				t.Fatalf("expected token-free runtimeRefresh result, got %v", result)
+			}
+			return
+		}
 		if result["kind"] != "token" {
 			t.Fatalf("expected token kind, got %v", result["kind"])
 		}
@@ -756,6 +787,226 @@ func TestSession_MCPAuthRequestSendsHostToken(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for MCP OAuth request")
 	}
+}
+
+func TestSession_MCPAuthRuntimeRefreshRequiresCapability(t *testing.T) {
+	supported := true
+	unsupported := false
+	tokenType := "Bearer"
+	tests := []struct {
+		name      string
+		supported *bool
+		result    *MCPAuthResult
+		expected  map[string]any
+	}{
+		{
+			name:     "missing capability sends cancelled",
+			result:   MCPAuthResultRuntimeRefresh(),
+			expected: map[string]any{"kind": "cancelled"},
+		},
+		{
+			name:      "false capability sends cancelled",
+			supported: &unsupported,
+			result:    MCPAuthResultRuntimeRefresh(),
+			expected:  map[string]any{"kind": "cancelled"},
+		},
+		{
+			name:      "token takes precedence over runtime refresh",
+			supported: &supported,
+			result: &MCPAuthResult{
+				Kind:  MCPAuthResultKindRuntimeRefresh,
+				Token: &MCPAuthToken{AccessToken: "host-token", TokenType: &tokenType},
+			},
+			expected: map[string]any{"kind": "token", "accessToken": "host-token", "tokenType": "Bearer"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := captureMCPAuthPendingResult(t, &MCPOauthRequiredData{
+				RequestID:               "oauth-request",
+				Reason:                  rpc.MCPOauthRequestReasonRefresh,
+				RuntimeRefreshSupported: tt.supported,
+				ServerName:              "oauth-server",
+				ServerURL:               "https://example.com/mcp",
+			}, func(MCPAuthRequest, MCPAuthInvocation) (*MCPAuthResult, error) {
+				return tt.result, nil
+			}, nil)
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Fatalf("expected result %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestMCPAuthLegacySourceCompatibility(t *testing.T) {
+	request := MCPAuthRequest{"request", "server", "https://example.com/mcp", MCPOauthRequestReasonRefresh, nil, nil, nil}
+	invocation := MCPAuthInvocation{"session"}
+	handler := MCPAuthHandler(func(request MCPAuthRequest, invocation MCPAuthInvocation) (*MCPAuthResult, error) {
+		return MCPAuthResultCancelled(), nil
+	})
+	client := &Client{}
+	var _ interface {
+		CreateSession(context.Context, *SessionConfig) (*Session, error)
+		ResumeSession(context.Context, string, *ResumeSessionConfig) (*Session, error)
+		ResumeSessionWithOptions(context.Context, string, *ResumeSessionConfig) (*Session, error)
+	} = client
+	if request.RequestID != "request" || invocation.SessionID != "session" || handler == nil {
+		t.Fatal("legacy MCP auth construction or client signatures changed")
+	}
+}
+
+func TestSession_MCPAuthPrecedenceCapabilityTruthTable(t *testing.T) {
+	supported, unsupported := true, false
+	for _, capability := range []*bool{nil, &unsupported, &supported} {
+		for _, response := range []string{"runtimeRefresh", "token", "cancelled", "cancelled_with_token", "handoff_with_empty_token"} {
+			t.Run(fmt.Sprintf("%v/%s", capability, response), func(t *testing.T) {
+				expected := map[string]any{"kind": "cancelled"}
+				result := MCPAuthResultRuntimeRefresh()
+				switch response {
+				case "token":
+					result.Token = &MCPAuthToken{AccessToken: "host-token"}
+					expected = map[string]any{"kind": "token", "accessToken": "host-token"}
+				case "cancelled":
+					result = MCPAuthResultCancelled()
+				case "cancelled_with_token":
+					result = MCPAuthResultCancelled()
+					result.Token = &MCPAuthToken{AccessToken: "host-token"}
+				case "handoff_with_empty_token":
+					result.Token = &MCPAuthToken{}
+					if capability != nil && *capability {
+						expected = map[string]any{"kind": "runtimeRefresh"}
+					}
+				case "runtimeRefresh":
+					if capability != nil && *capability {
+						expected = map[string]any{"kind": "runtimeRefresh"}
+					}
+				}
+				actual := captureMCPAuthPendingResult(t, &MCPOauthRequiredData{
+					RequestID: "oauth-request", Reason: rpc.MCPOauthRequestReasonRefresh,
+					RuntimeRefreshSupported: capability,
+					ServerName:              "oauth-server", ServerURL: "https://example.com/mcp",
+				}, func(MCPAuthRequest, MCPAuthInvocation) (*MCPAuthResult, error) {
+					return result, nil
+				}, nil)
+				if !reflect.DeepEqual(actual, expected) {
+					t.Fatalf("expected result %v, got %v", expected, actual)
+				}
+			})
+		}
+	}
+}
+
+func TestSession_OptInMCPAuthPrecedenceCapabilityTruthTable(t *testing.T) {
+	for _, capability := range []*bool{Bool(true), Bool(false), nil} {
+		for _, result := range []*MCPAuthResult{
+			MCPAuthResultRuntimeRefresh(),
+			{Kind: MCPAuthResultKindRuntimeRefresh, Token: &MCPAuthToken{}},
+			{Kind: MCPAuthResultKindRuntimeRefresh, Token: &MCPAuthToken{AccessToken: "host-token"}},
+			MCPAuthResultCancelled(),
+			{Kind: MCPAuthResultKindCancelled, Token: &MCPAuthToken{AccessToken: "host-token"}},
+		} {
+			name := fmt.Sprintf("capability=%v kind=%s token=%v", capability != nil && *capability, result.Kind, result.Token)
+			if capability == nil {
+				name = "missing " + name
+			}
+			t.Run(name, func(t *testing.T) {
+				actual := captureMCPAuthPendingResult(t, &MCPOauthRequiredData{
+					RequestID: "request", Reason: rpc.MCPOauthRequestReasonRefresh, RuntimeRefreshSupported: capability,
+				}, nil, func(request MCPAuthRequest, invocation MCPAuthInvocation, supported bool) (*MCPAuthResult, error) {
+					if supported != (capability != nil && *capability) {
+						t.Errorf("handler capability=%v, want %v", supported, capability != nil && *capability)
+					}
+					return result, nil
+				})
+				expected := "cancelled"
+				if result.Kind != MCPAuthResultKindCancelled {
+					if result.Token != nil && result.Token.AccessToken != "" {
+						expected = "token"
+					} else if capability != nil && *capability {
+						expected = "runtimeRefresh"
+					}
+				}
+				if actual["kind"] != expected {
+					t.Fatalf("expected %s, got %+v", expected, actual)
+				}
+			})
+		}
+	}
+}
+
+func captureMCPAuthPendingResult(t *testing.T, data *MCPOauthRequiredData, handler MCPAuthHandler, refreshHandler MCPAuthRuntimeRefreshHandler) map[string]any {
+	t.Helper()
+	stdinR, stdinW := io.Pipe()
+	stdoutR, stdoutW := io.Pipe()
+	defer stdinR.Close()
+	defer stdinW.Close()
+	defer stdoutR.Close()
+	defer stdoutW.Close()
+
+	client := jsonrpc2.NewClient(stdinW, stdoutR)
+	client.Start()
+	defer client.Stop()
+
+	paramsCh := make(chan map[string]any, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		frame, err := readTestJSONRPCFrame(stdinR)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		var request struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params map[string]any  `json:"params"`
+		}
+		if err := json.Unmarshal(frame, &request); err != nil {
+			errCh <- err
+			return
+		}
+		if request.Method != "session.mcp.oauth.handlePendingRequest" {
+			errCh <- fmt.Errorf("expected session.mcp.oauth.handlePendingRequest, got %s", request.Method)
+			return
+		}
+		paramsCh <- request.Params
+		response, err := json.Marshal(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      json.RawMessage(request.ID),
+			"result":  map[string]any{"success": true},
+		})
+		if err != nil {
+			errCh <- err
+			return
+		}
+		if _, err := fmt.Fprintf(stdoutW, "Content-Length: %d\r\n\r\n%s", len(response), response); err != nil {
+			errCh <- err
+		}
+	}()
+
+	session := &Session{
+		SessionID: "session-1",
+		client:    client,
+		RPC:       rpc.NewSessionRPC(client, "session-1"),
+	}
+	session.registerMCPAuthHandlers(handler, refreshHandler)
+	session.handleBroadcastEvent(SessionEvent{Data: data})
+
+	select {
+	case params := <-paramsCh:
+		if params["requestId"] != data.RequestID {
+			t.Fatalf("expected requestId %s, got %v", data.RequestID, params["requestId"])
+		}
+		result, ok := params["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected result object, got %T", params["result"])
+		}
+		return result
+	case err := <-errCh:
+		t.Fatal(err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for MCP OAuth response")
+	}
+	return nil
 }
 
 func TestMCPAuthRequestAllowsMissingOptionalMetadata(t *testing.T) {

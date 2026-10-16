@@ -3492,6 +3492,131 @@ func TestClient_MCPAuthInterestRegistration(t *testing.T) {
 	})
 }
 
+func TestClient_MCPAuthRuntimeRefreshRegistration(t *testing.T) {
+	for _, mode := range []string{"create", "cloud create", "cold resume", "warm resume"} {
+		t.Run(mode, func(t *testing.T) {
+			client, requests, cleanup := newInMemoryClient(t)
+			defer cleanup()
+
+			legacyCalls := 0
+			legacyHandler := func(MCPAuthRequest, MCPAuthInvocation) (*MCPAuthResult, error) {
+				legacyCalls++
+				return MCPAuthResultCancelled(), nil
+			}
+			calls := 0
+			var observedCapability bool
+			refreshHandler := func(request MCPAuthRequest, invocation MCPAuthInvocation, supported bool) (*MCPAuthResult, error) {
+				calls++
+				observedCapability = supported
+				if request.RequestID != "auth-request" || request.Reason != MCPOauthRequestReasonRefresh || invocation.SessionID == "" {
+					t.Errorf("incorrect opt-in invocation: %+v, %+v", request, invocation)
+				}
+				if supported && request.Reason == MCPOauthRequestReasonRefresh {
+					return MCPAuthResultRuntimeRefresh(), nil
+				}
+				return MCPAuthResultToken(&MCPAuthToken{AccessToken: "host-token"}), nil
+			}
+
+			var session *Session
+			var err error
+			if strings.Contains(mode, "resume") {
+				if mode == "warm resume" {
+					previous, createErr := client.CreateSession(t.Context(), &SessionConfig{SessionID: "existing-session"})
+					if createErr != nil {
+						t.Fatal(createErr)
+					}
+					defer previous.Disconnect()
+					requests.clear()
+				}
+				config := &ResumeSessionConfig{OnMCPAuthRequest: legacyHandler}
+				if mode == "warm resume" {
+					config.OnMCPAuthRequest = nil
+				}
+				session, err = client.ResumeSessionWithMCPAuthRuntimeRefresh(t.Context(), "existing-session", config, refreshHandler)
+			} else {
+				config := &SessionConfig{OnMCPAuthRequest: legacyHandler}
+				if mode == "cloud create" {
+					config.OnMCPAuthRequest = nil
+					config.Cloud = &CloudSessionOptions{Repository: &CloudSessionRepository{
+						Owner: "github", Name: "copilot-sdk", Branch: "main",
+					}}
+				}
+				session, err = client.CreateSessionWithMCPAuthRuntimeRefresh(t.Context(), config, refreshHandler)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer session.Disconnect()
+
+			snapshot := requests.snapshot()
+			if len(snapshot) < 2 || (snapshot[0].Method != "session.create" && snapshot[0].Method != "session.resume") {
+				t.Fatalf("missing session initialization before interest: %+v", snapshot)
+			}
+			assertMCPAuthInterest(t, snapshot[1])
+			if snapshot[1].Params["sessionId"] != session.SessionID {
+				t.Fatalf("interest registered for wrong session: %+v", snapshot[1])
+			}
+
+			for i, capability := range []*bool{Bool(true), Bool(false), nil} {
+				requests.clear()
+				session.handleBroadcastEvent(SessionEvent{Data: &MCPOauthRequiredData{
+					RequestID:               "auth-request",
+					ServerName:              "oauth-server",
+					ServerURL:               "https://example.com/mcp",
+					Reason:                  rpc.MCPOauthRequestReasonRefresh,
+					RuntimeRefreshSupported: capability,
+				}})
+				if calls != i+1 || legacyCalls != 0 || observedCapability != (capability != nil && *capability) {
+					t.Fatalf("opt-in dispatch calls=%d legacy=%d capability=%v", calls, legacyCalls, observedCapability)
+				}
+				result, ok := findRequest(requests.snapshot(), "session.mcp.oauth.handlePendingRequest")
+				if !ok || result.Params["requestId"] != "auth-request" || result.Params["sessionId"] != session.SessionID {
+					t.Fatalf("missing correlated OAuth response: %+v", requests.snapshot())
+				}
+				expected := "token"
+				if observedCapability {
+					expected = "runtimeRefresh"
+				}
+				wireResult, ok := result.Params["result"].(map[string]any)
+				if !ok || wireResult["kind"] != expected {
+					t.Fatalf("expected %s, got %+v", expected, result.Params["result"])
+				}
+			}
+		})
+	}
+
+	for _, mode := range []string{"create", "resume"} {
+		t.Run(mode+" nil opt-in retains legacy handler", func(t *testing.T) {
+			client, requests, cleanup := newInMemoryClient(t)
+			defer cleanup()
+			calls := 0
+			handler := func(MCPAuthRequest, MCPAuthInvocation) (*MCPAuthResult, error) {
+				calls++
+				return MCPAuthResultCancelled(), nil
+			}
+			var session *Session
+			var err error
+			if mode == "create" {
+				session, err = client.CreateSessionWithMCPAuthRuntimeRefresh(t.Context(), &SessionConfig{OnMCPAuthRequest: handler}, nil)
+			} else {
+				session, err = client.ResumeSessionWithMCPAuthRuntimeRefresh(t.Context(), "existing-session", &ResumeSessionConfig{OnMCPAuthRequest: handler}, nil)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer session.Disconnect()
+			assertRequestMethod(t, requests.snapshot(), "session.eventLog.registerInterest")
+			session.handleBroadcastEvent(SessionEvent{Data: &MCPOauthRequiredData{
+				RequestID: "legacy-request", Reason: rpc.MCPOauthRequestReasonRefresh, RuntimeRefreshSupported: Bool(true),
+			}})
+			result, ok := findRequest(requests.snapshot(), "session.mcp.oauth.handlePendingRequest")
+			if !ok || calls != 1 || result.Params["result"].(map[string]any)["kind"] != "cancelled" {
+				t.Fatalf("legacy handler changed: calls=%d requests=%+v", calls, requests.snapshot())
+			}
+		})
+	}
+}
+
 func findRequest(requests []recordedRequest, method string) (recordedRequest, bool) {
 	for _, r := range requests {
 		if r.Method == method {
@@ -3764,7 +3889,7 @@ func serveInMemoryRuntime(t *testing.T, stdinR *io.PipeReader, stdoutW *io.PipeW
 			result = map[string]any{"sessionId": sessionID, "workspacePath": nil}
 		case "session.eventLog.registerInterest":
 			result = map[string]any{"id": "interest-1"}
-		case "session.options.update":
+		case "session.options.update", "session.mcp.oauth.handlePendingRequest":
 			result = map[string]any{"success": true}
 		case "session.skills.reload":
 			result = map[string]any{}

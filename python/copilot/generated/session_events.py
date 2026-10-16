@@ -254,6 +254,7 @@ class SessionEventType(Enum):
     SAMPLING_COMPLETED = "sampling.completed"
     MCP_OAUTH_REQUIRED = "mcp.oauth_required"
     MCP_OAUTH_COMPLETED = "mcp.oauth_completed"
+    MCP_OAUTH_RECOVERY_COMPLETED = "mcp.oauth_recovery_completed"
     MCP_HEADERS_REFRESH_REQUIRED = "mcp.headers_refresh_required"
     MCP_HEADERS_REFRESH_COMPLETED = "mcp.headers_refresh_completed"
     SESSION_CUSTOM_NOTIFICATION = "session.custom_notification"
@@ -293,6 +294,7 @@ class SessionEventType(Enum):
     SESSION_CUSTOM_AGENTS_UPDATED = "session.custom_agents_updated"
     SESSION_MCP_SERVERS_LOADED = "session.mcp_servers_loaded"
     SESSION_MCP_SERVER_STATUS_CHANGED = "session.mcp_server_status_changed"
+    SESSION_MCP_SERVER_TOOLS_LOADED = "session.mcp_server_tools_loaded"
     SESSION_MCP_SERVER_REMOVED = "session.mcp_server_removed"
     SESSION_MCP_SERVER_NEEDS_RECONNECT = "session.mcp_server_needs_reconnect"
     MCP_TOOLS_LIST_CHANGED = "mcp.tools.list_changed"
@@ -6325,6 +6327,33 @@ class McpOauthHttpResponse:
 
 
 @dataclass
+class McpOauthRecoveryCompletedData:
+    "Terminal outcome of a runtime-owned MCP OAuth recovery accepted through a runtimeRefresh handoff"
+    outcome: McpOauthRecoveryCompletedOutcome
+    request_id: str
+    server_name: str
+
+    @staticmethod
+    def from_dict(obj: Any) -> "McpOauthRecoveryCompletedData":
+        assert isinstance(obj, dict)
+        outcome = parse_enum(McpOauthRecoveryCompletedOutcome, obj.get("outcome"))
+        request_id = from_str(obj.get("requestId"))
+        server_name = from_str(obj.get("serverName"))
+        return McpOauthRecoveryCompletedData(
+            outcome=outcome,
+            request_id=request_id,
+            server_name=server_name,
+        )
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["outcome"] = to_enum(McpOauthRecoveryCompletedOutcome, self.outcome)
+        result["requestId"] = from_str(self.request_id)
+        result["serverName"] = from_str(self.server_name)
+        return result
+
+
+@dataclass
 class McpOauthRequiredData:
     "OAuth authentication request for an MCP server"
     reason: McpOauthRequestReason
@@ -6333,6 +6362,7 @@ class McpOauthRequiredData:
     server_url: str
     http_response: McpOauthHttpResponse | None = None
     resource_metadata: str | None = None
+    runtime_refresh_supported: bool | None = None
     static_client_config: McpOauthRequiredStaticClientConfig | None = None
     www_authenticate_params: McpOauthWWWAuthenticateParams | None = None
 
@@ -6345,6 +6375,7 @@ class McpOauthRequiredData:
         server_url = from_str(obj.get("serverUrl"))
         http_response = from_union([from_none, McpOauthHttpResponse.from_dict], obj.get("httpResponse"))
         resource_metadata = from_union([from_none, from_str], obj.get("resourceMetadata"))
+        runtime_refresh_supported = from_union([from_none, from_bool], obj.get("runtimeRefreshSupported"))
         static_client_config = from_union([from_none, McpOauthRequiredStaticClientConfig.from_dict], obj.get("staticClientConfig"))
         www_authenticate_params = from_union([from_none, McpOauthWWWAuthenticateParams.from_dict], obj.get("wwwAuthenticateParams"))
         return McpOauthRequiredData(
@@ -6354,6 +6385,7 @@ class McpOauthRequiredData:
             server_url=server_url,
             http_response=http_response,
             resource_metadata=resource_metadata,
+            runtime_refresh_supported=runtime_refresh_supported,
             static_client_config=static_client_config,
             www_authenticate_params=www_authenticate_params,
         )
@@ -6368,6 +6400,8 @@ class McpOauthRequiredData:
             result["httpResponse"] = from_union([from_none, lambda x: to_class(McpOauthHttpResponse, x)], self.http_response)
         if self.resource_metadata is not None:
             result["resourceMetadata"] = from_union([from_none, from_str], self.resource_metadata)
+        if self.runtime_refresh_supported is not None:
+            result["runtimeRefreshSupported"] = from_union([from_none, from_bool], self.runtime_refresh_supported)
         if self.static_client_config is not None:
             result["staticClientConfig"] = from_union([from_none, lambda x: to_class(McpOauthRequiredStaticClientConfig, x)], self.static_client_config)
         if self.www_authenticate_params is not None:
@@ -10493,6 +10527,29 @@ class SessionMcpServerStatusChangedData:
             result["error"] = from_union([from_none, from_str], self.error)
         if self.error_classification is not None:
             result["errorClassification"] = from_union([from_none, from_str], self.error_classification)
+        return result
+
+
+@dataclass
+class SessionMcpServerToolsLoadedData:
+    "Payload of `session.mcp_server_tools_loaded`, emitted once per connection when an MCP server's tools first become available from tools/list or a cached snapshot. A connected server is still loading tools if this event has not fired since the server last left connected; it can precede connected when the tools come from a cached snapshot."
+    server_name: str
+    tool_count: int
+
+    @staticmethod
+    def from_dict(obj: Any) -> "SessionMcpServerToolsLoadedData":
+        assert isinstance(obj, dict)
+        server_name = from_str(obj.get("serverName"))
+        tool_count = from_int(obj.get("toolCount"))
+        return SessionMcpServerToolsLoadedData(
+            server_name=server_name,
+            tool_count=tool_count,
+        )
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["serverName"] = from_str(self.server_name)
+        result["toolCount"] = to_int(self.tool_count)
         return result
 
 
@@ -15514,6 +15571,16 @@ class McpOauthCompletionOutcome(Enum):
     CANCELLED = "cancelled"
 
 
+class McpOauthRecoveryCompletedOutcome(Enum):
+    "Terminal outcome of the original authorization reservation, including reconnect"
+    # Credentials were renewed and the server reconnected.
+    SUCCEEDED = "succeeded"
+    # The recovery was cancelled before it completed.
+    CANCELLED = "cancelled"
+    # Credential renewal or reconnect failed, or the server was dropped.
+    FAILED = "failed"
+
+
 class McpOauthRequestReason(Enum):
     "Reason the runtime is requesting host-provided MCP OAuth credentials"
     # Initial credentials are required before connecting to the MCP server.
@@ -16599,7 +16666,7 @@ class WorkspaceFileChangedOperation(Enum):
     UPDATE = "update"
 
 
-SessionEventData = SessionStartData | SessionResumeData | SessionRemoteSteerableChangedData | SessionErrorData | SessionIdleData | SessionTitleChangedData | SessionScheduleCreatedData | SessionScheduleCancelledData | SessionScheduleRearmedData | SessionAutopilotObjectiveChangedData | SessionInfoData | SessionIndexedSearchData | SessionWarningData | SessionModelChangeData | SessionModelDeselectedData | SessionAutoTierRecommendationData | SessionAutoTierSwitchFailedData | SessionModeChangedData | SessionModeNoticeDeliveredData | SessionSessionLimitsChangedData | SessionPermissionsChangedData | SessionPlanChangedData | SessionTodosChangedData | SessionWorkspaceFileChangedData | SessionHandoffData | SessionTruncationData | SessionSnapshotRewindData | SessionShutdownData | SessionUsageCheckpointData | SessionQuotaObservationData | SessionContextChangedData | SessionUsageInfoData | SessionContextClearedData | SessionCompactionStartData | SessionCompactionCompleteData | SessionTaskCompleteData | SessionCompletionReceiptData | SessionFusionRouteStartedData | SessionFusionRouteFailedData | SessionFusionResolvedData | SessionFusionCompletedData | SessionPermissionRecoveryData | UserMessageData | PendingMessagesModifiedData | AssistantTurnStartData | AssistantTurnRetryData | AgentInterruptedData | AssistantIntentData | AssistantFusionPhaseStartedData | AssistantFusionPhaseActivityData | AssistantFusionPhaseCompletedData | AssistantFusionPhaseFailedData | AssistantServerToolProgressData | AssistantReasoningData | AssistantReasoningDeltaData | AssistantToolCallDeltaData | AssistantStreamingDeltaData | AssistantMessageData | AssistantMessageStartData | AssistantMessageDeltaData | AssistantTurnEndData | AssistantIdleData | AssistantUsageData | PromptCacheBreakData | ModelCallFailureData | ModelCallFinalResultData | ModelCallFinishedData | ModelCallStartData | AbortData | ToolUserRequestedData | ToolExecutionStartData | ToolExecutionPartialResultData | ToolShellOutputData | ToolExecutionProgressData | ToolExecutionCompleteData | ToolSearchActivatedData | SkillInvokedData | SkillInvokedRefData | SkillContextDeliveredData | SkillContextDeliveredRefData | SandboxDecisionData | SubagentStartedData | SubagentConfiguredData | SubagentCompletedData | SubagentFailedData | SubagentSelectedData | SubagentDeselectedData | HookStartData | HookEndData | HookProgressData | SessionBinaryAssetData | SystemMessageData | SystemNotificationData | PermissionRequestedData | PermissionCompletedData | PermissionCarriedForwardData | PermissionMessageAuthorizationData | PermissionMessageAuthorizationReadData | PermissionMessageAuthorizationDegradedData | PermissionAssentDetectedData | PermissionContextualAuthorizationData | UserInputRequestedData | UserInputCompletedData | ElicitationRequestedData | ElicitationCompletedData | SamplingRequestedData | SamplingCompletedData | McpOauthRequiredData | McpOauthCompletedData | McpHeadersRefreshRequiredData | McpHeadersRefreshCompletedData | SessionCustomNotificationData | UiEphemeralQueryData | ExternalToolRequestedData | ExternalToolCompletedData | CommandQueuedData | CommandExecuteData | CommandCompletedData | AutoModeSwitchRequestedData | AutoModeSwitchCompletedData | SessionLimitsExhaustedRequestedData | SessionLimitsExhaustedCompletedData | SessionAutoModeResolvedData | SessionManagedPluginProgressData | SessionManagedSettingsResolvedData | SessionManagedSettingsEnforcedData | CommandsChangedData | CapabilitiesChangedData | ExitPlanModeRequestedData | ExitPlanModeCompletedData | HumanResponseRecordedData | SessionToolsUpdatedData | SessionBackgroundTasksChangedData | WorkflowRunUpdatedData | WorkflowRunStartedData | WorkflowRunSettledData | SessionSkillsLoadedData | SessionCustomAgentsUpdatedData | SessionMcpServersLoadedData | SessionMcpServerStatusChangedData | SessionMcpServerRemovedData | SessionMcpServerNeedsReconnectData | McpToolsListChangedData | McpResourcesListChangedData | McpPromptsListChangedData | SessionExtensionsLoadedData | SessionCanvasOpenedData | SessionCanvasRegistryChangedData | SessionCanvasClosedData | SessionCanvasUnavailableData | SessionCanvasRecordedData | SessionCanvasRemovedData | SessionExtensionsAttachmentsPushedData | McpAppToolCallCompleteData | RawSessionEventData | Data
+SessionEventData = SessionStartData | SessionResumeData | SessionRemoteSteerableChangedData | SessionErrorData | SessionIdleData | SessionTitleChangedData | SessionScheduleCreatedData | SessionScheduleCancelledData | SessionScheduleRearmedData | SessionAutopilotObjectiveChangedData | SessionInfoData | SessionIndexedSearchData | SessionWarningData | SessionModelChangeData | SessionModelDeselectedData | SessionAutoTierRecommendationData | SessionAutoTierSwitchFailedData | SessionModeChangedData | SessionModeNoticeDeliveredData | SessionSessionLimitsChangedData | SessionPermissionsChangedData | SessionPlanChangedData | SessionTodosChangedData | SessionWorkspaceFileChangedData | SessionHandoffData | SessionTruncationData | SessionSnapshotRewindData | SessionShutdownData | SessionUsageCheckpointData | SessionQuotaObservationData | SessionContextChangedData | SessionUsageInfoData | SessionContextClearedData | SessionCompactionStartData | SessionCompactionCompleteData | SessionTaskCompleteData | SessionCompletionReceiptData | SessionFusionRouteStartedData | SessionFusionRouteFailedData | SessionFusionResolvedData | SessionFusionCompletedData | SessionPermissionRecoveryData | UserMessageData | PendingMessagesModifiedData | AssistantTurnStartData | AssistantTurnRetryData | AgentInterruptedData | AssistantIntentData | AssistantFusionPhaseStartedData | AssistantFusionPhaseActivityData | AssistantFusionPhaseCompletedData | AssistantFusionPhaseFailedData | AssistantServerToolProgressData | AssistantReasoningData | AssistantReasoningDeltaData | AssistantToolCallDeltaData | AssistantStreamingDeltaData | AssistantMessageData | AssistantMessageStartData | AssistantMessageDeltaData | AssistantTurnEndData | AssistantIdleData | AssistantUsageData | PromptCacheBreakData | ModelCallFailureData | ModelCallFinalResultData | ModelCallFinishedData | ModelCallStartData | AbortData | ToolUserRequestedData | ToolExecutionStartData | ToolExecutionPartialResultData | ToolShellOutputData | ToolExecutionProgressData | ToolExecutionCompleteData | ToolSearchActivatedData | SkillInvokedData | SkillInvokedRefData | SkillContextDeliveredData | SkillContextDeliveredRefData | SandboxDecisionData | SubagentStartedData | SubagentConfiguredData | SubagentCompletedData | SubagentFailedData | SubagentSelectedData | SubagentDeselectedData | HookStartData | HookEndData | HookProgressData | SessionBinaryAssetData | SystemMessageData | SystemNotificationData | PermissionRequestedData | PermissionCompletedData | PermissionCarriedForwardData | PermissionMessageAuthorizationData | PermissionMessageAuthorizationReadData | PermissionMessageAuthorizationDegradedData | PermissionAssentDetectedData | PermissionContextualAuthorizationData | UserInputRequestedData | UserInputCompletedData | ElicitationRequestedData | ElicitationCompletedData | SamplingRequestedData | SamplingCompletedData | McpOauthRequiredData | McpOauthCompletedData | McpOauthRecoveryCompletedData | McpHeadersRefreshRequiredData | McpHeadersRefreshCompletedData | SessionCustomNotificationData | UiEphemeralQueryData | ExternalToolRequestedData | ExternalToolCompletedData | CommandQueuedData | CommandExecuteData | CommandCompletedData | AutoModeSwitchRequestedData | AutoModeSwitchCompletedData | SessionLimitsExhaustedRequestedData | SessionLimitsExhaustedCompletedData | SessionAutoModeResolvedData | SessionManagedPluginProgressData | SessionManagedSettingsResolvedData | SessionManagedSettingsEnforcedData | CommandsChangedData | CapabilitiesChangedData | ExitPlanModeRequestedData | ExitPlanModeCompletedData | HumanResponseRecordedData | SessionToolsUpdatedData | SessionBackgroundTasksChangedData | WorkflowRunUpdatedData | WorkflowRunStartedData | WorkflowRunSettledData | SessionSkillsLoadedData | SessionCustomAgentsUpdatedData | SessionMcpServersLoadedData | SessionMcpServerStatusChangedData | SessionMcpServerToolsLoadedData | SessionMcpServerRemovedData | SessionMcpServerNeedsReconnectData | McpToolsListChangedData | McpResourcesListChangedData | McpPromptsListChangedData | SessionExtensionsLoadedData | SessionCanvasOpenedData | SessionCanvasRegistryChangedData | SessionCanvasClosedData | SessionCanvasUnavailableData | SessionCanvasRecordedData | SessionCanvasRemovedData | SessionExtensionsAttachmentsPushedData | McpAppToolCallCompleteData | RawSessionEventData | Data
 
 
 @dataclass
@@ -16734,6 +16801,7 @@ class SessionEvent:
             case SessionEventType.SAMPLING_COMPLETED: data = SamplingCompletedData.from_dict(data_obj)
             case SessionEventType.MCP_OAUTH_REQUIRED: data = McpOauthRequiredData.from_dict(data_obj)
             case SessionEventType.MCP_OAUTH_COMPLETED: data = McpOauthCompletedData.from_dict(data_obj)
+            case SessionEventType.MCP_OAUTH_RECOVERY_COMPLETED: data = McpOauthRecoveryCompletedData.from_dict(data_obj)
             case SessionEventType.MCP_HEADERS_REFRESH_REQUIRED: data = McpHeadersRefreshRequiredData.from_dict(data_obj)
             case SessionEventType.MCP_HEADERS_REFRESH_COMPLETED: data = McpHeadersRefreshCompletedData.from_dict(data_obj)
             case SessionEventType.SESSION_CUSTOM_NOTIFICATION: data = SessionCustomNotificationData.from_dict(data_obj)
@@ -16765,6 +16833,7 @@ class SessionEvent:
             case SessionEventType.SESSION_CUSTOM_AGENTS_UPDATED: data = SessionCustomAgentsUpdatedData.from_dict(data_obj)
             case SessionEventType.SESSION_MCP_SERVERS_LOADED: data = SessionMcpServersLoadedData.from_dict(data_obj)
             case SessionEventType.SESSION_MCP_SERVER_STATUS_CHANGED: data = SessionMcpServerStatusChangedData.from_dict(data_obj)
+            case SessionEventType.SESSION_MCP_SERVER_TOOLS_LOADED: data = SessionMcpServerToolsLoadedData.from_dict(data_obj)
             case SessionEventType.SESSION_MCP_SERVER_REMOVED: data = SessionMcpServerRemovedData.from_dict(data_obj)
             case SessionEventType.SESSION_MCP_SERVER_NEEDS_RECONNECT: data = SessionMcpServerNeedsReconnectData.from_dict(data_obj)
             case SessionEventType.MCP_TOOLS_LIST_CHANGED: data = McpToolsListChangedData.from_dict(data_obj)
@@ -16975,6 +17044,8 @@ __all__ = [
     "McpOauthCompletedData",
     "McpOauthCompletionOutcome",
     "McpOauthHttpResponse",
+    "McpOauthRecoveryCompletedData",
+    "McpOauthRecoveryCompletedOutcome",
     "McpOauthRequestReason",
     "McpOauthRequiredData",
     "McpOauthRequiredStaticClientConfig",
@@ -17170,6 +17241,7 @@ __all__ = [
     "SessionMcpServerNeedsReconnectData",
     "SessionMcpServerRemovedData",
     "SessionMcpServerStatusChangedData",
+    "SessionMcpServerToolsLoadedData",
     "SessionMcpServersLoadedData",
     "SessionMode",
     "SessionModeChangedData",

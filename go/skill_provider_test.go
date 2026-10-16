@@ -235,6 +235,7 @@ func TestSkillProviderDispatch(t *testing.T) {
 				UserInvocable:          Bool(false),
 				DisableModelInvocation: Bool(true),
 				ArgumentHint:           String("[environment]"),
+				Directory:              String("/srv/skills/deploy"),
 			},
 		},
 		markdown: map[string]string{"deploy": "# deploy"},
@@ -253,6 +254,9 @@ func TestSkillProviderDispatch(t *testing.T) {
 	}
 	if len(listResult.Skills) != 2 || listResult.Skills[1].Name != "deploy" {
 		t.Fatalf("list result = %+v", listResult)
+	}
+	if got := listResult.Skills[1].Directory; got == nil || *got != "/srv/skills/deploy" {
+		t.Fatalf("directory = %v, want /srv/skills/deploy", got)
 	}
 
 	readRaw, rpcErr := server.Request(t.Context(), "skillProvider.read", map[string]any{
@@ -289,7 +293,7 @@ func TestSkillProviderOmitsUnsetOptionalDescriptorFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	skill := decoded["skills"][0]
-	for _, key := range []string{"argumentHint", "userInvocable", "disableModelInvocation"} {
+	for _, key := range []string{"argumentHint", "userInvocable", "disableModelInvocation", "directory"} {
 		if _, ok := skill[key]; ok {
 			t.Fatalf("%s should be omitted when unset: %s", key, data)
 		}

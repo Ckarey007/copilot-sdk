@@ -350,6 +350,24 @@ provider) or the connection closes. Return `null` from `ReadSkillAsync` when a
 skill name is not found. Optional `SkillProviderDescriptor` properties are
 omitted from JSON when unset.
 
+###### Supporting files (experimental)
+
+To give a provider skill supporting files, such as scripts, references,
+templates, and assets, set its descriptor's `Directory` to the absolute path of
+the folder that holds them:
+
+```csharp
+new SkillProviderDescriptor
+{
+    Name = "release-notes",
+    Description = "Writes release notes in the team's format.",
+    Directory = "/srv/skills/release-notes",
+}
+```
+
+When the skill is activated, the runtime lists the folder's files for the model.
+See [Supporting files](../docs/features/skills.md#supporting-files-experimental) for details.
+
 ##### `PingAsync(string? message = null): Task<PingResponse>`
 
 Ping the server to check connectivity.

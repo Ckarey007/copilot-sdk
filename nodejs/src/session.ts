@@ -1529,9 +1529,19 @@ export class CopilotSession {
         try {
             const result = await this.mcpAuthHandler!(request, { sessionId: this.sessionId });
             const response: McpOauthPendingRequestResponse =
-                result && "accessToken" in result
-                    ? { kind: "token", ...result }
-                    : { kind: "cancelled" };
+                result && "kind" in result && result.kind === "cancelled"
+                    ? { kind: "cancelled" }
+                    : result &&
+                        "accessToken" in result &&
+                        typeof result.accessToken === "string" &&
+                        result.accessToken.length > 0
+                      ? { ...result, kind: "token" }
+                      : result &&
+                          "kind" in result &&
+                          result.kind === "runtimeRefresh" &&
+                          request.runtimeRefreshSupported === true
+                        ? { kind: "runtimeRefresh" }
+                        : { kind: "cancelled" };
             await this.rpc.mcp.oauth.handlePendingRequest({
                 requestId: request.requestId,
                 result: response,

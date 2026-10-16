@@ -1176,6 +1176,23 @@ const session = await client.createSession({
 
 See [Custom skills](../docs/features/skills.md#skill-providers-experimental) for limits and details.
 
+#### Supporting files (experimental)
+
+To give a provider skill supporting files, such as scripts, references,
+templates, and assets, set its descriptor's `directory` to the absolute path of
+the folder that holds them:
+
+```typescript
+{
+    name: "release-notes",
+    description: "Writes release notes in the team's format.",
+    directory: "/srv/skills/release-notes",
+}
+```
+
+When the skill is activated, the runtime lists the folder's files for the model.
+See [Supporting files](../docs/features/skills.md#supporting-files-experimental) for details.
+
 ### Multiple Sessions
 
 ```typescript

@@ -73,6 +73,7 @@ fn configured_mcp_servers_preserve_enablement_with_unmaterialized_state() {
             live: McpConfiguredServerState {
                 status: McpServerStatus::NotConfigured,
                 error: None,
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -108,6 +109,7 @@ fn configured_mcp_servers_preserve_live_observations_independently_of_enablement
             live: McpConfiguredServerState {
                 status: McpServerStatus::Stopped,
                 error: None,
+                ..Default::default()
             },
             ..Default::default()
         };

@@ -169,6 +169,8 @@ type (
 	MCPOauthCompletedData                                          = rpc.MCPOauthCompletedData
 	MCPOauthCompletionOutcome                                      = rpc.MCPOauthCompletionOutcome
 	MCPOauthHTTPResponse                                           = rpc.MCPOauthHTTPResponse
+	MCPOauthRecoveryCompletedData                                  = rpc.MCPOauthRecoveryCompletedData
+	MCPOauthRecoveryCompletedOutcome                               = rpc.MCPOauthRecoveryCompletedOutcome
 	MCPOauthRequestReason                                          = rpc.MCPOauthRequestReason
 	MCPOauthRequiredData                                           = rpc.MCPOauthRequiredData
 	MCPOauthRequiredStaticClientConfig                             = rpc.MCPOauthRequiredStaticClientConfig
@@ -364,6 +366,7 @@ type (
 	SessionMCPServerRemovedData                                    = rpc.SessionMCPServerRemovedData
 	SessionMCPServersLoadedData                                    = rpc.SessionMCPServersLoadedData
 	SessionMCPServerStatusChangedData                              = rpc.SessionMCPServerStatusChangedData
+	SessionMCPServerToolsLoadedData                                = rpc.SessionMCPServerToolsLoadedData
 	SessionMode                                                    = rpc.SessionMode
 	SessionModeChangedData                                         = rpc.SessionModeChangedData
 	SessionModelChangeData                                         = rpc.SessionModelChangeData
@@ -704,6 +707,9 @@ const (
 	MCPHeadersRefreshRequiredReasonTtlExpired                            = rpc.MCPHeadersRefreshRequiredReasonTtlExpired
 	MCPOauthCompletionOutcomeCancelled                                   = rpc.MCPOauthCompletionOutcomeCancelled
 	MCPOauthCompletionOutcomeToken                                       = rpc.MCPOauthCompletionOutcomeToken
+	MCPOauthRecoveryCompletedOutcomeCancelled                            = rpc.MCPOauthRecoveryCompletedOutcomeCancelled
+	MCPOauthRecoveryCompletedOutcomeFailed                               = rpc.MCPOauthRecoveryCompletedOutcomeFailed
+	MCPOauthRecoveryCompletedOutcomeSucceeded                            = rpc.MCPOauthRecoveryCompletedOutcomeSucceeded
 	MCPOauthRequestReasonInitial                                         = rpc.MCPOauthRequestReasonInitial
 	MCPOauthRequestReasonReauth                                          = rpc.MCPOauthRequestReasonReauth
 	MCPOauthRequestReasonRefresh                                         = rpc.MCPOauthRequestReasonRefresh
@@ -1007,6 +1013,7 @@ const (
 	SessionEventTypeMCPHeadersRefreshCompleted                           = rpc.SessionEventTypeMCPHeadersRefreshCompleted
 	SessionEventTypeMCPHeadersRefreshRequired                            = rpc.SessionEventTypeMCPHeadersRefreshRequired
 	SessionEventTypeMCPOauthCompleted                                    = rpc.SessionEventTypeMCPOauthCompleted
+	SessionEventTypeMCPOauthRecoveryCompleted                            = rpc.SessionEventTypeMCPOauthRecoveryCompleted
 	SessionEventTypeMCPOauthRequired                                     = rpc.SessionEventTypeMCPOauthRequired
 	SessionEventTypeMCPPromptsListChanged                                = rpc.SessionEventTypeMCPPromptsListChanged
 	SessionEventTypeMCPResourcesListChanged                              = rpc.SessionEventTypeMCPResourcesListChanged
@@ -1067,6 +1074,7 @@ const (
 	SessionEventTypeSessionMCPServerRemoved                              = rpc.SessionEventTypeSessionMCPServerRemoved
 	SessionEventTypeSessionMCPServersLoaded                              = rpc.SessionEventTypeSessionMCPServersLoaded
 	SessionEventTypeSessionMCPServerStatusChanged                        = rpc.SessionEventTypeSessionMCPServerStatusChanged
+	SessionEventTypeSessionMCPServerToolsLoaded                          = rpc.SessionEventTypeSessionMCPServerToolsLoaded
 	SessionEventTypeSessionModeChanged                                   = rpc.SessionEventTypeSessionModeChanged
 	SessionEventTypeSessionModelChange                                   = rpc.SessionEventTypeSessionModelChange
 	SessionEventTypeSessionModelDeselected                               = rpc.SessionEventTypeSessionModelDeselected

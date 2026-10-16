@@ -69,23 +69,24 @@ func TestMCPOAuthE2E(t *testing.T) {
 		tokenType := "Bearer"
 		expiresIn := int64(3600)
 		var observedRequest copilot.MCPAuthRequest
+		var observedRuntimeRefreshSupported bool
 
-		session, err := client.CreateSession(t.Context(), &copilot.SessionConfig{
+		session, err := client.CreateSessionWithMCPAuthRuntimeRefresh(t.Context(), &copilot.SessionConfig{
 			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
-			OnMCPAuthRequest: func(request copilot.MCPAuthRequest, _ copilot.MCPAuthInvocation) (*copilot.MCPAuthResult, error) {
-				observedRequest = request
-				return copilot.MCPAuthResultToken(&copilot.MCPAuthToken{
-					AccessToken: expectedMCPOAuthToken,
-					TokenType:   &tokenType,
-					ExpiresIn:   &expiresIn,
-				}), nil
-			},
 			MCPServers: map[string]copilot.MCPServerConfig{
 				serverName: copilot.MCPHTTPServerConfig{
 					URL:   baseURL + "/mcp",
 					Tools: []string{"*"},
 				},
 			},
+		}, func(request copilot.MCPAuthRequest, _ copilot.MCPAuthInvocation, supported bool) (*copilot.MCPAuthResult, error) {
+			observedRequest = request
+			observedRuntimeRefreshSupported = supported
+			return copilot.MCPAuthResultToken(&copilot.MCPAuthToken{
+				AccessToken: expectedMCPOAuthToken,
+				TokenType:   &tokenType,
+				ExpiresIn:   &expiresIn,
+			}), nil
 		})
 		if err != nil {
 			t.Fatalf("Failed to create session: %v", err)
@@ -112,6 +113,9 @@ func TestMCPOAuthE2E(t *testing.T) {
 		}
 		if observedRequest.Reason != "initial" {
 			t.Fatalf("Unexpected auth request reason: %q", observedRequest.Reason)
+		}
+		if observedRuntimeRefreshSupported {
+			t.Fatal("Initial authentication must not advertise runtime refresh")
 		}
 		if observedRequest.WwwAuthenticateParams.ResourceMetadataURL == nil ||
 			*observedRequest.WwwAuthenticateParams.ResourceMetadataURL != baseURL+"/.well-known/oauth-protected-resource" {

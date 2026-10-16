@@ -24,19 +24,27 @@
 
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::sync::{Arc, LazyLock, OnceLock, Weak};
+#[cfg(feature = "network-forwarding")]
+use std::sync::LazyLock;
+use std::sync::{Arc, OnceLock, Weak};
 
 use async_trait::async_trait;
 use base64::Engine;
 use bytes::Bytes;
-use futures_util::{SinkExt, Stream, StreamExt};
+use futures_util::Stream;
+#[cfg(feature = "network-forwarding")]
+use futures_util::{SinkExt, StreamExt};
 use http::HeaderMap;
 use http::header::{HeaderName, HeaderValue};
 use parking_lot::Mutex;
+#[cfg(feature = "network-forwarding")]
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex as AsyncMutex, mpsc};
+#[cfg(feature = "network-forwarding")]
 use tokio_tungstenite::tungstenite::Message;
+#[cfg(feature = "network-forwarding")]
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+#[cfg(feature = "network-forwarding")]
 use tokio_tungstenite::{
     Connector, MaybeTlsStream, WebSocketStream, connect_async_tls_with_config,
 };
@@ -272,6 +280,7 @@ impl CopilotWebSocketResponse {
         self.exchange.end_response().await
     }
 
+    #[cfg(feature = "network-forwarding")]
     async fn fail(
         &self,
         message: impl Into<String>,
@@ -281,9 +290,9 @@ impl CopilotWebSocketResponse {
     }
 }
 
-/// A per-connection WebSocket handler. The default implementation
-/// ([`CopilotWebSocketForwarder`]) bridges to the real upstream;
-/// override [`CopilotRequestHandler::open_websocket`] to supply a custom one.
+/// A per-connection WebSocket handler. With `network-forwarding`, the default
+/// `CopilotWebSocketForwarder` connects to the upstream. Without that feature,
+/// callers supply a handler through [`CopilotRequestHandler::open_websocket`].
 #[async_trait]
 pub trait CopilotWebSocketHandler: Send + Sync {
     /// Forward one runtime→upstream message.
@@ -309,14 +318,15 @@ pub trait CopilotWebSocketHandler: Send + Sync {
 
 /// The connection-level Copilot request seam.
 ///
-/// One implementor services both transports. Defaults forward transparently to
-/// the real upstream, so overriding nothing yields a pass-through; override a
-/// method to mutate or replace traffic.
+/// One implementor services both transports. With `network-forwarding`,
+/// defaults pass traffic to the upstream. Without it, callers implement both
+/// methods to handle traffic.
 #[async_trait]
 pub trait CopilotRequestHandler: Send + Sync + 'static {
     /// Service one intercepted HTTP request. Default: forward to the real
     /// upstream via [`forward_http`]. Override to mutate the request before
     /// forwarding, mutate the response after, or replace the call entirely.
+    #[cfg(feature = "network-forwarding")]
     async fn send_request(
         &self,
         request: CopilotHttpRequest,
@@ -324,6 +334,15 @@ pub trait CopilotRequestHandler: Send + Sync + 'static {
     ) -> Result<CopilotHttpResponse, CopilotRequestError> {
         forward_http(request).await
     }
+
+    /// Service one intercepted HTTP request with an explicit implementation
+    /// when the CLI owns upstream networking in its runtime.
+    #[cfg(not(feature = "network-forwarding"))]
+    async fn send_request(
+        &self,
+        request: CopilotHttpRequest,
+        ctx: &CopilotRequestContext,
+    ) -> Result<CopilotHttpResponse, CopilotRequestError>;
 
     /// Open a per-connection WebSocket handler. Default: a
     /// [`CopilotWebSocketForwarder`] wired to the real upstream.
@@ -336,6 +355,7 @@ pub trait CopilotRequestHandler: Send + Sync + 'static {
     /// must store this `CopilotWebSocketResponse` in the returned handler struct
     /// and call [`CopilotWebSocketResponse::send_message`] on it to push
     /// upstream messages back to the runtime.
+    #[cfg(feature = "network-forwarding")]
     async fn open_websocket(
         &self,
         ctx: &CopilotRequestContext,
@@ -346,6 +366,15 @@ pub trait CopilotRequestHandler: Send + Sync + 'static {
             .await?;
         Ok(Box::new(handler))
     }
+
+    /// Provide an explicit WebSocket handler when default upstream forwarding
+    /// belongs to the runtime instead of this SDK client.
+    #[cfg(not(feature = "network-forwarding"))]
+    async fn open_websocket(
+        &self,
+        ctx: &CopilotRequestContext,
+        response: CopilotWebSocketResponse,
+    ) -> Result<Box<dyn CopilotWebSocketHandler>, CopilotRequestError>;
 }
 
 /// Forward through a shared handler, so an `Arc<H>` can be registered while the
@@ -369,6 +398,7 @@ impl<H: CopilotRequestHandler> CopilotRequestHandler for Arc<H> {
     }
 }
 /// fresh upstream connection.
+#[cfg(feature = "network-forwarding")]
 const FORBIDDEN_HEADERS: &[&str] = &[
     "host",
     "connection",
@@ -381,12 +411,14 @@ const FORBIDDEN_HEADERS: &[&str] = &[
     "trailer",
 ];
 
+#[cfg(feature = "network-forwarding")]
 fn is_forbidden_header(name: &HeaderName) -> bool {
     let name = name.as_str();
     FORBIDDEN_HEADERS.contains(&name) || name.starts_with("sec-websocket")
 }
 
 /// Drop headers that belong to the inbound connection rather than the request.
+#[cfg(feature = "network-forwarding")]
 fn strip_forbidden_headers(headers: &mut HeaderMap) {
     let forbidden: Vec<HeaderName> = headers
         .keys()
@@ -398,6 +430,7 @@ fn strip_forbidden_headers(headers: &mut HeaderMap) {
     }
 }
 
+#[cfg(feature = "network-forwarding")]
 static SHARED_HTTP_CLIENT: LazyLock<Result<reqwest::Client, reqwest::Error>> =
     LazyLock::new(|| {
         reqwest::Client::builder()
@@ -410,6 +443,7 @@ static SHARED_HTTP_CLIENT: LazyLock<Result<reqwest::Client, reqwest::Error>> =
 ///
 /// This is the default behaviour of [`CopilotRequestHandler::send_request`];
 /// consumers that mutate a request can call it to forward the mutated request.
+#[cfg(feature = "network-forwarding")]
 pub async fn forward_http(
     request: CopilotHttpRequest,
 ) -> Result<CopilotHttpResponse, CopilotRequestError> {
@@ -452,6 +486,7 @@ pub async fn forward_http(
     })
 }
 
+#[cfg(feature = "network-forwarding")]
 type UpstreamWrite =
     futures_util::stream::SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 
@@ -468,6 +503,7 @@ pub type WebSocketContextTransform = Arc<
 >;
 
 /// Builder for a [`CopilotWebSocketForwarder`].
+#[cfg(feature = "network-forwarding")]
 pub struct CopilotWebSocketForwarderBuilder {
     url: String,
     headers: HeaderMap,
@@ -476,6 +512,7 @@ pub struct CopilotWebSocketForwarderBuilder {
     on_send_response_message: Option<WebSocketTransform>,
 }
 
+#[cfg(feature = "network-forwarding")]
 impl CopilotWebSocketForwarderBuilder {
     /// Hook runtime→upstream messages (mutate or drop before forwarding).
     pub fn on_send_request_message(mut self, transform: WebSocketTransform) -> Self {
@@ -581,6 +618,7 @@ impl CopilotWebSocketForwarderBuilder {
 /// The default WebSocket handler: forwards each runtime message to the real
 /// upstream and each upstream message back to the runtime. Mutate by supplying
 /// transforms on the [builder](CopilotWebSocketForwarder::builder).
+#[cfg(feature = "network-forwarding")]
 pub struct CopilotWebSocketForwarder {
     write: AsyncMutex<Option<UpstreamWrite>>,
     on_send_request_message: Option<WebSocketTransform>,
@@ -588,6 +626,7 @@ pub struct CopilotWebSocketForwarder {
     cancel: CancellationToken,
 }
 
+#[cfg(feature = "network-forwarding")]
 impl CopilotWebSocketForwarder {
     /// Start building a forwarding handler for `url` with the given upstream
     /// handshake headers.
@@ -603,6 +642,7 @@ impl CopilotWebSocketForwarder {
 }
 
 #[async_trait]
+#[cfg(feature = "network-forwarding")]
 impl CopilotWebSocketHandler for CopilotWebSocketForwarder {
     async fn send_request_message_with_context(
         &self,
@@ -656,6 +696,7 @@ impl CopilotWebSocketHandler for CopilotWebSocketForwarder {
     }
 }
 
+#[cfg(feature = "network-forwarding")]
 fn apply_transform(
     transform: &Option<WebSocketTransform>,
     message: CopilotWebSocketMessage,
@@ -1356,5 +1397,8 @@ fn headers_to_wire(headers: &HeaderMap) -> HashMap<String, Vec<String>> {
     wire
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "network-forwarding"))]
 mod tests;
+
+#[cfg(all(test, not(feature = "network-forwarding")))]
+mod local_runtime_tests;

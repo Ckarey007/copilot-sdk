@@ -1734,6 +1734,178 @@ public sealed partial class ClientSessionLifetimeTests
     }
 
     [Fact]
+    public async Task McpAuth_RuntimeRefresh_Retains_Advertised_Request_And_Wire_Discriminant()
+    {
+        await using var server = await FakeCopilotServer.StartAsync();
+        await using var client = new CopilotClient(new CopilotClientOptions { Connection = RuntimeConnection.ForUri(server.Url) });
+        await using var session = await client.CreateSessionAsync(new SessionConfig
+        {
+            OnPermissionRequest = PermissionHandler.ApproveAll,
+            OnMcpAuthRequest = context =>
+            {
+                Assert.Equal(McpOauthRequestReason.Refresh, context.Reason);
+                Assert.True(context.RuntimeRefreshSupported);
+                return Task.FromResult<McpAuthResult?>(McpAuthResult.RefreshInRuntime());
+            }
+        });
+        DispatchEvent(session, new McpOauthRequiredEvent
+        {
+            Data = new McpOauthRequiredData
+            {
+                RequestId = "oauth-request",
+                ServerName = "oauth-mcp",
+                ServerUrl = "http://localhost/mcp",
+                Reason = McpOauthRequestReason.Refresh,
+                RuntimeRefreshSupported = true
+            }
+        });
+        var request = await WaitForRequestAsync(server, "session.mcp.oauth.handlePendingRequest");
+        Assert.Equal("oauth-request", request.Params.GetProperty("requestId").GetString());
+        var result = request.Params.GetProperty("result");
+        Assert.Equal("runtimeRefresh", result.GetProperty("kind").GetString());
+        Assert.Single(result.EnumerateObject());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(false)]
+    public async Task McpAuth_RuntimeRefresh_Without_Advertised_Capability_Sends_Cancelled(bool? supported)
+    {
+        await using var server = await FakeCopilotServer.StartAsync();
+        await using var client = new CopilotClient(new CopilotClientOptions { Connection = RuntimeConnection.ForUri(server.Url) });
+        await using var session = await client.CreateSessionAsync(new SessionConfig
+        {
+            OnPermissionRequest = PermissionHandler.ApproveAll,
+            OnMcpAuthRequest = context =>
+            {
+                Assert.False(context.RuntimeRefreshSupported);
+                return Task.FromResult<McpAuthResult?>(McpAuthResult.RefreshInRuntime());
+            }
+        });
+        DispatchEvent(session, new McpOauthRequiredEvent
+        {
+            Data = new McpOauthRequiredData
+            {
+                RequestId = "oauth-request",
+                ServerName = "oauth-mcp",
+                ServerUrl = "http://localhost/mcp",
+                Reason = McpOauthRequestReason.Refresh,
+                RuntimeRefreshSupported = supported
+            }
+        });
+        var request = await WaitForRequestAsync(server, "session.mcp.oauth.handlePendingRequest");
+        Assert.Equal("oauth-request", request.Params.GetProperty("requestId").GetString());
+        var result = request.Params.GetProperty("result");
+        Assert.Equal("cancelled", result.GetProperty("kind").GetString());
+        Assert.Single(result.EnumerateObject());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task McpAuth_Token_Takes_Precedence_Over_RuntimeRefresh(bool? supported)
+    {
+        await using var server = await FakeCopilotServer.StartAsync();
+        await using var client = new CopilotClient(new CopilotClientOptions { Connection = RuntimeConnection.ForUri(server.Url) });
+        await using var session = await client.CreateSessionAsync(new SessionConfig
+        {
+            OnPermissionRequest = PermissionHandler.ApproveAll,
+            OnMcpAuthRequest = _ => Task.FromResult<McpAuthResult?>(new McpAuthResult
+            {
+                RuntimeRefresh = true,
+                Token = new McpAuthToken { AccessToken = "host-token" }
+            })
+        });
+        DispatchEvent(session, new McpOauthRequiredEvent
+        {
+            Data = new McpOauthRequiredData
+            {
+                RequestId = "oauth-request",
+                ServerName = "oauth-mcp",
+                ServerUrl = "http://localhost/mcp",
+                Reason = McpOauthRequestReason.Refresh,
+                RuntimeRefreshSupported = supported
+            }
+        });
+        var request = await WaitForRequestAsync(server, "session.mcp.oauth.handlePendingRequest");
+        var result = request.Params.GetProperty("result");
+        Assert.Equal("token", result.GetProperty("kind").GetString());
+        Assert.Equal("host-token", result.GetProperty("accessToken").GetString());
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(null, true)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task McpAuth_Cancelled_Remains_Cancelled_With_Any_Capability(bool? supported, bool retainToken)
+    {
+        await using var server = await FakeCopilotServer.StartAsync();
+        await using var client = new CopilotClient(new CopilotClientOptions { Connection = RuntimeConnection.ForUri(server.Url) });
+        await using var session = await client.CreateSessionAsync(new SessionConfig
+        {
+            OnPermissionRequest = PermissionHandler.ApproveAll,
+            OnMcpAuthRequest = _ => Task.FromResult<McpAuthResult?>(retainToken
+                ? new McpAuthResult { Cancelled = true, RuntimeRefresh = true, Token = new McpAuthToken { AccessToken = "host-token" } }
+                : McpAuthResult.Cancel())
+        });
+        DispatchEvent(session, new McpOauthRequiredEvent
+        {
+            Data = new McpOauthRequiredData
+            {
+                RequestId = "oauth-request",
+                ServerName = "oauth-mcp",
+                ServerUrl = "http://localhost/mcp",
+                Reason = McpOauthRequestReason.Refresh,
+                RuntimeRefreshSupported = supported
+            }
+        });
+        var request = await WaitForRequestAsync(server, "session.mcp.oauth.handlePendingRequest");
+        Assert.Equal("oauth-request", request.Params.GetProperty("requestId").GetString());
+        var result = request.Params.GetProperty("result");
+        Assert.Equal("cancelled", result.GetProperty("kind").GetString());
+        Assert.Single(result.EnumerateObject());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task McpAuth_Empty_Token_Does_Not_Mask_RuntimeRefresh(bool? supported)
+    {
+        await using var server = await FakeCopilotServer.StartAsync();
+        await using var client = new CopilotClient(new CopilotClientOptions { Connection = RuntimeConnection.ForUri(server.Url) });
+        await using var session = await client.CreateSessionAsync(new SessionConfig
+        {
+            OnPermissionRequest = PermissionHandler.ApproveAll,
+            OnMcpAuthRequest = _ => Task.FromResult<McpAuthResult?>(new McpAuthResult
+            {
+                RuntimeRefresh = true,
+                Token = new McpAuthToken { AccessToken = "" }
+            })
+        });
+        DispatchEvent(session, new McpOauthRequiredEvent
+        {
+            Data = new McpOauthRequiredData
+            {
+                RequestId = "oauth-request",
+                ServerName = "oauth-mcp",
+                ServerUrl = "http://localhost/mcp",
+                Reason = McpOauthRequestReason.Refresh,
+                RuntimeRefreshSupported = supported
+            }
+        });
+        var request = await WaitForRequestAsync(server, "session.mcp.oauth.handlePendingRequest");
+        Assert.Equal("oauth-request", request.Params.GetProperty("requestId").GetString());
+        var result = request.Params.GetProperty("result");
+        Assert.Equal(supported == true ? "runtimeRefresh" : "cancelled", result.GetProperty("kind").GetString());
+        Assert.Single(result.EnumerateObject());
+    }
+
+    [Fact]
     public async Task McpAuth_Handler_Exception_Cancels_Pending_Request()
     {
         await using var server = await FakeCopilotServer.StartAsync();

@@ -14,8 +14,8 @@ use github_copilot_sdk::github_token::{
 };
 use github_copilot_sdk::handler::{
     ApproveAllHandler, AutoModeSwitchHandler, AutoModeSwitchResponse, ElicitationHandler,
-    ExitPlanModeHandler, ExitPlanModeResult, McpAuthHandler, McpAuthRequest, McpAuthResult,
-    PermissionHandler, PermissionResult, UserInputHandler, UserInputResponse,
+    ExitPlanModeHandler, ExitPlanModeResult, McpAuthHandler, McpAuthRequest, McpAuthResponse,
+    McpAuthResult, PermissionHandler, PermissionResult, UserInputHandler, UserInputResponse,
 };
 use github_copilot_sdk::rpc::{
     AuthInfoType, CanvasProviderInvokeActionRequest, CanvasProviderOpenRequest,
@@ -5786,6 +5786,85 @@ async fn nested_handler_panics_still_send_cancellation_replies() {
         assert_eq!(reply["method"], method);
         assert_eq!(reply["params"]["result"], result);
         server.respond(&reply, serde_json::json!({})).await;
+    }
+    session.stop_event_loop().await;
+}
+
+#[tokio::test]
+async fn mcp_auth_runtime_refresh_without_capability_sends_cancelled() {
+    struct RuntimeRefreshHandler;
+
+    #[async_trait]
+    impl McpAuthHandler for RuntimeRefreshHandler {
+        async fn handle(
+            &self,
+            _session_id: SessionId,
+            _request_id: RequestId,
+            _request: McpAuthRequest,
+        ) -> McpAuthResult {
+            McpAuthResult::Cancelled
+        }
+
+        async fn handle_with_runtime_refresh(
+            &self,
+            _session_id: SessionId,
+            _request_id: RequestId,
+            _request: McpAuthRequest,
+            _runtime_refresh_supported: bool,
+        ) -> McpAuthResponse {
+            McpAuthResponse::RuntimeRefresh
+        }
+    }
+
+    let (client, read, write) = make_client();
+    let mut server = FakeServer {
+        read,
+        write,
+        session_id: String::new(),
+    };
+    let create = tokio::spawn(async move {
+        client
+            .create_session(
+                SessionConfig::default().with_mcp_auth_handler(Arc::new(RuntimeRefreshHandler)),
+            )
+            .await
+    });
+    let request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+    server.session_id = requested_session_id(&request).to_string();
+    server
+        .respond(
+            &request,
+            serde_json::json!({ "sessionId": server.session_id }),
+        )
+        .await;
+    let interest = timeout(TIMEOUT, server.read_request()).await.unwrap();
+    assert_eq!(interest["method"], "session.eventLog.registerInterest");
+    server.respond(&interest, serde_json::json!({})).await;
+    let session = timeout(TIMEOUT, create).await.unwrap().unwrap().unwrap();
+
+    for (request_id, supported, kind) in [
+        ("missing-capability", None, "cancelled"),
+        ("false-capability", Some(false), "cancelled"),
+        ("true-capability", Some(true), "runtimeRefresh"),
+    ] {
+        let mut data = serde_json::json!({
+            "requestId": request_id, "reason": "refresh",
+            "serverName": "oauth-server", "serverUrl": "https://example.com/mcp",
+        });
+        if let Some(supported) = supported {
+            data["runtimeRefreshSupported"] = serde_json::json!(supported);
+        }
+        server.send_event("mcp.oauth_required", data).await;
+        let reply = timeout(TIMEOUT, server.read_request()).await.unwrap();
+        assert_eq!(reply["method"], "session.mcp.oauth.handlePendingRequest");
+        assert_eq!(reply["params"]["requestId"], request_id);
+        assert_eq!(
+            reply["params"]["result"],
+            serde_json::json!({ "kind": kind })
+        );
+        server
+            .respond(&reply, serde_json::json!({ "success": true }))
+            .await;
     }
     session.stop_event_loop().await;
 }

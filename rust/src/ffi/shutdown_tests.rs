@@ -4,6 +4,7 @@
 
 #![cfg(test)]
 
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Mutex, mpsc as std_mpsc};
 use std::time::Duration;
 
@@ -13,6 +14,18 @@ use crate::Client;
 // The native function pointer cannot capture the per-test shutdown gate.
 static SHUTDOWN_GATE: Mutex<Option<(std_mpsc::SyncSender<()>, std_mpsc::Receiver<()>)>> =
     Mutex::new(None);
+static ATTACHED_SHUTDOWNS: AtomicUsize = AtomicUsize::new(0);
+static STOP_SHUTDOWNS: AtomicUsize = AtomicUsize::new(0);
+
+unsafe extern "C" fn count_attached_host_shutdown(_server_id: u32) -> bool {
+    ATTACHED_SHUTDOWNS.fetch_add(1, Ordering::SeqCst);
+    true
+}
+
+unsafe extern "C" fn count_stop_host_shutdown(_server_id: u32) -> bool {
+    STOP_SHUTDOWNS.fetch_add(1, Ordering::SeqCst);
+    true
+}
 
 unsafe extern "C" fn gated_host_shutdown(_server_id: u32) -> bool {
     let gate = SHUTDOWN_GATE.lock().unwrap();
@@ -56,6 +69,7 @@ fn async_stop_keeps_current_thread_executor_responsive_during_native_shutdown() 
                 .unwrap();
                 *client.inner.ffi_host.lock() = Some(Arc::new(FfiShared {
                     host_shutdown: gated_host_shutdown,
+                    owns_host: true,
                     connection_write,
                     connection_close,
                     server_id: AtomicU32::new(11),
@@ -89,4 +103,53 @@ fn async_stop_keeps_current_thread_executor_responsive_during_native_shutdown() 
         "native shutdown blocked the executor or stop completed before cleanup"
     );
     assert_eq!(errors.0.len(), 1, "only the closed RPC should fail");
+}
+
+#[test]
+fn attached_client_closes_only_its_connection() {
+    ATTACHED_SHUTDOWNS.store(0, Ordering::SeqCst);
+    let shared = FfiShared {
+        host_shutdown: count_attached_host_shutdown,
+        owns_host: false,
+        connection_write,
+        connection_close,
+        server_id: AtomicU32::new(11),
+        connection_id: AtomicU32::new(12),
+        callback_state: AtomicPtr::new(std::ptr::null_mut()),
+        closed: AtomicBool::new(false),
+        operation_lock: parking_lot::Mutex::new(()),
+        library_path: PathBuf::from("test-runtime"),
+    };
+    shared.close();
+    assert_eq!(shared.connection_id.load(Ordering::SeqCst), 0);
+    assert_eq!(ATTACHED_SHUTDOWNS.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn stopping_attached_client_does_not_shutdown_the_cli_engine() {
+    STOP_SHUTDOWNS.store(0, Ordering::SeqCst);
+    let directory = tempfile::tempdir().unwrap();
+    let client = Client::from_streams(
+        tokio::io::empty(),
+        tokio::io::sink(),
+        directory.path().to_path_buf(),
+    )
+    .unwrap();
+    *client.inner.ffi_host.lock() = Some(Arc::new(FfiShared {
+        host_shutdown: count_stop_host_shutdown,
+        owns_host: false,
+        connection_write,
+        connection_close,
+        server_id: AtomicU32::new(11),
+        connection_id: AtomicU32::new(12),
+        callback_state: AtomicPtr::new(std::ptr::null_mut()),
+        closed: AtomicBool::new(false),
+        operation_lock: parking_lot::Mutex::new(()),
+        library_path: PathBuf::from("test-runtime"),
+    }));
+    client
+        .stop()
+        .await
+        .expect("only this SDK connection closes");
+    assert_eq!(STOP_SHUTDOWNS.load(Ordering::SeqCst), 0);
 }

@@ -890,6 +890,17 @@ func validateAskUserVariant(variant AskUserVariant) error {
 }
 
 func (c *Client) CreateSession(ctx context.Context, config *SessionConfig) (*Session, error) {
+	return c.createSession(ctx, config, nil)
+}
+
+// CreateSessionWithMCPAuthRuntimeRefresh creates a session using the opt-in MCP
+// auth handler instead of config.OnMCPAuthRequest. A nil handler uses the legacy
+// callback. All other options and session lifecycle behavior match CreateSession.
+func (c *Client) CreateSessionWithMCPAuthRuntimeRefresh(ctx context.Context, config *SessionConfig, handler MCPAuthRuntimeRefreshHandler) (*Session, error) {
+	return c.createSession(ctx, config, handler)
+}
+
+func (c *Client) createSession(ctx context.Context, config *SessionConfig, runtimeRefreshHandler MCPAuthRuntimeRefreshHandler) (*Session, error) {
 	if config == nil {
 		config = &SessionConfig{}
 	}
@@ -1115,7 +1126,7 @@ func (c *Client) CreateSession(ctx context.Context, config *SessionConfig) (*Ses
 		s.registerTools(config.Tools)
 		s.registerPermissionHandler(config.OnPermissionRequest)
 		s.registerPermissionHandlerWithPrompt(config.OnPermissionRequestWithPrompt)
-		s.registerMCPAuthHandler(config.OnMCPAuthRequest)
+		s.registerMCPAuthHandlers(config.OnMCPAuthRequest, runtimeRefreshHandler)
 		if config.OnUserInputRequest != nil {
 			s.registerUserInputHandler(config.OnUserInputRequest)
 		}
@@ -1283,7 +1294,7 @@ func (c *Client) CreateSession(ctx context.Context, config *SessionConfig) (*Ses
 		unregisterSession(registeredSessionID, session)
 		return nil, fmt.Errorf("session.create returned sessionId %s but the caller requested %s", response.SessionID, localSessionID)
 	}
-	if config.OnMCPAuthRequest != nil {
+	if config.OnMCPAuthRequest != nil || runtimeRefreshHandler != nil {
 		if _, err := c.client.Request(ctx, "session.eventLog.registerInterest", map[string]any{
 			"sessionId": session.SessionID,
 			"eventType": "mcp.oauth_required",
@@ -1344,6 +1355,17 @@ func (c *Client) ResumeSession(ctx context.Context, sessionID string, config *Re
 //	    Tools: []copilot.Tool{myNewTool},
 //	})
 func (c *Client) ResumeSessionWithOptions(ctx context.Context, sessionID string, config *ResumeSessionConfig) (*Session, error) {
+	return c.resumeSession(ctx, sessionID, config, nil)
+}
+
+// ResumeSessionWithMCPAuthRuntimeRefresh resumes a session using the opt-in MCP
+// auth handler instead of config.OnMCPAuthRequest. A nil handler uses the legacy
+// callback. All other options and session lifecycle behavior match ResumeSessionWithOptions.
+func (c *Client) ResumeSessionWithMCPAuthRuntimeRefresh(ctx context.Context, sessionID string, config *ResumeSessionConfig, handler MCPAuthRuntimeRefreshHandler) (*Session, error) {
+	return c.resumeSession(ctx, sessionID, config, handler)
+}
+
+func (c *Client) resumeSession(ctx context.Context, sessionID string, config *ResumeSessionConfig, runtimeRefreshHandler MCPAuthRuntimeRefreshHandler) (*Session, error) {
 	unlockSession := c.lockSessionOperation(sessionID)
 	defer unlockSession()
 
@@ -1536,7 +1558,7 @@ func (c *Client) ResumeSessionWithOptions(ctx context.Context, sessionID string,
 	session.registerTools(config.Tools)
 	session.registerPermissionHandler(config.OnPermissionRequest)
 	session.registerPermissionHandlerWithPrompt(config.OnPermissionRequestWithPrompt)
-	session.registerMCPAuthHandler(config.OnMCPAuthRequest)
+	session.registerMCPAuthHandlers(config.OnMCPAuthRequest, runtimeRefreshHandler)
 	if config.OnUserInputRequest != nil {
 		session.registerUserInputHandler(config.OnUserInputRequest)
 	}
@@ -1629,7 +1651,7 @@ func (c *Client) ResumeSessionWithOptions(ctx context.Context, sessionID string,
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
-	if config.OnMCPAuthRequest != nil {
+	if config.OnMCPAuthRequest != nil || runtimeRefreshHandler != nil {
 		if _, err := c.client.Request(ctx, "session.eventLog.registerInterest", map[string]any{
 			"sessionId": sessionID,
 			"eventType": "mcp.oauth_required",

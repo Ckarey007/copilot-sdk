@@ -52,7 +52,6 @@ from .generated.rpc import (
     CanvasProviderOpenResult,
     ClientSessionApiHandlers,
     CommandsHandlePendingCommandRequest,
-    GitHubTokenAcquireResultKind,
     HandlePendingToolCallRequest,
     LogRequest,
     MCPOauthHandlePendingRequest,
@@ -605,6 +604,7 @@ class McpAuthRequest(TypedDict, total=False):
     serverName: Required[str]
     serverUrl: Required[str]
     reason: Required[Literal["initial", "refresh", "reauth", "upscope"]]
+    runtimeRefreshSupported: bool
     wwwAuthenticateParams: McpAuthWwwAuthenticateParams
     resourceMetadata: str
     staticClientConfig: McpAuthStaticClientConfig
@@ -619,9 +619,12 @@ class McpAuthToken(TypedDict, total=False):
 
 
 class McpAuthResult(TypedDict, total=False):
-    """Result returned by an MCP auth request handler."""
+    """Host token, cancellation, or noninteractive handoff for an advertised Refresh.
 
-    kind: Required[Literal["token", "cancelled"]]
+    Handoff acceptance is not token installation or reconnect completion.
+    """
+
+    kind: Required[Literal["token", "cancelled", "runtimeRefresh"]]
     accessToken: str
     tokenType: str
     expiresIn: int
@@ -2654,6 +2657,7 @@ class CopilotSession:
                     "serverName": data.server_name,
                     "serverUrl": data.server_url,
                     "reason": data.reason.value,
+                    "runtimeRefreshSupported": data.runtime_refresh_supported or False,
                 }
                 if data.www_authenticate_params is not None:
                     request["wwwAuthenticateParams"] = {}
@@ -2971,17 +2975,25 @@ class CopilotSession:
                 request_id=request_id,
             )
 
-            if result and result.get("kind", "token") == "token":
-                rpc_result = MCPOauthPendingRequestResponse(
-                    kind=GitHubTokenAcquireResultKind.TOKEN,
-                    access_token=result["accessToken"],
-                    expires_in=result.get("expiresIn"),
-                    token_type=result.get("tokenType"),
+            if result and result.get("kind") == "cancelled":
+                rpc_result = MCPOauthPendingRequestResponse.from_dict({"kind": "cancelled"})
+            elif result and result.get("accessToken"):
+                rpc_result = MCPOauthPendingRequestResponse.from_dict(
+                    {
+                        "kind": "token",
+                        "accessToken": result["accessToken"],
+                        "expiresIn": result.get("expiresIn"),
+                        "tokenType": result.get("tokenType"),
+                    }
                 )
+            elif (
+                result
+                and result.get("kind") == "runtimeRefresh"
+                and request.get("runtimeRefreshSupported") is True
+            ):
+                rpc_result = MCPOauthPendingRequestResponse.from_dict({"kind": "runtimeRefresh"})
             else:
-                rpc_result = MCPOauthPendingRequestResponse(
-                    kind=GitHubTokenAcquireResultKind.CANCELLED
-                )
+                rpc_result = MCPOauthPendingRequestResponse.from_dict({"kind": "cancelled"})
             await self.rpc.mcp.oauth.handle_pending_request(
                 MCPOauthHandlePendingRequest(
                     request_id=request_id,
@@ -2993,9 +3005,7 @@ class CopilotSession:
                 await self.rpc.mcp.oauth.handle_pending_request(
                     MCPOauthHandlePendingRequest(
                         request_id=request_id,
-                        result=MCPOauthPendingRequestResponse(
-                            kind=GitHubTokenAcquireResultKind.CANCELLED
-                        ),
+                        result=MCPOauthPendingRequestResponse.from_dict({"kind": "cancelled"}),
                     )
                 )
             except (JsonRpcError, ProcessExitedError, OSError):

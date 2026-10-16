@@ -1013,6 +1013,7 @@ public sealed partial class CopilotSession : IAsyncDisposable
                             ServerName = data.ServerName,
                             ServerUrl = data.ServerUrl,
                             Reason = data.Reason,
+                            RuntimeRefreshSupported = data.RuntimeRefreshSupported ?? false,
                             WwwAuthenticateParams = data.WwwAuthenticateParams,
                             ResourceMetadata = data.ResourceMetadata,
                             StaticClientConfig = data.StaticClientConfig
@@ -1098,14 +1099,16 @@ public sealed partial class CopilotSession : IAsyncDisposable
         {
             var result = await handler(context);
             McpOauthPendingRequestResponse response =
-                result is { Cancelled: false, Token: { } token }
+                result is { Cancelled: false, Token: { } token } && !string.IsNullOrEmpty(token.AccessToken)
                     ? new McpOauthPendingRequestResponseToken
                     {
                         AccessToken = token.AccessToken,
                         TokenType = token.TokenType,
                         ExpiresIn = token.ExpiresIn
                     }
-                    : new McpOauthPendingRequestResponseCancelled();
+                    : result is { Cancelled: false, RuntimeRefresh: true } && context.RuntimeRefreshSupported
+                        ? new McpOauthPendingRequestResponseRuntimeRefresh()
+                        : new McpOauthPendingRequestResponseCancelled();
 
             await Rpc.Mcp.Oauth.HandlePendingRequestAsync(requestId, response);
         }

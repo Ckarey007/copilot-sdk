@@ -587,6 +587,46 @@ export type AutopilotObjectiveStatus =
   /** The objective completed. */
   | "completed";
 /**
+ * Whether an active connection-owned transfer accepted cancellation.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlCancelResult".
+ */
+/** @experimental */
+export type AzureMlCancelResult = boolean;
+/**
+ * How catalog discovery handles a recent sign-in failure.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlCatalogRetryMode".
+ */
+/** @experimental */
+export type AzureMlCatalogRetryMode =
+  /** Reuse a recent failure for automatic background discovery. */
+  | "background"
+  /** Retry sign-in after an explicit refresh. */
+  | "explicit";
+/**
+ * Registry that owns an Azure ML model version.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlRegistry".
+ */
+/** @experimental */
+export type AzureMlRegistry =
+  /** Public Azure ML model registry. */
+  | "azureml"
+  /** Microsoft staff development registry. */
+  | "azureml-dev";
+/**
+ * Active Azure ML download progress or null.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlStatusResult".
+ */
+/** @experimental */
+export type AzureMlStatusResult = AzureMlDownloadStatus | null;
+/**
  * Root JSON Schema type for a built-in tool input.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -3962,6 +4002,12 @@ export type McpOauthPendingRequestResponse =
        * OAuth response variant discriminator.
        */
       kind: "cancelled";
+    }
+  | {
+      /**
+       * OAuth response variant discriminator.
+       */
+      kind: "runtimeRefresh";
     };
 /**
  * OAuth grant type override for this login.
@@ -9176,6 +9222,399 @@ export interface AutoTierMetadata {
    * Provider that supplied this metadata, when the catalog is provider-attributed.
    */
   providerId?: string;
+}
+/**
+ * Lists models eligible for local use before a chat session exists.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlCatalogRequest".
+ */
+/** @experimental */
+export interface AzureMlCatalogRequest {
+  /**
+   * Ask for the staff registry; the server also verifies its own authenticated identity.
+   */
+  includeDev: boolean;
+  /**
+   * An explicit user refresh retries a cached sign-in failure.
+   */
+  retryMode?: AzureMlCatalogRetryMode | null;
+}
+/**
+ * Eligible models and redacted validation warnings.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlCatalogResult".
+ */
+/** @experimental */
+export interface AzureMlCatalogResult {
+  /**
+   * Model versions suitable for local use.
+   */
+  models: AzureMlModel[];
+  /**
+   * Skipped model and catalog errors without sensitive access details.
+   */
+  warnings: AzureMlCatalogWarning[];
+}
+/**
+ * Eligible Azure ML model version and its provider metadata.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlModel".
+ */
+/** @experimental */
+export interface AzureMlModel {
+  registry: AzureMlRegistry;
+  /**
+   * Stable model-family name.
+   */
+  name: string;
+  /**
+   * Exact published model version.
+   */
+  version: string;
+  profile: AzureMlProfile;
+  /**
+   * Provider metadata retained for registration.
+   */
+  metadata: JsonValue;
+}
+/**
+ * Validated local runtime requirements for an Azure ML model.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlProfile".
+ */
+/** @experimental */
+export interface AzureMlProfile {
+  /**
+   * Sanitized model-picker display label.
+   */
+  displayName: string;
+  /**
+   * Published download size, when available.
+   */
+  downloadBytes?: number | null;
+  /**
+   * Peak disk use during installation, when available.
+   */
+  peakDiskBytes?: number | null;
+  /**
+   * Recommended graphics memory, when available.
+   */
+  recommendedVramBytes?: number | null;
+  /**
+   * Maximum input tokens accepted by the model.
+   */
+  maxPromptTokens: number;
+  /**
+   * Maximum context window accepted by the model.
+   */
+  maxContextWindowTokens: number;
+  /**
+   * Maximum output tokens produced by the model.
+   */
+  maxOutputTokens: number;
+  /**
+   * Whether the model supports tool calls.
+   */
+  supportsToolCalls: boolean;
+  /**
+   * Validated local runtime configuration.
+   */
+  serveOptions: JsonValue;
+  /**
+   * Published license, when available.
+   */
+  license?: AzureMlLicense | null;
+}
+/**
+ * License published with an eligible Azure ML model.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlLicense".
+ */
+/** @experimental */
+export interface AzureMlLicense {
+  /**
+   * Bounded display label for the model license.
+   */
+  name: string;
+}
+/**
+ * Redacted warning for a skipped model or registry.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlCatalogWarning".
+ */
+/** @experimental */
+export interface AzureMlCatalogWarning {
+  registry: AzureMlRegistry;
+  /**
+   * Model family, or `catalog` for registry-wide errors.
+   */
+  modelName: string;
+  /**
+   * Version, if one was available.
+   */
+  version?: string | null;
+  /**
+   * Safe reason without signed access details.
+   */
+  kind: string;
+}
+/**
+ * Selects an inactive Azure ML version for cleanup.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlDiscardRequest".
+ */
+/** @experimental */
+export interface AzureMlDiscardRequest {
+  /**
+   * Version directory under this server's Azure ML library.
+   */
+  destination: string;
+  /**
+   * Optional connection-owned lease that spans the caller's complete family mutation.
+   */
+  leaseId?: string | null;
+}
+/**
+ * Selects an active connection-owned download.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlDownloadIdRequest".
+ */
+/** @experimental */
+export interface AzureMlDownloadIdRequest {
+  /**
+   * Identifier supplied when this connection started the download.
+   */
+  requestId: string;
+}
+/**
+ * Downloads a model version to its configured local library.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlDownloadRequest".
+ */
+/** @experimental */
+export interface AzureMlDownloadRequest {
+  /**
+   * Unique request identifier for progress and explicit cancellation.
+   */
+  requestId: string;
+  registry: AzureMlRegistry;
+  /**
+   * Exact model-family name.
+   */
+  name: string;
+  /**
+   * Exact published version.
+   */
+  version: string;
+  /**
+   * Version directory under this server's Azure ML library.
+   */
+  destination: string;
+  /**
+   * Optional connection-owned lease that spans the caller's complete family mutation.
+   */
+  leaseId?: string | null;
+}
+/**
+ * Completed and verified Azure ML model files.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlDownloadResult".
+ */
+/** @experimental */
+export interface AzureMlDownloadResult {
+  /**
+   * Installed GGUF path.
+   */
+  primaryPath: string;
+  /**
+   * Published manifest path.
+   */
+  manifestPath: string;
+  /**
+   * Exact bytes across the model version.
+   */
+  totalBytes: number;
+  /**
+   * Whether all prior verified files were reused.
+   */
+  reused: boolean;
+  /**
+   * Validated local runtime settings.
+   */
+  serveOptions: JsonValue;
+  /**
+   * Maximum supported local concurrency.
+   */
+  maxConcurrent: number;
+  /**
+   * Installed companion file paths.
+   */
+  extraFiles: string[];
+  /**
+   * Transient transfer failures retried during this run.
+   */
+  totalFailures?: number | null;
+  /**
+   * Bytes received over the network during this run, including discarded bytes.
+   */
+  receivedBytes?: number | null;
+  /**
+   * Whether a partial from a prior run continued after the server accepted its range.
+   */
+  resumed?: boolean | null;
+}
+/**
+ * Progress and retry facts for one active download.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlDownloadStatus".
+ */
+/** @experimental */
+export interface AzureMlDownloadStatus {
+  /**
+   * Current transfer phase.
+   */
+  phase: string;
+  /**
+   * Bytes completed across all files.
+   */
+  completedBytes: number;
+  /**
+   * Exact bytes expected across all files.
+   */
+  totalBytes: number;
+  /**
+   * Next retry attempt, if the transfer is retrying.
+   */
+  retryAttempt?: number | null;
+  /**
+   * Configured retry limit, if the transfer is retrying.
+   */
+  maxAttempts?: number | null;
+  /**
+   * Redacted failure reason, if the transfer is retrying.
+   */
+  retryReason?: string | null;
+  /**
+   * Planned delay before retry, if the transfer is retrying.
+   */
+  retryDelayMs?: number | null;
+}
+/**
+ * Opaque handle to a connection-owned family mutation interval.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlFamilyLeaseResult".
+ */
+/** @experimental */
+export interface AzureMlFamilyLeaseResult {
+  /**
+   * Server-generated handle, valid only on the originating SDK connection.
+   */
+  leaseId: string;
+}
+/**
+ * Releases a family mutation interval owned by this SDK connection.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlFamilyReleaseRequest".
+ */
+/** @experimental */
+export interface AzureMlFamilyReleaseRequest {
+  /**
+   * Server-generated handle from `azureMl.acquireFamily`.
+   */
+  leaseId: string;
+  registry: AzureMlRegistry;
+  /**
+   * Exact model-family name.
+   */
+  name: string;
+}
+/**
+ * Identifies a family in the server's Azure ML model library.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlFamilyRequest".
+ */
+/** @experimental */
+export interface AzureMlFamilyRequest {
+  registry: AzureMlRegistry;
+  /**
+   * Exact model-family name.
+   */
+  name: string;
+}
+/**
+ * Selects an Azure ML model family.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlLatestRequest".
+ */
+/** @experimental */
+export interface AzureMlLatestRequest {
+  registry: AzureMlRegistry;
+  /**
+   * Exact model-family name.
+   */
+  name: string;
+}
+/**
+ * Selects an immutable model version.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlResolveRequest".
+ */
+/** @experimental */
+export interface AzureMlResolveRequest {
+  registry: AzureMlRegistry;
+  /**
+   * Exact model-family name.
+   */
+  name: string;
+  /**
+   * Exact published version.
+   */
+  version: string;
+}
+/**
+ * Resolved artifact facts without signed download URLs.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlResolveResult".
+ */
+/** @experimental */
+export interface AzureMlResolveResult {
+  /**
+   * Exact bytes across all files in this version.
+   */
+  totalBytes: number;
+  /**
+   * GGUF path relative to the version directory.
+   */
+  primaryPath: string;
+  /**
+   * Other paths relative to the version directory.
+   */
+  extraFiles: string[];
+  /**
+   * Validated local runtime settings.
+   */
+  serveOptions: JsonValue;
+  /**
+   * Maximum supported local concurrency.
+   */
+  maxConcurrent: number;
 }
 /**
  * The running runtime's complete catalog of well-known built-in model IDs, including supported models and additional IDs with built-in metadata.
@@ -18635,6 +19074,10 @@ export interface McpConfiguredServerState {
    * Observed connection error, when the materialized server failed.
    */
   error?: string;
+  /**
+   * Whether the server's current connection has loaded its tool list (from tools/list or a cached snapshot). A connected server without loaded tools is still loading them; the change is signalled by session.mcp_server_tools_loaded. Absent when the runtime does not report it.
+   */
+  toolsLoaded?: boolean;
 }
 /**
  * Effective MCP configuration with optional live observations from matching already materialized servers.
@@ -19348,7 +19791,7 @@ export interface McpOauthFetchProtectedResourceMetadataResult {
   metadataText?: string;
 }
 /**
- * Pending MCP OAuth request ID and host-provided token or cancellation response.
+ * Pending MCP OAuth request ID and host token, cancellation, or advertised runtime refresh response.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
  * via the `definition` "McpOauthHandlePendingRequest".
@@ -31238,6 +31681,10 @@ export interface SkillProviderDescriptor {
    * Optional freeform argument hint used by slash-command catalogs.
    */
   argumentHint?: string;
+  /**
+   * Absolute path to the folder that holds the skill's supporting files (scripts, references, templates, assets), in the session's path conventions: the host OS for local disk, or the registered SessionFs conventions. When the skill is activated the runtime lists the folder's files for the model through the session's filesystem, with the same rules as a file-based skill's folder; it never reads or copies them. On local disk the folder becomes a read-only skill root, like a configured skill directory. It is not shown in skill catalogs.
+   */
+  directory?: string;
 }
 /**
  * Catalog metadata returned by an SDK session's skill provider. Catalogs are limited to 1024 descriptors and 1 MiB of aggregate metadata.
@@ -31274,7 +31721,7 @@ export interface SkillProviderReadRequest {
   name: string;
 }
 /**
- * Text-only SKILL.md content returned by an SDK session's skill provider. YAML frontmatter is optional: fields it omits come from the catalog descriptor, fields it declares must match the descriptor, and `allowed-tools` is read only from frontmatter. Related files and assets are not supported.
+ * SKILL.md content returned by an SDK session's skill provider. YAML frontmatter is optional: fields it omits come from the catalog descriptor, fields it declares must match the descriptor, and `allowed-tools` is read only from frontmatter. Supporting files come from the descriptor's `directory`.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
  * via the `definition` "SkillProviderReadResult".
@@ -36234,6 +36681,116 @@ export interface ModelsListTokenPriceUnitsRequest {
    */
   gitHubToken?: string;
 }
+/**
+ * Eligible Azure ML model version and its provider metadata.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlLatestResult".
+ */
+/** @experimental */
+export interface AzureMlLatestResult {
+  registry: AzureMlRegistry;
+  /**
+   * Stable model-family name.
+   */
+  name: string;
+  /**
+   * Exact published model version.
+   */
+  version: string;
+  profile: AzureMlProfile;
+  /**
+   * Provider metadata retained for registration.
+   */
+  metadata: JsonValue;
+}
+/**
+ * Opaque handle to a connection-owned family mutation interval.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlAcquireFamilyResult".
+ */
+/** @experimental */
+export interface AzureMlAcquireFamilyResult {
+  /**
+   * Server-generated handle, valid only on the originating SDK connection.
+   */
+  leaseId: string;
+}
+/**
+ * Identifies a family in the server's Azure ML model library.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlAcquireFamilyRequest".
+ */
+/** @experimental */
+export interface AzureMlAcquireFamilyRequest {
+  registry: AzureMlRegistry;
+  /**
+   * Exact model-family name.
+   */
+  name: string;
+}
+/**
+ * Empty acknowledgement for a completed host lifecycle operation.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlReleaseFamilyResult".
+ */
+/** @experimental */
+export interface AzureMlReleaseFamilyResult {}
+/**
+ * Releases a family mutation interval owned by this SDK connection.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlReleaseFamilyRequest".
+ */
+/** @experimental */
+export interface AzureMlReleaseFamilyRequest {
+  /**
+   * Server-generated handle from `azureMl.acquireFamily`.
+   */
+  leaseId: string;
+  registry: AzureMlRegistry;
+  /**
+   * Exact model-family name.
+   */
+  name: string;
+}
+/**
+ * Selects an active connection-owned download.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlStatusRequest".
+ */
+/** @experimental */
+export interface AzureMlStatusRequest {
+  /**
+   * Identifier supplied when this connection started the download.
+   */
+  requestId: string;
+}
+/**
+ * Selects an active connection-owned download.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlCancelRequest".
+ */
+/** @experimental */
+export interface AzureMlCancelRequest {
+  /**
+   * Identifier supplied when this connection started the download.
+   */
+  requestId: string;
+}
+/**
+ * Empty acknowledgement for a completed host lifecycle operation.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "AzureMlDiscardResult".
+ */
+/** @experimental */
+export interface AzureMlDiscardResult {}
 
 /** @experimental */
 export interface SessionWorkflowPauseAtCheckpointResult {
@@ -37055,6 +37612,90 @@ export function createServerRpc(connection: MessageConnection) {
              */
             listTokenPriceUnits: async (params?: ModelsListTokenPriceUnitsRequest): Promise<ModelTokenPriceUnitList> =>
                 connection.sendRequest("models.listTokenPriceUnits", params),
+        },
+        /** @experimental */
+        azureMl: {
+            /**
+             * Lists eligible Azure ML local models and redacted warnings before a chat session exists.
+             *
+             * @param params Lists models eligible for local use before a chat session exists.
+             *
+             * @returns Eligible models and redacted validation warnings.
+             */
+            catalog: async (params: AzureMlCatalogRequest): Promise<AzureMlCatalogResult> =>
+                connection.sendRequest("azureMl.catalog", params),
+            /**
+             * Revalidates the newest eligible version of one Azure ML model family.
+             *
+             * @param params Selects an Azure ML model family.
+             *
+             * @returns Eligible Azure ML model version and its provider metadata.
+             */
+            latest: async (params: AzureMlLatestRequest): Promise<AzureMlLatestResult> =>
+                connection.sendRequest("azureMl.latest", params),
+            /**
+             * Resolves immutable artifact facts without returning signed access URLs.
+             *
+             * @param params Selects an immutable model version.
+             *
+             * @returns Resolved artifact facts without signed download URLs.
+             */
+            resolve: async (params: AzureMlResolveRequest): Promise<AzureMlResolveResult> =>
+                connection.sendRequest("azureMl.resolve", params),
+            /**
+             * Downloads and verifies a connection-owned model version, returning only after placement and manifest publication.
+             *
+             * @param params Downloads a model version to its configured local library.
+             *
+             * @returns Completed and verified Azure ML model files.
+             */
+            download: async (params: AzureMlDownloadRequest): Promise<AzureMlDownloadResult> =>
+                connection.sendRequest("azureMl.download", params),
+            /**
+             * Acquires a connection-owned model-family mutation lease across transfer, activation, registration, and cleanup.
+             *
+             * @param params Identifies a family in the server's Azure ML model library.
+             *
+             * @returns Opaque handle to a connection-owned family mutation interval.
+             */
+            acquireFamily: async (params: AzureMlAcquireFamilyRequest): Promise<AzureMlAcquireFamilyResult> =>
+                connection.sendRequest("azureMl.acquireFamily", params),
+            /**
+             * Releases a connection-owned family lease after its active download and cleanup operations complete.
+             *
+             * @param params Releases a family mutation interval owned by this SDK connection.
+             *
+             * @returns Empty acknowledgement for a completed host lifecycle operation.
+             */
+            releaseFamily: async (params: AzureMlReleaseFamilyRequest): Promise<AzureMlReleaseFamilyResult> =>
+                connection.sendRequest("azureMl.releaseFamily", params),
+            /**
+             * Returns progress for an active download owned by this connection, or null after completion.
+             *
+             * @param params Selects an active connection-owned download.
+             *
+             * @returns Active Azure ML download progress or null.
+             */
+            status: async (params: AzureMlStatusRequest): Promise<AzureMlStatusResult> =>
+                connection.sendRequest("azureMl.status", params),
+            /**
+             * Cancels a connection-owned download; the download call reports terminal cleanup separately.
+             *
+             * @param params Selects an active connection-owned download.
+             *
+             * @returns Whether an active connection-owned transfer accepted cancellation.
+             */
+            cancel: async (params: AzureMlCancelRequest): Promise<AzureMlCancelResult> =>
+                connection.sendRequest("azureMl.cancel", params),
+            /**
+             * Discards an inactive model version under the server-owned Azure ML library.
+             *
+             * @param params Selects an inactive Azure ML version for cleanup.
+             *
+             * @returns Empty acknowledgement for a completed host lifecycle operation.
+             */
+            discard: async (params: AzureMlDiscardRequest): Promise<AzureMlDiscardResult> =>
+                connection.sendRequest("azureMl.discard", params),
         },
         /** @experimental */
         contentExclusion: {
@@ -40085,9 +40726,9 @@ export function createSessionRpc(connection: MessageConnection, sessionId: strin
             /** @experimental */
             oauth: {
                 /**
-                 * Resolves a pending MCP OAuth request with a host-provided token or cancellation. The pending request is emitted as mcp.oauth_required with the data necessary to authorize the request.
+                 * Resolves a pending MCP OAuth request with a host-provided token, cancellation, or a noninteractive runtime refresh handoff when the request advertises runtimeRefreshSupported. Acceptance resolves the host response, not credential installation, reconnect, or the original tool invocation.
                  *
-                 * @param params Pending MCP OAuth request ID and host-provided token or cancellation response.
+                 * @param params Pending MCP OAuth request ID and host token, cancellation, or advertised runtime refresh response.
                  *
                  * @returns Indicates whether the pending MCP OAuth response was accepted.
                  */

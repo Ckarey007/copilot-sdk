@@ -425,6 +425,16 @@ pub struct ClientOptions {
     /// the spawned CLI process. Useful for sandboxing test runs or
     /// running multiple isolated SDK instances side-by-side.
     pub base_directory: Option<PathBuf>,
+    /// Existing in-process runtime server to attach to without taking ownership.
+    ///
+    /// The embedding host owns this server and must keep it alive until this client stops.
+    /// Only used with [`Transport::InProcess`].
+    #[doc(hidden)]
+    pub in_process_server_id: Option<u32>,
+    /// Native image the embedding host already loaded for an attached server.
+    /// Standalone clients keep the SDK's ordinary runtime resolver.
+    #[doc(hidden)]
+    pub in_process_runtime_library_path: Option<PathBuf>,
     /// Enable remote session support (Mission Control integration).
     /// When `true`, the SDK passes `--remote` to the spawned CLI process so
     /// sessions in a GitHub repository working directory are accessible from
@@ -606,6 +616,11 @@ impl std::fmt::Debug for ClientOptions {
             )
             .field("telemetry", &self.telemetry)
             .field("base_directory", &self.base_directory)
+            .field("in_process_server_id", &self.in_process_server_id)
+            .field(
+                "in_process_runtime_library_path",
+                &self.in_process_runtime_library_path,
+            )
             .field("enable_remote_sessions", &self.enable_remote_sessions)
             .field("bundled_cli_extract_dir", &self.bundled_cli_extract_dir)
             .field("client_info", &self.client_info)
@@ -856,6 +871,8 @@ impl Default for ClientOptions {
             on_get_trace_context: None,
             telemetry: None,
             base_directory: None,
+            in_process_server_id: None,
+            in_process_runtime_library_path: None,
             enable_remote_sessions: false,
             bundled_cli_extract_dir: None,
             mode: ClientMode::default(),
@@ -1316,6 +1333,37 @@ impl Drop for StdioShutdownGuard<'_> {
 }
 
 impl Client {
+    #[doc(hidden)]
+    /// Library path selected by the in-process transport, if this client uses it.
+    pub fn in_process_library_path(&self) -> Option<PathBuf> {
+        #[cfg(feature = "in-process")]
+        {
+            return self
+                .inner
+                .ffi_host
+                .lock()
+                .as_ref()
+                .map(|host| host.library_path().to_path_buf());
+        }
+        #[cfg(not(feature = "in-process"))]
+        {
+            None
+        }
+    }
+
+    #[doc(hidden)]
+    /// The live connection ID of an attached in-process client, when available.
+    pub fn in_process_connection_id(&self) -> Option<u32> {
+        #[cfg(feature = "in-process")]
+        {
+            return self.inner.ffi_host.lock().as_ref()?.connection_id();
+        }
+        #[cfg(not(feature = "in-process"))]
+        {
+            None
+        }
+    }
+
     /// Start a CLI server process with the given options.
     ///
     /// For [`Transport::Stdio`], spawns the CLI with `--stdio` and communicates
@@ -1647,6 +1695,8 @@ impl Client {
                         integration_id.as_deref(),
                         environment,
                         args,
+                        options.in_process_server_id,
+                        options.in_process_runtime_library_path.as_deref(),
                     )?;
                     let (reader, writer, shared) = host.start().await?;
                     let client = Self::from_transport(
@@ -3117,8 +3167,13 @@ impl Client {
 
         let should_shutdown_runtime = self.inner.child.lock().is_some();
         #[cfg(feature = "in-process")]
-        let should_shutdown_runtime =
-            should_shutdown_runtime || self.inner.ffi_host.lock().is_some();
+        let should_shutdown_runtime = should_shutdown_runtime
+            || self
+                .inner
+                .ffi_host
+                .lock()
+                .as_ref()
+                .is_some_and(|host| host.owns_host());
         if should_shutdown_runtime {
             let runtime_shutdown_start = Instant::now();
             match tokio::time::timeout(RUNTIME_SHUTDOWN_TIMEOUT, self.rpc().runtime().shutdown())

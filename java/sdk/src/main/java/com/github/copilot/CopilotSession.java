@@ -95,6 +95,7 @@ import com.github.copilot.rpc.MessageOptions;
 import com.github.copilot.rpc.McpAuthHandler;
 import com.github.copilot.rpc.McpAuthInvocation;
 import com.github.copilot.rpc.McpAuthRequest;
+import com.github.copilot.rpc.McpAuthResponse;
 import com.github.copilot.rpc.McpAuthResult;
 import com.github.copilot.rpc.PermissionHandler;
 import com.github.copilot.rpc.PermissionInvocation;
@@ -1265,9 +1266,10 @@ public final class CopilotSession implements AutoCloseable {
                         + sessionId + ", RequestId=" + data.requestId());
                 return;
             }
-            executeMcpAuthAndRespondAsync(new McpAuthRequest(data.requestId(), data.serverName(), data.serverUrl(),
-                    data.reason(), data.wwwAuthenticateParams(), data.resourceMetadata(), data.staticClientConfig()),
-                    handler);
+            executeMcpAuthAndRespondAsync(
+                    new McpAuthRequest(data.requestId(), data.serverName(), data.serverUrl(), data.reason(),
+                            data.wwwAuthenticateParams(), data.resourceMetadata(), data.staticClientConfig()),
+                    handler, Boolean.TRUE.equals(data.runtimeRefreshSupported()));
         } else if (event instanceof CommandExecuteEvent cmdEvent) {
             var data = cmdEvent.getData();
             if (data == null || data.requestId() == null || data.commandName() == null) {
@@ -1513,18 +1515,24 @@ public final class CopilotSession implements AutoCloseable {
         }
     }
 
-    private void executeMcpAuthAndRespondAsync(McpAuthRequest request, McpAuthHandler handler) {
+    private void executeMcpAuthAndRespondAsync(McpAuthRequest request, McpAuthHandler handler,
+            boolean runtimeRefreshSupported) {
         Runnable task = () -> {
             try {
                 var invocation = new McpAuthInvocation().setSessionId(sessionId);
-                handler.handle(request, invocation)
-                        .thenAccept(result -> sendMcpAuthResponse(request.requestId(), result)).exceptionally(ex -> {
-                            sendMcpAuthResponse(request.requestId(), McpAuthResult.cancelled());
+                handler.handleWithRuntimeRefresh(request, invocation, runtimeRefreshSupported)
+                        .thenAccept(result -> sendMcpAuthResponse(request, result, runtimeRefreshSupported))
+                        .exceptionally(ex -> {
+                            LOG.log(Level.WARNING,
+                                    "Error executing MCP auth handler for requestId=" + request.requestId(), ex);
+                            sendMcpAuthResponse(request, McpAuthResponse.legacy(McpAuthResult.cancelled()),
+                                    runtimeRefreshSupported);
                             return null;
                         });
             } catch (Exception e) {
                 LOG.log(Level.WARNING, "Error executing MCP auth handler for requestId=" + request.requestId(), e);
-                sendMcpAuthResponse(request.requestId(), McpAuthResult.cancelled());
+                sendMcpAuthResponse(request, McpAuthResponse.legacy(McpAuthResult.cancelled()),
+                        runtimeRefreshSupported);
             }
         };
         try {
@@ -1540,10 +1548,18 @@ public final class CopilotSession implements AutoCloseable {
         }
     }
 
-    private void sendMcpAuthResponse(String requestId, McpAuthResult result) {
+    private void sendMcpAuthResponse(McpAuthRequest request, McpAuthResponse handlerResponse,
+            boolean runtimeRefreshSupported) {
+        String requestId = request.requestId();
         try {
+            var result = handlerResponse == null ? null : handlerResponse.legacyResult();
+            boolean hasToken = result != null && result.token() != null && result.token().accessToken() != null
+                    && !result.token().accessToken().isEmpty();
             Object response;
-            if (result == null || result.isCancelled() || result.token() == null) {
+            if (handlerResponse != null && (result == null || !result.isCancelled()) && !hasToken
+                    && handlerResponse.isRuntimeRefresh() && runtimeRefreshSupported) {
+                response = Map.of("kind", "runtimeRefresh");
+            } else if (result == null || result.isCancelled() || !hasToken) {
                 response = Map.of("kind", "cancelled");
             } else {
                 var token = result.token();

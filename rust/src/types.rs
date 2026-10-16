@@ -16,9 +16,13 @@ use serde_json::Value;
 use crate::canvas::{CanvasDeclaration, CanvasHandler};
 pub use crate::copilot_request_handler::{
     CopilotHttpRequest, CopilotHttpResponse, CopilotHttpResponseBody, CopilotRequestContext,
-    CopilotRequestError, CopilotRequestHandler, CopilotRequestTransport, CopilotWebSocketForwarder,
-    CopilotWebSocketForwarderBuilder, CopilotWebSocketHandler, CopilotWebSocketMessage,
-    CopilotWebSocketResponse, WebSocketContextTransform, WebSocketTransform, forward_http,
+    CopilotRequestError, CopilotRequestHandler, CopilotRequestTransport, CopilotWebSocketHandler,
+    CopilotWebSocketMessage, CopilotWebSocketResponse, WebSocketContextTransform,
+    WebSocketTransform,
+};
+#[cfg(feature = "network-forwarding")]
+pub use crate::copilot_request_handler::{
+    CopilotWebSocketForwarder, CopilotWebSocketForwarderBuilder, forward_http,
 };
 use crate::generated::api_types::{CurrentToolMetadata, OpenCanvasInstance};
 pub use crate::generated::api_types::{

@@ -102,6 +102,7 @@ const (
 	SessionEventTypeMCPHeadersRefreshCompleted  SessionEventType = "mcp.headers_refresh_completed"
 	SessionEventTypeMCPHeadersRefreshRequired   SessionEventType = "mcp.headers_refresh_required"
 	SessionEventTypeMCPOauthCompleted           SessionEventType = "mcp.oauth_completed"
+	SessionEventTypeMCPOauthRecoveryCompleted   SessionEventType = "mcp.oauth_recovery_completed"
 	SessionEventTypeMCPOauthRequired            SessionEventType = "mcp.oauth_required"
 	SessionEventTypeMCPPromptsListChanged       SessionEventType = "mcp.prompts.list_changed"
 	SessionEventTypeMCPResourcesListChanged     SessionEventType = "mcp.resources.list_changed"
@@ -208,6 +209,7 @@ const (
 	SessionEventTypeSessionMCPServerRemoved        SessionEventType = "session.mcp_server_removed"
 	SessionEventTypeSessionMCPServersLoaded        SessionEventType = "session.mcp_servers_loaded"
 	SessionEventTypeSessionMCPServerStatusChanged  SessionEventType = "session.mcp_server_status_changed"
+	SessionEventTypeSessionMCPServerToolsLoaded    SessionEventType = "session.mcp_server_tools_loaded"
 	SessionEventTypeSessionModeChanged             SessionEventType = "session.mode_changed"
 	SessionEventTypeSessionModelChange             SessionEventType = "session.model_change"
 	SessionEventTypeSessionModelDeselected         SessionEventType = "session.model_deselected"
@@ -2040,7 +2042,7 @@ func (*MCPAppToolCallCompleteData) Type() SessionEventType {
 
 // MCP OAuth request completion notification
 type MCPOauthCompletedData struct {
-	// How the pending OAuth request was completed
+	// How the pending OAuth request was completed. An accepted runtimeRefresh handoff completes once at its authorization terminal: token when recovery succeeded, cancelled when it was cancelled or failed; see mcp.oauth_recovery_completed for the exact outcome.
 	Outcome MCPOauthCompletionOutcome `json:"outcome"`
 	// Request ID of the resolved OAuth request
 	RequestID string `json:"requestId"`
@@ -2193,6 +2195,8 @@ type MCPOauthRequiredData struct {
 	RequestID string `json:"requestId"`
 	// Raw OAuth protected-resource metadata document fetched for the MCP server, if available
 	ResourceMetadata *string `json:"resourceMetadata,omitempty"`
+	// Whether this Refresh request accepts kind runtimeRefresh to continue noninteractive grant renewal within its original authorization reservation. Missing or false means unsupported; the host must retain its legacy response behavior.
+	RuntimeRefreshSupported *bool `json:"runtimeRefreshSupported,omitempty"`
 	// Display name of the MCP server that requires OAuth
 	ServerName string `json:"serverName"`
 	// URL of the MCP server that requires OAuth
@@ -2431,6 +2435,19 @@ type SessionMCPServerStatusChangedData struct {
 func (*SessionMCPServerStatusChangedData) sessionEventData() {}
 func (*SessionMCPServerStatusChangedData) Type() SessionEventType {
 	return SessionEventTypeSessionMCPServerStatusChanged
+}
+
+// Payload of `session.mcp_server_tools_loaded`, emitted once per connection when an MCP server's tools first become available from tools/list or a cached snapshot. A connected server is still loading tools if this event has not fired since the server last left connected; it can precede connected when the tools come from a cached snapshot.
+type SessionMCPServerToolsLoadedData struct {
+	// Name of the MCP server whose tools loaded
+	ServerName string `json:"serverName"`
+	// Number of tools the server listed
+	ToolCount int64 `json:"toolCount"`
+}
+
+func (*SessionMCPServerToolsLoadedData) sessionEventData() {}
+func (*SessionMCPServerToolsLoadedData) Type() SessionEventType {
+	return SessionEventTypeSessionMCPServerToolsLoaded
 }
 
 // Payload of `session.mcp_servers_loaded` listing MCP server status summaries.
@@ -3298,6 +3315,21 @@ type SessionTaskCompleteData struct {
 
 func (*SessionTaskCompleteData) sessionEventData()      {}
 func (*SessionTaskCompleteData) Type() SessionEventType { return SessionEventTypeSessionTaskComplete }
+
+// Terminal outcome of a runtime-owned MCP OAuth recovery accepted through a runtimeRefresh handoff
+type MCPOauthRecoveryCompletedData struct {
+	// Terminal outcome of the original authorization reservation, including reconnect
+	Outcome MCPOauthRecoveryCompletedOutcome `json:"outcome"`
+	// Request ID of the MCP OAuth request whose runtimeRefresh handoff was accepted
+	RequestID string `json:"requestId"`
+	// Name of the MCP server whose authorization recovery completed
+	ServerName string `json:"serverName"`
+}
+
+func (*MCPOauthRecoveryCompletedData) sessionEventData() {}
+func (*MCPOauthRecoveryCompletedData) Type() SessionEventType {
+	return SessionEventTypeMCPOauthRecoveryCompleted
+}
 
 // The model the user had explicitly selected is no longer available, because the host that published it withdrew it, so the session no longer has an explicit selection. The next turn resolves a default as though the user had never chosen a model. Clients should stop presenting the previous model as selected. This event is durable because resume rebuilds the selected model from the event log; without it a resumed session would restore a model its provider no longer serves. Reasoning effort, verbosity, and other session-level preferences are deliberately unchanged, because they belong to the session rather than to the model.
 type SessionModelDeselectedData struct {
@@ -6551,6 +6583,18 @@ const (
 	MCPOauthCompletionOutcomeCancelled MCPOauthCompletionOutcome = "cancelled"
 	// The request completed with a token-backed OAuth provider.
 	MCPOauthCompletionOutcomeToken MCPOauthCompletionOutcome = "token"
+)
+
+// Terminal outcome of the original authorization reservation, including reconnect
+type MCPOauthRecoveryCompletedOutcome string
+
+const (
+	// The recovery was cancelled before it completed.
+	MCPOauthRecoveryCompletedOutcomeCancelled MCPOauthRecoveryCompletedOutcome = "cancelled"
+	// Credential renewal or reconnect failed, or the server was dropped.
+	MCPOauthRecoveryCompletedOutcomeFailed MCPOauthRecoveryCompletedOutcome = "failed"
+	// Credentials were renewed and the server reconnected.
+	MCPOauthRecoveryCompletedOutcomeSucceeded MCPOauthRecoveryCompletedOutcome = "succeeded"
 )
 
 // Reason the runtime is requesting host-provided MCP OAuth credentials

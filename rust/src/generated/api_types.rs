@@ -225,6 +225,24 @@ pub mod rpc_methods {
     pub const MODELS_GETBUILTINCATALOG: &str = "models.getBuiltInCatalog";
     /// `models.listTokenPriceUnits`
     pub const MODELS_LISTTOKENPRICEUNITS: &str = "models.listTokenPriceUnits";
+    /// `azureMl.catalog`
+    pub const AZUREML_CATALOG: &str = "azureMl.catalog";
+    /// `azureMl.latest`
+    pub const AZUREML_LATEST: &str = "azureMl.latest";
+    /// `azureMl.resolve`
+    pub const AZUREML_RESOLVE: &str = "azureMl.resolve";
+    /// `azureMl.download`
+    pub const AZUREML_DOWNLOAD: &str = "azureMl.download";
+    /// `azureMl.acquireFamily`
+    pub const AZUREML_ACQUIREFAMILY: &str = "azureMl.acquireFamily";
+    /// `azureMl.releaseFamily`
+    pub const AZUREML_RELEASEFAMILY: &str = "azureMl.releaseFamily";
+    /// `azureMl.status`
+    pub const AZUREML_STATUS: &str = "azureMl.status";
+    /// `azureMl.cancel`
+    pub const AZUREML_CANCEL: &str = "azureMl.cancel";
+    /// `azureMl.discard`
+    pub const AZUREML_DISCARD: &str = "azureMl.discard";
     /// `contentExclusion.validatePolicies`
     pub const CONTENTEXCLUSION_VALIDATEPOLICIES: &str = "contentExclusion.validatePolicies";
     /// `tools.list`
@@ -4230,6 +4248,374 @@ pub struct AutoTierMetadata {
     pub provider_id: Option<String>,
     /// Routing preferences in the server's presentation order.
     pub tiers: Vec<AutoTierDescriptor>,
+}
+
+/// Lists models eligible for local use before a chat session exists.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlCatalogRequest {
+    /// Ask for the staff registry; the server also verifies its own authenticated identity.
+    pub include_dev: bool,
+    /// An explicit user refresh retries a cached sign-in failure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_mode: Option<AzureMlCatalogRetryMode>,
+}
+
+/// License published with an eligible Azure ML model.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlLicense {
+    /// Bounded display label for the model license.
+    pub name: String,
+}
+
+/// Validated local runtime requirements for an Azure ML model.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlProfile {
+    /// Sanitized model-picker display label.
+    pub display_name: String,
+    /// Published download size, when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub download_bytes: Option<i64>,
+    /// Published license, when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub license: Option<AzureMlLicense>,
+    /// Maximum context window accepted by the model.
+    pub max_context_window_tokens: i64,
+    /// Maximum output tokens produced by the model.
+    pub max_output_tokens: i64,
+    /// Maximum input tokens accepted by the model.
+    pub max_prompt_tokens: i64,
+    /// Peak disk use during installation, when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peak_disk_bytes: Option<i64>,
+    /// Recommended graphics memory, when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recommended_vram_bytes: Option<i64>,
+    /// Validated local runtime configuration.
+    pub serve_options: serde_json::Value,
+    /// Whether the model supports tool calls.
+    pub supports_tool_calls: bool,
+}
+
+/// Eligible Azure ML model version and its provider metadata.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlModel {
+    /// Provider metadata retained for registration.
+    pub metadata: serde_json::Value,
+    /// Stable model-family name.
+    pub name: String,
+    /// Validated Windows ML requirements.
+    pub profile: AzureMlProfile,
+    /// Registry that owns this model version.
+    pub registry: AzureMlRegistry,
+    /// Exact published model version.
+    pub version: String,
+}
+
+/// Redacted warning for a skipped model or registry.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlCatalogWarning {
+    /// Safe reason without signed access details.
+    pub kind: String,
+    /// Model family, or `catalog` for registry-wide errors.
+    pub model_name: String,
+    /// Registry associated with the warning.
+    pub registry: AzureMlRegistry,
+    /// Version, if one was available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+/// Eligible models and redacted validation warnings.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlCatalogResult {
+    /// Model versions suitable for local use.
+    pub models: Vec<AzureMlModel>,
+    /// Skipped model and catalog errors without sensitive access details.
+    pub warnings: Vec<AzureMlCatalogWarning>,
+}
+
+/// Selects an inactive Azure ML version for cleanup.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlDiscardRequest {
+    /// Version directory under this server's Azure ML library.
+    pub destination: String,
+    /// Optional connection-owned lease that spans the caller's complete family mutation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lease_id: Option<String>,
+}
+
+/// Selects an active connection-owned download.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlDownloadIdRequest {
+    /// Identifier supplied when this connection started the download.
+    pub request_id: RequestId,
+}
+
+/// Downloads a model version to its configured local library.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlDownloadRequest {
+    /// Version directory under this server's Azure ML library.
+    pub destination: String,
+    /// Optional connection-owned lease that spans the caller's complete family mutation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lease_id: Option<String>,
+    /// Exact model-family name.
+    pub name: String,
+    /// Registry that owns the model.
+    pub registry: AzureMlRegistry,
+    /// Unique request identifier for progress and explicit cancellation.
+    pub request_id: RequestId,
+    /// Exact published version.
+    pub version: String,
+}
+
+/// Completed and verified Azure ML model files.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlDownloadResult {
+    /// Installed companion file paths.
+    pub extra_files: Vec<String>,
+    /// Published manifest path.
+    pub manifest_path: String,
+    /// Maximum supported local concurrency.
+    pub max_concurrent: i64,
+    /// Installed GGUF path.
+    pub primary_path: String,
+    /// Bytes received over the network during this run, including discarded bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub received_bytes: Option<i64>,
+    /// Whether a partial from a prior run continued after the server accepted its range.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resumed: Option<bool>,
+    /// Whether all prior verified files were reused.
+    pub reused: bool,
+    /// Validated local runtime settings.
+    pub serve_options: serde_json::Value,
+    /// Exact bytes across the model version.
+    pub total_bytes: i64,
+    /// Transient transfer failures retried during this run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_failures: Option<i64>,
+}
+
+/// Progress and retry facts for one active download.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlDownloadStatus {
+    /// Bytes completed across all files.
+    pub completed_bytes: i64,
+    /// Configured retry limit, if the transfer is retrying.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_attempts: Option<i64>,
+    /// Current transfer phase.
+    pub phase: String,
+    /// Next retry attempt, if the transfer is retrying.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_attempt: Option<i64>,
+    /// Planned delay before retry, if the transfer is retrying.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_delay_ms: Option<i64>,
+    /// Redacted failure reason, if the transfer is retrying.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_reason: Option<String>,
+    /// Exact bytes expected across all files.
+    pub total_bytes: i64,
+}
+
+/// Opaque handle to a connection-owned family mutation interval.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlFamilyLeaseResult {
+    /// Server-generated handle, valid only on the originating SDK connection.
+    pub lease_id: String,
+}
+
+/// Releases a family mutation interval owned by this SDK connection.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlFamilyReleaseRequest {
+    /// Server-generated handle from `azureMl.acquireFamily`.
+    pub lease_id: String,
+    /// Exact model-family name.
+    pub name: String,
+    /// Registry that owns the acquired family.
+    pub registry: AzureMlRegistry,
+}
+
+/// Identifies a family in the server's Azure ML model library.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlFamilyRequest {
+    /// Exact model-family name.
+    pub name: String,
+    /// Registry that owns the model family.
+    pub registry: AzureMlRegistry,
+}
+
+/// Selects an Azure ML model family.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlLatestRequest {
+    /// Exact model-family name.
+    pub name: String,
+    /// Registry that owns the model.
+    pub registry: AzureMlRegistry,
+}
+
+/// Selects an immutable model version.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlResolveRequest {
+    /// Exact model-family name.
+    pub name: String,
+    /// Registry that owns the model.
+    pub registry: AzureMlRegistry,
+    /// Exact published version.
+    pub version: String,
+}
+
+/// Resolved artifact facts without signed download URLs.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlResolveResult {
+    /// Other paths relative to the version directory.
+    pub extra_files: Vec<String>,
+    /// Maximum supported local concurrency.
+    pub max_concurrent: i64,
+    /// GGUF path relative to the version directory.
+    pub primary_path: String,
+    /// Validated local runtime settings.
+    pub serve_options: serde_json::Value,
+    /// Exact bytes across all files in this version.
+    pub total_bytes: i64,
 }
 
 /// A well-known model in the runtime's built-in catalog.
@@ -14563,6 +14949,9 @@ pub struct McpConfiguredServerState {
     pub error: Option<String>,
     /// Observed connection status. This is not a configuration or readiness guarantee.
     pub status: McpServerStatus,
+    /// Whether the server's current connection has loaded its tool list (from tools/list or a cached snapshot). A connected server without loaded tools is still loading them; the change is signalled by session.mcp_server_tools_loaded. Absent when the runtime does not report it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools_loaded: Option<bool>,
 }
 
 /// Effective MCP configuration entry. Configuration enablement is distinct from the optional live observation.
@@ -15664,7 +16053,16 @@ pub struct McpOauthPendingRequestResponseCancelled {
     pub kind: McpOauthPendingRequestResponseCancelledKind,
 }
 
-/// Pending MCP OAuth request ID and host-provided token or cancellation response.
+/// Delegate noninteractive refresh to the original runtime authorization operation.
+/// Valid only for a Refresh request advertising runtimeRefreshSupported.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpOauthPendingRequestResponseRuntimeRefresh {
+    /// OAuth response variant discriminator.
+    pub kind: McpOauthPendingRequestResponseRuntimeRefreshKind,
+}
+
+/// Pending MCP OAuth request ID and host token, cancellation, or advertised runtime refresh response.
 ///
 /// <div class="warning">
 ///
@@ -29715,6 +30113,9 @@ pub struct SkillProviderDescriptor {
     pub argument_hint: Option<String>,
     /// Description used in skill catalogs without fetching content.
     pub description: String,
+    /// Absolute path to the folder that holds the skill's supporting files (scripts, references, templates, assets), in the session's path conventions: the host OS for local disk, or the registered SessionFs conventions. When the skill is activated the runtime lists the folder's files for the model through the session's filesystem, with the same rules as a file-based skill's folder; it never reads or copies them. On local disk the folder becomes a read-only skill root, like a configured skill directory. It is not shown in skill catalogs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub directory: Option<String>,
     /// Whether model invocation is disabled. Defaults to false.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_model_invocation: Option<bool>,
@@ -29757,7 +30158,7 @@ pub(crate) struct SkillProviderReadRequest {
     pub name: String,
 }
 
-/// Text-only SKILL.md content returned by an SDK session's skill provider. YAML frontmatter is optional: fields it omits come from the catalog descriptor, fields it declares must match the descriptor, and `allowed-tools` is read only from frontmatter. Related files and assets are not supported.
+/// SKILL.md content returned by an SDK session's skill provider. YAML frontmatter is optional: fields it omits come from the catalog descriptor, fields it declares must match the descriptor, and `allowed-tools` is read only from frontmatter. Supporting files come from the descriptor's `directory`.
 ///
 /// <div class="warning">
 ///
@@ -35321,6 +35722,68 @@ pub struct ModelsListTokenPriceUnitsResult {
     /// One entry per model that publishes token prices, in catalog order. A model with no published prices is omitted.
     pub units: Vec<ModelTokenPriceUnit>,
 }
+
+/// Eligible Azure ML model version and its provider metadata.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlLatestResult {
+    /// Provider metadata retained for registration.
+    pub metadata: serde_json::Value,
+    /// Stable model-family name.
+    pub name: String,
+    /// Validated Windows ML requirements.
+    pub profile: AzureMlProfile,
+    /// Registry that owns this model version.
+    pub registry: AzureMlRegistry,
+    /// Exact published model version.
+    pub version: String,
+}
+
+/// Opaque handle to a connection-owned family mutation interval.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlAcquireFamilyResult {
+    /// Server-generated handle, valid only on the originating SDK connection.
+    pub lease_id: String,
+}
+
+/// Empty acknowledgement for a completed host lifecycle operation.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlReleaseFamilyResult {}
+
+/// Empty acknowledgement for a completed host lifecycle operation.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureMlDiscardResult {}
 
 /// Built-in tools available for the requested model, with their parameters and instructions.
 ///
@@ -42831,6 +43294,26 @@ pub struct CanvasOpenResult {
 /// </div>
 pub type AuthValidationErrors = Vec<AuthValidationError>;
 
+/// Whether an active connection-owned transfer accepted cancellation.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+pub type AzureMlCancelResult = bool;
+
+/// Active Azure ML download progress or null.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+pub type AzureMlStatusResult = Option<AzureMlDownloadStatus>;
+
 /// SHA-256 digest encoded as exactly 64 lowercase hexadecimal characters.
 ///
 /// <div class="warning">
@@ -44236,6 +44719,50 @@ pub enum AutopilotObjectiveStatus {
     /// The objective completed.
     #[serde(rename = "completed")]
     Completed,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// How catalog discovery handles a recent sign-in failure.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AzureMlCatalogRetryMode {
+    /// Reuse a recent failure for automatic background discovery.
+    #[serde(rename = "background")]
+    Background,
+    /// Retry sign-in after an explicit refresh.
+    #[serde(rename = "explicit")]
+    Explicit,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Registry that owns an Azure ML model version.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AzureMlRegistry {
+    /// Public Azure ML model registry.
+    #[serde(rename = "azureml")]
+    Azureml,
+    /// Microsoft staff development registry.
+    #[serde(rename = "azureml-dev")]
+    AzuremlDev,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]
@@ -49358,6 +49885,14 @@ pub enum McpOauthPendingRequestResponseCancelledKind {
     Cancelled,
 }
 
+/// OAuth response variant discriminator.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum McpOauthPendingRequestResponseRuntimeRefreshKind {
+    #[serde(rename = "runtimeRefresh")]
+    #[default]
+    RuntimeRefresh,
+}
+
 /// Host response to the pending OAuth request.
 ///
 /// <div class="warning">
@@ -49371,6 +49906,7 @@ pub enum McpOauthPendingRequestResponseCancelledKind {
 pub enum McpOauthPendingRequestResponse {
     Token(McpOauthPendingRequestResponseToken),
     Cancelled(McpOauthPendingRequestResponseCancelled),
+    RuntimeRefresh(McpOauthPendingRequestResponseRuntimeRefresh),
 }
 
 /// OAuth grant type override for this login.

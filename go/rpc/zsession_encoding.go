@@ -281,6 +281,12 @@ func (e *SessionEvent) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		e.Data = &d
+	case SessionEventTypeMCPOauthRecoveryCompleted:
+		var d MCPOauthRecoveryCompletedData
+		if err := json.Unmarshal(raw.Data, &d); err != nil {
+			return err
+		}
+		e.Data = &d
 	case SessionEventTypeMCPOauthRequired:
 		var d MCPOauthRequiredData
 		if err := json.Unmarshal(raw.Data, &d); err != nil {
@@ -637,6 +643,12 @@ func (e *SessionEvent) UnmarshalJSON(data []byte) error {
 		e.Data = &d
 	case SessionEventTypeSessionMCPServerStatusChanged:
 		var d SessionMCPServerStatusChangedData
+		if err := json.Unmarshal(raw.Data, &d); err != nil {
+			return err
+		}
+		e.Data = &d
+	case SessionEventTypeSessionMCPServerToolsLoaded:
+		var d SessionMCPServerToolsLoadedData
 		if err := json.Unmarshal(raw.Data, &d); err != nil {
 			return err
 		}

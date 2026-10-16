@@ -20,7 +20,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::generated::api_types::{
     McpOauthPendingRequestResponse, McpOauthPendingRequestResponseCancelled,
-    McpOauthPendingRequestResponseCancelledKind, McpOauthPendingRequestResponseToken,
+    McpOauthPendingRequestResponseCancelledKind, McpOauthPendingRequestResponseRuntimeRefresh,
+    McpOauthPendingRequestResponseRuntimeRefreshKind, McpOauthPendingRequestResponseToken,
     McpOauthPendingRequestResponseTokenKind, PermissionDecision, PermissionDecisionApproveOnce,
     PermissionDecisionContext, PermissionDecisionReject, PermissionDecisionUserNotAvailable,
 };
@@ -282,6 +283,36 @@ impl McpAuthResult {
     }
 }
 
+/// Opt-in response from [`McpAuthHandler::handle_with_runtime_refresh`].
+/// The existing [`McpAuthResult`] remains exhaustive for legacy handlers.
+#[non_exhaustive]
+pub enum McpAuthResponse {
+    /// Return the existing host token or cancellation response.
+    Legacy(McpAuthResult),
+    /// Hand an advertised Refresh request back to its original runtime operation.
+    /// Acceptance is not credential installation or reconnect completion.
+    RuntimeRefresh,
+}
+
+impl McpAuthResponse {
+    pub(crate) fn into_wire_for_request(
+        self,
+        runtime_refresh_supported: bool,
+    ) -> McpOauthPendingRequestResponse {
+        match self {
+            Self::Legacy(result) => result.into_wire(),
+            Self::RuntimeRefresh if !runtime_refresh_supported => {
+                McpAuthResult::Cancelled.into_wire()
+            }
+            Self::RuntimeRefresh => McpOauthPendingRequestResponse::RuntimeRefresh(
+                McpOauthPendingRequestResponseRuntimeRefresh {
+                    kind: McpOauthPendingRequestResponseRuntimeRefreshKind::RuntimeRefresh,
+                },
+            ),
+        }
+    }
+}
+
 /// Handler for MCP server OAuth requests.
 #[async_trait]
 pub trait McpAuthHandler: Send + Sync + 'static {
@@ -292,6 +323,22 @@ pub trait McpAuthHandler: Send + Sync + 'static {
         request_id: RequestId,
         request: McpAuthRequest,
     ) -> McpAuthResult;
+
+    /// Opt in to noninteractive refresh handoff without changing legacy request
+    /// construction or result matching. The default delegates to [`Self::handle`].
+    /// `runtime_refresh_supported` defaults to false when omitted by the runtime.
+    /// Return [`McpAuthResponse::RuntimeRefresh`] only for an advertised Refresh;
+    /// otherwise return [`McpAuthResponse::Legacy`].
+    async fn handle_with_runtime_refresh(
+        &self,
+        session_id: SessionId,
+        request_id: RequestId,
+        request: McpAuthRequest,
+        runtime_refresh_supported: bool,
+    ) -> McpAuthResponse {
+        let _ = runtime_refresh_supported;
+        McpAuthResponse::Legacy(self.handle(session_id, request_id, request).await)
+    }
 }
 
 /// Handler for `user_input.requested` events from the legacy question-and-answer

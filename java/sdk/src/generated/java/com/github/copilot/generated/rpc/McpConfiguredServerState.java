@@ -28,6 +28,8 @@ public record McpConfiguredServerState(
     /** Observed connection status. This is not a configuration or readiness guarantee. */
     @JsonProperty("status") McpServerStatus status,
     /** Observed connection error, when the materialized server failed. */
-    @JsonProperty("error") String error
+    @JsonProperty("error") String error,
+    /** Whether the server's current connection has loaded its tool list (from tools/list or a cached snapshot). A connected server without loaded tools is still loading them; the change is signalled by session.mcp_server_tools_loaded. Absent when the runtime does not report it. */
+    @JsonProperty("toolsLoaded") Boolean toolsLoaded
 ) {
 }

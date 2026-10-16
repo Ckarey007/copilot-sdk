@@ -266,6 +266,23 @@ async provider's task is cancelled and receives `asyncio.CancelledError`. Closin
 the connection or force-stopping the client doesn't cancel a running call; it
 continues until it returns.
 
+#### Supporting files (experimental)
+
+To give a provider skill supporting files, such as scripts, references,
+templates, and assets, set its descriptor's `directory` to the absolute path of
+the folder that holds them:
+
+```python
+SkillProviderDescriptor(
+    name="release-notes",
+    description="Writes release notes in the team's format.",
+    directory="/srv/skills/release-notes",
+)
+```
+
+When the skill is activated, the runtime lists the folder's files for the model.
+See [Supporting files](../docs/features/skills.md#supporting-files-experimental) for details.
+
 ## API Reference
 
 ### CopilotClient

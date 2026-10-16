@@ -766,6 +766,76 @@ class TestCreateSessionConfig:
             await client.force_stop()
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("supported", [True, False, None])
+    @pytest.mark.parametrize(
+        "response_kind", ["runtimeRefresh", "token", "cancelled", "cancelled_with_token"]
+    )
+    async def test_mcp_auth_runtime_refresh_response_requires_capability(
+        self, supported, response_kind
+    ):
+        submitted = asyncio.Event()
+        captured = []
+        client = Mock()
+
+        async def request(method, params, **_kwargs):
+            captured.append((method, params))
+            submitted.set()
+            return {"success": True}
+
+        client.request = AsyncMock(side_effect=request)
+        session = CopilotSession("session-1", client)
+
+        def handle_mcp_auth(auth_request, invocation):
+            assert invocation == {"sessionId": "session-1"}
+            assert auth_request["reason"] == "refresh"
+            assert auth_request["runtimeRefreshSupported"] is bool(supported)
+            if response_kind == "token":
+                # A usable token wins even if a handler also requests a handoff.
+                return {"kind": "runtimeRefresh", "accessToken": "host-token"}
+            if response_kind == "cancelled_with_token":
+                return {"kind": "cancelled", "accessToken": "host-token"}
+            return {"kind": response_kind}
+
+        session._register_mcp_auth_handler(handle_mcp_auth)
+        session._dispatch_event(
+            SessionEvent(
+                data=McpOauthRequiredData(
+                    request_id="oauth-request",
+                    server_name="oauth-server",
+                    server_url="https://example.com/mcp",
+                    reason=McpOauthRequestReason.REFRESH,
+                    runtime_refresh_supported=supported,
+                ),
+                id="oauth-event",
+                timestamp="2026-01-01T00:00:00Z",
+                type=SessionEventType.MCP_OAUTH_REQUIRED,
+                ephemeral=True,
+                parent_id=None,
+            )
+        )
+        await asyncio.wait_for(submitted.wait(), timeout=1)
+        assert captured == [
+            (
+                "session.mcp.oauth.handlePendingRequest",
+                {
+                    "sessionId": "session-1",
+                    "requestId": "oauth-request",
+                    "result": (
+                        {"kind": "token", "accessToken": "host-token"}
+                        if response_kind == "token"
+                        else {
+                            "kind": (
+                                "runtimeRefresh"
+                                if response_kind == "runtimeRefresh" and supported
+                                else "cancelled"
+                            )
+                        }
+                    ),
+                },
+            )
+        ]
+
+    @pytest.mark.asyncio
     async def test_mcp_auth_required_event_sends_host_token(self):
         client = CopilotClient(connection=RuntimeConnection.for_stdio(path=CLI_PATH))
         await client.start()

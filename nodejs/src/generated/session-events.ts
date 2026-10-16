@@ -110,6 +110,7 @@ export type SessionEvent =
   | SamplingCompletedEvent
   | McpOauthRequiredEvent
   | McpOauthCompletedEvent
+  | McpOauthRecoveryCompletedEvent
   | McpHeadersRefreshRequiredEvent
   | McpHeadersRefreshCompletedEvent
   | CustomNotificationEvent
@@ -141,6 +142,7 @@ export type SessionEvent =
   | CustomAgentsUpdatedEvent
   | McpServersLoadedEvent
   | McpServerStatusChangedEvent
+  | McpServerToolsLoadedEvent
   | McpServerRemovedEvent
   | McpServerNeedsReconnectEvent
   | McpToolsListChangedEvent
@@ -1529,6 +1531,16 @@ export type McpOauthCompletionOutcome =
   | "token"
   /** The request completed without an OAuth provider. */
   | "cancelled";
+/**
+ * Terminal outcome of the original authorization reservation, including reconnect
+ */
+export type McpOauthRecoveryCompletedOutcome =
+  /** Credentials were renewed and the server reconnected. */
+  | "succeeded"
+  /** The recovery was cancelled before it completed. */
+  | "cancelled"
+  /** Credential renewal or reconnect failed, or the server was dropped. */
+  | "failed";
 /**
  * Why dynamic headers are being requested.
  */
@@ -12182,6 +12194,10 @@ export interface McpOauthRequiredData {
    */
   resourceMetadata?: string;
   /**
+   * Whether this Refresh request accepts kind runtimeRefresh to continue noninteractive grant renewal within its original authorization reservation. Missing or false means unsupported; the host must retain its legacy response behavior.
+   */
+  runtimeRefreshSupported?: boolean;
+  /**
    * Display name of the MCP server that requires OAuth
    */
   serverName: string;
@@ -12303,6 +12319,50 @@ export interface McpOauthCompletedData {
    * Request ID of the resolved OAuth request
    */
   requestId: string;
+}
+/**
+ * Session event "mcp.oauth_recovery_completed". Terminal outcome of a runtime-owned MCP OAuth recovery accepted through a runtimeRefresh handoff
+ */
+export interface McpOauthRecoveryCompletedEvent {
+  /**
+   * Sub-agent instance identifier. Absent for events from the root/main agent and session-level events.
+   */
+  agentId?: string;
+  data: McpOauthRecoveryCompletedData;
+  /**
+   * When true, the event is transient and not persisted to the session event log on disk
+   */
+  ephemeral?: boolean;
+  /**
+   * Unique event identifier (UUID v4), generated when the event is emitted
+   */
+  id: string;
+  /**
+   * ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event.
+   */
+  parentId: string | null;
+  /**
+   * ISO 8601 timestamp when the event was created
+   */
+  timestamp: string;
+  /**
+   * Type discriminator. Always "mcp.oauth_recovery_completed".
+   */
+  type: "mcp.oauth_recovery_completed";
+}
+/**
+ * Terminal outcome of a runtime-owned MCP OAuth recovery accepted through a runtimeRefresh handoff
+ */
+export interface McpOauthRecoveryCompletedData {
+  outcome: McpOauthRecoveryCompletedOutcome;
+  /**
+   * Request ID of the MCP OAuth request whose runtimeRefresh handoff was accepted
+   */
+  requestId: string;
+  /**
+   * Name of the MCP server whose authorization recovery completed
+   */
+  serverName: string;
 }
 /**
  * Session event "mcp.headers_refresh_required". Dynamic headers refresh request for a remote MCP server
@@ -13994,6 +14054,49 @@ export interface McpServerStatusChangedData {
    */
   serverName: string;
   status: McpServerStatus;
+}
+/**
+ * Session event "session.mcp_server_tools_loaded". Payload of `session.mcp_server_tools_loaded`, emitted once per connection when an MCP server's tools first become available from tools/list or a cached snapshot. A connected server is still loading tools if this event has not fired since the server last left connected; it can precede connected when the tools come from a cached snapshot.
+ */
+export interface McpServerToolsLoadedEvent {
+  /**
+   * Sub-agent instance identifier. Absent for events from the root/main agent and session-level events.
+   */
+  agentId?: string;
+  data: McpServerToolsLoadedData;
+  /**
+   * Always true for events that are transient and not persisted to the session event log on disk.
+   */
+  ephemeral: true;
+  /**
+   * Unique event identifier (UUID v4), generated when the event is emitted
+   */
+  id: string;
+  /**
+   * ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event.
+   */
+  parentId: string | null;
+  /**
+   * ISO 8601 timestamp when the event was created
+   */
+  timestamp: string;
+  /**
+   * Type discriminator. Always "session.mcp_server_tools_loaded".
+   */
+  type: "session.mcp_server_tools_loaded";
+}
+/**
+ * Payload of `session.mcp_server_tools_loaded`, emitted once per connection when an MCP server's tools first become available from tools/list or a cached snapshot. A connected server is still loading tools if this event has not fired since the server last left connected; it can precede connected when the tools come from a cached snapshot.
+ */
+export interface McpServerToolsLoadedData {
+  /**
+   * Name of the MCP server whose tools loaded
+   */
+  serverName: string;
+  /**
+   * Number of tools the server listed
+   */
+  toolCount: number;
 }
 /**
  * Session event "session.mcp_server_removed". Payload of `session.mcp_server_removed` identifying an MCP server the graph no longer runs.
