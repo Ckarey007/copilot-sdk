@@ -4728,6 +4728,16 @@ pub struct ToolExecutionPartialResultData {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolShellOutputData {
+    /// Experimental HydraFusion attribution of the staged phase whose tool call produced this output. Absent outside a staged phase.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This type is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases.
+    ///
+    /// </div>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fusion: Option<FusionAttribution>,
     /// Zero-based publication sequence across all output streams for this tool call. Not a byte offset or an OS write-order guarantee.
     pub sequence: i64,
     /// Output source. Omission means stdout. Terminal output has no separate stdout/stderr attribution.
@@ -7162,6 +7172,16 @@ pub struct PermissionRequestedData {
     /// Agent mode captured from the owning turn when permission evaluation began.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_mode: Option<SessionMode>,
+    /// Experimental HydraFusion attribution of the staged phase whose tool call raised this request. Absent outside a staged phase.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This type is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases.
+    ///
+    /// </div>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fusion: Option<FusionAttribution>,
     /// Delegated agent that owns permission recovery when the owner session multiplexes remote agents. Absent otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner_agent_id: Option<String>,

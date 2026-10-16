@@ -2254,6 +2254,10 @@ public sealed class ManagedSettingsMeta
     [JsonPropertyName("effortLevel")]
     public ManagedSettingMeta? EffortLevel { get; set; }
 
+    /// <summary>Lock state and provenance of values.ensembleTier, including a legacy alias's original source. An unmanaged value imposes no tier lock.</summary>
+    [JsonPropertyName("ensembleTier")]
+    public ManagedSettingMeta? EnsembleTier { get; set; }
+
     /// <summary>Lock state and provenance of `values.model`.</summary>
     [JsonPropertyName("model")]
     public ManagedSettingMeta? Model { get; set; }
@@ -2327,6 +2331,10 @@ public sealed class ManagedSettingsValues
     /// <summary>Managed reasoning-effort default for the managed concrete model. The runtime clamps it to an entitled effort when model availability is known.</summary>
     [JsonPropertyName("effortLevel")]
     public string? EffortLevel { get; set; }
+
+    /// <summary>Managed Ensemble preference. Takes precedence over autoTier even when unmanaged, which means no managed tier and forbids legacy fallback. Legacy Auto values are mapped only when no managed source supplies ensembleTier.</summary>
+    [JsonPropertyName("ensembleTier")]
+    public ManagedEnsembleTier? EnsembleTier { get; set; }
 
     /// <summary>Managed default model identifier. When model availability was resolved, aliases and family names are projected to a concrete available model ID; otherwise the configured value is returned.</summary>
     [JsonPropertyName("model")]
@@ -5850,6 +5858,18 @@ public sealed class InstallationCatalogueIdentity
     [JsonPropertyName("displayName")]
     public string DisplayName { get; set; } = string.Empty;
 
+    /// <summary>
+    /// HTTPS URL of the resource's icon on raw.githubusercontent.com, retained from the catalogue
+    /// candidate. Untrusted external content: load it without credentials. Omitted when the
+    /// candidate had none.
+    /// </summary>
+    [Url]
+    [StringSyntax(StringSyntaxAttribute.Uri)]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(2048)]
+    [JsonPropertyName("iconUrl")]
+    public string? IconUrl { get; set; }
+
     /// <summary>Catalogue item URL when supplied by the authority.</summary>
     [JsonPropertyName("itemUrl")]
     public string? ItemUrl { get; set; }
@@ -7103,6 +7123,7 @@ public sealed class InstructionsGetDiscoveryPathsRequest
 [JsonDerivedType(typeof(SkillInstallationManagementResultOutcome), "outcome")]
 [JsonDerivedType(typeof(SkillInstallationManagementResultNegotiationRefused), "negotiation-refused")]
 [JsonDerivedType(typeof(SkillInstallationManagementResultInvalidRequest), "invalid-request")]
+[JsonDerivedType(typeof(SkillInstallationManagementResultNetworkFailure), "network-failure")]
 public partial class SkillInstallationManagementResult
 {
     /// <summary>The type discriminator.</summary>
@@ -7732,6 +7753,11 @@ public partial class SkillInstallationOutcomeRefused : SkillInstallationOutcome
     /// <summary>Bounded refusal reason.</summary>
     [JsonPropertyName("reason")]
     public required SkillInstallationFailureReason Reason { get; set; }
+
+    /// <summary>Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("retryAfterSeconds")]
+    public long? RetryAfterSeconds { get; set; }
 }
 
 /// <summary>Original operation progress discriminator.</summary>
@@ -7800,6 +7826,11 @@ public partial class SkillInstallationManagementOutcomeRefused : SkillInstallati
     /// <summary>Bounded refusal reason.</summary>
     [JsonPropertyName("reason")]
     public required SkillInstallationFailureReason Reason { get; set; }
+
+    /// <summary>Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("retryAfterSeconds")]
+    public long? RetryAfterSeconds { get; set; }
 }
 
 /// <summary>The <c>outcome</c> variant of <see cref="SkillInstallationManagementResult"/>.</summary>
@@ -7875,6 +7906,36 @@ public partial class SkillInstallationManagementResultInvalidRequest : SkillInst
     public required string Message { get; set; }
 }
 
+/// <summary>The runtime could not reach the catalog authority or retrieve a card. Covers being offline as well as transport-level failure.</summary>
+/// <remarks>The <c>network-failure</c> variant of <see cref="SkillInstallationManagementResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class SkillInstallationManagementResultNetworkFailure : SkillInstallationManagementResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "network-failure";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Categorised failure, low cardinality so it can be aggregated without carrying a URL.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogNetworkFailureReason Reason { get; set; }
+
+    /// <summary>Bounded cooldown in seconds before another catalog request should be attempted, when the authority supplied a numeric Retry-After value or the runtime applied its documented fallback.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("retryAfterSeconds")]
+    public int? RetryAfterSeconds { get; set; }
+
+    /// <summary>HTTP status code, when the failure was a rejected response.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("statusCode")]
+    public int? StatusCode { get; set; }
+}
+
 /// <summary>Side-effect-free planning of one verified Agent Finder Skill candidate.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 internal sealed class SkillPlanInstallRequest
@@ -7901,6 +7962,7 @@ internal sealed class SkillPlanInstallRequest
 [JsonDerivedType(typeof(SkillInstallationResultOutcome), "outcome")]
 [JsonDerivedType(typeof(SkillInstallationResultNegotiationRefused), "negotiation-refused")]
 [JsonDerivedType(typeof(SkillInstallationResultInvalidRequest), "invalid-request")]
+[JsonDerivedType(typeof(SkillInstallationResultNetworkFailure), "network-failure")]
 public partial class SkillInstallationResult
 {
     /// <summary>The type discriminator.</summary>
@@ -7980,6 +8042,36 @@ public partial class SkillInstallationResultInvalidRequest : SkillInstallationRe
     [MaxLength(1000)]
     [JsonPropertyName("message")]
     public required string Message { get; set; }
+}
+
+/// <summary>The runtime could not reach the catalog authority or retrieve a card. Covers being offline as well as transport-level failure.</summary>
+/// <remarks>The <c>network-failure</c> variant of <see cref="SkillInstallationResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class SkillInstallationResultNetworkFailure : SkillInstallationResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "network-failure";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Categorised failure, low cardinality so it can be aggregated without carrying a URL.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogNetworkFailureReason Reason { get; set; }
+
+    /// <summary>Bounded cooldown in seconds before another catalog request should be attempted, when the authority supplied a numeric Retry-After value or the runtime applied its documented fallback.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("retryAfterSeconds")]
+    public int? RetryAfterSeconds { get; set; }
+
+    /// <summary>HTTP status code, when the failure was a rejected response.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("statusCode")]
+    public int? StatusCode { get; set; }
 }
 
 /// <summary>Applies exactly one retained verified Skill installation plan.</summary>
@@ -8237,6 +8329,7 @@ internal sealed class SkillsConfigSetSkillDisabledRequest
 [JsonDerivedType(typeof(PluginInstallationManagementResultOutcome), "outcome")]
 [JsonDerivedType(typeof(PluginInstallationManagementResultNegotiationRefused), "negotiation-refused")]
 [JsonDerivedType(typeof(PluginInstallationManagementResultInvalidRequest), "invalid-request")]
+[JsonDerivedType(typeof(PluginInstallationManagementResultNetworkFailure), "network-failure")]
 public partial class PluginInstallationManagementResult
 {
     /// <summary>The type discriminator.</summary>
@@ -8299,6 +8392,23 @@ public sealed class PluginInstallationFileReview
     /// <summary>Exact reviewed file size in bytes.</summary>
     [JsonPropertyName("sizeBytes")]
     public long SizeBytes { get; set; }
+}
+
+/// <summary>One MCP server a reviewed plugin declares.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class PluginInstallationMcpServerReview
+{
+    /// <summary>Host of a remote server's URL.</summary>
+    [JsonPropertyName("host")]
+    public string? Host { get; set; }
+
+    /// <summary>Server name as the plugin declares it.</summary>
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>`remote` for an HTTP or SSE server, `local` for a command the plugin runs.</summary>
+    [JsonPropertyName("transport")]
+    public PluginInstallationMcpTransport Transport { get; set; }
 }
 
 /// <summary>Source identity retained from Agent Finder and the pinned GitHub descriptor.</summary>
@@ -8388,6 +8498,14 @@ public partial class PluginInstallationReviewInstall : PluginInstallationReview
     [JsonPropertyName("manifestPath")]
     public required string ManifestPath { get; set; }
 
+    /// <summary>
+    /// MCP servers the verified files declare, exactly as an install of these files loads
+    /// them. Omitted when the plugin declares none.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("mcpServers")]
+    public IList<PluginInstallationMcpServerReview>? McpServers { get; set; }
+
     /// <summary>Installed plugin name, derived from the verified manifest exactly as a direct install derives it.</summary>
     [JsonPropertyName("name")]
     public required string Name { get; set; }
@@ -8457,6 +8575,11 @@ public partial class PluginInstallationManagementOutcomeRefused : PluginInstalla
     /// <summary>Bounded refusal reason.</summary>
     [JsonPropertyName("reason")]
     public required PluginInstallationFailureReason Reason { get; set; }
+
+    /// <summary>Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("retryAfterSeconds")]
+    public long? RetryAfterSeconds { get; set; }
 }
 
 /// <summary>The <c>outcome</c> variant of <see cref="PluginInstallationManagementResult"/>.</summary>
@@ -8532,6 +8655,36 @@ public partial class PluginInstallationManagementResultInvalidRequest : PluginIn
     public required string Message { get; set; }
 }
 
+/// <summary>The runtime could not reach the catalog authority or retrieve a card. Covers being offline as well as transport-level failure.</summary>
+/// <remarks>The <c>network-failure</c> variant of <see cref="PluginInstallationManagementResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class PluginInstallationManagementResultNetworkFailure : PluginInstallationManagementResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "network-failure";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Categorised failure, low cardinality so it can be aggregated without carrying a URL.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogNetworkFailureReason Reason { get; set; }
+
+    /// <summary>Bounded cooldown in seconds before another catalog request should be attempted, when the authority supplied a numeric Retry-After value or the runtime applied its documented fallback.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("retryAfterSeconds")]
+    public int? RetryAfterSeconds { get; set; }
+
+    /// <summary>HTTP status code, when the failure was a rejected response.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("statusCode")]
+    public int? StatusCode { get; set; }
+}
+
 /// <summary>Side-effect-free planning of one Agent Plugin search candidate through its Agent Finder materialisation.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 internal sealed class PluginPlanInstallRequest
@@ -8558,6 +8711,7 @@ internal sealed class PluginPlanInstallRequest
 [JsonDerivedType(typeof(PluginInstallationResultOutcome), "outcome")]
 [JsonDerivedType(typeof(PluginInstallationResultNegotiationRefused), "negotiation-refused")]
 [JsonDerivedType(typeof(PluginInstallationResultInvalidRequest), "invalid-request")]
+[JsonDerivedType(typeof(PluginInstallationResultNetworkFailure), "network-failure")]
 public partial class PluginInstallationResult
 {
     /// <summary>The type discriminator.</summary>
@@ -8676,6 +8830,11 @@ public partial class PluginInstallationOutcomeRefused : PluginInstallationOutcom
     /// <summary>Bounded refusal reason.</summary>
     [JsonPropertyName("reason")]
     public required PluginInstallationFailureReason Reason { get; set; }
+
+    /// <summary>Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("retryAfterSeconds")]
+    public long? RetryAfterSeconds { get; set; }
 }
 
 /// <summary>The <c>outcome</c> variant of <see cref="PluginInstallationResult"/>.</summary>
@@ -8751,6 +8910,36 @@ public partial class PluginInstallationResultInvalidRequest : PluginInstallation
     public required string Message { get; set; }
 }
 
+/// <summary>The runtime could not reach the catalog authority or retrieve a card. Covers being offline as well as transport-level failure.</summary>
+/// <remarks>The <c>network-failure</c> variant of <see cref="PluginInstallationResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class PluginInstallationResultNetworkFailure : PluginInstallationResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "network-failure";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Categorised failure, low cardinality so it can be aggregated without carrying a URL.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogNetworkFailureReason Reason { get; set; }
+
+    /// <summary>Bounded cooldown in seconds before another catalog request should be attempted, when the authority supplied a numeric Retry-After value or the runtime applied its documented fallback.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("retryAfterSeconds")]
+    public int? RetryAfterSeconds { get; set; }
+
+    /// <summary>HTTP status code, when the failure was a rejected response.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("statusCode")]
+    public int? StatusCode { get; set; }
+}
+
 /// <summary>Applies exactly one retained verified Agent Plugin installation plan.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 internal sealed class PluginApplyInstallRequest
@@ -8768,10 +8957,27 @@ internal sealed class PluginApplyInstallRequest
     public string PolicySessionId { get; set; } = string.Empty;
 }
 
+/// <summary>The GitHub repository and commit an installed plugin is pinned to.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class InstalledPluginVerifiedSource
+{
+    /// <summary>GitHub repository in `owner/repo` form.</summary>
+    [JsonPropertyName("repository")]
+    public string Repository { get; set; } = string.Empty;
+
+    /// <summary>Full 40-character hexadecimal commit SHA the plugin is pinned to.</summary>
+    [JsonPropertyName("revision")]
+    public string Revision { get; set; } = string.Empty;
+}
+
 /// <summary>Information about an installed plugin tracked in global state.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public sealed class InstalledPluginInfo
 {
+    /// <summary>Description from the manifest of the installed copy. Present only for a direct install pinned to one GitHub commit, such as a verified install from GitHub.</summary>
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
     /// <summary>Opaque, stable hash identifying a direct (non-marketplace) install source. Present only for direct repo / URL / local installs; absent for marketplace plugins. Same source yields the same id; distinct sources never collide.</summary>
     [JsonPropertyName("directSourceId")]
     public string? DirectSourceId { get; set; }
@@ -8779,6 +8985,14 @@ public sealed class InstalledPluginInfo
     /// <summary>Whether the plugin is currently enabled for new sessions.</summary>
     [JsonPropertyName("enabled")]
     public bool Enabled { get; set; }
+
+    /// <summary>HTTPS URL of the plugin's icon on raw.githubusercontent.com, retained from the catalogue entry it was installed from. Untrusted external content: load it without credentials. Present only for a direct install pinned to one GitHub commit whose catalogue entry had an icon.</summary>
+    [Url]
+    [StringSyntax(StringSyntaxAttribute.Uri)]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(2048)]
+    [JsonPropertyName("iconUrl")]
+    public string? IconUrl { get; set; }
 
     /// <summary>Whether the managed desired plugin currently has an installed or live record. Set to false for a managed desired entry retained in the listing after installation or reconciliation failed.</summary>
     [JsonPropertyName("installed")]
@@ -8807,6 +9021,10 @@ public sealed class InstalledPluginInfo
     /// <summary>Runtime-reported plugin provenance. Currently set to "builtin" only for plugins registered through the trusted host built-in boundary; absent for installed, marketplace, direct, and live plugins.</summary>
     [JsonPropertyName("source")]
     public string? Source { get; set; }
+
+    /// <summary>The GitHub repository and commit a direct install is pinned to, from its install record. Present only for a direct install pinned to one GitHub commit, such as a verified install from GitHub; absent for marketplace, local and unpinned installs.</summary>
+    [JsonPropertyName("verifiedSource")]
+    public InstalledPluginVerifiedSource? VerifiedSource { get; set; }
 
     /// <summary>Installed version (when reported by the plugin manifest).</summary>
     [JsonPropertyName("version")]
@@ -9508,7 +9726,7 @@ public sealed class CatalogAgentPluginInstallPlan
     [JsonPropertyName("commit")]
     public string? Commit { get; set; }
 
-    /// <summary>Components the plugin contributes, in canonical order.</summary>
+    /// <summary>Components the plugin contributes, in canonical order. Empty only in a materialisation-only plan, where the verified manifests list them in the plugins.planInstall review.</summary>
     [JsonPropertyName("components")]
     public IList<CatalogAgentPluginComponent> Components { get => field ??= []; set; }
 
@@ -9524,13 +9742,13 @@ public sealed class CatalogAgentPluginInstallPlan
     [JsonPropertyName("mcpDependencies")]
     public IList<string> McpDependencies { get => field ??= []; set; }
 
-    /// <summary>The plugin's name, as named in its marketplace or manifest.</summary>
+    /// <summary>The plugin's name, as named in its marketplace or manifest. Omitted from a materialisation-only plan, whose sources are only `materialization`: the verified manifests supply the name in the plugins.planInstall review.</summary>
     [RegularExpression("^[A-Za-z0-9._-]+$")]
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
     [MinLength(1)]
     [MaxLength(64)]
     [JsonPropertyName("pluginName")]
-    public string PluginName { get; set; } = string.Empty;
+    public string? PluginName { get; set; }
 
     /// <summary>Every valid install source, in preference order: materialization, then marketplace, then repository. Each kind appears at most once.</summary>
     [JsonPropertyName("sources")]
@@ -9564,12 +9782,12 @@ public sealed class CatalogAgentPluginCandidateProvenance
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public sealed class CatalogPluginRepositorySource
 {
-    /// <summary>Case-preserving safe relative POSIX path derived from metadata.repoPath.</summary>
+    /// <summary>Case-preserving safe relative POSIX path derived from metadata.repoPath. Absent when the catalog declared sourceSet without repoPath, meaning the plugin is at the repository root; only callers that require agent-plugin-confirmed-installation receive such a source.</summary>
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
     [MinLength(1)]
     [MaxLength(256)]
     [JsonPropertyName("path")]
-    public string Path { get; set; } = string.Empty;
+    public string? Path { get; set; }
 
     /// <summary>Canonical lowercase owner/repository name derived from metadata.sourceSet.</summary>
     [RegularExpression("^[a-z0-9_.-]+/[a-z0-9_.-]+$")]
@@ -9671,9 +9889,10 @@ public partial class CatalogCandidatePlugin : CatalogCandidate
     [JsonPropertyName("publisher")]
     public string? Publisher { get; set; }
 
-    /// <summary>Bounded repository provenance declared through the catalog's sourceSet and repoPath metadata. It contains no descriptor URL.</summary>
+    /// <summary>Bounded repository provenance declared through the catalog's sourceSet and repoPath metadata. It contains no descriptor URL. Always present, with a path, unless the caller requires agent-plugin-confirmed-installation. Such a caller also receives a repository-root plugin (sourceSet without repoPath) whose source has no path, and a plugin with no usable declaration (neither key, or repoPath alone) and no source; the latter carries a complete materialisation reference and a handle, and the verified descriptor supplies the repository, commit and root when it is planned. Never derived from the catalogue URL.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("source")]
-    public required CatalogPluginRepositorySource Source { get; set; }
+    public CatalogPluginRepositorySource? Source { get; set; }
 
     /// <summary>Versioned trust metadata observed from the catalog authority. Optional for protocol-3 compatibility and emitted only when the caller also requires the trust-snapshot capability.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -10050,6 +10269,686 @@ public sealed class CatalogSearchRequest
     public required string Query { get; set; }
 }
 
+/// <summary>Outcome of catalog.getSavedFeed: the feed with its entries, or one typed refusal. An entry that cannot be presented never fails the feed.</summary>
+/// <remarks>Polymorphic base type discriminated by <c>kind</c>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonPolymorphic(
+    TypeDiscriminatorPropertyName = "kind",
+    UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FallBackToBaseType)]
+[JsonDerivedType(typeof(CatalogResourceSavedFeedResultSucceeded), "succeeded")]
+[JsonDerivedType(typeof(CatalogResourceSavedFeedResultNegotiationRefused), "negotiation-refused")]
+[JsonDerivedType(typeof(CatalogResourceSavedFeedResultInvalidRequest), "invalid-request")]
+[JsonDerivedType(typeof(CatalogResourceSavedFeedResultAuthenticationRequired), "authentication-required")]
+[JsonDerivedType(typeof(CatalogResourceSavedFeedResultPolicyRejected), "policy-rejected")]
+[JsonDerivedType(typeof(CatalogResourceSavedFeedResultNetworkFailure), "network-failure")]
+[JsonDerivedType(typeof(CatalogResourceSavedFeedResultUnsafeRetrieval), "unsafe-retrieval")]
+[JsonDerivedType(typeof(CatalogResourceSavedFeedResultMalformedCard), "malformed-card")]
+[JsonDerivedType(typeof(CatalogResourceSavedFeedResultUnavailable), "unavailable")]
+public partial class CatalogResourceSavedFeedResult
+{
+    /// <summary>The type discriminator.</summary>
+    [JsonPropertyName("kind")]
+    public virtual string Kind { get; set; } = string.Empty;
+}
+
+
+/// <summary>One feed entry, in its feed position. Only available entries carry a candidate.</summary>
+/// <remarks>Polymorphic base type discriminated by <c>status</c>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonPolymorphic(
+    TypeDiscriminatorPropertyName = "status",
+    UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FallBackToBaseType)]
+[JsonDerivedType(typeof(CatalogFeedEntryAvailable), "available")]
+[JsonDerivedType(typeof(CatalogFeedEntryUnavailable), "unavailable")]
+[JsonDerivedType(typeof(CatalogFeedEntryFiltered), "filtered")]
+public partial class CatalogFeedEntry
+{
+    /// <summary>The type discriminator.</summary>
+    [JsonPropertyName("status")]
+    public virtual string Status { get; set; } = string.Empty;
+}
+
+
+/// <summary>An entry whose resource resolves and is presented as the same candidate catalog.search would return.</summary>
+/// <remarks>The <c>available</c> variant of <see cref="CatalogFeedEntry"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogFeedEntryAvailable : CatalogFeedEntry
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Status => "available";
+
+    /// <summary>The entry's resource, with the same projection, installability, handle and display metadata as a catalog.search candidate.</summary>
+    [JsonPropertyName("candidate")]
+    public required CatalogCandidate Candidate { get; set; }
+
+    /// <summary>The entry's resource identifier as saved in the feed.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [MaxLength(1000)]
+    [JsonPropertyName("identifier")]
+    public required string Identifier { get; set; }
+}
+
+/// <summary>An entry that cannot be presented, kept in its position so clients decide how to render it.</summary>
+/// <remarks>The <c>unavailable</c> variant of <see cref="CatalogFeedEntry"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogFeedEntryUnavailable : CatalogFeedEntry
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Status => "unavailable";
+
+    /// <summary>The entry's resource identifier as saved in the feed.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [MaxLength(1000)]
+    [JsonPropertyName("identifier")]
+    public required string Identifier { get; set; }
+
+    /// <summary>Why the entry cannot be presented.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogFeedUnavailableReason Reason { get; set; }
+}
+
+/// <summary>An entry whose resource resolves but is not in one of the requested trust tiers.</summary>
+/// <remarks>The <c>filtered</c> variant of <see cref="CatalogFeedEntry"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogFeedEntryFiltered : CatalogFeedEntry
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Status => "filtered";
+
+    /// <summary>The entry's resource identifier as saved in the feed.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [MaxLength(1000)]
+    [JsonPropertyName("identifier")]
+    public required string Identifier { get; set; }
+}
+
+/// <summary>A saved feed's identity. Its version changes only when the feed's definition is replaced, not when a referenced resource changes.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class CatalogSavedFeedDescription
+{
+    /// <summary>Opaque feed ID.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [MaxLength(128)]
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    /// <summary>Feed name as saved by its creator. Inert untrusted text.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [MaxLength(512)]
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Version of the saved feed definition.</summary>
+    [JsonPropertyName("version")]
+    public long Version { get; set; }
+}
+
+/// <summary>A retrieved saved feed. Entries keep the feed's order and are never more than 100.</summary>
+/// <remarks>The <c>succeeded</c> variant of <see cref="CatalogResourceSavedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceSavedFeedResultSucceeded : CatalogResourceSavedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "succeeded";
+
+    /// <summary>Feed entries in the feed's order.</summary>
+    [JsonPropertyName("entries")]
+    public required IList<CatalogFeedEntry> Entries { get; set; }
+
+    /// <summary>The feed's own identity and freshness.</summary>
+    [JsonPropertyName("feed")]
+    public required CatalogSavedFeedDescription Feed { get; set; }
+
+    /// <summary>Protocol version and capabilities the runtime honoured.</summary>
+    [JsonPropertyName("negotiated")]
+    public required CatalogNegotiatedContract Negotiated { get; set; }
+
+    /// <summary>Runtime-issued identifier for this retrieval, with the same meaning as a catalog.search searchId, so a plan can be tied to the feed that produced its candidate. Derived from no user, account, device or feed data.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [MaxLength(64)]
+    [JsonPropertyName("searchId")]
+    public required string SearchId { get; set; }
+}
+
+/// <summary>The caller's protocol version or required capabilities cannot be honoured. Returned instead of a partial or ambiguous success.</summary>
+/// <remarks>The <c>negotiation-refused</c> variant of <see cref="CatalogResourceSavedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceSavedFeedResultNegotiationRefused : CatalogResourceSavedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "negotiation-refused";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Lowest caller protocol version this runtime will serve.</summary>
+    [JsonPropertyName("minimumSupportedProtocolVersion")]
+    public required long MinimumSupportedProtocolVersion { get; set; }
+
+    /// <summary>Whether the version or the capability set was the problem.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogNegotiationRefusedReason Reason { get; set; }
+
+    /// <summary>Protocol version of the runtime that refused the request.</summary>
+    [JsonPropertyName("runtimeProtocolVersion")]
+    public required long RuntimeProtocolVersion { get; set; }
+
+    /// <summary>Capabilities this runtime can safely advertise to this caller. The complete five-capability protocol-3 legacy set is always present; every capability added after that baseline appears only when the caller required it, so an older closed-enum decoder can still consume a refusal. This list does not imply that every deployment has enabled every operation.</summary>
+    [JsonPropertyName("supportedCapabilities")]
+    public required IList<string> SupportedCapabilities { get; set; }
+
+    /// <summary>The subset of the caller's bounded extensible capability identifiers this runtime cannot honour.</summary>
+    [JsonPropertyName("unsupportedCapabilities")]
+    public required IList<string> UnsupportedCapabilities { get; set; }
+}
+
+/// <summary>The request was rejected because a bounded field fell outside its permitted range or a required field was unusable. Pagination may also be rejected by the authority after a continuation request; repeat the search without page.</summary>
+/// <remarks>The <c>invalid-request</c> variant of <see cref="CatalogResourceSavedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceSavedFeedResultInvalidRequest : CatalogResourceSavedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "invalid-request";
+
+    /// <summary>Which request field was rejected.</summary>
+    [JsonPropertyName("field")]
+    public required CatalogInvalidRequestField Field { get; set; }
+
+    /// <summary>Human-readable explanation, safe to surface. Never echoes the offending value, nor a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+}
+
+/// <summary>An optional catalog authentication exchange did not establish the caller's identity. Anonymous search remains supported; this refusal is reserved for an operation that cannot continue after the attempted exchange. It is distinct from `policy-rejected` and from a network failure, and the reason identifies the recovery action.</summary>
+/// <remarks>The <c>authentication-required</c> variant of <see cref="CatalogResourceSavedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceSavedFeedResultAuthenticationRequired : CatalogResourceSavedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "authentication-required";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a credential or token, nor a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Why authentication failed. Only an expired credential justifies attempting a silent refresh; an absent or rejected credential requires sign-in.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogAuthenticationRequiredReason Reason { get; set; }
+}
+
+/// <summary>Registry or enterprise policy refused the operation.</summary>
+/// <remarks>The <c>policy-rejected</c> variant of <see cref="CatalogResourceSavedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceSavedFeedResultPolicyRejected : CatalogResourceSavedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "policy-rejected";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Which authority produced the decision.</summary>
+    [JsonPropertyName("source")]
+    public required McpPlanPolicySource Source { get; set; }
+}
+
+/// <summary>The runtime could not reach the catalog authority or retrieve a card. Covers being offline as well as transport-level failure.</summary>
+/// <remarks>The <c>network-failure</c> variant of <see cref="CatalogResourceSavedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceSavedFeedResultNetworkFailure : CatalogResourceSavedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "network-failure";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Categorised failure, low cardinality so it can be aggregated without carrying a URL.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogNetworkFailureReason Reason { get; set; }
+
+    /// <summary>Bounded cooldown in seconds before another catalog request should be attempted, when the authority supplied a numeric Retry-After value or the runtime applied its documented fallback.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("retryAfterSeconds")]
+    public int? RetryAfterSeconds { get; set; }
+
+    /// <summary>HTTP status code, when the failure was a rejected response.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("statusCode")]
+    public int? StatusCode { get; set; }
+}
+
+/// <summary>Retrieval was refused by the runtime's hardened fetch boundary before any request left the process, or before a redirect was followed.</summary>
+/// <remarks>The <c>unsafe-retrieval</c> variant of <see cref="CatalogResourceSavedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceSavedFeedResultUnsafeRetrieval : CatalogResourceSavedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "unsafe-retrieval";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains the refused URL, nor a query, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Which control refused the retrieval, low cardinality so it can be aggregated without carrying a URL.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogUnsafeRetrievalReason Reason { get; set; }
+}
+
+/// <summary>A card could not be parsed or did not satisfy its declared media type's schema.</summary>
+/// <remarks>The <c>malformed-card</c> variant of <see cref="CatalogResourceSavedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceSavedFeedResultMalformedCard : CatalogResourceSavedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "malformed-card";
+
+    /// <summary>Media type the card was interpreted as, when it declared one this runtime recognises.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("mediaType")]
+    public CatalogMediaType? MediaType { get; set; }
+
+    /// <summary>Human-readable explanation, safe to surface. Never echoes card content, nor a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>How the card failed validation.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogMalformedCardReason Reason { get; set; }
+}
+
+/// <summary>The operation is not available on this runtime. Distinct from a network failure: nothing was attempted.</summary>
+/// <remarks>The <c>unavailable</c> variant of <see cref="CatalogResourceSavedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceSavedFeedResultUnavailable : CatalogResourceSavedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "unavailable";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Why the operation is unavailable.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogUnavailableReason Reason { get; set; }
+}
+
+/// <summary>Retrieves one saved feed by its opaque ID. Requires catalog-feeds and catalog-search-credential-required; add catalog-search-session-bound with policySessionId to retain the selected session's authority for installation, exactly as for catalog.search.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class CatalogGetSavedFeedRequest
+{
+    /// <summary>Protocol version and capabilities the caller requires.</summary>
+    [JsonPropertyName("contract")]
+    public CatalogClientContract Contract { get => field ??= new(); set; }
+
+    /// <summary>Opaque saved feed ID. Treat it as an indivisible string.</summary>
+    [RegularExpression("^[A-Za-z0-9_-]+$")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [MaxLength(128)]
+    [JsonPropertyName("feedId")]
+    public string FeedId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Select an existing attached local session. Requires authenticated, session-bound catalogue support.
+    /// The runtime never creates, resumes or reconfigures a session to honour this selector.
+    /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [MaxLength(256)]
+    [JsonPropertyName("policySessionId")]
+    public string? PolicySessionId { get; set; }
+
+    /// <summary>Accept only resources currently assessed at one of these trust tiers. Entries whose resource is in another tier, or has none, are returned as filtered in their original position. Omit for an unfiltered feed.</summary>
+    [JsonPropertyName("trustTiers")]
+    public IList<CatalogTrustTier>? TrustTiers { get; set; }
+}
+
+/// <summary>Outcome of catalog.getGeneratedFeed: the feed with its entries, or one typed refusal. An entry that cannot be presented never fails the feed.</summary>
+/// <remarks>Polymorphic base type discriminated by <c>kind</c>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonPolymorphic(
+    TypeDiscriminatorPropertyName = "kind",
+    UnknownDerivedTypeHandling = JsonUnknownDerivedTypeHandling.FallBackToBaseType)]
+[JsonDerivedType(typeof(CatalogResourceGeneratedFeedResultSucceeded), "succeeded")]
+[JsonDerivedType(typeof(CatalogResourceGeneratedFeedResultNegotiationRefused), "negotiation-refused")]
+[JsonDerivedType(typeof(CatalogResourceGeneratedFeedResultInvalidRequest), "invalid-request")]
+[JsonDerivedType(typeof(CatalogResourceGeneratedFeedResultAuthenticationRequired), "authentication-required")]
+[JsonDerivedType(typeof(CatalogResourceGeneratedFeedResultPolicyRejected), "policy-rejected")]
+[JsonDerivedType(typeof(CatalogResourceGeneratedFeedResultNetworkFailure), "network-failure")]
+[JsonDerivedType(typeof(CatalogResourceGeneratedFeedResultUnsafeRetrieval), "unsafe-retrieval")]
+[JsonDerivedType(typeof(CatalogResourceGeneratedFeedResultMalformedCard), "malformed-card")]
+[JsonDerivedType(typeof(CatalogResourceGeneratedFeedResultUnavailable), "unavailable")]
+public partial class CatalogResourceGeneratedFeedResult
+{
+    /// <summary>The type discriminator.</summary>
+    [JsonPropertyName("kind")]
+    public virtual string Kind { get; set; } = string.Empty;
+}
+
+
+/// <summary>A generated feed's identity. It has no version; generatedAt is its only freshness signal.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class CatalogGeneratedFeedDescription
+{
+    /// <summary>When the feed was computed, as reported by the authority. Omitted when the authority reports no valid timestamp.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(64)]
+    [JsonPropertyName("generatedAt")]
+    public string? GeneratedAt { get; set; }
+
+    /// <summary>Feed key that was requested.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [MaxLength(64)]
+    [JsonPropertyName("key")]
+    public string Key { get; set; } = string.Empty;
+
+    /// <summary>Generation strategy that was requested.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [MaxLength(64)]
+    [JsonPropertyName("strategy")]
+    public string Strategy { get; set; } = string.Empty;
+}
+
+/// <summary>A retrieved generated feed. Entries keep the feed's order and are never more than 100.</summary>
+/// <remarks>The <c>succeeded</c> variant of <see cref="CatalogResourceGeneratedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceGeneratedFeedResultSucceeded : CatalogResourceGeneratedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "succeeded";
+
+    /// <summary>Feed entries in the feed's order.</summary>
+    [JsonPropertyName("entries")]
+    public required IList<CatalogFeedEntry> Entries { get; set; }
+
+    /// <summary>The feed's own identity and freshness.</summary>
+    [JsonPropertyName("feed")]
+    public required CatalogGeneratedFeedDescription Feed { get; set; }
+
+    /// <summary>Protocol version and capabilities the runtime honoured.</summary>
+    [JsonPropertyName("negotiated")]
+    public required CatalogNegotiatedContract Negotiated { get; set; }
+
+    /// <summary>Runtime-issued identifier for this retrieval, with the same meaning as a catalog.search searchId, so a plan can be tied to the feed that produced its candidate. Derived from no user, account, device or feed data.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [MaxLength(64)]
+    [JsonPropertyName("searchId")]
+    public required string SearchId { get; set; }
+}
+
+/// <summary>The caller's protocol version or required capabilities cannot be honoured. Returned instead of a partial or ambiguous success.</summary>
+/// <remarks>The <c>negotiation-refused</c> variant of <see cref="CatalogResourceGeneratedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceGeneratedFeedResultNegotiationRefused : CatalogResourceGeneratedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "negotiation-refused";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Lowest caller protocol version this runtime will serve.</summary>
+    [JsonPropertyName("minimumSupportedProtocolVersion")]
+    public required long MinimumSupportedProtocolVersion { get; set; }
+
+    /// <summary>Whether the version or the capability set was the problem.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogNegotiationRefusedReason Reason { get; set; }
+
+    /// <summary>Protocol version of the runtime that refused the request.</summary>
+    [JsonPropertyName("runtimeProtocolVersion")]
+    public required long RuntimeProtocolVersion { get; set; }
+
+    /// <summary>Capabilities this runtime can safely advertise to this caller. The complete five-capability protocol-3 legacy set is always present; every capability added after that baseline appears only when the caller required it, so an older closed-enum decoder can still consume a refusal. This list does not imply that every deployment has enabled every operation.</summary>
+    [JsonPropertyName("supportedCapabilities")]
+    public required IList<string> SupportedCapabilities { get; set; }
+
+    /// <summary>The subset of the caller's bounded extensible capability identifiers this runtime cannot honour.</summary>
+    [JsonPropertyName("unsupportedCapabilities")]
+    public required IList<string> UnsupportedCapabilities { get; set; }
+}
+
+/// <summary>The request was rejected because a bounded field fell outside its permitted range or a required field was unusable. Pagination may also be rejected by the authority after a continuation request; repeat the search without page.</summary>
+/// <remarks>The <c>invalid-request</c> variant of <see cref="CatalogResourceGeneratedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceGeneratedFeedResultInvalidRequest : CatalogResourceGeneratedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "invalid-request";
+
+    /// <summary>Which request field was rejected.</summary>
+    [JsonPropertyName("field")]
+    public required CatalogInvalidRequestField Field { get; set; }
+
+    /// <summary>Human-readable explanation, safe to surface. Never echoes the offending value, nor a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+}
+
+/// <summary>An optional catalog authentication exchange did not establish the caller's identity. Anonymous search remains supported; this refusal is reserved for an operation that cannot continue after the attempted exchange. It is distinct from `policy-rejected` and from a network failure, and the reason identifies the recovery action.</summary>
+/// <remarks>The <c>authentication-required</c> variant of <see cref="CatalogResourceGeneratedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceGeneratedFeedResultAuthenticationRequired : CatalogResourceGeneratedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "authentication-required";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a credential or token, nor a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Why authentication failed. Only an expired credential justifies attempting a silent refresh; an absent or rejected credential requires sign-in.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogAuthenticationRequiredReason Reason { get; set; }
+}
+
+/// <summary>Registry or enterprise policy refused the operation.</summary>
+/// <remarks>The <c>policy-rejected</c> variant of <see cref="CatalogResourceGeneratedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceGeneratedFeedResultPolicyRejected : CatalogResourceGeneratedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "policy-rejected";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Which authority produced the decision.</summary>
+    [JsonPropertyName("source")]
+    public required McpPlanPolicySource Source { get; set; }
+}
+
+/// <summary>The runtime could not reach the catalog authority or retrieve a card. Covers being offline as well as transport-level failure.</summary>
+/// <remarks>The <c>network-failure</c> variant of <see cref="CatalogResourceGeneratedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceGeneratedFeedResultNetworkFailure : CatalogResourceGeneratedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "network-failure";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Categorised failure, low cardinality so it can be aggregated without carrying a URL.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogNetworkFailureReason Reason { get; set; }
+
+    /// <summary>Bounded cooldown in seconds before another catalog request should be attempted, when the authority supplied a numeric Retry-After value or the runtime applied its documented fallback.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("retryAfterSeconds")]
+    public int? RetryAfterSeconds { get; set; }
+
+    /// <summary>HTTP status code, when the failure was a rejected response.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("statusCode")]
+    public int? StatusCode { get; set; }
+}
+
+/// <summary>Retrieval was refused by the runtime's hardened fetch boundary before any request left the process, or before a redirect was followed.</summary>
+/// <remarks>The <c>unsafe-retrieval</c> variant of <see cref="CatalogResourceGeneratedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceGeneratedFeedResultUnsafeRetrieval : CatalogResourceGeneratedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "unsafe-retrieval";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains the refused URL, nor a query, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Which control refused the retrieval, low cardinality so it can be aggregated without carrying a URL.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogUnsafeRetrievalReason Reason { get; set; }
+}
+
+/// <summary>A card could not be parsed or did not satisfy its declared media type's schema.</summary>
+/// <remarks>The <c>malformed-card</c> variant of <see cref="CatalogResourceGeneratedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceGeneratedFeedResultMalformedCard : CatalogResourceGeneratedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "malformed-card";
+
+    /// <summary>Media type the card was interpreted as, when it declared one this runtime recognises.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("mediaType")]
+    public CatalogMediaType? MediaType { get; set; }
+
+    /// <summary>Human-readable explanation, safe to surface. Never echoes card content, nor a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>How the card failed validation.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogMalformedCardReason Reason { get; set; }
+}
+
+/// <summary>The operation is not available on this runtime. Distinct from a network failure: nothing was attempted.</summary>
+/// <remarks>The <c>unavailable</c> variant of <see cref="CatalogResourceGeneratedFeedResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogResourceGeneratedFeedResultUnavailable : CatalogResourceGeneratedFeedResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "unavailable";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Why the operation is unavailable.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogUnavailableReason Reason { get; set; }
+}
+
+/// <summary>Retrieves one generated feed, computed on every request, by strategy and key, such as `telemetry` and `popular`. Requires catalog-feeds and catalog-search-credential-required; add catalog-search-session-bound with policySessionId to retain the selected session's authority for installation, exactly as for catalog.search.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class CatalogGetGeneratedFeedRequest
+{
+    /// <summary>Protocol version and capabilities the caller requires.</summary>
+    [JsonPropertyName("contract")]
+    public CatalogClientContract Contract { get => field ??= new(); set; }
+
+    /// <summary>Feed key within the strategy, such as `popular`.</summary>
+    [RegularExpression("^[A-Za-z0-9_-]+$")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [MaxLength(64)]
+    [JsonPropertyName("key")]
+    public string Key { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Select an existing attached local session. Requires authenticated, session-bound catalogue support.
+    /// The runtime never creates, resumes or reconfigures a session to honour this selector.
+    /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [MaxLength(256)]
+    [JsonPropertyName("policySessionId")]
+    public string? PolicySessionId { get; set; }
+
+    /// <summary>Generation strategy, such as `telemetry`.</summary>
+    [RegularExpression("^[A-Za-z0-9_-]+$")]
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MinLength(1)]
+    [MaxLength(64)]
+    [JsonPropertyName("strategy")]
+    public string Strategy { get; set; } = string.Empty;
+
+    /// <summary>Accept only resources currently assessed at one of these trust tiers. Entries whose resource is in another tier, or has none, are returned as filtered in their original position. Omit for an unfiltered feed.</summary>
+    [JsonPropertyName("trustTiers")]
+    public IList<CatalogTrustTier>? TrustTiers { get; set; }
+}
+
 /// <summary>Typed outcome of catalog.select. Only the selected host result carries a fresh candidate handle; the model-facing projection removes both that handle and searchId.</summary>
 /// <remarks>Polymorphic base type discriminated by <c>kind</c>.</remarks>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
@@ -10343,6 +11242,7 @@ internal sealed class CatalogSelectionRequest
 [JsonDerivedType(typeof(CatalogReferenceInstallationResultOutcome), "outcome")]
 [JsonDerivedType(typeof(CatalogReferenceInstallationResultNegotiationRefused), "negotiation-refused")]
 [JsonDerivedType(typeof(CatalogReferenceInstallationResultInvalidRequest), "invalid-request")]
+[JsonDerivedType(typeof(CatalogReferenceInstallationResultNetworkFailure), "network-failure")]
 public partial class CatalogReferenceInstallationResult
 {
     /// <summary>The type discriminator.</summary>
@@ -10408,6 +11308,11 @@ public partial class CatalogReferenceInstallationOutcomeRefused : CatalogReferen
     /// <summary>Bounded refusal reason.</summary>
     [JsonPropertyName("reason")]
     public required CatalogReferenceInstallationFailureReason Reason { get; set; }
+
+    /// <summary>Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("retryAfterSeconds")]
+    public long? RetryAfterSeconds { get; set; }
 }
 
 /// <summary>The <c>outcome</c> variant of <see cref="CatalogReferenceInstallationResult"/>.</summary>
@@ -10481,6 +11386,36 @@ public partial class CatalogReferenceInstallationResultInvalidRequest : CatalogR
     [MaxLength(1000)]
     [JsonPropertyName("message")]
     public required string Message { get; set; }
+}
+
+/// <summary>The runtime could not reach the catalog authority or retrieve a card. Covers being offline as well as transport-level failure.</summary>
+/// <remarks>The <c>network-failure</c> variant of <see cref="CatalogReferenceInstallationResult"/>.</remarks>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public partial class CatalogReferenceInstallationResultNetworkFailure : CatalogReferenceInstallationResult
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Kind => "network-failure";
+
+    /// <summary>Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.</summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Safe for generated string properties: JSON Schema minLength/maxLength map to string length validation, not reflection over trimmed Count members")]
+    [MaxLength(1000)]
+    [JsonPropertyName("message")]
+    public required string Message { get; set; }
+
+    /// <summary>Categorised failure, low cardinality so it can be aggregated without carrying a URL.</summary>
+    [JsonPropertyName("reason")]
+    public required CatalogNetworkFailureReason Reason { get; set; }
+
+    /// <summary>Bounded cooldown in seconds before another catalog request should be attempted, when the authority supplied a numeric Retry-After value or the runtime applied its documented fallback.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("retryAfterSeconds")]
+    public int? RetryAfterSeconds { get; set; }
+
+    /// <summary>HTTP status code, when the failure was a rejected response.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("statusCode")]
+    public int? StatusCode { get; set; }
 }
 
 /// <summary>
@@ -19716,6 +20651,58 @@ internal sealed class TasksGetProgressRequest
     /// <summary>Target session identifier.</summary>
     [JsonPropertyName("sessionId")]
     public string SessionId { get; set; } = string.Empty;
+}
+
+/// <summary>How a shell task ended, reported with the read that reaches the end of its output.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class TaskShellOutputExit
+{
+    /// <summary>Process exit code, when the runtime recorded one. Absent when the shell was stopped before reporting an exit code.</summary>
+    [JsonPropertyName("exitCode")]
+    public long? ExitCode { get; set; }
+
+    /// <summary>Final lifecycle status of the shell task: completed, failed, or cancelled.</summary>
+    [JsonPropertyName("status")]
+    public TaskStatus Status { get; set; }
+}
+
+/// <summary>Output a detached shell task wrote after the request cursor, with the cursor for the next read.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class TasksReadOutputResult
+{
+    /// <summary>Opaque cursor to pass to the next read of this task. Always present, even when no output was returned.</summary>
+    [JsonPropertyName("cursor")]
+    public string Cursor { get; set; } = string.Empty;
+
+    /// <summary>Present once the shell has finished and this read reaches the end of its output. Later reads with the returned cursor return no new text and the same exit details.</summary>
+    [JsonPropertyName("exit")]
+    public TaskShellOutputExit? Exit { get; set; }
+
+    /// <summary>Output after the request cursor, decoded as UTF-8 and redacted. At most 64 KiB per read, so a large backlog takes several reads; the text never splits a character, and text that stops before the end of the output ends at a line break when it contains one. Empty when no new output is available. Detached shells write stdout and stderr to one output, so the text does not separate them.</summary>
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = string.Empty;
+}
+
+/// <summary>Detached shell task to read output from, with an optional cursor and long-poll wait. waitMs defaults to zero (maximum 30000).</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+internal sealed class TasksReadOutputRequest
+{
+    /// <summary>Opaque cursor returned by an earlier read of the same task. Omit to read from the beginning of the shell's output. If the output no longer reaches the cursor, for example because its log was removed, the request fails; read again without a cursor.</summary>
+    [JsonPropertyName("cursor")]
+    public string? Cursor { get; set; }
+
+    /// <summary>Identifier of a detached shell task, as returned by tasks.list.</summary>
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    /// <summary>Target session identifier.</summary>
+    [JsonPropertyName("sessionId")]
+    public string SessionId { get; set; } = string.Empty;
+
+    /// <summary>Milliseconds to wait for new output, or for the shell to finish, when the cursor is already at the end of the available output. 0 (default) returns immediately. Capped at 30000ms.</summary>
+    [JsonConverter(typeof(MillisecondsTimeSpanConverter))]
+    [JsonPropertyName("waitMs")]
+    public TimeSpan? Wait { get; set; }
 }
 
 /// <summary>The first sync-waiting task that can currently be promoted to background mode.</summary>
@@ -32595,6 +33582,75 @@ public readonly struct ManagedSettingsDiagnosticSeverity : IEquatable<ManagedSet
 }
 
 
+/// <summary>Administrator-configured Ensemble preference, independent of execution support.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct ManagedEnsembleTier : IEquatable<ManagedEnsembleTier>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="ManagedEnsembleTier"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="ManagedEnsembleTier"/>.</param>
+    [JsonConstructor]
+    public ManagedEnsembleTier(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="ManagedEnsembleTier"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>Balance efficiency and intelligence.</summary>
+    public static ManagedEnsembleTier Balance { get; } = new("balance");
+
+    /// <summary>Prefer higher intelligence.</summary>
+    public static ManagedEnsembleTier High { get; } = new("high");
+
+    /// <summary>Prefer maximum intelligence.</summary>
+    public static ManagedEnsembleTier Max { get; } = new("max");
+
+    /// <summary>Leave tier selection unmanaged without falling back to legacy Auto policy.</summary>
+    public static ManagedEnsembleTier Unmanaged { get; } = new("unmanaged");
+
+    /// <summary>Returns a value indicating whether two <see cref="ManagedEnsembleTier"/> instances are equivalent.</summary>
+    public static bool operator ==(ManagedEnsembleTier left, ManagedEnsembleTier right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="ManagedEnsembleTier"/> instances are not equivalent.</summary>
+    public static bool operator !=(ManagedEnsembleTier left, ManagedEnsembleTier right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is ManagedEnsembleTier other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(ManagedEnsembleTier other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{ManagedEnsembleTier}"/> for serializing <see cref="ManagedEnsembleTier"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<ManagedEnsembleTier>
+    {
+        /// <inheritdoc />
+        public override ManagedEnsembleTier Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, ManagedEnsembleTier value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(ManagedEnsembleTier));
+        }
+    }
+}
+
+
 /// <summary>A channel accepted by managedSettings.compose.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 [JsonConverter(typeof(Converter))]
@@ -33725,6 +34781,9 @@ public readonly struct CatalogCapability : IEquatable<CatalogCapability>
     /// <summary>Understands catalog.planInstallFromReference, which plans installing whatever resource an Agent Finder materialisation reference pins. It plans only kinds whose installation capability the caller also requires: skill-confirmed-installation for Skills, agent-plugin-confirmed-installation for Agent Plugins. Advertised only by runtimes with the Skill installation engine linked.</summary>
     public static CatalogCapability CatalogReferenceInstallation { get; } = new("catalog-reference-installation");
 
+    /// <summary>Understands catalog.getSavedFeed and catalog.getGeneratedFeed, which retrieve a saved or generated feed with entries projected exactly like catalog.search candidates. Requires catalog-search-credential-required; add catalog-search-session-bound to bind the retrieval to a selected session.</summary>
+    public static CatalogCapability CatalogFeeds { get; } = new("catalog-feeds");
+
     /// <summary>Returns a value indicating whether two <see cref="CatalogCapability"/> instances are equivalent.</summary>
     public static bool operator ==(CatalogCapability left, CatalogCapability right) => left.Equals(right);
 
@@ -34730,6 +35789,12 @@ public readonly struct CatalogInvalidRequestField : IEquatable<CatalogInvalidReq
     /// <summary>The terminal selection outcome was missing or unsupported.</summary>
     public static CatalogInvalidRequestField Outcome { get; } = new("outcome");
 
+    /// <summary>The saved feed ID, or the generated feed strategy or key, was missing or malformed.</summary>
+    public static CatalogInvalidRequestField Feed { get; } = new("feed");
+
+    /// <summary>The trust tier filter was empty, repeated a tier or named an unknown tier.</summary>
+    public static CatalogInvalidRequestField TrustTiers { get; } = new("trustTiers");
+
     /// <summary>Returns a value indicating whether two <see cref="CatalogInvalidRequestField"/> instances are equivalent.</summary>
     public static bool operator ==(CatalogInvalidRequestField left, CatalogInvalidRequestField right) => left.Equals(right);
 
@@ -35380,6 +36445,9 @@ public readonly struct CatalogUnavailableReason : IEquatable<CatalogUnavailableR
 
     /// <summary>The surface is disabled by policy on this runtime.</summary>
     public static CatalogUnavailableReason DisabledByPolicy { get; } = new("disabled-by-policy");
+
+    /// <summary>The requested saved feed, or generated feed strategy or key, does not exist.</summary>
+    public static CatalogUnavailableReason FeedNotFound { get; } = new("feed-not-found");
 
     /// <summary>Returns a value indicating whether two <see cref="CatalogUnavailableReason"/> instances are equivalent.</summary>
     public static bool operator ==(CatalogUnavailableReason left, CatalogUnavailableReason right) => left.Equals(right);
@@ -36686,6 +37754,15 @@ public readonly struct SkillInstallationFailureReason : IEquatable<SkillInstalla
     /// <summary>The acquired payload no longer matches the reviewed descriptor.</summary>
     public static SkillInstallationFailureReason PayloadMismatch { get; } = new("payload-mismatch");
 
+    /// <summary>GitHub rate limited retrieval from the pinned public source; nothing was installed. Retry after retryAfterSeconds when present. Reported only to callers that require catalog-reference-installation; others receive payload-unavailable.</summary>
+    public static SkillInstallationFailureReason SourceRateLimited { get; } = new("source-rate-limited");
+
+    /// <summary>No GitHub sign-in or credential is available, so the caller must sign in. Reported only to callers that require catalog-reference-installation; others receive policy-context-unavailable.</summary>
+    public static SkillInstallationFailureReason NoCredential { get; } = new("no-credential");
+
+    /// <summary>Agent Finder refused the GitHub credential (HTTP 401, or a 403 without rate-limit evidence); the caller must sign in again. Reported only to callers that require catalog-reference-installation; others receive descriptor-unavailable.</summary>
+    public static SkillInstallationFailureReason CredentialRejected { get; } = new("credential-rejected");
+
     /// <summary>The retained Skill source changed after planning.</summary>
     public static SkillInstallationFailureReason SourceChanged { get; } = new("source-changed");
 
@@ -36816,6 +37893,69 @@ public readonly struct SkillDiscoveryScope : IEquatable<SkillDiscoveryScope>
 }
 
 
+/// <summary>How a reviewed plugin's MCP server is reached.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct PluginInstallationMcpTransport : IEquatable<PluginInstallationMcpTransport>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="PluginInstallationMcpTransport"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="PluginInstallationMcpTransport"/>.</param>
+    [JsonConstructor]
+    public PluginInstallationMcpTransport(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="PluginInstallationMcpTransport"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>An HTTP or SSE server reached over the network, which may ask the user to sign in.</summary>
+    public static PluginInstallationMcpTransport Remote { get; } = new("remote");
+
+    /// <summary>A command the plugin runs on this machine.</summary>
+    public static PluginInstallationMcpTransport Local { get; } = new("local");
+
+    /// <summary>Returns a value indicating whether two <see cref="PluginInstallationMcpTransport"/> instances are equivalent.</summary>
+    public static bool operator ==(PluginInstallationMcpTransport left, PluginInstallationMcpTransport right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="PluginInstallationMcpTransport"/> instances are not equivalent.</summary>
+    public static bool operator !=(PluginInstallationMcpTransport left, PluginInstallationMcpTransport right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is PluginInstallationMcpTransport other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(PluginInstallationMcpTransport other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{PluginInstallationMcpTransport}"/> for serializing <see cref="PluginInstallationMcpTransport"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<PluginInstallationMcpTransport>
+    {
+        /// <inheritdoc />
+        public override PluginInstallationMcpTransport Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, PluginInstallationMcpTransport value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(PluginInstallationMcpTransport));
+        }
+    }
+}
+
+
 /// <summary>Bounded refusal categories for verified Agent Plugin installation.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 [JsonConverter(typeof(Converter))]
@@ -36910,6 +38050,15 @@ public readonly struct PluginInstallationFailureReason : IEquatable<PluginInstal
 
     /// <summary>The acquired files no longer match the reviewed descriptor.</summary>
     public static PluginInstallationFailureReason PayloadMismatch { get; } = new("payload-mismatch");
+
+    /// <summary>GitHub rate limited retrieval from the pinned public source; nothing was installed. Retry after retryAfterSeconds when present.</summary>
+    public static PluginInstallationFailureReason SourceRateLimited { get; } = new("source-rate-limited");
+
+    /// <summary>No GitHub sign-in or credential is available, so the caller must sign in.</summary>
+    public static PluginInstallationFailureReason NoCredential { get; } = new("no-credential");
+
+    /// <summary>Agent Finder refused the GitHub credential (HTTP 401, or a 403 without rate-limit evidence); the caller must sign in again.</summary>
+    public static PluginInstallationFailureReason CredentialRejected { get; } = new("credential-rejected");
 
     /// <summary>Plugin installation storage or admission is busy.</summary>
     public static PluginInstallationFailureReason Busy { get; } = new("busy");
@@ -37623,6 +38772,72 @@ public readonly struct CatalogCandidateKind : IEquatable<CatalogCandidateKind>
 }
 
 
+/// <summary>Why a feed entry cannot be presented.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+[JsonConverter(typeof(Converter))]
+[DebuggerDisplay("{Value,nq}")]
+public readonly struct CatalogFeedUnavailableReason : IEquatable<CatalogFeedUnavailableReason>
+{
+    private readonly string? _value;
+
+    /// <summary>Initializes a new instance of the <see cref="CatalogFeedUnavailableReason"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="CatalogFeedUnavailableReason"/>.</param>
+    [JsonConstructor]
+    public CatalogFeedUnavailableReason(string value)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value);
+        _value = value;
+    }
+
+    /// <summary>Gets the value associated with this <see cref="CatalogFeedUnavailableReason"/>.</summary>
+    public string Value => _value ?? string.Empty;
+
+    /// <summary>The identifier no longer resolves to a resource.</summary>
+    public static CatalogFeedUnavailableReason NotFound { get; } = new("not-found");
+
+    /// <summary>The resource is of a kind this caller did not negotiate or this runtime does not support.</summary>
+    public static CatalogFeedUnavailableReason UnsupportedKind { get; } = new("unsupported-kind");
+
+    /// <summary>The resource failed the same validation catalog.search applies, or repeats an earlier entry.</summary>
+    public static CatalogFeedUnavailableReason InvalidResource { get; } = new("invalid-resource");
+
+    /// <summary>Returns a value indicating whether two <see cref="CatalogFeedUnavailableReason"/> instances are equivalent.</summary>
+    public static bool operator ==(CatalogFeedUnavailableReason left, CatalogFeedUnavailableReason right) => left.Equals(right);
+
+    /// <summary>Returns a value indicating whether two <see cref="CatalogFeedUnavailableReason"/> instances are not equivalent.</summary>
+    public static bool operator !=(CatalogFeedUnavailableReason left, CatalogFeedUnavailableReason right) => !(left == right);
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is CatalogFeedUnavailableReason other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(CatalogFeedUnavailableReason other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
+
+    /// <inheritdoc />
+    public override string ToString() => Value;
+
+    /// <summary>Provides a <see cref="JsonConverter{CatalogFeedUnavailableReason}"/> for serializing <see cref="CatalogFeedUnavailableReason"/> instances.</summary>
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public sealed class Converter : JsonConverter<CatalogFeedUnavailableReason>
+    {
+        /// <inheritdoc />
+        public override CatalogFeedUnavailableReason Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
+        }
+
+        /// <inheritdoc />
+        public override void Write(Utf8JsonWriter writer, CatalogFeedUnavailableReason value, JsonSerializerOptions options)
+        {
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(CatalogFeedUnavailableReason));
+        }
+    }
+}
+
+
 /// <summary>Terminal outcome declared for a retained catalog selection group.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 [JsonConverter(typeof(Converter))]
@@ -37756,6 +38971,15 @@ public readonly struct CatalogReferenceInstallationFailureReason : IEquatable<Ca
 
     /// <summary>The resource's entrypoint could not be retrieved or verified.</summary>
     public static CatalogReferenceInstallationFailureReason EntrypointUnavailable { get; } = new("entrypoint-unavailable");
+
+    /// <summary>GitHub rate limited retrieval from the pinned public source. Retry after retryAfterSeconds when present.</summary>
+    public static CatalogReferenceInstallationFailureReason SourceRateLimited { get; } = new("source-rate-limited");
+
+    /// <summary>No GitHub sign-in or credential is available, so the caller must sign in.</summary>
+    public static CatalogReferenceInstallationFailureReason NoCredential { get; } = new("no-credential");
+
+    /// <summary>Agent Finder refused the GitHub credential (HTTP 401, or a 403 without rate-limit evidence); the caller must sign in again.</summary>
+    public static CatalogReferenceInstallationFailureReason CredentialRejected { get; } = new("credential-rejected");
 
     /// <summary>The Skill entrypoint is not a valid Skill.</summary>
     public static CatalogReferenceInstallationFailureReason InvalidSkill { get; } = new("invalid-skill");
@@ -51618,6 +52842,46 @@ public sealed class ServerCatalogApi
         return await CopilotClient.InvokeRpcAsync<CatalogSearchResult>(_rpc, "catalog.search", [request], cancellationToken);
     }
 
+    /// <summary>Retrieves one saved feed by its opaque ID, optionally filtered by trust tier. Requires catalog-feeds and catalog-search-credential-required, and uses the same authority, credential policy, optional session binding and candidate projection as catalog.search, so available entries are the same inert candidates, with the same installability, handles and display metadata, and install through the same confirmed flows. Entries keep the feed's order; an entry the runtime cannot present is returned as unavailable with a reason rather than failing the feed. No anonymous retry. Read-only: nothing is installed, configured, or persisted.</summary>
+    /// <param name="contract">Protocol version and capabilities the caller requires.</param>
+    /// <param name="feedId">Opaque saved feed ID. Treat it as an indivisible string.</param>
+    /// <param name="policySessionId">
+    /// Select an existing attached local session. Requires authenticated, session-bound catalogue support.
+    /// The runtime never creates, resumes or reconfigures a session to honour this selector.
+    /// </param>
+    /// <param name="trustTiers">Accept only resources currently assessed at one of these trust tiers. Entries whose resource is in another tier, or has none, are returned as filtered in their original position. Omit for an unfiltered feed.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Outcome of catalog.getSavedFeed: the feed with its entries, or one typed refusal. An entry that cannot be presented never fails the feed.</returns>
+    public async Task<CatalogResourceSavedFeedResult> GetSavedFeedAsync(CatalogClientContract contract, string feedId, string? policySessionId = null, IList<CatalogTrustTier>? trustTiers = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+        ArgumentNullException.ThrowIfNull(feedId);
+
+        var request = new CatalogGetSavedFeedRequest { Contract = contract, FeedId = feedId, PolicySessionId = policySessionId, TrustTiers = trustTiers };
+        return await CopilotClient.InvokeRpcAsync<CatalogResourceSavedFeedResult>(_rpc, "catalog.getSavedFeed", [request], cancellationToken);
+    }
+
+    /// <summary>Retrieves one generated feed by strategy and key, such as telemetry/popular, optionally filtered by trust tier. Requires catalog-feeds and catalog-search-credential-required, and uses the same authority, credential policy, optional session binding and candidate projection as catalog.search, so available entries are the same inert candidates, with the same installability, handles and display metadata, and install through the same confirmed flows. Entries keep the feed's order; an entry the runtime cannot present is returned as unavailable with a reason rather than failing the feed. No anonymous retry. Read-only: nothing is installed, configured, or persisted.</summary>
+    /// <param name="contract">Protocol version and capabilities the caller requires.</param>
+    /// <param name="strategy">Generation strategy, such as `telemetry`.</param>
+    /// <param name="key">Feed key within the strategy, such as `popular`.</param>
+    /// <param name="policySessionId">
+    /// Select an existing attached local session. Requires authenticated, session-bound catalogue support.
+    /// The runtime never creates, resumes or reconfigures a session to honour this selector.
+    /// </param>
+    /// <param name="trustTiers">Accept only resources currently assessed at one of these trust tiers. Entries whose resource is in another tier, or has none, are returned as filtered in their original position. Omit for an unfiltered feed.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Outcome of catalog.getGeneratedFeed: the feed with its entries, or one typed refusal. An entry that cannot be presented never fails the feed.</returns>
+    public async Task<CatalogResourceGeneratedFeedResult> GetGeneratedFeedAsync(CatalogClientContract contract, string strategy, string key, string? policySessionId = null, IList<CatalogTrustTier>? trustTiers = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(contract);
+        ArgumentNullException.ThrowIfNull(strategy);
+        ArgumentNullException.ThrowIfNull(key);
+
+        var request = new CatalogGetGeneratedFeedRequest { Contract = contract, Strategy = strategy, Key = key, PolicySessionId = policySessionId, TrustTiers = trustTiers };
+        return await CopilotClient.InvokeRpcAsync<CatalogResourceGeneratedFeedResult>(_rpc, "catalog.getGeneratedFeed", [request], cancellationToken);
+    }
+
     /// <summary>Terminates one retained catalog selection group. A selected outcome returns the native host a fresh single-use candidate handle plus the original searchId for a later explicit mcp.planInstall call; non-selected outcomes release the group without producing a planning input. Candidate state, cards, URLs, credentials and private identifiers remain inside the runtime. The model-facing catalog_select tool projects the result separately and never exposes the candidate handle or searchId.</summary>
     /// <param name="contract">Protocol version and capabilities the caller requires.</param>
     /// <param name="sessionId">Locally owned root session whose retained search state is being resolved.</param>
@@ -54776,6 +56040,21 @@ public sealed class TasksApi
 
         var request = new TasksGetProgressRequest { SessionId = _session.SessionId, Id = id };
         return await CopilotClient.InvokeRpcAsync<TasksGetProgressResult>(_session.Rpc, "session.tasks.getProgress", [request], cancellationToken);
+    }
+
+    /// <summary>Reads a detached shell task's output after a cursor, optionally waiting for new output or for the shell to finish.</summary>
+    /// <param name="id">Identifier of a detached shell task, as returned by tasks.list.</param>
+    /// <param name="cursor">Opaque cursor returned by an earlier read of the same task. Omit to read from the beginning of the shell's output. If the output no longer reaches the cursor, for example because its log was removed, the request fails; read again without a cursor.</param>
+    /// <param name="waitMs">Milliseconds to wait for new output, or for the shell to finish, when the cursor is already at the end of the available output. 0 (default) returns immediately. Capped at 30000ms.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Output a detached shell task wrote after the request cursor, with the cursor for the next read.</returns>
+    public async Task<TasksReadOutputResult> ReadOutputAsync(string id, string? cursor = null, TimeSpan? waitMs = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        _session.ThrowIfDisposed();
+
+        var request = new TasksReadOutputRequest { SessionId = _session.SessionId, Id = id, Cursor = cursor, Wait = waitMs };
+        return await CopilotClient.InvokeRpcAsync<TasksReadOutputResult>(_session.Rpc, "session.tasks.readOutput", [request], cancellationToken);
     }
 
     /// <summary>Returns the first sync-waiting task that can currently be promoted to background mode.</summary>
@@ -59306,6 +60585,10 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(CatalogCandidate))]
 [JsonSerializable(typeof(CatalogCandidateSource))]
 [JsonSerializable(typeof(CatalogClientContract))]
+[JsonSerializable(typeof(CatalogFeedEntry))]
+[JsonSerializable(typeof(CatalogGeneratedFeedDescription))]
+[JsonSerializable(typeof(CatalogGetGeneratedFeedRequest))]
+[JsonSerializable(typeof(CatalogGetSavedFeedRequest))]
 [JsonSerializable(typeof(CatalogMaterializationReference))]
 [JsonSerializable(typeof(CatalogMcpServerCandidateProvenance))]
 [JsonSerializable(typeof(CatalogNegotiatedContract))]
@@ -59313,6 +60596,9 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(CatalogPluginRepositorySource))]
 [JsonSerializable(typeof(CatalogReferenceInstallationOutcome))]
 [JsonSerializable(typeof(CatalogReferenceInstallationResult))]
+[JsonSerializable(typeof(CatalogResourceGeneratedFeedResult))]
+[JsonSerializable(typeof(CatalogResourceSavedFeedResult))]
+[JsonSerializable(typeof(CatalogSavedFeedDescription))]
 [JsonSerializable(typeof(CatalogSearchPage))]
 [JsonSerializable(typeof(CatalogSearchPagination))]
 [JsonSerializable(typeof(CatalogSearchRequest))]
@@ -59522,6 +60808,7 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(InstallationsConfirmResult))]
 [JsonSerializable(typeof(InstalledPlugin))]
 [JsonSerializable(typeof(InstalledPluginInfo))]
+[JsonSerializable(typeof(InstalledPluginVerifiedSource))]
 [JsonSerializable(typeof(InstructionDiscoveryPath))]
 [JsonSerializable(typeof(InstructionDiscoveryPathList))]
 [JsonSerializable(typeof(InstructionSource))]
@@ -59907,6 +61194,7 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(PluginInstallationLocation))]
 [JsonSerializable(typeof(PluginInstallationManagementOutcome))]
 [JsonSerializable(typeof(PluginInstallationManagementResult))]
+[JsonSerializable(typeof(PluginInstallationMcpServerReview))]
 [JsonSerializable(typeof(PluginInstallationOutcome))]
 [JsonSerializable(typeof(PluginInstallationResult))]
 [JsonSerializable(typeof(PluginInstallationReview))]
@@ -60392,6 +61680,7 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(TaskList))]
 [JsonSerializable(typeof(TaskProgress))]
 [JsonSerializable(typeof(TaskProgressLine))]
+[JsonSerializable(typeof(TaskShellOutputExit))]
 [JsonSerializable(typeof(TasksCancelRequest))]
 [JsonSerializable(typeof(TasksCancelResult))]
 [JsonSerializable(typeof(TasksGetCurrentPromotableResult))]
@@ -60400,6 +61689,8 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(TasksPromoteCurrentToBackgroundResult))]
 [JsonSerializable(typeof(TasksPromoteToBackgroundRequest))]
 [JsonSerializable(typeof(TasksPromoteToBackgroundResult))]
+[JsonSerializable(typeof(TasksReadOutputRequest))]
+[JsonSerializable(typeof(TasksReadOutputResult))]
 [JsonSerializable(typeof(TasksRefreshResult))]
 [JsonSerializable(typeof(TasksRegisterRequest))]
 [JsonSerializable(typeof(TasksRegisterResult))]

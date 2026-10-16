@@ -178,7 +178,7 @@ public class CopilotClientTest {
                 Map.of("kind", "commands", "fullCommandText", "ls", "intention", "List files", "commandIdentifiers",
                         List.of("ls"), "canOfferSessionApproval", false, "assistedApproval",
                         Map.of("recommendation", "approve")),
-                null, null, null, null, null, null, null));
+                null, null, null, null, null, null, null, null));
 
         session.dispatchEvent(event);
 

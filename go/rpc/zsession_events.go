@@ -1967,6 +1967,9 @@ func (*AssistantServerToolProgressData) Type() SessionEventType {
 
 // Live, append-only shell output. Not persisted or replayed to late subscribers. Text is decoded and redacted per chunk; chunks need not contain complete lines.
 type ToolShellOutputData struct {
+	// Experimental HydraFusion attribution of the staged phase whose tool call produced this output. Absent outside a staged phase.
+	// Experimental: Fusion is part of an experimental API and may change or be removed.
+	Fusion *FusionAttribution `json:"fusion,omitempty"`
 	// Zero-based publication sequence across all output streams for this tool call. Not a byte offset or an OS write-order guarantee.
 	Sequence int64 `json:"sequence"`
 	// Output source. Omission means stdout. Terminal output has no separate stdout/stderr attribution.
@@ -2500,6 +2503,9 @@ func (*PermissionCompletedData) Type() SessionEventType { return SessionEventTyp
 type PermissionRequestedData struct {
 	// Agent mode captured from the owning turn when permission evaluation began.
 	AgentMode *SessionMode `json:"agentMode,omitempty"`
+	// Experimental HydraFusion attribution of the staged phase whose tool call raised this request. Absent outside a staged phase.
+	// Experimental: Fusion is part of an experimental API and may change or be removed.
+	Fusion *FusionAttribution `json:"fusion,omitempty"`
 	// Delegated agent that owns permission recovery when the owner session multiplexes remote agents. Absent otherwise.
 	OwnerAgentID *string `json:"ownerAgentId,omitempty"`
 	// Execution session that owns permission recovery for this request. Absent on historical events.

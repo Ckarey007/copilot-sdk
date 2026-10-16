@@ -26,6 +26,12 @@ class _EndpointProcess:
     def poll(self) -> int | None:
         return self.returncode
 
+    def close_write(self) -> None:
+        try:
+            self.stdin.close()
+        except OSError:
+            pass
+
     def terminate(self) -> None:
         self.returncode = 0
         for stream in (self.stdin, self.stdout):
@@ -84,13 +90,20 @@ class _Harness:
         await asyncio.sleep(0)
 
     async def close(self) -> None:
-        # Unblock both readers before closing either read descriptor (Windows CRT).
-        self.peer_process.stdin.close()
-        self.sdk_process.stdin.close()
-        self.peer_process.terminate()
-        self.sdk_process.terminate()
-        await self.peer_rpc.stop()
-        await self.sdk_rpc.stop()
+        # Close both write ends before joining the readers: each reader then sees
+        # EOF and returns on its own. Closing a read end while its reader thread
+        # is blocked does not unblock that thread on Windows, which strands the
+        # thread and takes the pytest-xdist worker down with it.
+        self.peer_process.close_write()
+        self.sdk_process.close_write()
+        try:
+            try:
+                await self.peer_rpc.stop()
+            finally:
+                await self.sdk_rpc.stop()
+        finally:
+            self.peer_process.terminate()
+            self.sdk_process.terminate()
 
 
 def _pipe_process_pair() -> tuple[_EndpointProcess, _EndpointProcess]:

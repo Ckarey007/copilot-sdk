@@ -1011,6 +1011,68 @@ impl<'a> ClientRpcCatalog<'a> {
         Ok(serde_json::from_value(_value)?)
     }
 
+    /// Retrieves one saved feed by its opaque ID, optionally filtered by trust tier. Requires catalog-feeds and catalog-search-credential-required, and uses the same authority, credential policy, optional session binding and candidate projection as catalog.search, so available entries are the same inert candidates, with the same installability, handles and display metadata, and install through the same confirmed flows. Entries keep the feed's order; an entry the runtime cannot present is returned as unavailable with a reason rather than failing the feed. No anonymous retry. Read-only: nothing is installed, configured, or persisted.
+    ///
+    /// Wire method: `catalog.getSavedFeed`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Retrieves one saved feed by its opaque ID. Requires catalog-feeds and catalog-search-credential-required; add catalog-search-session-bound with policySessionId to retain the selected session's authority for installation, exactly as for catalog.search.
+    ///
+    /// # Returns
+    ///
+    /// Outcome of catalog.getSavedFeed: the feed with its entries, or one typed refusal. An entry that cannot be presented never fails the feed.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn get_saved_feed(
+        &self,
+        params: CatalogGetSavedFeedRequest,
+    ) -> Result<CatalogResourceSavedFeedResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::CATALOG_GETSAVEDFEED, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Retrieves one generated feed by strategy and key, such as telemetry/popular, optionally filtered by trust tier. Requires catalog-feeds and catalog-search-credential-required, and uses the same authority, credential policy, optional session binding and candidate projection as catalog.search, so available entries are the same inert candidates, with the same installability, handles and display metadata, and install through the same confirmed flows. Entries keep the feed's order; an entry the runtime cannot present is returned as unavailable with a reason rather than failing the feed. No anonymous retry. Read-only: nothing is installed, configured, or persisted.
+    ///
+    /// Wire method: `catalog.getGeneratedFeed`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Retrieves one generated feed, computed on every request, by strategy and key, such as `telemetry` and `popular`. Requires catalog-feeds and catalog-search-credential-required; add catalog-search-session-bound with policySessionId to retain the selected session's authority for installation, exactly as for catalog.search.
+    ///
+    /// # Returns
+    ///
+    /// Outcome of catalog.getGeneratedFeed: the feed with its entries, or one typed refusal. An entry that cannot be presented never fails the feed.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn get_generated_feed(
+        &self,
+        params: CatalogGetGeneratedFeedRequest,
+    ) -> Result<CatalogResourceGeneratedFeedResult, Error> {
+        let wire_params = serde_json::to_value(params)?;
+        let _value = self
+            .client
+            .call(rpc_methods::CATALOG_GETGENERATEDFEED, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
     /// Terminates one retained catalog selection group. A selected outcome returns the native host a fresh single-use candidate handle plus the original searchId for a later explicit mcp.planInstall call; non-selected outcomes release the group without producing a planning input. Candidate state, cards, URLs, credentials and private identifiers remain inside the runtime. The model-facing catalog_select tool projects the result separately and never exposes the candidate handle or searchId.
     ///
     /// Wire method: `catalog.select`.
@@ -17678,6 +17740,39 @@ impl<'a> SessionRpcTasks<'a> {
             .session
             .client()
             .call(rpc_methods::SESSION_TASKS_GETPROGRESS, Some(wire_params))
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Reads a detached shell task's output after a cursor, optionally waiting for new output or for the shell to finish.
+    ///
+    /// Wire method: `session.tasks.readOutput`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Detached shell task to read output from, with an optional cursor and long-poll wait. waitMs defaults to zero (maximum 30000).
+    ///
+    /// # Returns
+    ///
+    /// Output a detached shell task wrote after the request cursor, with the cursor for the next read.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn read_output(
+        &self,
+        params: TasksReadOutputRequest,
+    ) -> Result<TasksReadOutputResult, Error> {
+        let mut wire_params = serde_json::to_value(params)?;
+        wire_params["sessionId"] = serde_json::Value::String(self.session.id().to_string());
+        let _value = self
+            .session
+            .client()
+            .call(rpc_methods::SESSION_TASKS_READOUTPUT, Some(wire_params))
             .await?;
         Ok(serde_json::from_value(_value)?)
     }

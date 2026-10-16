@@ -2362,22 +2362,24 @@ func (r PermissionPromptRequestWrite) MarshalJSON() ([]byte, error) {
 
 func (r *PermissionRequestedData) UnmarshalJSON(data []byte) error {
 	type rawPermissionRequestedData struct {
-		AgentMode         *SessionMode    `json:"agentMode,omitempty"`
-		OwnerAgentID      *string         `json:"ownerAgentId,omitempty"`
-		OwnerSessionID    *string         `json:"ownerSessionId,omitempty"`
-		PermissionMode    *PermissionMode `json:"permissionMode,omitempty"`
-		PermissionRequest json.RawMessage `json:"permissionRequest"`
-		PromptRequest     json.RawMessage `json:"promptRequest,omitempty"`
-		RecoveryEpisodeID *string         `json:"recoveryEpisodeId,omitempty"`
-		RequestID         string          `json:"requestId"`
-		ResolvedByHook    *bool           `json:"resolvedByHook,omitempty"`
-		RiskAssessment    any             `json:"riskAssessment,omitempty"`
+		AgentMode         *SessionMode       `json:"agentMode,omitempty"`
+		Fusion            *FusionAttribution `json:"fusion,omitempty"`
+		OwnerAgentID      *string            `json:"ownerAgentId,omitempty"`
+		OwnerSessionID    *string            `json:"ownerSessionId,omitempty"`
+		PermissionMode    *PermissionMode    `json:"permissionMode,omitempty"`
+		PermissionRequest json.RawMessage    `json:"permissionRequest"`
+		PromptRequest     json.RawMessage    `json:"promptRequest,omitempty"`
+		RecoveryEpisodeID *string            `json:"recoveryEpisodeId,omitempty"`
+		RequestID         string             `json:"requestId"`
+		ResolvedByHook    *bool              `json:"resolvedByHook,omitempty"`
+		RiskAssessment    any                `json:"riskAssessment,omitempty"`
 	}
 	var raw rawPermissionRequestedData
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
 	r.AgentMode = raw.AgentMode
+	r.Fusion = raw.Fusion
 	r.OwnerAgentID = raw.OwnerAgentID
 	r.OwnerSessionID = raw.OwnerSessionID
 	r.PermissionMode = raw.PermissionMode

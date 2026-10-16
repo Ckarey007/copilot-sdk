@@ -52,6 +52,28 @@ public final class ServerCatalogApi {
     }
 
     /**
+     * Retrieves one saved feed by its opaque ID, optionally filtered by trust tier. Requires catalog-feeds and catalog-search-credential-required, and uses the same authority, credential policy, optional session binding and candidate projection as catalog.search, so available entries are the same inert candidates, with the same installability, handles and display metadata, and install through the same confirmed flows. Entries keep the feed's order; an entry the runtime cannot present is returned as unavailable with a reason rather than failing the feed. No anonymous retry. Read-only: nothing is installed, configured, or persisted.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    public CompletableFuture<CatalogResourceSavedFeedResult> getSavedFeed(CatalogGetSavedFeedParams params) {
+        return caller.invoke("catalog.getSavedFeed", params, CatalogResourceSavedFeedResult.class);
+    }
+
+    /**
+     * Retrieves one generated feed by strategy and key, such as telemetry/popular, optionally filtered by trust tier. Requires catalog-feeds and catalog-search-credential-required, and uses the same authority, credential policy, optional session binding and candidate projection as catalog.search, so available entries are the same inert candidates, with the same installability, handles and display metadata, and install through the same confirmed flows. Entries keep the feed's order; an entry the runtime cannot present is returned as unavailable with a reason rather than failing the feed. No anonymous retry. Read-only: nothing is installed, configured, or persisted.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    public CompletableFuture<CatalogResourceGeneratedFeedResult> getGeneratedFeed(CatalogGetGeneratedFeedParams params) {
+        return caller.invoke("catalog.getGeneratedFeed", params, CatalogResourceGeneratedFeedResult.class);
+    }
+
+    /**
      * Terminates one retained catalog selection group. A selected outcome returns the native host a fresh single-use candidate handle plus the original searchId for a later explicit mcp.planInstall call; non-selected outcomes release the group without producing a planning input. Candidate state, cards, URLs, credentials and private identifiers remain inside the runtime. The model-facing catalog_select tool projects the result separately and never exposes the candidate handle or searchId.
      *
      * @apiNote This method is experimental and may change in a future version.

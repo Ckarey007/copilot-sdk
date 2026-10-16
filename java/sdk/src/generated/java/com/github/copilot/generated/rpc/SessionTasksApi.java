@@ -128,6 +128,22 @@ public final class SessionTasksApi {
     }
 
     /**
+     * Reads a detached shell task's output after a cursor, optionally waiting for new output or for the shell to finish.
+     * <p>
+     * Note: the {@code sessionId} field in the params record is overridden
+     * by the session-scoped wrapper; any value provided is ignored.
+     *
+     * @apiNote This method is experimental and may change in a future version.
+     * @since 1.0.0
+     */
+    @CopilotExperimental
+    public CompletableFuture<SessionTasksReadOutputResult> readOutput(SessionTasksReadOutputParams params) {
+        com.fasterxml.jackson.databind.node.ObjectNode _p = MAPPER.valueToTree(params);
+        _p.put("sessionId", this.sessionId);
+        return caller.invoke("session.tasks.readOutput", _p, SessionTasksReadOutputResult.class);
+    }
+
+    /**
      * Returns the first sync-waiting task that can currently be promoted to background mode.
      *
      * @apiNote This method is experimental and may change in a future version.

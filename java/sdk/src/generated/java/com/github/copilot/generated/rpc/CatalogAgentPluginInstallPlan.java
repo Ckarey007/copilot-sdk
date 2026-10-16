@@ -24,13 +24,13 @@ import javax.annotation.processing.Generated;
 public record CatalogAgentPluginInstallPlan(
     /** Every valid install source, in preference order: materialization, then marketplace, then repository. Each kind appears at most once. */
     @JsonProperty("sources") List<CatalogAgentPluginInstallSource> sources,
-    /** The plugin's name, as named in its marketplace or manifest. */
+    /** The plugin's name, as named in its marketplace or manifest. Omitted from a materialisation-only plan, whose sources are only `materialization`: the verified manifests supply the name in the plugins.planInstall review. */
     @JsonProperty("pluginName") String pluginName,
     /** Exact plugin version to install. A plan with a marketplace source carries at least one of version and commit. */
     @JsonProperty("version") String version,
     /** Exact full commit ID to install, in lowercase hex. Always present when the plan has a repository source; a plan with a marketplace source carries at least one of version and commit. */
     @JsonProperty("commit") String commit,
-    /** Components the plugin contributes, in canonical order. */
+    /** Components the plugin contributes, in canonical order. Empty only in a materialisation-only plan, where the verified manifests list them in the plugins.planInstall review. */
     @JsonProperty("components") List<CatalogAgentPluginComponent> components,
     /** Canvas IDs the plugin contributes. Non-empty exactly when components include `canvas`. */
     @JsonProperty("canvasIds") List<String> canvasIds,

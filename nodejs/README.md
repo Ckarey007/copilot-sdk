@@ -18,23 +18,6 @@ The checked-in `copilotCliVersion` in `package.json` and compiled metadata in
 `src/cliVersion.ts` use a development placeholder. The public SDK snapshot
 replaces both with the CLI version published for that snapshot.
 
-`npm run pack:release` builds the main package and all platform packages. Set
-`COPILOT_CLI_DOWNLOAD_BASE_URL` to use a release mirror while packaging.
-Standalone source builds acquire stable/prerelease runtime assets from
-`github/copilot-cli` at `v<runtime-version>`, and canonical unstable assets from
-`github/copilot-sdk` at `runtime-<runtime-version>`. Both checksum and package
-downloads use that release location; mirror overrides retain the same tag scheme.
-Release workflows instead set `COPILOT_SDK_RUNTIME_PACKAGE_DIR` to a directory
-containing validated runtime npm package roots named for all eight platforms.
-This keeps `COPILOT_CLI_USE_NPM_PACKAGE` false and embeds those runtime files in
-the self-contained SDK platform packages.
-
-In the runtime repository, packaging uses the prepared same-checkout runtime.
-Set `COPILOT_SDK_RUNTIME_PLATFORMS` to the available target (for example,
-`linux-x64`) for both `pack:release` and `verify:release-packages`. SDK CI checks
-that target only; public release workflows leave this unset to package and
-verify all eight platforms.
-
 ## Installation
 
 ```bash
@@ -183,20 +166,6 @@ The `copilotd-hosting` library runs inside the runtime provider.
 Development integrations require a
 source-built launcher and provider (`COPILOT_RUNTIME_PROVIDER_LIB`). Older
 runtimes without these RPC operations cannot start a host.
-
-## Run the Sample
-
-Try the interactive chat sample (from the repo root):
-
-```bash
-cd nodejs
-npm ci
-npm run build
-export COPILOT_CLI_PATH="$(npm run --silent prepare:runtime -- --print-path)"
-cd samples
-npm install
-npm start
-```
 
 ## Quick Start
 

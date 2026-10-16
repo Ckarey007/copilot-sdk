@@ -49,7 +49,9 @@ public enum CatalogCapability {
     /** The {@code agent-plugin-confirmed-installation} variant. */
     AGENT_PLUGIN_CONFIRMED_INSTALLATION("agent-plugin-confirmed-installation"),
     /** The {@code catalog-reference-installation} variant. */
-    CATALOG_REFERENCE_INSTALLATION("catalog-reference-installation");
+    CATALOG_REFERENCE_INSTALLATION("catalog-reference-installation"),
+    /** The {@code catalog-feeds} variant. */
+    CATALOG_FEEDS("catalog-feeds");
 
     private final String value;
     CatalogCapability(String value) { this.value = value; }

@@ -2242,7 +2242,9 @@ type CatalogAgentPluginInstallPlan struct {
 	// repository source; a plan with a marketplace source carries at least one of version and
 	// commit.
 	Commit *string `json:"commit,omitempty"`
-	// Components the plugin contributes, in canonical order.
+	// Components the plugin contributes, in canonical order. Empty only in a
+	// materialisation-only plan, where the verified manifests list them in the
+	// plugins.planInstall review.
 	Components []CatalogAgentPluginComponent `json:"components"`
 	// Connectors the plugin depends on.
 	ConnectorDependencies []string `json:"connectorDependencies"`
@@ -2251,8 +2253,10 @@ type CatalogAgentPluginInstallPlan struct {
 	ExtensionIDs []string `json:"extensionIds"`
 	// MCP servers the plugin depends on but does not bundle.
 	MCPDependencies []string `json:"mcpDependencies"`
-	// The plugin's name, as named in its marketplace or manifest.
-	PluginName string `json:"pluginName"`
+	// The plugin's name, as named in its marketplace or manifest. Omitted from a
+	// materialisation-only plan, whose sources are only `materialization`: the verified
+	// manifests supply the name in the plugins.planInstall review.
+	PluginName *string `json:"pluginName,omitempty"`
 	// Every valid install source, in preference order: materialization, then marketplace, then
 	// repository. Each kind appears at most once.
 	Sources []CatalogAgentPluginInstallSource `json:"sources"`
@@ -2417,8 +2421,14 @@ type CatalogAgentPluginCandidate struct {
 	// Publisher taken verbatim from the card. Inert untrusted text.
 	Publisher *string `json:"publisher,omitempty"`
 	// Bounded repository provenance declared through the catalog's sourceSet and repoPath
-	// metadata. It contains no descriptor URL.
-	Source CatalogPluginRepositorySource `json:"source"`
+	// metadata. It contains no descriptor URL. Always present, with a path, unless the caller
+	// requires agent-plugin-confirmed-installation. Such a caller also receives a
+	// repository-root plugin (sourceSet without repoPath) whose source has no path, and a
+	// plugin with no usable declaration (neither key, or repoPath alone) and no source; the
+	// latter carries a complete materialisation reference and a handle, and the verified
+	// descriptor supplies the repository, commit and root when it is planned. Never derived
+	// from the catalogue URL.
+	Source *CatalogPluginRepositorySource `json:"source,omitempty"`
 	// Versioned trust metadata observed from the catalog authority. Optional for protocol-3
 	// compatibility and emitted only when the caller also requires the trust-snapshot
 	// capability.
@@ -2610,6 +2620,127 @@ type CatalogClientContract struct {
 	RequiredCapabilities []string `json:"requiredCapabilities"`
 }
 
+// One feed entry, in its feed position. Only available entries carry a candidate.
+// Experimental: CatalogFeedEntry is part of an experimental API and may change or be
+// removed.
+type CatalogFeedEntry interface {
+	catalogFeedEntry()
+	Status() CatalogFeedEntryStatus
+}
+
+type RawCatalogFeedEntryData struct {
+	Discriminator CatalogFeedEntryStatus
+	Raw           json.RawMessage
+}
+
+func (RawCatalogFeedEntryData) catalogFeedEntry() {}
+func (r RawCatalogFeedEntryData) Status() CatalogFeedEntryStatus {
+	return r.Discriminator
+}
+
+// An entry whose resource resolves and is presented as the same candidate catalog.search
+// would return.
+// Experimental: CatalogFeedAvailableEntry is part of an experimental API and may change or
+// be removed.
+type CatalogFeedAvailableEntry struct {
+	// The entry's resource, with the same projection, installability, handle and display
+	// metadata as a catalog.search candidate.
+	Candidate CatalogCandidate `json:"candidate"`
+	// The entry's resource identifier as saved in the feed.
+	Identifier string `json:"identifier"`
+}
+
+func (CatalogFeedAvailableEntry) catalogFeedEntry() {}
+func (CatalogFeedAvailableEntry) Status() CatalogFeedEntryStatus {
+	return CatalogFeedEntryStatusAvailable
+}
+
+// An entry whose resource resolves but is not in one of the requested trust tiers.
+// Experimental: CatalogFeedFilteredEntry is part of an experimental API and may change or
+// be removed.
+type CatalogFeedFilteredEntry struct {
+	// The entry's resource identifier as saved in the feed.
+	Identifier string `json:"identifier"`
+}
+
+func (CatalogFeedFilteredEntry) catalogFeedEntry() {}
+func (CatalogFeedFilteredEntry) Status() CatalogFeedEntryStatus {
+	return CatalogFeedEntryStatusFiltered
+}
+
+// An entry that cannot be presented, kept in its position so clients decide how to render
+// it.
+// Experimental: CatalogFeedUnavailableEntry is part of an experimental API and may change
+// or be removed.
+type CatalogFeedUnavailableEntry struct {
+	// The entry's resource identifier as saved in the feed.
+	Identifier string `json:"identifier"`
+	// Why the entry cannot be presented.
+	Reason CatalogFeedUnavailableReason `json:"reason"`
+}
+
+func (CatalogFeedUnavailableEntry) catalogFeedEntry() {}
+func (CatalogFeedUnavailableEntry) Status() CatalogFeedEntryStatus {
+	return CatalogFeedEntryStatusUnavailable
+}
+
+// A generated feed's identity. It has no version; generatedAt is its only freshness signal.
+// Experimental: CatalogGeneratedFeedDescription is part of an experimental API and may
+// change or be removed.
+type CatalogGeneratedFeedDescription struct {
+	// When the feed was computed, as reported by the authority. Omitted when the authority
+	// reports no valid timestamp.
+	GeneratedAt *string `json:"generatedAt,omitempty"`
+	// Feed key that was requested.
+	Key string `json:"key"`
+	// Generation strategy that was requested.
+	Strategy string `json:"strategy"`
+}
+
+// Retrieves one generated feed, computed on every request, by strategy and key, such as
+// `telemetry` and `popular`. Requires catalog-feeds and catalog-search-credential-required;
+// add catalog-search-session-bound with policySessionId to retain the selected session's
+// authority for installation, exactly as for catalog.search.
+// Experimental: CatalogGetGeneratedFeedRequest is part of an experimental API and may
+// change or be removed.
+type CatalogGetGeneratedFeedRequest struct {
+	// Protocol version and capabilities the caller requires.
+	Contract CatalogClientContract `json:"contract"`
+	// Feed key within the strategy, such as `popular`.
+	Key string `json:"key"`
+	// Select an existing attached local session. Requires authenticated, session-bound
+	// catalogue support.
+	// The runtime never creates, resumes or reconfigures a session to honour this selector.
+	PolicySessionID *string `json:"policySessionId,omitempty"`
+	// Generation strategy, such as `telemetry`.
+	Strategy string `json:"strategy"`
+	// Accept only resources currently assessed at one of these trust tiers. Entries whose
+	// resource is in another tier, or has none, are returned as filtered in their original
+	// position. Omit for an unfiltered feed.
+	TrustTiers []CatalogTrustTier `json:"trustTiers,omitzero"`
+}
+
+// Retrieves one saved feed by its opaque ID. Requires catalog-feeds and
+// catalog-search-credential-required; add catalog-search-session-bound with policySessionId
+// to retain the selected session's authority for installation, exactly as for
+// catalog.search.
+// Experimental: CatalogGetSavedFeedRequest is part of an experimental API and may change or
+// be removed.
+type CatalogGetSavedFeedRequest struct {
+	// Protocol version and capabilities the caller requires.
+	Contract CatalogClientContract `json:"contract"`
+	// Opaque saved feed ID. Treat it as an indivisible string.
+	FeedID string `json:"feedId"`
+	// Select an existing attached local session. Requires authenticated, session-bound
+	// catalogue support.
+	// The runtime never creates, resumes or reconfigures a session to honour this selector.
+	PolicySessionID *string `json:"policySessionId,omitempty"`
+	// Accept only resources currently assessed at one of these trust tiers. Entries whose
+	// resource is in another tier, or has none, are returned as filtered in their original
+	// position. Omit for an unfiltered feed.
+	TrustTiers []CatalogTrustTier `json:"trustTiers,omitzero"`
+}
+
 // An Agent Finder materialisation reference pinning one exact resource revision.
 //
 // It carries no origin or URL: the runtime always builds the descriptor URL on its fixed
@@ -2683,8 +2814,10 @@ type CatalogPlanInstallFromReferenceRequest struct {
 // Experimental: CatalogPluginRepositorySource is part of an experimental API and may change
 // or be removed.
 type CatalogPluginRepositorySource struct {
-	// Case-preserving safe relative POSIX path derived from metadata.repoPath.
-	Path string `json:"path"`
+	// Case-preserving safe relative POSIX path derived from metadata.repoPath. Absent when the
+	// catalog declared sourceSet without repoPath, meaning the plugin is at the repository
+	// root; only callers that require agent-plugin-confirmed-installation receive such a source.
+	Path *string `json:"path,omitempty"`
 	// Canonical lowercase owner/repository name derived from metadata.sourceSet.
 	Repository string `json:"repository"`
 }
@@ -2724,6 +2857,8 @@ func (CatalogReferenceInstallationOutcomePluginInstallPlanned) Kind() CatalogRef
 type CatalogReferenceInstallationOutcomeRefused struct {
 	// Bounded refusal reason.
 	Reason CatalogReferenceInstallationFailureReason `json:"reason"`
+	// Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.
+	RetryAfterSeconds *int64 `json:"retryAfterSeconds,omitempty"`
 }
 
 func (CatalogReferenceInstallationOutcomeRefused) catalogReferenceInstallationOutcome() {}
@@ -2809,6 +2944,29 @@ func (CatalogNegotiationRefusedError) Kind() CatalogReferenceInstallationResultK
 	return CatalogReferenceInstallationResultKindNegotiationRefused
 }
 
+// The runtime could not reach the catalog authority or retrieve a card. Covers being
+// offline as well as transport-level failure.
+// Experimental: CatalogNetworkFailureError is part of an experimental API and may change or
+// be removed.
+type CatalogNetworkFailureError struct {
+	// Human-readable explanation, safe to surface. Never contains a query, URL, handle, or
+	// secret.
+	Message string `json:"message"`
+	// Categorised failure, low cardinality so it can be aggregated without carrying a URL.
+	Reason CatalogNetworkFailureReason `json:"reason"`
+	// Bounded cooldown in seconds before another catalog request should be attempted, when the
+	// authority supplied a numeric Retry-After value or the runtime applied its documented
+	// fallback.
+	RetryAfterSeconds *int32 `json:"retryAfterSeconds,omitempty"`
+	// HTTP status code, when the failure was a rejected response.
+	StatusCode *int32 `json:"statusCode,omitempty"`
+}
+
+func (CatalogNetworkFailureError) catalogReferenceInstallationResult() {}
+func (CatalogNetworkFailureError) Kind() CatalogReferenceInstallationResultKind {
+	return CatalogReferenceInstallationResultKindNetworkFailure
+}
+
 type CatalogReferenceInstallationResultOutcome struct {
 	// Capabilities honoured for this request.
 	Negotiated CatalogNegotiatedContract `json:"negotiated"`
@@ -2821,6 +2979,147 @@ func (CatalogReferenceInstallationResultOutcome) Kind() CatalogReferenceInstalla
 	return CatalogReferenceInstallationResultKindOutcome
 }
 
+// Outcome of catalog.getGeneratedFeed: the feed with its entries, or one typed refusal. An
+// entry that cannot be presented never fails the feed.
+// Experimental: CatalogResourceGeneratedFeedResult is part of an experimental API and may
+// change or be removed.
+type CatalogResourceGeneratedFeedResult interface {
+	catalogResourceGeneratedFeedResult()
+	catalogResourceGeneratedFeedResultKind() CatalogResourceGeneratedFeedResultKind
+}
+
+type RawCatalogResourceGeneratedFeedResultData struct {
+	Discriminator CatalogResourceGeneratedFeedResultKind
+	Raw           json.RawMessage
+}
+
+func (RawCatalogResourceGeneratedFeedResultData) catalogResourceGeneratedFeedResult() {}
+func (r RawCatalogResourceGeneratedFeedResultData) catalogResourceGeneratedFeedResultKind() CatalogResourceGeneratedFeedResultKind {
+	return r.Discriminator
+}
+
+// An optional catalog authentication exchange did not establish the caller's identity.
+// Anonymous search remains supported; this refusal is reserved for an operation that cannot
+// continue after the attempted exchange. It is distinct from `policy-rejected` and from a
+// network failure, and the reason identifies the recovery action.
+// Experimental: CatalogAuthenticationRequiredError is part of an experimental API and may
+// change or be removed.
+type CatalogAuthenticationRequiredError struct {
+	// Human-readable explanation, safe to surface. Never contains a credential or token, nor a
+	// query, URL, handle, or secret.
+	Message string `json:"message"`
+	// Why authentication failed. Only an expired credential justifies attempting a silent
+	// refresh; an absent or rejected credential requires sign-in.
+	Reason CatalogAuthenticationRequiredReason `json:"reason"`
+}
+
+func (CatalogAuthenticationRequiredError) catalogResourceGeneratedFeedResult() {}
+func (CatalogAuthenticationRequiredError) catalogResourceGeneratedFeedResultKind() CatalogResourceGeneratedFeedResultKind {
+	return CatalogResourceGeneratedFeedResultKindAuthenticationRequired
+}
+
+// A retrieved generated feed. Entries keep the feed's order and are never more than 100.
+// Experimental: CatalogGetGeneratedFeedSucceeded is part of an experimental API and may
+// change or be removed.
+type CatalogGetGeneratedFeedSucceeded struct {
+	// Feed entries in the feed's order.
+	Entries []CatalogFeedEntry `json:"entries"`
+	// The feed's own identity and freshness.
+	Feed CatalogGeneratedFeedDescription `json:"feed"`
+	// Protocol version and capabilities the runtime honoured.
+	Negotiated CatalogNegotiatedContract `json:"negotiated"`
+	// Runtime-issued identifier for this retrieval, with the same meaning as a catalog.search
+	// searchId, so a plan can be tied to the feed that produced its candidate. Derived from no
+	// user, account, device or feed data.
+	SearchID string `json:"searchId"`
+}
+
+func (CatalogGetGeneratedFeedSucceeded) catalogResourceGeneratedFeedResult() {}
+func (CatalogGetGeneratedFeedSucceeded) catalogResourceGeneratedFeedResultKind() CatalogResourceGeneratedFeedResultKind {
+	return CatalogResourceGeneratedFeedResultKindSucceeded
+}
+func (CatalogInvalidRequestError) catalogResourceGeneratedFeedResult() {}
+func (CatalogInvalidRequestError) catalogResourceGeneratedFeedResultKind() CatalogResourceGeneratedFeedResultKind {
+	return CatalogResourceGeneratedFeedResultKindInvalidRequest
+}
+
+// A card could not be parsed or did not satisfy its declared media type's schema.
+// Experimental: CatalogMalformedCardError is part of an experimental API and may change or
+// be removed.
+type CatalogMalformedCardError struct {
+	// Media type the card was interpreted as, when it declared one this runtime recognises.
+	MediaType *CatalogMediaType `json:"mediaType,omitempty"`
+	// Human-readable explanation, safe to surface. Never echoes card content, nor a query, URL,
+	// handle, or secret.
+	Message string `json:"message"`
+	// How the card failed validation.
+	Reason CatalogMalformedCardReason `json:"reason"`
+}
+
+func (CatalogMalformedCardError) catalogResourceGeneratedFeedResult() {}
+func (CatalogMalformedCardError) catalogResourceGeneratedFeedResultKind() CatalogResourceGeneratedFeedResultKind {
+	return CatalogResourceGeneratedFeedResultKindMalformedCard
+}
+func (CatalogNegotiationRefusedError) catalogResourceGeneratedFeedResult() {}
+func (CatalogNegotiationRefusedError) catalogResourceGeneratedFeedResultKind() CatalogResourceGeneratedFeedResultKind {
+	return CatalogResourceGeneratedFeedResultKindNegotiationRefused
+}
+func (CatalogNetworkFailureError) catalogResourceGeneratedFeedResult() {}
+func (CatalogNetworkFailureError) catalogResourceGeneratedFeedResultKind() CatalogResourceGeneratedFeedResultKind {
+	return CatalogResourceGeneratedFeedResultKindNetworkFailure
+}
+
+// Registry or enterprise policy refused the operation.
+// Experimental: CatalogPolicyRejectedError is part of an experimental API and may change or
+// be removed.
+type CatalogPolicyRejectedError struct {
+	// Human-readable explanation, safe to surface. Never contains a query, URL, handle, or
+	// secret.
+	Message string `json:"message"`
+	// Which authority produced the decision.
+	Source MCPPlanPolicySource `json:"source"`
+}
+
+func (CatalogPolicyRejectedError) catalogResourceGeneratedFeedResult() {}
+func (CatalogPolicyRejectedError) catalogResourceGeneratedFeedResultKind() CatalogResourceGeneratedFeedResultKind {
+	return CatalogResourceGeneratedFeedResultKindPolicyRejected
+}
+
+// The operation is not available on this runtime. Distinct from a network failure: nothing
+// was attempted.
+// Experimental: CatalogUnavailableError is part of an experimental API and may change or be
+// removed.
+type CatalogUnavailableError struct {
+	// Human-readable explanation, safe to surface. Never contains a query, URL, handle, or
+	// secret.
+	Message string `json:"message"`
+	// Why the operation is unavailable.
+	Reason CatalogUnavailableReason `json:"reason"`
+}
+
+func (CatalogUnavailableError) catalogResourceGeneratedFeedResult() {}
+func (CatalogUnavailableError) catalogResourceGeneratedFeedResultKind() CatalogResourceGeneratedFeedResultKind {
+	return CatalogResourceGeneratedFeedResultKindUnavailable
+}
+
+// Retrieval was refused by the runtime's hardened fetch boundary before any request left
+// the process, or before a redirect was followed.
+// Experimental: CatalogUnsafeRetrievalError is part of an experimental API and may change
+// or be removed.
+type CatalogUnsafeRetrievalError struct {
+	// Human-readable explanation, safe to surface. Never contains the refused URL, nor a query,
+	// handle, or secret.
+	Message string `json:"message"`
+	// Which control refused the retrieval, low cardinality so it can be aggregated without
+	// carrying a URL.
+	Reason CatalogUnsafeRetrievalReason `json:"reason"`
+}
+
+func (CatalogUnsafeRetrievalError) catalogResourceGeneratedFeedResult() {}
+func (CatalogUnsafeRetrievalError) catalogResourceGeneratedFeedResultKind() CatalogResourceGeneratedFeedResultKind {
+	return CatalogResourceGeneratedFeedResultKindUnsafeRetrieval
+}
+
 // Canonical catalogue resource identity. The runtime rewrites accepted urn:ai and urn:air
 // identifiers to urn:air, lowercases the authority, and preserves the remaining resource
 // components.
@@ -2828,11 +3127,96 @@ func (CatalogReferenceInstallationResultOutcome) Kind() CatalogReferenceInstalla
 // removed.
 type CatalogResourceIdentity string
 
+// Outcome of catalog.getSavedFeed: the feed with its entries, or one typed refusal. An
+// entry that cannot be presented never fails the feed.
+// Experimental: CatalogResourceSavedFeedResult is part of an experimental API and may
+// change or be removed.
+type CatalogResourceSavedFeedResult interface {
+	catalogResourceSavedFeedResult()
+	catalogResourceSavedFeedResultKind() CatalogResourceSavedFeedResultKind
+}
+
+type RawCatalogResourceSavedFeedResultData struct {
+	Discriminator CatalogResourceSavedFeedResultKind
+	Raw           json.RawMessage
+}
+
+func (RawCatalogResourceSavedFeedResultData) catalogResourceSavedFeedResult() {}
+func (r RawCatalogResourceSavedFeedResultData) catalogResourceSavedFeedResultKind() CatalogResourceSavedFeedResultKind {
+	return r.Discriminator
+}
+func (CatalogAuthenticationRequiredError) catalogResourceSavedFeedResult() {}
+func (CatalogAuthenticationRequiredError) catalogResourceSavedFeedResultKind() CatalogResourceSavedFeedResultKind {
+	return CatalogResourceSavedFeedResultKindAuthenticationRequired
+}
+
+// A retrieved saved feed. Entries keep the feed's order and are never more than 100.
+// Experimental: CatalogGetSavedFeedSucceeded is part of an experimental API and may change
+// or be removed.
+type CatalogGetSavedFeedSucceeded struct {
+	// Feed entries in the feed's order.
+	Entries []CatalogFeedEntry `json:"entries"`
+	// The feed's own identity and freshness.
+	Feed CatalogSavedFeedDescription `json:"feed"`
+	// Protocol version and capabilities the runtime honoured.
+	Negotiated CatalogNegotiatedContract `json:"negotiated"`
+	// Runtime-issued identifier for this retrieval, with the same meaning as a catalog.search
+	// searchId, so a plan can be tied to the feed that produced its candidate. Derived from no
+	// user, account, device or feed data.
+	SearchID string `json:"searchId"`
+}
+
+func (CatalogGetSavedFeedSucceeded) catalogResourceSavedFeedResult() {}
+func (CatalogGetSavedFeedSucceeded) catalogResourceSavedFeedResultKind() CatalogResourceSavedFeedResultKind {
+	return CatalogResourceSavedFeedResultKindSucceeded
+}
+func (CatalogInvalidRequestError) catalogResourceSavedFeedResult() {}
+func (CatalogInvalidRequestError) catalogResourceSavedFeedResultKind() CatalogResourceSavedFeedResultKind {
+	return CatalogResourceSavedFeedResultKindInvalidRequest
+}
+func (CatalogMalformedCardError) catalogResourceSavedFeedResult() {}
+func (CatalogMalformedCardError) catalogResourceSavedFeedResultKind() CatalogResourceSavedFeedResultKind {
+	return CatalogResourceSavedFeedResultKindMalformedCard
+}
+func (CatalogNegotiationRefusedError) catalogResourceSavedFeedResult() {}
+func (CatalogNegotiationRefusedError) catalogResourceSavedFeedResultKind() CatalogResourceSavedFeedResultKind {
+	return CatalogResourceSavedFeedResultKindNegotiationRefused
+}
+func (CatalogNetworkFailureError) catalogResourceSavedFeedResult() {}
+func (CatalogNetworkFailureError) catalogResourceSavedFeedResultKind() CatalogResourceSavedFeedResultKind {
+	return CatalogResourceSavedFeedResultKindNetworkFailure
+}
+func (CatalogPolicyRejectedError) catalogResourceSavedFeedResult() {}
+func (CatalogPolicyRejectedError) catalogResourceSavedFeedResultKind() CatalogResourceSavedFeedResultKind {
+	return CatalogResourceSavedFeedResultKindPolicyRejected
+}
+func (CatalogUnavailableError) catalogResourceSavedFeedResult() {}
+func (CatalogUnavailableError) catalogResourceSavedFeedResultKind() CatalogResourceSavedFeedResultKind {
+	return CatalogResourceSavedFeedResultKindUnavailable
+}
+func (CatalogUnsafeRetrievalError) catalogResourceSavedFeedResult() {}
+func (CatalogUnsafeRetrievalError) catalogResourceSavedFeedResultKind() CatalogResourceSavedFeedResultKind {
+	return CatalogResourceSavedFeedResultKindUnsafeRetrieval
+}
+
 // Bounded source-declared resource version, preserved exactly after validation and never
 // inferred.
 // Experimental: CatalogResourceVersion is part of an experimental API and may change or be
 // removed.
 type CatalogResourceVersion string
+
+// A saved feed's identity. Its version changes only when the feed's definition is replaced,
+// not when a referenced resource changes.
+// Experimental: CatalogSavedFeedDescription is part of an experimental API and may change
+// or be removed.
+type CatalogSavedFeedDescription struct {
+	// Opaque feed ID.
+	ID string `json:"id"`
+	// Feed name as saved by its creator. Inert untrusted text.
+	Name string `json:"name"`
+	// Version of the saved feed definition.
+	Version int64 `json:"version"`
+}
 
 // An explicit numbered-page request. SDK consumers treat the token as opaque. For bound
 // search, the runtime unwraps an expiring owner-bound reference to the private authority
@@ -2931,22 +3315,6 @@ func (RawCatalogSearchResultData) catalogSearchResult() {}
 func (r RawCatalogSearchResultData) catalogSearchResultKind() CatalogSearchResultKind {
 	return r.Discriminator
 }
-
-// An optional catalog authentication exchange did not establish the caller's identity.
-// Anonymous search remains supported; this refusal is reserved for an operation that cannot
-// continue after the attempted exchange. It is distinct from `policy-rejected` and from a
-// network failure, and the reason identifies the recovery action.
-// Experimental: CatalogAuthenticationRequiredError is part of an experimental API and may
-// change or be removed.
-type CatalogAuthenticationRequiredError struct {
-	// Human-readable explanation, safe to surface. Never contains a credential or token, nor a
-	// query, URL, handle, or secret.
-	Message string `json:"message"`
-	// Why authentication failed. Only an expired credential justifies attempting a silent
-	// refresh; an absent or rejected credential requires sign-in.
-	Reason CatalogAuthenticationRequiredReason `json:"reason"`
-}
-
 func (CatalogAuthenticationRequiredError) catalogSearchResult() {}
 func (CatalogAuthenticationRequiredError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindAuthenticationRequired
@@ -2973,20 +3341,6 @@ func (CatalogInvalidRequestError) catalogSearchResult() {}
 func (CatalogInvalidRequestError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindInvalidRequest
 }
-
-// A card could not be parsed or did not satisfy its declared media type's schema.
-// Experimental: CatalogMalformedCardError is part of an experimental API and may change or
-// be removed.
-type CatalogMalformedCardError struct {
-	// Media type the card was interpreted as, when it declared one this runtime recognises.
-	MediaType *CatalogMediaType `json:"mediaType,omitempty"`
-	// Human-readable explanation, safe to surface. Never echoes card content, nor a query, URL,
-	// handle, or secret.
-	Message string `json:"message"`
-	// How the card failed validation.
-	Reason CatalogMalformedCardReason `json:"reason"`
-}
-
 func (CatalogMalformedCardError) catalogSearchResult() {}
 func (CatalogMalformedCardError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindMalformedCard
@@ -2995,41 +3349,10 @@ func (CatalogNegotiationRefusedError) catalogSearchResult() {}
 func (CatalogNegotiationRefusedError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindNegotiationRefused
 }
-
-// The runtime could not reach the catalog authority or retrieve a card. Covers being
-// offline as well as transport-level failure.
-// Experimental: CatalogNetworkFailureError is part of an experimental API and may change or
-// be removed.
-type CatalogNetworkFailureError struct {
-	// Human-readable explanation, safe to surface. Never contains a query, URL, handle, or
-	// secret.
-	Message string `json:"message"`
-	// Categorised failure, low cardinality so it can be aggregated without carrying a URL.
-	Reason CatalogNetworkFailureReason `json:"reason"`
-	// Bounded cooldown in seconds before another catalog request should be attempted, when the
-	// authority supplied a numeric Retry-After value or the runtime applied its documented
-	// fallback.
-	RetryAfterSeconds *int32 `json:"retryAfterSeconds,omitempty"`
-	// HTTP status code, when the failure was a rejected response.
-	StatusCode *int32 `json:"statusCode,omitempty"`
-}
-
 func (CatalogNetworkFailureError) catalogSearchResult() {}
 func (CatalogNetworkFailureError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindNetworkFailure
 }
-
-// Registry or enterprise policy refused the operation.
-// Experimental: CatalogPolicyRejectedError is part of an experimental API and may change or
-// be removed.
-type CatalogPolicyRejectedError struct {
-	// Human-readable explanation, safe to surface. Never contains a query, URL, handle, or
-	// secret.
-	Message string `json:"message"`
-	// Which authority produced the decision.
-	Source MCPPlanPolicySource `json:"source"`
-}
-
 func (CatalogPolicyRejectedError) catalogSearchResult() {}
 func (CatalogPolicyRejectedError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindPolicyRejected
@@ -3066,37 +3389,10 @@ func (CatalogSearchSucceeded) catalogSearchResult() {}
 func (CatalogSearchSucceeded) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindSucceeded
 }
-
-// The operation is not available on this runtime. Distinct from a network failure: nothing
-// was attempted.
-// Experimental: CatalogUnavailableError is part of an experimental API and may change or be
-// removed.
-type CatalogUnavailableError struct {
-	// Human-readable explanation, safe to surface. Never contains a query, URL, handle, or
-	// secret.
-	Message string `json:"message"`
-	// Why the operation is unavailable.
-	Reason CatalogUnavailableReason `json:"reason"`
-}
-
 func (CatalogUnavailableError) catalogSearchResult() {}
 func (CatalogUnavailableError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindUnavailable
 }
-
-// Retrieval was refused by the runtime's hardened fetch boundary before any request left
-// the process, or before a redirect was followed.
-// Experimental: CatalogUnsafeRetrievalError is part of an experimental API and may change
-// or be removed.
-type CatalogUnsafeRetrievalError struct {
-	// Human-readable explanation, safe to surface. Never contains the refused URL, nor a query,
-	// handle, or secret.
-	Message string `json:"message"`
-	// Which control refused the retrieval, low cardinality so it can be aggregated without
-	// carrying a URL.
-	Reason CatalogUnsafeRetrievalReason `json:"reason"`
-}
-
 func (CatalogUnsafeRetrievalError) catalogSearchResult() {}
 func (CatalogUnsafeRetrievalError) catalogSearchResultKind() CatalogSearchResultKind {
 	return CatalogSearchResultKindUnsafeRetrieval
@@ -6851,6 +7147,10 @@ type InstallationCatalogueIdentity struct {
 	Description *string `json:"description,omitempty"`
 	// Human display name retained from the catalogue candidate.
 	DisplayName string `json:"displayName"`
+	// HTTPS URL of the resource's icon on raw.githubusercontent.com, retained from the catalogue
+	// candidate. Untrusted external content: load it without credentials. Omitted when the
+	// candidate had none.
+	IconURL *string `json:"iconUrl,omitempty"`
 	// Catalogue item URL when supplied by the authority.
 	ItemURL *string `json:"itemUrl,omitempty"`
 	// Catalogue publisher retained at install planning time.
@@ -6992,12 +7292,20 @@ type InstalledPlugin struct {
 // Experimental: InstalledPluginInfo is part of an experimental API and may change or be
 // removed.
 type InstalledPluginInfo struct {
+	// Description from the manifest of the installed copy. Present only for a direct install
+	// pinned to one GitHub commit, such as a verified install from GitHub.
+	Description *string `json:"description,omitempty"`
 	// Opaque, stable hash identifying a direct (non-marketplace) install source. Present only
 	// for direct repo / URL / local installs; absent for marketplace plugins. Same source
 	// yields the same id; distinct sources never collide.
 	DirectSourceID *string `json:"directSourceId,omitempty"`
 	// Whether the plugin is currently enabled for new sessions
 	Enabled bool `json:"enabled"`
+	// HTTPS URL of the plugin's icon on raw.githubusercontent.com, retained from the catalogue
+	// entry it was installed from. Untrusted external content: load it without credentials.
+	// Present only for a direct install pinned to one GitHub commit whose catalogue entry had
+	// an icon.
+	IconURL *string `json:"iconUrl,omitempty"`
 	// Whether the managed desired plugin currently has an installed or live record. Set to
 	// false for a managed desired entry retained in the listing after installation or
 	// reconciliation failed.
@@ -7023,6 +7331,10 @@ type InstalledPluginInfo struct {
 	// registered through the trusted host built-in boundary; absent for installed, marketplace,
 	// direct, and live plugins.
 	Source *string `json:"source,omitempty"`
+	// The GitHub repository and commit a direct install is pinned to, from its install record.
+	// Present only for a direct install pinned to one GitHub commit, such as a verified install
+	// from GitHub; absent for marketplace, local and unpinned installs.
+	VerifiedSource *InstalledPluginVerifiedSource `json:"verifiedSource,omitempty"`
 	// Installed version (when reported by the plugin manifest)
 	Version *string `json:"version,omitempty"`
 }
@@ -7079,6 +7391,16 @@ type InstalledPluginSourceURL struct {
 	Source InstalledPluginSourceURLSource `json:"source"`
 	// URL of the plugin source.
 	URL string `json:"url"`
+}
+
+// The GitHub repository and commit an installed plugin is pinned to.
+// Experimental: InstalledPluginVerifiedSource is part of an experimental API and may change
+// or be removed.
+type InstalledPluginVerifiedSource struct {
+	// GitHub repository in `owner/repo` form.
+	Repository string `json:"repository"`
+	// Full 40-character hexadecimal commit SHA the plugin is pinned to.
+	Revision string `json:"revision"`
 }
 
 // Canonical file or directory where custom instructions can be discovered or created, with
@@ -7955,6 +8277,9 @@ type ManagedSettingsMeta struct {
 	ContextTier *ManagedSettingMeta `json:"contextTier,omitempty"`
 	// Lock state and provenance of `values.effortLevel`.
 	EffortLevel *ManagedSettingMeta `json:"effortLevel,omitempty"`
+	// Lock state and provenance of values.ensembleTier, including a legacy alias's original
+	// source. An unmanaged value imposes no tier lock.
+	EnsembleTier *ManagedSettingMeta `json:"ensembleTier,omitempty"`
 	// Lock state and provenance of `values.model`.
 	Model *ManagedSettingMeta `json:"model,omitempty"`
 }
@@ -8462,6 +8787,10 @@ type ManagedSettingsValues struct {
 	// Managed reasoning-effort default for the managed concrete model. The runtime clamps it to
 	// an entitled effort when model availability is known.
 	EffortLevel *string `json:"effortLevel,omitempty"`
+	// Managed Ensemble preference. Takes precedence over autoTier even when unmanaged, which
+	// means no managed tier and forbids legacy fallback. Legacy Auto values are mapped only
+	// when no managed source supplies ensembleTier.
+	EnsembleTier *ManagedEnsembleTier `json:"ensembleTier,omitempty"`
 	// Managed default model identifier. When model availability was resolved, aliases and
 	// family names are projected to a concrete available model ID; otherwise the configured
 	// value is returned.
@@ -14662,6 +14991,8 @@ func (PluginInstallationManagementOutcomeInstallPlanned) Kind() PluginInstallati
 type PluginInstallationManagementOutcomeRefused struct {
 	// Bounded refusal reason.
 	Reason PluginInstallationFailureReason `json:"reason"`
+	// Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.
+	RetryAfterSeconds *int64 `json:"retryAfterSeconds,omitempty"`
 }
 
 func (PluginInstallationManagementOutcomeRefused) pluginInstallationManagementOutcome() {}
@@ -14694,6 +15025,10 @@ func (CatalogNegotiationRefusedError) pluginInstallationManagementResult() {}
 func (CatalogNegotiationRefusedError) pluginInstallationManagementResultKind() PluginInstallationManagementResultKind {
 	return PluginInstallationManagementResultKindNegotiationRefused
 }
+func (CatalogNetworkFailureError) pluginInstallationManagementResult() {}
+func (CatalogNetworkFailureError) pluginInstallationManagementResultKind() PluginInstallationManagementResultKind {
+	return PluginInstallationManagementResultKindNetworkFailure
+}
 
 type PluginInstallationManagementResultOutcome struct {
 	// Capabilities honoured for this request.
@@ -14705,6 +15040,18 @@ type PluginInstallationManagementResultOutcome struct {
 func (PluginInstallationManagementResultOutcome) pluginInstallationManagementResult() {}
 func (PluginInstallationManagementResultOutcome) pluginInstallationManagementResultKind() PluginInstallationManagementResultKind {
 	return PluginInstallationManagementResultKindOutcome
+}
+
+// One MCP server a reviewed plugin declares.
+// Experimental: PluginInstallationMCPServerReview is part of an experimental API and may
+// change or be removed.
+type PluginInstallationMCPServerReview struct {
+	// Host of a remote server's URL.
+	Host *string `json:"host,omitempty"`
+	// Server name as the plugin declares it.
+	Name string `json:"name"`
+	// `remote` for an HTTP or SSE server, `local` for a command the plugin runs.
+	Transport PluginInstallationMCPTransport `json:"transport"`
 }
 
 // Terminal verified Agent Plugin installation result.
@@ -14764,6 +15111,8 @@ type PluginInstallationOutcomeRefused struct {
 	OperationID *string `json:"operationId,omitempty"`
 	// Bounded refusal reason.
 	Reason PluginInstallationFailureReason `json:"reason"`
+	// Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.
+	RetryAfterSeconds *int64 `json:"retryAfterSeconds,omitempty"`
 }
 
 func (PluginInstallationOutcomeRefused) pluginInstallationOutcome() {}
@@ -14797,6 +15146,10 @@ func (CatalogNegotiationRefusedError) pluginInstallationResult() {}
 func (CatalogNegotiationRefusedError) pluginInstallationResultKind() PluginInstallationResultKind {
 	return PluginInstallationResultKindNegotiationRefused
 }
+func (CatalogNetworkFailureError) pluginInstallationResult() {}
+func (CatalogNetworkFailureError) pluginInstallationResultKind() PluginInstallationResultKind {
+	return PluginInstallationResultKindNetworkFailure
+}
 
 type PluginInstallationResultOutcome struct {
 	// Capabilities honoured for this request.
@@ -14829,6 +15182,9 @@ type PluginInstallationReview struct {
 	ManifestContent string `json:"manifestContent"`
 	// Relative path of the verified plugin manifest.
 	ManifestPath string `json:"manifestPath"`
+	// MCP servers the verified files declare, exactly as an install of these files loads
+	// them. Omitted when the plugin declares none.
+	MCPServers []PluginInstallationMCPServerReview `json:"mcpServers,omitzero"`
 	// Installed plugin name, derived from the verified manifest exactly as a direct install
 	// derives it.
 	Name string `json:"name"`
@@ -21414,6 +21770,8 @@ func (SkillInstallationManagementOutcomeRecoveryRequired) Kind() SkillInstallati
 type SkillInstallationManagementOutcomeRefused struct {
 	// Bounded refusal reason.
 	Reason SkillInstallationFailureReason `json:"reason"`
+	// Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.
+	RetryAfterSeconds *int64 `json:"retryAfterSeconds,omitempty"`
 }
 
 func (SkillInstallationManagementOutcomeRefused) skillInstallationManagementOutcome() {}
@@ -21469,6 +21827,10 @@ func (CatalogInvalidRequestError) skillInstallationManagementResultKind() SkillI
 func (CatalogNegotiationRefusedError) skillInstallationManagementResult() {}
 func (CatalogNegotiationRefusedError) skillInstallationManagementResultKind() SkillInstallationManagementResultKind {
 	return SkillInstallationManagementResultKindNegotiationRefused
+}
+func (CatalogNetworkFailureError) skillInstallationManagementResult() {}
+func (CatalogNetworkFailureError) skillInstallationManagementResultKind() SkillInstallationManagementResultKind {
+	return SkillInstallationManagementResultKindNetworkFailure
 }
 
 type SkillInstallationManagementResultOutcome struct {
@@ -21660,6 +22022,8 @@ type SkillInstallationOutcomeRefused struct {
 	OperationID *string `json:"operationId,omitempty"`
 	// Bounded refusal reason.
 	Reason SkillInstallationFailureReason `json:"reason"`
+	// Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.
+	RetryAfterSeconds *int64 `json:"retryAfterSeconds,omitempty"`
 }
 
 func (SkillInstallationOutcomeRefused) skillInstallationOutcome() {}
@@ -21718,6 +22082,10 @@ func (CatalogInvalidRequestError) skillInstallationResultKind() SkillInstallatio
 func (CatalogNegotiationRefusedError) skillInstallationResult() {}
 func (CatalogNegotiationRefusedError) skillInstallationResultKind() SkillInstallationResultKind {
 	return SkillInstallationResultKindNegotiationRefused
+}
+func (CatalogNetworkFailureError) skillInstallationResult() {}
+func (CatalogNetworkFailureError) skillInstallationResultKind() SkillInstallationResultKind {
+	return SkillInstallationResultKindNetworkFailure
 }
 
 type SkillInstallationResultOutcome struct {
@@ -22872,6 +23240,17 @@ type TasksGetProgressResult struct {
 	Progress TaskProgress `json:"progress,omitempty"`
 }
 
+// How a shell task ended, reported with the read that reaches the end of its output.
+// Experimental: TaskShellOutputExit is part of an experimental API and may change or be
+// removed.
+type TaskShellOutputExit struct {
+	// Process exit code, when the runtime recorded one. Absent when the shell was stopped
+	// before reporting an exit code.
+	ExitCode *int64 `json:"exitCode,omitempty"`
+	// Final lifecycle status of the shell task: completed, failed, or cancelled
+	Status TaskStatus `json:"status"`
+}
+
 // The promoted task as it now exists in background mode, omitted if no promotable task was
 // waiting.
 // Experimental: TasksPromoteCurrentToBackgroundResult is part of an experimental API and
@@ -22897,6 +23276,42 @@ type TasksPromoteToBackgroundRequest struct {
 type TasksPromoteToBackgroundResult struct {
 	// Whether the task was successfully promoted to background mode
 	Promoted bool `json:"promoted"`
+}
+
+// Detached shell task to read output from, with an optional cursor and long-poll wait.
+// waitMs defaults to zero (maximum 30000).
+// Experimental: TasksReadOutputRequest is part of an experimental API and may change or be
+// removed.
+type TasksReadOutputRequest struct {
+	// Opaque cursor returned by an earlier read of the same task. Omit to read from the
+	// beginning of the shell's output. If the output no longer reaches the cursor, for example
+	// because its log was removed, the request fails; read again without a cursor.
+	Cursor *string `json:"cursor,omitempty"`
+	// Identifier of a detached shell task, as returned by tasks.list
+	ID string `json:"id"`
+	// Milliseconds to wait for new output, or for the shell to finish, when the cursor is
+	// already at the end of the available output. 0 (default) returns immediately. Capped at
+	// 30000ms.
+	WaitMs *int32 `json:"waitMs,omitempty"`
+}
+
+// Output a detached shell task wrote after the request cursor, with the cursor for the next
+// read.
+// Experimental: TasksReadOutputResult is part of an experimental API and may change or be
+// removed.
+type TasksReadOutputResult struct {
+	// Opaque cursor to pass to the next read of this task. Always present, even when no output
+	// was returned.
+	Cursor string `json:"cursor"`
+	// Present once the shell has finished and this read reaches the end of its output. Later
+	// reads with the returned cursor return no new text and the same exit details.
+	Exit *TaskShellOutputExit `json:"exit,omitempty"`
+	// Output after the request cursor, decoded as UTF-8 and redacted. At most 64 KiB per read,
+	// so a large backlog takes several reads; the text never splits a character, and text that
+	// stops before the end of the output ends at a line break when it contains one. Empty when
+	// no new output is available. Detached shells write stdout and stderr to one output, so the
+	// text does not separate them.
+	Text string `json:"text"`
 }
 
 // Refresh metadata for any detached background shells the runtime knows about. Use after a
@@ -26587,6 +27002,11 @@ const (
 	CatalogCapabilityAgentPluginFormats CatalogCapability = "agent-plugin-formats"
 	// Understands `application/ai-skill` candidates as discovery-only and typed non-installable.
 	CatalogCapabilityAiSkillDiscovery CatalogCapability = "ai-skill-discovery"
+	// Understands catalog.getSavedFeed and catalog.getGeneratedFeed, which retrieve a saved or
+	// generated feed with entries projected exactly like catalog.search candidates. Requires
+	// catalog-search-credential-required; add catalog-search-session-bound to bind the
+	// retrieval to a selected session.
+	CatalogCapabilityCatalogFeeds CatalogCapability = "catalog-feeds"
 	// Understands catalog.planInstallFromReference, which plans installing whatever resource an
 	// Agent Finder materialisation reference pins. It plans only kinds whose installation
 	// capability the caller also requires: skill-confirmed-installation for Skills,
@@ -26659,6 +27079,60 @@ const (
 	CatalogContractViolationReasonUnknownMediaType CatalogContractViolationReason = "unknown-media-type"
 )
 
+// Discriminator for an available feed entry
+// Experimental: CatalogFeedAvailableStatus is part of an experimental API and may change or
+// be removed.
+type CatalogFeedAvailableStatus string
+
+const (
+	// The entry's resource resolves and can be presented.
+	CatalogFeedAvailableStatusAvailable CatalogFeedAvailableStatus = "available"
+)
+
+// Status discriminator for CatalogFeedEntry.
+type CatalogFeedEntryStatus string
+
+const (
+	CatalogFeedEntryStatusAvailable   CatalogFeedEntryStatus = "available"
+	CatalogFeedEntryStatusFiltered    CatalogFeedEntryStatus = "filtered"
+	CatalogFeedEntryStatusUnavailable CatalogFeedEntryStatus = "unavailable"
+)
+
+// Discriminator for a feed entry filtered by trust tier
+// Experimental: CatalogFeedFilteredStatus is part of an experimental API and may change or
+// be removed.
+type CatalogFeedFilteredStatus string
+
+const (
+	// The entry's resource is not in a requested trust tier.
+	CatalogFeedFilteredStatusFiltered CatalogFeedFilteredStatus = "filtered"
+)
+
+// Why a feed entry cannot be presented
+// Experimental: CatalogFeedUnavailableReason is part of an experimental API and may change
+// or be removed.
+type CatalogFeedUnavailableReason string
+
+const (
+	// The resource failed the same validation catalog.search applies, or repeats an earlier
+	// entry.
+	CatalogFeedUnavailableReasonInvalidResource CatalogFeedUnavailableReason = "invalid-resource"
+	// The identifier no longer resolves to a resource.
+	CatalogFeedUnavailableReasonNotFound CatalogFeedUnavailableReason = "not-found"
+	// The resource is of a kind this caller did not negotiate or this runtime does not support.
+	CatalogFeedUnavailableReasonUnsupportedKind CatalogFeedUnavailableReason = "unsupported-kind"
+)
+
+// Discriminator for an unavailable feed entry
+// Experimental: CatalogFeedUnavailableStatus is part of an experimental API and may change
+// or be removed.
+type CatalogFeedUnavailableStatus string
+
+const (
+	// The entry's resource cannot be presented.
+	CatalogFeedUnavailableStatusUnavailable CatalogFeedUnavailableStatus = "unavailable"
+)
+
 // Why a presented handle was rejected
 // Experimental: CatalogHandleRejectionReason is part of an experimental API and may change
 // or be removed.
@@ -26703,6 +27177,8 @@ const (
 	CatalogInvalidRequestFieldCard CatalogInvalidRequestField = "card"
 	// The negotiation block was missing or malformed.
 	CatalogInvalidRequestFieldContract CatalogInvalidRequestField = "contract"
+	// The saved feed ID, or the generated feed strategy or key, was missing or malformed.
+	CatalogInvalidRequestFieldFeed CatalogInvalidRequestField = "feed"
 	// The requested candidate kinds were empty or contained a duplicate.
 	CatalogInvalidRequestFieldKinds CatalogInvalidRequestField = "kinds"
 	// The requested result count fell outside its permitted range.
@@ -26724,6 +27200,8 @@ const (
 	CatalogInvalidRequestFieldSessionID CatalogInvalidRequestField = "sessionId"
 	// The plan source was missing or malformed.
 	CatalogInvalidRequestFieldSource CatalogInvalidRequestField = "source"
+	// The trust tier filter was empty, repeated a tier or named an unknown tier.
+	CatalogInvalidRequestFieldTrustTiers CatalogInvalidRequestField = "trustTiers"
 )
 
 // How a card failed validation
@@ -26857,6 +27335,9 @@ const (
 	CatalogReferenceInstallationFailureReasonBusy CatalogReferenceInstallationFailureReason = "busy"
 	// The original host cannot receive human confirmation.
 	CatalogReferenceInstallationFailureReasonConfirmationUnavailable CatalogReferenceInstallationFailureReason = "confirmation-unavailable"
+	// Agent Finder refused the GitHub credential (HTTP 401, or a 403 without rate-limit
+	// evidence); the caller must sign in again.
+	CatalogReferenceInstallationFailureReasonCredentialRejected CatalogReferenceInstallationFailureReason = "credential-rejected"
 	// The materialisation descriptor failed validation.
 	CatalogReferenceInstallationFailureReasonDescriptorInvalid CatalogReferenceInstallationFailureReason = "descriptor-invalid"
 	// Agent Finder has no materialisation for the referenced resource revision (HTTP 404).
@@ -26881,6 +27362,8 @@ const (
 	CatalogReferenceInstallationFailureReasonInvalidRequest CatalogReferenceInstallationFailureReason = "invalid-request"
 	// The Skill entrypoint is not a valid Skill.
 	CatalogReferenceInstallationFailureReasonInvalidSkill CatalogReferenceInstallationFailureReason = "invalid-skill"
+	// No GitHub sign-in or credential is available, so the caller must sign in.
+	CatalogReferenceInstallationFailureReasonNoCredential CatalogReferenceInstallationFailureReason = "no-credential"
 	// The bounded operation limit was reached.
 	CatalogReferenceInstallationFailureReasonOperationLimit CatalogReferenceInstallationFailureReason = "operation-limit"
 	// Managed policy forbids installing this resource.
@@ -26889,6 +27372,9 @@ const (
 	CatalogReferenceInstallationFailureReasonPolicyContextUnavailable CatalogReferenceInstallationFailureReason = "policy-context-unavailable"
 	// The entrypoint exceeds the bounded complete review size.
 	CatalogReferenceInstallationFailureReasonReviewTooLarge CatalogReferenceInstallationFailureReason = "review-too-large"
+	// GitHub rate limited retrieval from the pinned public source. Retry after
+	// retryAfterSeconds when present.
+	CatalogReferenceInstallationFailureReasonSourceRateLimited CatalogReferenceInstallationFailureReason = "source-rate-limited"
 	// The referenced resource is a kind this runtime cannot install, or one whose installation
 	// capability the caller did not require.
 	CatalogReferenceInstallationFailureReasonUnsupportedResource CatalogReferenceInstallationFailureReason = "unsupported-resource"
@@ -26911,7 +27397,38 @@ type CatalogReferenceInstallationResultKind string
 const (
 	CatalogReferenceInstallationResultKindInvalidRequest     CatalogReferenceInstallationResultKind = "invalid-request"
 	CatalogReferenceInstallationResultKindNegotiationRefused CatalogReferenceInstallationResultKind = "negotiation-refused"
+	CatalogReferenceInstallationResultKindNetworkFailure     CatalogReferenceInstallationResultKind = "network-failure"
 	CatalogReferenceInstallationResultKindOutcome            CatalogReferenceInstallationResultKind = "outcome"
+)
+
+// Kind discriminator for CatalogResourceGeneratedFeedResult.
+type CatalogResourceGeneratedFeedResultKind string
+
+const (
+	CatalogResourceGeneratedFeedResultKindAuthenticationRequired CatalogResourceGeneratedFeedResultKind = "authentication-required"
+	CatalogResourceGeneratedFeedResultKindInvalidRequest         CatalogResourceGeneratedFeedResultKind = "invalid-request"
+	CatalogResourceGeneratedFeedResultKindMalformedCard          CatalogResourceGeneratedFeedResultKind = "malformed-card"
+	CatalogResourceGeneratedFeedResultKindNegotiationRefused     CatalogResourceGeneratedFeedResultKind = "negotiation-refused"
+	CatalogResourceGeneratedFeedResultKindNetworkFailure         CatalogResourceGeneratedFeedResultKind = "network-failure"
+	CatalogResourceGeneratedFeedResultKindPolicyRejected         CatalogResourceGeneratedFeedResultKind = "policy-rejected"
+	CatalogResourceGeneratedFeedResultKindSucceeded              CatalogResourceGeneratedFeedResultKind = "succeeded"
+	CatalogResourceGeneratedFeedResultKindUnavailable            CatalogResourceGeneratedFeedResultKind = "unavailable"
+	CatalogResourceGeneratedFeedResultKindUnsafeRetrieval        CatalogResourceGeneratedFeedResultKind = "unsafe-retrieval"
+)
+
+// Kind discriminator for CatalogResourceSavedFeedResult.
+type CatalogResourceSavedFeedResultKind string
+
+const (
+	CatalogResourceSavedFeedResultKindAuthenticationRequired CatalogResourceSavedFeedResultKind = "authentication-required"
+	CatalogResourceSavedFeedResultKindInvalidRequest         CatalogResourceSavedFeedResultKind = "invalid-request"
+	CatalogResourceSavedFeedResultKindMalformedCard          CatalogResourceSavedFeedResultKind = "malformed-card"
+	CatalogResourceSavedFeedResultKindNegotiationRefused     CatalogResourceSavedFeedResultKind = "negotiation-refused"
+	CatalogResourceSavedFeedResultKindNetworkFailure         CatalogResourceSavedFeedResultKind = "network-failure"
+	CatalogResourceSavedFeedResultKindPolicyRejected         CatalogResourceSavedFeedResultKind = "policy-rejected"
+	CatalogResourceSavedFeedResultKindSucceeded              CatalogResourceSavedFeedResultKind = "succeeded"
+	CatalogResourceSavedFeedResultKindUnavailable            CatalogResourceSavedFeedResultKind = "unavailable"
+	CatalogResourceSavedFeedResultKindUnsafeRetrieval        CatalogResourceSavedFeedResultKind = "unsafe-retrieval"
 )
 
 // Kind discriminator for CatalogSearchResult.
@@ -27105,6 +27622,8 @@ const (
 	CatalogUnavailableReasonAuthorityNotConfigured CatalogUnavailableReason = "authority-not-configured"
 	// The surface is disabled by policy on this runtime.
 	CatalogUnavailableReasonDisabledByPolicy CatalogUnavailableReason = "disabled-by-policy"
+	// The requested saved feed, or generated feed strategy or key, does not exist.
+	CatalogUnavailableReasonFeedNotFound CatalogUnavailableReason = "feed-not-found"
 	// Install planning is not wired up on this runtime build.
 	CatalogUnavailableReasonPlanningUnavailable CatalogUnavailableReason = "planning-unavailable"
 	// Bounded search is not wired up on this runtime build.
@@ -28087,6 +28606,22 @@ const (
 	// A GitHub Enterprise Cloud account — a GitHub account on a non-github.com host, e.g.
 	// *.ghe.com; the host is supplied interactively through the neutral input-required step.
 	LoginProviderKindProxima LoginProviderKind = "proxima"
+)
+
+// Administrator-configured Ensemble preference, independent of execution support.
+// Experimental: ManagedEnsembleTier is part of an experimental API and may change or be
+// removed.
+type ManagedEnsembleTier string
+
+const (
+	// Balance efficiency and intelligence.
+	ManagedEnsembleTierBalance ManagedEnsembleTier = "balance"
+	// Prefer higher intelligence.
+	ManagedEnsembleTierHigh ManagedEnsembleTier = "high"
+	// Prefer maximum intelligence.
+	ManagedEnsembleTierMax ManagedEnsembleTier = "max"
+	// Leave tier selection unmanaged without falling back to legacy Auto policy.
+	ManagedEnsembleTierUnmanaged ManagedEnsembleTier = "unmanaged"
 )
 
 // Operation to evaluate. Currently only url is supported.
@@ -29737,6 +30272,9 @@ const (
 	PluginInstallationFailureReasonConfirmationInvalid PluginInstallationFailureReason = "confirmation-invalid"
 	// The original host cannot receive human confirmation.
 	PluginInstallationFailureReasonConfirmationUnavailable PluginInstallationFailureReason = "confirmation-unavailable"
+	// Agent Finder refused the GitHub credential (HTTP 401, or a 403 without rate-limit
+	// evidence); the caller must sign in again.
+	PluginInstallationFailureReasonCredentialRejected PluginInstallationFailureReason = "credential-rejected"
 	// The materialisation descriptor failed validation.
 	PluginInstallationFailureReasonDescriptorInvalid PluginInstallationFailureReason = "descriptor-invalid"
 	// Agent Finder has no materialisation for the referenced resource revision (HTTP 404).
@@ -29764,6 +30302,8 @@ const (
 	PluginInstallationFailureReasonInvalidPlugin PluginInstallationFailureReason = "invalid-plugin"
 	// The request is unsupported or malformed.
 	PluginInstallationFailureReasonInvalidRequest PluginInstallationFailureReason = "invalid-request"
+	// No GitHub sign-in or credential is available, so the caller must sign in.
+	PluginInstallationFailureReasonNoCredential PluginInstallationFailureReason = "no-credential"
 	// The acquired files no longer match the reviewed descriptor.
 	PluginInstallationFailureReasonPayloadMismatch PluginInstallationFailureReason = "payload-mismatch"
 	// The reviewed plugin files could not be acquired.
@@ -29783,6 +30323,9 @@ const (
 	PluginInstallationFailureReasonReviewTooLarge PluginInstallationFailureReason = "review-too-large"
 	// The handle was minted for a different search result or authority.
 	PluginInstallationFailureReasonSearchMismatch PluginInstallationFailureReason = "search-mismatch"
+	// GitHub rate limited retrieval from the pinned public source; nothing was installed. Retry
+	// after retryAfterSeconds when present.
+	PluginInstallationFailureReasonSourceRateLimited PluginInstallationFailureReason = "source-rate-limited"
 	// The candidate's materialisation is not an Agent Plugin.
 	PluginInstallationFailureReasonUnsupportedResource PluginInstallationFailureReason = "unsupported-resource"
 	// A storage operation failed; nothing was registered.
@@ -29805,7 +30348,20 @@ type PluginInstallationManagementResultKind string
 const (
 	PluginInstallationManagementResultKindInvalidRequest     PluginInstallationManagementResultKind = "invalid-request"
 	PluginInstallationManagementResultKindNegotiationRefused PluginInstallationManagementResultKind = "negotiation-refused"
+	PluginInstallationManagementResultKindNetworkFailure     PluginInstallationManagementResultKind = "network-failure"
 	PluginInstallationManagementResultKindOutcome            PluginInstallationManagementResultKind = "outcome"
+)
+
+// How a reviewed plugin's MCP server is reached.
+// Experimental: PluginInstallationMCPTransport is part of an experimental API and may
+// change or be removed.
+type PluginInstallationMCPTransport string
+
+const (
+	// A command the plugin runs on this machine.
+	PluginInstallationMCPTransportLocal PluginInstallationMCPTransport = "local"
+	// An HTTP or SSE server reached over the network, which may ask the user to sign in.
+	PluginInstallationMCPTransportRemote PluginInstallationMCPTransport = "remote"
 )
 
 // Kind discriminator for PluginInstallationOutcome.
@@ -29824,6 +30380,7 @@ type PluginInstallationResultKind string
 const (
 	PluginInstallationResultKindInvalidRequest     PluginInstallationResultKind = "invalid-request"
 	PluginInstallationResultKindNegotiationRefused PluginInstallationResultKind = "negotiation-refused"
+	PluginInstallationResultKindNetworkFailure     PluginInstallationResultKind = "network-failure"
 	PluginInstallationResultKindOutcome            PluginInstallationResultKind = "outcome"
 )
 
@@ -30985,6 +31542,10 @@ const (
 	SkillInstallationFailureReasonConfirmationInvalid SkillInstallationFailureReason = "confirmation-invalid"
 	// The original host cannot receive human confirmation.
 	SkillInstallationFailureReasonConfirmationUnavailable SkillInstallationFailureReason = "confirmation-unavailable"
+	// Agent Finder refused the GitHub credential (HTTP 401, or a 403 without rate-limit
+	// evidence); the caller must sign in again. Reported only to callers that require
+	// catalog-reference-installation; others receive descriptor-unavailable.
+	SkillInstallationFailureReasonCredentialRejected SkillInstallationFailureReason = "credential-rejected"
 	// The verified Skill descriptor failed validation.
 	SkillInstallationFailureReasonDescriptorInvalid SkillInstallationFailureReason = "descriptor-invalid"
 	// The verified Skill descriptor could not be retrieved safely.
@@ -31006,6 +31567,10 @@ const (
 	SkillInstallationFailureReasonInvalidSkill SkillInstallationFailureReason = "invalid-skill"
 	// The selected runtime cannot inspect or control the requested lifecycle operation.
 	SkillInstallationFailureReasonLifecycleUnavailable SkillInstallationFailureReason = "lifecycle-unavailable"
+	// No GitHub sign-in or credential is available, so the caller must sign in. Reported only
+	// to callers that require catalog-reference-installation; others receive
+	// policy-context-unavailable.
+	SkillInstallationFailureReasonNoCredential SkillInstallationFailureReason = "no-credential"
 	// The bounded operation limit was reached.
 	SkillInstallationFailureReasonOperationLimit SkillInstallationFailureReason = "operation-limit"
 	// The acquired payload no longer matches the reviewed descriptor.
@@ -31030,6 +31595,10 @@ const (
 	SkillInstallationFailureReasonSearchMismatch SkillInstallationFailureReason = "search-mismatch"
 	// The retained Skill source changed after planning.
 	SkillInstallationFailureReasonSourceChanged SkillInstallationFailureReason = "source-changed"
+	// GitHub rate limited retrieval from the pinned public source; nothing was installed. Retry
+	// after retryAfterSeconds when present. Reported only to callers that require
+	// catalog-reference-installation; others receive payload-unavailable.
+	SkillInstallationFailureReasonSourceRateLimited SkillInstallationFailureReason = "source-rate-limited"
 	// A storage operation failed; inspect durable state before retrying.
 	SkillInstallationFailureReasonWriteFailed SkillInstallationFailureReason = "write-failed"
 	// The handle is not the expected Skill handle kind.
@@ -31057,6 +31626,7 @@ type SkillInstallationManagementResultKind string
 const (
 	SkillInstallationManagementResultKindInvalidRequest     SkillInstallationManagementResultKind = "invalid-request"
 	SkillInstallationManagementResultKindNegotiationRefused SkillInstallationManagementResultKind = "negotiation-refused"
+	SkillInstallationManagementResultKindNetworkFailure     SkillInstallationManagementResultKind = "network-failure"
 	SkillInstallationManagementResultKindOutcome            SkillInstallationManagementResultKind = "outcome"
 )
 
@@ -31105,6 +31675,7 @@ type SkillInstallationResultKind string
 const (
 	SkillInstallationResultKindInvalidRequest     SkillInstallationResultKind = "invalid-request"
 	SkillInstallationResultKindNegotiationRefused SkillInstallationResultKind = "negotiation-refused"
+	SkillInstallationResultKindNetworkFailure     SkillInstallationResultKind = "network-failure"
 	SkillInstallationResultKindOutcome            SkillInstallationResultKind = "outcome"
 )
 
@@ -31991,6 +32562,68 @@ func (a *ServerAgentsAPI) GetDiscoveryPaths(ctx context.Context, params *AgentsG
 
 // Experimental: ServerCatalogAPI contains experimental APIs that may change or be removed.
 type ServerCatalogAPI serverAPI
+
+// GetGeneratedFeed retrieves one generated feed by strategy and key, such as
+// telemetry/popular, optionally filtered by trust tier. Requires catalog-feeds and
+// catalog-search-credential-required, and uses the same authority, credential policy,
+// optional session binding and candidate projection as catalog.search, so available entries
+// are the same inert candidates, with the same installability, handles and display
+// metadata, and install through the same confirmed flows. Entries keep the feed's order; an
+// entry the runtime cannot present is returned as unavailable with a reason rather than
+// failing the feed. No anonymous retry. Read-only: nothing is installed, configured, or
+// persisted.
+//
+// RPC method: catalog.getGeneratedFeed.
+//
+// Parameters: Retrieves one generated feed, computed on every request, by strategy and key,
+// such as `telemetry` and `popular`. Requires catalog-feeds and
+// catalog-search-credential-required; add catalog-search-session-bound with policySessionId
+// to retain the selected session's authority for installation, exactly as for
+// catalog.search.
+//
+// Returns: Outcome of catalog.getGeneratedFeed: the feed with its entries, or one typed
+// refusal. An entry that cannot be presented never fails the feed.
+func (a *ServerCatalogAPI) GetGeneratedFeed(ctx context.Context, params *CatalogGetGeneratedFeedRequest) (CatalogResourceGeneratedFeedResult, error) {
+	raw, err := a.client.Request(ctx, "catalog.getGeneratedFeed", params)
+	if err != nil {
+		return nil, err
+	}
+	result, err := unmarshalCatalogResourceGeneratedFeedResult(raw)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// GetSavedFeed retrieves one saved feed by its opaque ID, optionally filtered by trust
+// tier. Requires catalog-feeds and catalog-search-credential-required, and uses the same
+// authority, credential policy, optional session binding and candidate projection as
+// catalog.search, so available entries are the same inert candidates, with the same
+// installability, handles and display metadata, and install through the same confirmed
+// flows. Entries keep the feed's order; an entry the runtime cannot present is returned as
+// unavailable with a reason rather than failing the feed. No anonymous retry. Read-only:
+// nothing is installed, configured, or persisted.
+//
+// RPC method: catalog.getSavedFeed.
+//
+// Parameters: Retrieves one saved feed by its opaque ID. Requires catalog-feeds and
+// catalog-search-credential-required; add catalog-search-session-bound with policySessionId
+// to retain the selected session's authority for installation, exactly as for
+// catalog.search.
+//
+// Returns: Outcome of catalog.getSavedFeed: the feed with its entries, or one typed
+// refusal. An entry that cannot be presented never fails the feed.
+func (a *ServerCatalogAPI) GetSavedFeed(ctx context.Context, params *CatalogGetSavedFeedRequest) (CatalogResourceSavedFeedResult, error) {
+	raw, err := a.client.Request(ctx, "catalog.getSavedFeed", params)
+	if err != nil {
+		return nil, err
+	}
+	result, err := unmarshalCatalogResourceSavedFeedResult(raw)
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
 
 // PlanInstallFromReference plans installing the resource an Agent Finder materialisation
 // reference pins, without writing files and whatever its kind. The runtime retrieves the
@@ -43790,6 +44423,38 @@ func (a *TasksAPI) PromoteToBackground(ctx context.Context, params *TasksPromote
 		return nil, err
 	}
 	var result TasksPromoteToBackgroundResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ReadOutput reads a detached shell task's output after a cursor, optionally waiting for
+// new output or for the shell to finish.
+//
+// RPC method: session.tasks.readOutput.
+//
+// Parameters: Detached shell task to read output from, with an optional cursor and
+// long-poll wait. waitMs defaults to zero (maximum 30000).
+//
+// Returns: Output a detached shell task wrote after the request cursor, with the cursor for
+// the next read.
+func (a *TasksAPI) ReadOutput(ctx context.Context, params *TasksReadOutputRequest) (*TasksReadOutputResult, error) {
+	req := map[string]any{"sessionId": a.sessionID}
+	if params != nil {
+		if params.Cursor != nil {
+			req["cursor"] = *params.Cursor
+		}
+		req["id"] = params.ID
+		if params.WaitMs != nil {
+			req["waitMs"] = *params.WaitMs
+		}
+	}
+	raw, err := a.client.Request(ctx, "session.tasks.readOutput", req)
+	if err != nil {
+		return nil, err
+	}
+	var result TasksReadOutputResult
 	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, err
 	}

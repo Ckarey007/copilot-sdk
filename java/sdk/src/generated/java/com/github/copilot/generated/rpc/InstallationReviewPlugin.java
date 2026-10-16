@@ -64,6 +64,9 @@ public final class InstallationReviewPlugin extends InstallationReview {
         /** Complete verified manifest content. Planning refuses with review-too-large
 when this exceeds 262144 UTF-8 bytes; it is never truncated. */
         @JsonProperty("manifestContent") String manifestContent,
+        /** MCP servers the verified files declare, exactly as an install of these files loads
+them. Omitted when the plugin declares none. */
+        @JsonProperty("mcpServers") List<PluginInstallationMcpServerReview> mcpServers,
         /** Exact reviewed Agent Plugin installation action. */
         @JsonProperty("action") String action
     ) {

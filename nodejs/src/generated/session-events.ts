@@ -7970,6 +7970,12 @@ export interface ToolShellOutputEvent {
  */
 export interface ToolShellOutputData {
   /**
+   * Experimental HydraFusion attribution of the staged phase whose tool call produced this output. Absent outside a staged phase.
+   *
+   * @experimental
+   */
+  fusion?: FusionAttribution;
+  /**
    * Zero-based publication sequence across all output streams for this tool call. Not a byte offset or an OS write-order guarantee.
    */
   sequence: number;
@@ -9808,6 +9814,12 @@ export interface PermissionRequestedEvent {
  */
 export interface PermissionRequestedData {
   agentMode?: SessionMode;
+  /**
+   * Experimental HydraFusion attribution of the staged phase whose tool call raised this request. Absent outside a staged phase.
+   *
+   * @experimental
+   */
+  fusion?: FusionAttribution;
   /**
    * Delegated agent that owns permission recovery when the owner session multiplexes remote agents. Absent otherwise.
    */

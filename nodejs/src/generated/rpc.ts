@@ -1047,7 +1047,9 @@ export type CatalogCapability =
   /** Understands `installability`, the reviewable `installPlan` and the optional materialisation `handle` on Agent Plugin candidates, and the verified Agent Plugin installation APIs plugins.planInstall and plugins.applyInstall, and Agent Plugin plans from catalog.planInstallFromReference. Requires agent-plugin-discovery; without it, plugin candidates are unchanged. Advertised only by runtimes with the plugin installer linked; acquisition may still be refused as feature-disabled per selected session. */
   | "agent-plugin-confirmed-installation"
   /** Understands catalog.planInstallFromReference, which plans installing whatever resource an Agent Finder materialisation reference pins. It plans only kinds whose installation capability the caller also requires: skill-confirmed-installation for Skills, agent-plugin-confirmed-installation for Agent Plugins. Advertised only by runtimes with the Skill installation engine linked. */
-  | "catalog-reference-installation";
+  | "catalog-reference-installation"
+  /** Understands catalog.getSavedFeed and catalog.getGeneratedFeed, which retrieve a saved or generated feed with entries projected exactly like catalog.search candidates. Requires catalog-search-credential-required; add catalog-search-session-bound to bind the retrieval to a selected session. */
+  | "catalog-feeds";
 /**
  * Bounded extensible wire-feature identifier. Known values are described by `CatalogCapability`; newer callers may send future identifiers so an older runtime can return a typed negotiation refusal instead of failing schema validation. Capability negotiation establishes contract understanding, while each operation's result separately reports runtime availability.
  *
@@ -1072,6 +1074,52 @@ export type CatalogContractViolationReason =
   | "duplicate-identity"
   /** A result declared no media type, or one this contract does not model. */
   | "unknown-media-type";
+/**
+ * Discriminator for an available feed entry
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogFeedAvailableStatus".
+ */
+/** @experimental */
+export type CatalogFeedAvailableStatus = /** The entry's resource resolves and can be presented. */ "available";
+/**
+ * One feed entry, in its feed position. Only available entries carry a candidate.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogFeedEntry".
+ */
+/** @experimental */
+export type CatalogFeedEntry = CatalogFeedAvailableEntry | CatalogFeedUnavailableEntry | CatalogFeedFilteredEntry;
+/**
+ * Discriminator for an unavailable feed entry
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogFeedUnavailableStatus".
+ */
+/** @experimental */
+export type CatalogFeedUnavailableStatus = /** The entry's resource cannot be presented. */ "unavailable";
+/**
+ * Why a feed entry cannot be presented
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogFeedUnavailableReason".
+ */
+/** @experimental */
+export type CatalogFeedUnavailableReason =
+  /** The identifier no longer resolves to a resource. */
+  | "not-found"
+  /** The resource is of a kind this caller did not negotiate or this runtime does not support. */
+  | "unsupported-kind"
+  /** The resource failed the same validation catalog.search applies, or repeats an earlier entry. */
+  | "invalid-resource";
+/**
+ * Discriminator for a feed entry filtered by trust tier
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogFeedFilteredStatus".
+ */
+/** @experimental */
+export type CatalogFeedFilteredStatus = /** The entry's resource is not in a requested trust tier. */ "filtered";
 /**
  * Which kind of opaque handle was presented
  *
@@ -1137,7 +1185,11 @@ export type CatalogInvalidRequestField =
   /** The opaque selection reference was missing or malformed. */
   | "selectionRef"
   /** The terminal selection outcome was missing or unsupported. */
-  | "outcome";
+  | "outcome"
+  /** The saved feed ID, or the generated feed strategy or key, was missing or malformed. */
+  | "feed"
+  /** The trust tier filter was empty, repeated a tier or named an unknown tier. */
+  | "trustTiers";
 /**
  * How a card failed validation
  *
@@ -1286,6 +1338,12 @@ export type CatalogReferenceInstallationFailureReason =
   | "unsupported-resource"
   /** The resource's entrypoint could not be retrieved or verified. */
   | "entrypoint-unavailable"
+  /** GitHub rate limited retrieval from the pinned public source. Retry after retryAfterSeconds when present. */
+  | "source-rate-limited"
+  /** No GitHub sign-in or credential is available, so the caller must sign in. */
+  | "no-credential"
+  /** Agent Finder refused the GitHub credential (HTTP 401, or a 403 without rate-limit evidence); the caller must sign in again. */
+  | "credential-rejected"
   /** The Skill entrypoint is not a valid Skill. */
   | "invalid-skill"
   /** The plugin manifest is not a valid plugin manifest, or the bundle has another manifest that would take precedence over the reviewed one. */
@@ -1320,6 +1378,10 @@ export type CatalogReferenceInstallationOutcome =
     }
   | {
       reason: CatalogReferenceInstallationFailureReason;
+      /**
+       * Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.
+       */
+      retryAfterSeconds?: number;
       /**
        * Reference planning outcome discriminator naming the planned kind.
        */
@@ -1469,10 +1531,27 @@ export type PluginInstallationReview = {
    */
   manifestContent: string;
   /**
+   * MCP servers the verified files declare, exactly as an install of these files loads
+   * them. Omitted when the plugin declares none.
+   */
+  mcpServers?: PluginInstallationMcpServerReview[];
+  /**
    * Exact reviewed Agent Plugin installation action.
    */
   action: "install";
 };
+/**
+ * How a reviewed plugin's MCP server is reached.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "PluginInstallationMcpTransport".
+ */
+/** @experimental */
+export type PluginInstallationMcpTransport =
+  /** An HTTP or SSE server reached over the network, which may ask the user to sign in. */
+  | "remote"
+  /** A command the plugin runs on this machine. */
+  | "local";
 /**
  * Planning result for a materialisation reference with the honoured contract, or a typed refusal.
  *
@@ -1490,35 +1569,24 @@ export type CatalogReferenceInstallationResult =
       negotiated: CatalogNegotiatedContract;
     }
   | CatalogNegotiationRefusedError
-  | CatalogInvalidRequestError;
+  | CatalogInvalidRequestError
+  | CatalogNetworkFailureError;
 /**
- * Relationship of the backend-reported count to the complete query result set.
+ * Outcome of catalog.getGeneratedFeed: the feed with its entries, or one typed refusal. An entry that cannot be presented never fails the feed.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogSearchTotalCountRelation".
+ * via the `definition` "CatalogResourceGeneratedFeedResult".
  */
 /** @experimental */
-export type CatalogSearchTotalCountRelation =
-  /** No exact/full-query or lower-bound guarantee is available. */
-  "unknown";
-/**
- * Outcome of a catalog.search call: either bounded inert candidates, or one typed refusal. Never a partial success.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogSearchResult".
- */
-/** @experimental */
-export type CatalogSearchResult =
-  | CatalogSearchSucceeded
+export type CatalogResourceGeneratedFeedResult =
+  | CatalogGetGeneratedFeedSucceeded
   | CatalogNegotiationRefusedError
-  | CatalogUnsupportedKindError
   | CatalogInvalidRequestError
   | CatalogAuthenticationRequiredError
   | CatalogPolicyRejectedError
   | CatalogNetworkFailureError
   | CatalogUnsafeRetrievalError
   | CatalogMalformedCardError
-  | CatalogContractViolationError
   | CatalogUnavailableError;
 /**
  * Which hardened-fetch control refused a retrieval
@@ -1557,7 +1625,55 @@ export type CatalogUnavailableReason =
   /** No catalog authority is configured for this runtime. */
   | "authority-not-configured"
   /** The surface is disabled by policy on this runtime. */
-  | "disabled-by-policy";
+  | "disabled-by-policy"
+  /** The requested saved feed, or generated feed strategy or key, does not exist. */
+  | "feed-not-found";
+/**
+ * Outcome of catalog.getSavedFeed: the feed with its entries, or one typed refusal. An entry that cannot be presented never fails the feed.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogResourceSavedFeedResult".
+ */
+/** @experimental */
+export type CatalogResourceSavedFeedResult =
+  | CatalogGetSavedFeedSucceeded
+  | CatalogNegotiationRefusedError
+  | CatalogInvalidRequestError
+  | CatalogAuthenticationRequiredError
+  | CatalogPolicyRejectedError
+  | CatalogNetworkFailureError
+  | CatalogUnsafeRetrievalError
+  | CatalogMalformedCardError
+  | CatalogUnavailableError;
+/**
+ * Relationship of the backend-reported count to the complete query result set.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogSearchTotalCountRelation".
+ */
+/** @experimental */
+export type CatalogSearchTotalCountRelation =
+  /** No exact/full-query or lower-bound guarantee is available. */
+  "unknown";
+/**
+ * Outcome of a catalog.search call: either bounded inert candidates, or one typed refusal. Never a partial success.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogSearchResult".
+ */
+/** @experimental */
+export type CatalogSearchResult =
+  | CatalogSearchSucceeded
+  | CatalogNegotiationRefusedError
+  | CatalogUnsupportedKindError
+  | CatalogInvalidRequestError
+  | CatalogAuthenticationRequiredError
+  | CatalogPolicyRejectedError
+  | CatalogNetworkFailureError
+  | CatalogUnsafeRetrievalError
+  | CatalogMalformedCardError
+  | CatalogContractViolationError
+  | CatalogUnavailableError;
 /**
  * Terminal outcome declared for a retained catalog selection group
  *
@@ -3002,6 +3118,22 @@ export type SessionLogLevel =
   | "warning"
   /** Error message describing a failure. */
   | "error";
+/**
+ * Administrator-configured Ensemble preference, independent of execution support.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "ManagedEnsembleTier".
+ */
+/** @experimental */
+export type ManagedEnsembleTier =
+  /** Balance efficiency and intelligence. */
+  | "balance"
+  /** Prefer higher intelligence. */
+  | "high"
+  /** Prefer maximum intelligence. */
+  | "max"
+  /** Leave tier selection unmanaged without falling back to legacy Auto policy. */
+  | "unmanaged";
 
 /** @experimental */
 export type ManagedPermissionOperation = {
@@ -4825,6 +4957,12 @@ export type PluginInstallationFailureReason =
   | "payload-unavailable"
   /** The acquired files no longer match the reviewed descriptor. */
   | "payload-mismatch"
+  /** GitHub rate limited retrieval from the pinned public source; nothing was installed. Retry after retryAfterSeconds when present. */
+  | "source-rate-limited"
+  /** No GitHub sign-in or credential is available, so the caller must sign in. */
+  | "no-credential"
+  /** Agent Finder refused the GitHub credential (HTTP 401, or a 403 without rate-limit evidence); the caller must sign in again. */
+  | "credential-rejected"
   /** Plugin installation storage or admission is busy. */
   | "busy"
   /** A plugin with the same name or install location already exists. */
@@ -4849,6 +4987,10 @@ export type PluginInstallationManagementOutcome =
   | {
       reason: PluginInstallationFailureReason;
       /**
+       * Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.
+       */
+      retryAfterSeconds?: number;
+      /**
        * Agent Plugin installation management outcome discriminator.
        */
       kind: "refused";
@@ -4870,7 +5012,8 @@ export type PluginInstallationManagementResult =
       negotiated: CatalogNegotiatedContract;
     }
   | CatalogNegotiationRefusedError
-  | CatalogInvalidRequestError;
+  | CatalogInvalidRequestError
+  | CatalogNetworkFailureError;
 /**
  * Terminal verified Agent Plugin installation result.
  *
@@ -4913,6 +5056,10 @@ export type PluginInstallationOutcome =
        */
       operationId?: string;
       /**
+       * Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.
+       */
+      retryAfterSeconds?: number;
+      /**
        * Terminal Agent Plugin installation outcome discriminator.
        */
       kind: "refused";
@@ -4934,7 +5081,8 @@ export type PluginInstallationResult =
       negotiated: CatalogNegotiatedContract;
     }
   | CatalogNegotiationRefusedError
-  | CatalogInvalidRequestError;
+  | CatalogInvalidRequestError
+  | CatalogNetworkFailureError;
 /**
  * Where completed plugin content was staged before atomic promotion.
  *
@@ -5949,6 +6097,12 @@ export type SkillInstallationFailureReason =
   | "payload-unavailable"
   /** The acquired payload no longer matches the reviewed descriptor. */
   | "payload-mismatch"
+  /** GitHub rate limited retrieval from the pinned public source; nothing was installed. Retry after retryAfterSeconds when present. Reported only to callers that require catalog-reference-installation; others receive payload-unavailable. */
+  | "source-rate-limited"
+  /** No GitHub sign-in or credential is available, so the caller must sign in. Reported only to callers that require catalog-reference-installation; others receive policy-context-unavailable. */
+  | "no-credential"
+  /** Agent Finder refused the GitHub credential (HTTP 401, or a 403 without rate-limit evidence); the caller must sign in again. Reported only to callers that require catalog-reference-installation; others receive descriptor-unavailable. */
+  | "credential-rejected"
   /** The retained Skill source changed after planning. */
   | "source-changed"
   /** The selected runtime cannot inspect or control the requested lifecycle operation. */
@@ -6044,6 +6198,10 @@ export type SkillInstallationManagementOutcome =
     }
   | {
       reason: SkillInstallationFailureReason;
+      /**
+       * Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.
+       */
+      retryAfterSeconds?: number;
       /**
        * Skill installation management outcome discriminator.
        */
@@ -6201,6 +6359,10 @@ export type SkillInstallationOutcome =
        */
       operationId?: string;
       /**
+       * Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.
+       */
+      retryAfterSeconds?: number;
+      /**
        * Terminal Skill installation outcome discriminator.
        */
       kind: "refused";
@@ -6222,7 +6384,8 @@ export type SkillInstallationManagementResult =
       negotiated: CatalogNegotiatedContract;
     }
   | CatalogNegotiationRefusedError
-  | CatalogInvalidRequestError;
+  | CatalogInvalidRequestError
+  | CatalogNetworkFailureError;
 /**
  * Skill installation result with the honoured contract, or a typed request/negotiation refusal.
  *
@@ -6240,7 +6403,8 @@ export type SkillInstallationResult =
       negotiated: CatalogNegotiatedContract;
     }
   | CatalogNegotiationRefusedError
-  | CatalogInvalidRequestError;
+  | CatalogInvalidRequestError
+  | CatalogNetworkFailureError;
 /**
  * Result of invoking the slash command (text output, prompt to send to the agent, completion, or subcommand selection).
  *
@@ -9559,7 +9723,7 @@ export interface CatalogAgentPluginCandidate {
    * Publisher taken verbatim from the card. Inert untrusted text.
    */
   publisher?: string;
-  source: CatalogPluginRepositorySource;
+  source?: CatalogPluginRepositorySource;
   /**
    * Explicit validated compatibility tags, in canonical order. An empty list means the source declared no recognised compatibility; clients must not infer compatibility from other fields. `canvas-only` requires both `canvas` and `github-copilot`.
    *
@@ -9618,9 +9782,9 @@ export interface CatalogPluginRepositorySource {
    */
   repository: string;
   /**
-   * Case-preserving safe relative POSIX path derived from metadata.repoPath.
+   * Case-preserving safe relative POSIX path derived from metadata.repoPath. Absent when the catalog declared sourceSet without repoPath, meaning the plugin is at the repository root; only callers that require agent-plugin-confirmed-installation receive such a source.
    */
-  path: string;
+  path?: string;
 }
 /**
  * What installing an Agent Plugin would do, for the user to review and confirm. Provisional: the catalogue install data it is built from is not final.
@@ -9641,20 +9805,18 @@ export interface CatalogAgentPluginInstallPlan {
     | [CatalogAgentPluginInstallSource, CatalogAgentPluginInstallSource]
     | [CatalogAgentPluginInstallSource, CatalogAgentPluginInstallSource, CatalogAgentPluginInstallSource];
   /**
-   * The plugin's name, as named in its marketplace or manifest.
+   * The plugin's name, as named in its marketplace or manifest. Omitted from a materialisation-only plan, whose sources are only `materialization`: the verified manifests supply the name in the plugins.planInstall review.
    */
-  pluginName: string;
+  pluginName?: string;
   version?: CatalogResourceVersion;
   /**
    * Exact full commit ID to install, in lowercase hex. Always present when the plan has a repository source; a plan with a marketplace source carries at least one of version and commit.
    */
   commit?: string;
   /**
-   * Components the plugin contributes, in canonical order.
-   *
-   * @minItems 1
+   * Components the plugin contributes, in canonical order. Empty only in a materialisation-only plan, where the verified manifests list them in the plugins.planInstall review.
    */
-  components: [CatalogAgentPluginComponent, ...CatalogAgentPluginComponent[]];
+  components: CatalogAgentPluginComponent[];
   /**
    * Canvas IDs the plugin contributes. Non-empty exactly when components include `canvas`.
    */
@@ -10074,6 +10236,215 @@ export interface CatalogContractViolationError {
   message: string;
 }
 /**
+ * An entry whose resource resolves and is presented as the same candidate catalog.search would return.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogFeedAvailableEntry".
+ */
+/** @experimental */
+export interface CatalogFeedAvailableEntry {
+  status: CatalogFeedAvailableStatus;
+  /**
+   * The entry's resource identifier as saved in the feed.
+   */
+  identifier: string;
+  candidate: CatalogCandidate;
+}
+/**
+ * An entry that cannot be presented, kept in its position so clients decide how to render it.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogFeedUnavailableEntry".
+ */
+/** @experimental */
+export interface CatalogFeedUnavailableEntry {
+  status: CatalogFeedUnavailableStatus;
+  /**
+   * The entry's resource identifier as saved in the feed.
+   */
+  identifier: string;
+  reason: CatalogFeedUnavailableReason;
+}
+/**
+ * An entry whose resource resolves but is not in one of the requested trust tiers.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogFeedFilteredEntry".
+ */
+/** @experimental */
+export interface CatalogFeedFilteredEntry {
+  status: CatalogFeedFilteredStatus;
+  /**
+   * The entry's resource identifier as saved in the feed.
+   */
+  identifier: string;
+}
+/**
+ * A generated feed's identity. It has no version; generatedAt is its only freshness signal.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogGeneratedFeedDescription".
+ */
+/** @experimental */
+export interface CatalogGeneratedFeedDescription {
+  /**
+   * Generation strategy that was requested.
+   */
+  strategy: string;
+  /**
+   * Feed key that was requested.
+   */
+  key: string;
+  /**
+   * When the feed was computed, as reported by the authority. Omitted when the authority reports no valid timestamp.
+   */
+  generatedAt?: string;
+}
+/**
+ * Retrieves one generated feed, computed on every request, by strategy and key, such as `telemetry` and `popular`. Requires catalog-feeds and catalog-search-credential-required; add catalog-search-session-bound with policySessionId to retain the selected session's authority for installation, exactly as for catalog.search.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogGetGeneratedFeedRequest".
+ */
+/** @experimental */
+export interface CatalogGetGeneratedFeedRequest {
+  contract: CatalogClientContract;
+  /**
+   * Select an existing attached local session. Requires authenticated, session-bound catalogue support.
+   * The runtime never creates, resumes or reconfigures a session to honour this selector.
+   */
+  policySessionId?: string;
+  /**
+   * Generation strategy, such as `telemetry`.
+   */
+  strategy: string;
+  /**
+   * Feed key within the strategy, such as `popular`.
+   */
+  key: string;
+  /**
+   * Accept only resources currently assessed at one of these trust tiers. Entries whose resource is in another tier, or has none, are returned as filtered in their original position. Omit for an unfiltered feed.
+   *
+   * @minItems 1
+   * @maxItems 2
+   */
+  trustTiers?: [CatalogTrustTier] | [CatalogTrustTier, CatalogTrustTier];
+}
+/**
+ * A retrieved generated feed. Entries keep the feed's order and are never more than 100.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogGetGeneratedFeedSucceeded".
+ */
+/** @experimental */
+export interface CatalogGetGeneratedFeedSucceeded {
+  /**
+   * Discriminator: the feed was retrieved
+   */
+  kind: "succeeded";
+  /**
+   * Runtime-issued identifier for this retrieval, with the same meaning as a catalog.search searchId, so a plan can be tied to the feed that produced its candidate. Derived from no user, account, device or feed data.
+   */
+  searchId: string;
+  feed: CatalogGeneratedFeedDescription;
+  /**
+   * Feed entries in the feed's order.
+   *
+   * @maxItems 100
+   */
+  entries: CatalogFeedEntry[];
+  negotiated: CatalogNegotiatedContract;
+}
+/**
+ * The protocol version and capability set the runtime actually honoured for a successful catalog operation.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogNegotiatedContract".
+ */
+/** @experimental */
+export interface CatalogNegotiatedContract {
+  /**
+   * Protocol version of the runtime that served the request.
+   */
+  runtimeProtocolVersion: number;
+  /**
+   * Wire features the runtime understood for this operation. Includes the five original catalog capabilities and only explicitly requested supported additions, in supported order without duplicates. Capabilities that introduce new success-union variants or operations are therefore included only when explicitly required, preserving older protocol-v3 clients. Always a superset of the caller's required features, because any shortfall is a refusal instead. Operation availability remains a separate typed result.
+   */
+  grantedCapabilities: CatalogCapability[];
+}
+/**
+ * Retrieves one saved feed by its opaque ID. Requires catalog-feeds and catalog-search-credential-required; add catalog-search-session-bound with policySessionId to retain the selected session's authority for installation, exactly as for catalog.search.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogGetSavedFeedRequest".
+ */
+/** @experimental */
+export interface CatalogGetSavedFeedRequest {
+  contract: CatalogClientContract;
+  /**
+   * Select an existing attached local session. Requires authenticated, session-bound catalogue support.
+   * The runtime never creates, resumes or reconfigures a session to honour this selector.
+   */
+  policySessionId?: string;
+  /**
+   * Opaque saved feed ID. Treat it as an indivisible string.
+   */
+  feedId: string;
+  /**
+   * Accept only resources currently assessed at one of these trust tiers. Entries whose resource is in another tier, or has none, are returned as filtered in their original position. Omit for an unfiltered feed.
+   *
+   * @minItems 1
+   * @maxItems 2
+   */
+  trustTiers?: [CatalogTrustTier] | [CatalogTrustTier, CatalogTrustTier];
+}
+/**
+ * A retrieved saved feed. Entries keep the feed's order and are never more than 100.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogGetSavedFeedSucceeded".
+ */
+/** @experimental */
+export interface CatalogGetSavedFeedSucceeded {
+  /**
+   * Discriminator: the feed was retrieved
+   */
+  kind: "succeeded";
+  /**
+   * Runtime-issued identifier for this retrieval, with the same meaning as a catalog.search searchId, so a plan can be tied to the feed that produced its candidate. Derived from no user, account, device or feed data.
+   */
+  searchId: string;
+  feed: CatalogSavedFeedDescription;
+  /**
+   * Feed entries in the feed's order.
+   *
+   * @maxItems 100
+   */
+  entries: CatalogFeedEntry[];
+  negotiated: CatalogNegotiatedContract;
+}
+/**
+ * A saved feed's identity. Its version changes only when the feed's definition is replaced, not when a referenced resource changes.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogSavedFeedDescription".
+ */
+/** @experimental */
+export interface CatalogSavedFeedDescription {
+  /**
+   * Opaque feed ID.
+   */
+  id: string;
+  /**
+   * Feed name as saved by its creator. Inert untrusted text.
+   */
+  name: string;
+  /**
+   * Version of the saved feed definition.
+   */
+  version: number;
+}
+/**
  * A presented handle was not accepted. Handles are runtime-instance scoped, TTL-bound, and single-use, so each way of failing is reported distinctly.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -10161,23 +10532,6 @@ export interface CatalogMaterializationReference {
    * Expected `sha256:<lowercase hex>` digest of the descriptor's bundle manifest.
    */
   bundleDigest: string;
-}
-/**
- * The protocol version and capability set the runtime actually honoured for a successful catalog operation.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogNegotiatedContract".
- */
-/** @experimental */
-export interface CatalogNegotiatedContract {
-  /**
-   * Protocol version of the runtime that served the request.
-   */
-  runtimeProtocolVersion: number;
-  /**
-   * Wire features the runtime understood for this operation. Includes the five original catalog capabilities and only explicitly requested supported additions, in supported order without duplicates. Capabilities that introduce new success-union variants or operations are therefore included only when explicitly required, preserving older protocol-v3 clients. Always a superset of the caller's required features, because any shortfall is a refusal instead. Operation availability remains a separate typed result.
-   */
-  grantedCapabilities: CatalogCapability[];
 }
 /**
  * The caller's protocol version or required capabilities cannot be honoured. Returned instead of a partial or ambiguous success.
@@ -10353,6 +10707,12 @@ export interface InstallationCatalogueIdentity {
    */
   source: string;
   trustAtInstall?: CatalogTrustSnapshot;
+  /**
+   * HTTPS URL of the resource's icon on raw.githubusercontent.com, retained from the catalogue
+   * candidate. Untrusted external content: load it without credentials. Omitted when the
+   * candidate had none.
+   */
+  iconUrl?: string;
 }
 /**
  * Source identity retained from Agent Finder and the pinned GitHub descriptor.
@@ -10590,6 +10950,60 @@ export interface PluginInstallationFileReview {
   digest: string;
 }
 /**
+ * One MCP server a reviewed plugin declares.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "PluginInstallationMcpServerReview".
+ */
+/** @experimental */
+export interface PluginInstallationMcpServerReview {
+  /**
+   * Server name as the plugin declares it.
+   */
+  name: string;
+  transport: PluginInstallationMcpTransport;
+  /**
+   * Host of a remote server's URL.
+   */
+  host?: string;
+}
+/**
+ * Retrieval was refused by the runtime's hardened fetch boundary before any request left the process, or before a redirect was followed.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogUnsafeRetrievalError".
+ */
+/** @experimental */
+export interface CatalogUnsafeRetrievalError {
+  /**
+   * Discriminator: retrieval was refused as unsafe
+   */
+  kind: "unsafe-retrieval";
+  reason: CatalogUnsafeRetrievalReason;
+  /**
+   * Human-readable explanation, safe to surface. Never contains the refused URL, nor a query, handle, or secret.
+   */
+  message: string;
+}
+/**
+ * The operation is not available on this runtime. Distinct from a network failure: nothing was attempted.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "CatalogUnavailableError".
+ */
+/** @experimental */
+export interface CatalogUnavailableError {
+  /**
+   * Discriminator: the operation is not available
+   */
+  kind: "unavailable";
+  reason: CatalogUnavailableReason;
+  /**
+   * Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.
+   */
+  message: string;
+}
+/**
  * An explicit numbered-page request. SDK consumers treat the token as opaque. For bound search, the runtime unwraps an expiring owner-bound reference to the private authority token; only the runtime changes the authority token's targetPage. Legacy unbound navigation keeps its authority-issued token semantics. No snapshot stability is promised.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -10727,42 +11141,6 @@ export interface CatalogUnsupportedKindError {
    * Every candidate kind this runtime can serve.
    */
   supportedKinds: CatalogCandidateKind[];
-  /**
-   * Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.
-   */
-  message: string;
-}
-/**
- * Retrieval was refused by the runtime's hardened fetch boundary before any request left the process, or before a redirect was followed.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogUnsafeRetrievalError".
- */
-/** @experimental */
-export interface CatalogUnsafeRetrievalError {
-  /**
-   * Discriminator: retrieval was refused as unsafe
-   */
-  kind: "unsafe-retrieval";
-  reason: CatalogUnsafeRetrievalReason;
-  /**
-   * Human-readable explanation, safe to surface. Never contains the refused URL, nor a query, handle, or secret.
-   */
-  message: string;
-}
-/**
- * The operation is not available on this runtime. Distinct from a network failure: nothing was attempted.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "CatalogUnavailableError".
- */
-/** @experimental */
-export interface CatalogUnavailableError {
-  /**
-   * Discriminator: the operation is not available
-   */
-  kind: "unavailable";
-  reason: CatalogUnavailableReason;
   /**
    * Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.
    */
@@ -15785,6 +16163,32 @@ export interface InstalledPluginInfo {
    * Whether the managed desired plugin currently has an installed or live record. Set to false for a managed desired entry retained in the listing after installation or reconciliation failed.
    */
   installed?: boolean;
+  /**
+   * Description from the manifest of the installed copy. Present only for a direct install pinned to one GitHub commit, such as a verified install from GitHub.
+   */
+  description?: string;
+  verifiedSource?: InstalledPluginVerifiedSource;
+  /**
+   * HTTPS URL of the plugin's icon on raw.githubusercontent.com, retained from the catalogue entry it was installed from. Untrusted external content: load it without credentials. Present only for a direct install pinned to one GitHub commit whose catalogue entry had an icon.
+   */
+  iconUrl?: string;
+}
+/**
+ * The GitHub repository and commit an installed plugin is pinned to.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "InstalledPluginVerifiedSource".
+ */
+/** @experimental */
+export interface InstalledPluginVerifiedSource {
+  /**
+   * GitHub repository in `owner/repo` form.
+   */
+  repository: string;
+  /**
+   * Full 40-character hexadecimal commit SHA the plugin is pinned to.
+   */
+  revision: string;
 }
 /**
  * Canonical file or directory where custom instructions can be discovered or created, with location, kind, preference, and project path.
@@ -16576,6 +16980,7 @@ export interface ManagedSettingsValues {
    */
   model?: string;
   autoTier?: AutoTier;
+  ensembleTier?: ManagedEnsembleTier;
   /**
    * Managed reasoning-effort default for the managed concrete model. The runtime clamps it to an entitled effort when model availability is known.
    */
@@ -16592,6 +16997,7 @@ export interface ManagedSettingsValues {
 export interface ManagedSettingsMeta {
   model?: ManagedSettingMeta;
   autoTier?: ManagedSettingMeta;
+  ensembleTier?: ManagedSettingMeta;
   effortLevel?: ManagedSettingMeta;
   contextTier?: ManagedSettingMeta;
 }
@@ -31772,6 +32178,20 @@ export interface TasksGetProgressResult {
   progress?: TaskProgress | null;
 }
 /**
+ * How a shell task ended, reported with the read that reaches the end of its output.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "TaskShellOutputExit".
+ */
+/** @experimental */
+export interface TaskShellOutputExit {
+  status: TaskStatus;
+  /**
+   * Process exit code, when the runtime recorded one. Absent when the shell was stopped before reporting an exit code.
+   */
+  exitCode?: number;
+}
+/**
  * The promoted task as it now exists in background mode, omitted if no promotable task was waiting.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -31806,6 +32226,45 @@ export interface TasksPromoteToBackgroundResult {
    * Whether the task was successfully promoted to background mode
    */
   promoted: boolean;
+}
+/**
+ * Detached shell task to read output from, with an optional cursor and long-poll wait. waitMs defaults to zero (maximum 30000).
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "TasksReadOutputRequest".
+ */
+/** @experimental */
+export interface TasksReadOutputRequest {
+  /**
+   * Identifier of a detached shell task, as returned by tasks.list
+   */
+  id: string;
+  /**
+   * Opaque cursor returned by an earlier read of the same task. Omit to read from the beginning of the shell's output. If the output no longer reaches the cursor, for example because its log was removed, the request fails; read again without a cursor.
+   */
+  cursor?: string;
+  /**
+   * Milliseconds to wait for new output, or for the shell to finish, when the cursor is already at the end of the available output. 0 (default) returns immediately. Capped at 30000ms.
+   */
+  waitMs?: number;
+}
+/**
+ * Output a detached shell task wrote after the request cursor, with the cursor for the next read.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "TasksReadOutputResult".
+ */
+/** @experimental */
+export interface TasksReadOutputResult {
+  /**
+   * Output after the request cursor, decoded as UTF-8 and redacted. At most 64 KiB per read, so a large backlog takes several reads; the text never splits a character, and text that stops before the end of the output ends at a line break when it contains one. Empty when no new output is available. Detached shells write stdout and stderr to one output, so the text does not separate them.
+   */
+  text: string;
+  /**
+   * Opaque cursor to pass to the next read of this task. Always present, even when no output was returned.
+   */
+  cursor: string;
+  exit?: TaskShellOutputExit;
 }
 /**
  * Refresh metadata for any detached background shells the runtime knows about. Use after a long pause to pick up exit/output state for shells running outside the agent loop.
@@ -37114,6 +37573,24 @@ export function createServerRpc(connection: MessageConnection) {
             search: async (params: CatalogSearchRequest): Promise<CatalogSearchResult> =>
                 connection.sendRequest("catalog.search", params),
             /**
+             * Retrieves one saved feed by its opaque ID, optionally filtered by trust tier. Requires catalog-feeds and catalog-search-credential-required, and uses the same authority, credential policy, optional session binding and candidate projection as catalog.search, so available entries are the same inert candidates, with the same installability, handles and display metadata, and install through the same confirmed flows. Entries keep the feed's order; an entry the runtime cannot present is returned as unavailable with a reason rather than failing the feed. No anonymous retry. Read-only: nothing is installed, configured, or persisted.
+             *
+             * @param params Retrieves one saved feed by its opaque ID. Requires catalog-feeds and catalog-search-credential-required; add catalog-search-session-bound with policySessionId to retain the selected session's authority for installation, exactly as for catalog.search.
+             *
+             * @returns Outcome of catalog.getSavedFeed: the feed with its entries, or one typed refusal. An entry that cannot be presented never fails the feed.
+             */
+            getSavedFeed: async (params: CatalogGetSavedFeedRequest): Promise<CatalogResourceSavedFeedResult> =>
+                connection.sendRequest("catalog.getSavedFeed", params),
+            /**
+             * Retrieves one generated feed by strategy and key, such as telemetry/popular, optionally filtered by trust tier. Requires catalog-feeds and catalog-search-credential-required, and uses the same authority, credential policy, optional session binding and candidate projection as catalog.search, so available entries are the same inert candidates, with the same installability, handles and display metadata, and install through the same confirmed flows. Entries keep the feed's order; an entry the runtime cannot present is returned as unavailable with a reason rather than failing the feed. No anonymous retry. Read-only: nothing is installed, configured, or persisted.
+             *
+             * @param params Retrieves one generated feed, computed on every request, by strategy and key, such as `telemetry` and `popular`. Requires catalog-feeds and catalog-search-credential-required; add catalog-search-session-bound with policySessionId to retain the selected session's authority for installation, exactly as for catalog.search.
+             *
+             * @returns Outcome of catalog.getGeneratedFeed: the feed with its entries, or one typed refusal. An entry that cannot be presented never fails the feed.
+             */
+            getGeneratedFeed: async (params: CatalogGetGeneratedFeedRequest): Promise<CatalogResourceGeneratedFeedResult> =>
+                connection.sendRequest("catalog.getGeneratedFeed", params),
+            /**
              * Terminates one retained catalog selection group. A selected outcome returns the native host a fresh single-use candidate handle plus the original searchId for a later explicit mcp.planInstall call; non-selected outcomes release the group without producing a planning input. Candidate state, cards, URLs, credentials and private identifiers remain inside the runtime. The model-facing catalog_select tool projects the result separately and never exposes the candidate handle or searchId.
              *
              * @param params Terminates one retained catalog selection group through an opaque reference previously returned by the model-safe search projection.
@@ -39362,6 +39839,15 @@ export function createSessionRpc(connection: MessageConnection, sessionId: strin
              */
             getProgress: async (params: TasksGetProgressRequest): Promise<TasksGetProgressResult> =>
                 connection.sendRequest("session.tasks.getProgress", { ...params, sessionId }),
+            /**
+             * Reads a detached shell task's output after a cursor, optionally waiting for new output or for the shell to finish.
+             *
+             * @param params Detached shell task to read output from, with an optional cursor and long-poll wait. waitMs defaults to zero (maximum 30000).
+             *
+             * @returns Output a detached shell task wrote after the request cursor, with the cursor for the next read.
+             */
+            readOutput: async (params: TasksReadOutputRequest): Promise<TasksReadOutputResult> =>
+                connection.sendRequest("session.tasks.readOutput", { ...params, sessionId }),
             /**
              * Returns the first sync-waiting task that can currently be promoted to background mode.
              *

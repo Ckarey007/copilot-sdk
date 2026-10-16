@@ -29,6 +29,8 @@ public record ManagedSettingsValues(
     @JsonProperty("model") String model,
     /** Managed Auto routing preference, used when the selected model is `auto`. */
     @JsonProperty("autoTier") AutoTier autoTier,
+    /** Managed Ensemble preference. Takes precedence over autoTier even when unmanaged, which means no managed tier and forbids legacy fallback. Legacy Auto values are mapped only when no managed source supplies ensembleTier. */
+    @JsonProperty("ensembleTier") ManagedEnsembleTier ensembleTier,
     /** Managed reasoning-effort default for the managed concrete model. The runtime clamps it to an entitled effort when model availability is known. */
     @JsonProperty("effortLevel") String effortLevel,
     /** Managed context-tier default for the managed concrete model. */

@@ -53,7 +53,7 @@ public final class CatalogAgentPluginCandidate extends CatalogCandidate {
     @JsonProperty("publisher")
     private String publisher;
 
-    /** Bounded repository provenance declared through the catalog's sourceSet and repoPath metadata. It contains no descriptor URL. */
+    /** Bounded repository provenance declared through the catalog's sourceSet and repoPath metadata. It contains no descriptor URL. Always present, with a path, unless the caller requires agent-plugin-confirmed-installation. Such a caller also receives a repository-root plugin (sourceSet without repoPath) whose source has no path, and a plugin with no usable declaration (neither key, or repoPath alone) and no source; the latter carries a complete materialisation reference and a handle, and the verified descriptor supplies the repository, commit and root when it is planned. Never derived from the catalogue URL. */
     @JsonProperty("source")
     private CatalogPluginRepositorySource source;
 

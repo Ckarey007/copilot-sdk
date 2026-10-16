@@ -379,6 +379,10 @@ pub mod rpc_methods {
     pub const REGISTEREXTENSIONLAUNCHPROVIDER: &str = "registerExtensionLaunchProvider";
     /// `catalog.search`
     pub const CATALOG_SEARCH: &str = "catalog.search";
+    /// `catalog.getSavedFeed`
+    pub const CATALOG_GETSAVEDFEED: &str = "catalog.getSavedFeed";
+    /// `catalog.getGeneratedFeed`
+    pub const CATALOG_GETGENERATEDFEED: &str = "catalog.getGeneratedFeed";
     /// `catalog.select`
     pub const CATALOG_SELECT: &str = "catalog.select";
     /// `catalog.planInstallFromReference`
@@ -749,6 +753,8 @@ pub mod rpc_methods {
     pub const SESSION_TASKS_WAITFORPENDING: &str = "session.tasks.waitForPending";
     /// `session.tasks.getProgress`
     pub const SESSION_TASKS_GETPROGRESS: &str = "session.tasks.getProgress";
+    /// `session.tasks.readOutput`
+    pub const SESSION_TASKS_READOUTPUT: &str = "session.tasks.readOutput";
     /// `session.tasks.getCurrentPromotable`
     pub const SESSION_TASKS_GETCURRENTPROMOTABLE: &str = "session.tasks.getCurrentPromotable";
     /// `session.tasks.promoteToBackground`
@@ -4927,7 +4933,7 @@ pub struct CatalogAgentPluginInstallPlan {
     /// Exact full commit ID to install, in lowercase hex. Always present when the plan has a repository source; a plan with a marketplace source carries at least one of version and commit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub commit: Option<String>,
-    /// Components the plugin contributes, in canonical order.
+    /// Components the plugin contributes, in canonical order. Empty only in a materialisation-only plan, where the verified manifests list them in the plugins.planInstall review.
     pub components: Vec<CatalogAgentPluginComponent>,
     /// Connectors the plugin depends on.
     pub connector_dependencies: Vec<String>,
@@ -4935,8 +4941,9 @@ pub struct CatalogAgentPluginInstallPlan {
     pub extension_ids: Vec<String>,
     /// MCP servers the plugin depends on but does not bundle.
     pub mcp_dependencies: Vec<String>,
-    /// The plugin's name, as named in its marketplace or manifest.
-    pub plugin_name: String,
+    /// The plugin's name, as named in its marketplace or manifest. Omitted from a materialisation-only plan, whose sources are only `materialization`: the verified manifests supply the name in the plugins.planInstall review.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plugin_name: Option<String>,
     /// Every valid install source, in preference order: materialization, then marketplace, then repository. Each kind appears at most once.
     pub sources: Vec<CatalogAgentPluginInstallSource>,
     /// Exact plugin version to install. A plan with a marketplace source carries at least one of version and commit.
@@ -4974,8 +4981,9 @@ pub struct CatalogAgentPluginCandidateProvenance {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogPluginRepositorySource {
-    /// Case-preserving safe relative POSIX path derived from metadata.repoPath.
-    pub path: String,
+    /// Case-preserving safe relative POSIX path derived from metadata.repoPath. Absent when the catalog declared sourceSet without repoPath, meaning the plugin is at the repository root; only callers that require agent-plugin-confirmed-installation receive such a source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     /// Canonical lowercase owner/repository name derived from metadata.sourceSet.
     pub repository: String,
 }
@@ -5034,8 +5042,9 @@ pub struct CatalogAgentPluginCandidate {
     /// Publisher taken verbatim from the card. Inert untrusted text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub publisher: Option<String>,
-    /// Bounded repository provenance declared through the catalog's sourceSet and repoPath metadata. It contains no descriptor URL.
-    pub source: CatalogPluginRepositorySource,
+    /// Bounded repository provenance declared through the catalog's sourceSet and repoPath metadata. It contains no descriptor URL. Always present, with a path, unless the caller requires agent-plugin-confirmed-installation. Such a caller also receives a repository-root plugin (sourceSet without repoPath) whose source has no path, and a plugin with no usable declaration (neither key, or repoPath alone) and no source; the latter carries a complete materialisation reference and a handle, and the verified descriptor supplies the repository, commit and root when it is planned. Never derived from the catalogue URL.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<CatalogPluginRepositorySource>,
     /// Versioned trust metadata observed from the catalog authority. Optional for protocol-3 compatibility and emitted only when the caller also requires the trust-snapshot capability.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trust: Option<serde_json::Value>,
@@ -5354,6 +5363,261 @@ pub struct CatalogContractViolationError {
     pub reason: CatalogContractViolationReason,
 }
 
+/// An entry whose resource resolves and is presented as the same candidate catalog.search would return.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogFeedAvailableEntry {
+    /// The entry's resource, with the same projection, installability, handle and display metadata as a catalog.search candidate.
+    pub candidate: CatalogCandidate,
+    /// The entry's resource identifier as saved in the feed.
+    pub identifier: String,
+    /// Discriminator: the entry's resource is available.
+    #[serde(deserialize_with = "CatalogFeedAvailableEntry::deserialize_status")]
+    pub status: CatalogFeedAvailableStatus,
+}
+
+impl CatalogFeedAvailableEntry {
+    fn deserialize_status<'de, D>(deserializer: D) -> Result<CatalogFeedAvailableStatus, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value != "available" {
+            return Err(serde::de::Error::unknown_variant(&value, &["available"]));
+        }
+        <CatalogFeedAvailableStatus>::deserialize(
+            serde::de::value::StringDeserializer::<D::Error>::new(value),
+        )
+    }
+}
+
+/// An entry whose resource resolves but is not in one of the requested trust tiers.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogFeedFilteredEntry {
+    /// The entry's resource identifier as saved in the feed.
+    pub identifier: String,
+    /// Discriminator: the entry was filtered by trust tier.
+    #[serde(deserialize_with = "CatalogFeedFilteredEntry::deserialize_status")]
+    pub status: CatalogFeedFilteredStatus,
+}
+
+impl CatalogFeedFilteredEntry {
+    fn deserialize_status<'de, D>(deserializer: D) -> Result<CatalogFeedFilteredStatus, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value != "filtered" {
+            return Err(serde::de::Error::unknown_variant(&value, &["filtered"]));
+        }
+        <CatalogFeedFilteredStatus>::deserialize(
+            serde::de::value::StringDeserializer::<D::Error>::new(value),
+        )
+    }
+}
+
+/// An entry that cannot be presented, kept in its position so clients decide how to render it.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogFeedUnavailableEntry {
+    /// The entry's resource identifier as saved in the feed.
+    pub identifier: String,
+    /// Why the entry cannot be presented.
+    pub reason: CatalogFeedUnavailableReason,
+    /// Discriminator: the entry's resource is unavailable.
+    #[serde(deserialize_with = "CatalogFeedUnavailableEntry::deserialize_status")]
+    pub status: CatalogFeedUnavailableStatus,
+}
+
+impl CatalogFeedUnavailableEntry {
+    fn deserialize_status<'de, D>(deserializer: D) -> Result<CatalogFeedUnavailableStatus, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value != "unavailable" {
+            return Err(serde::de::Error::unknown_variant(&value, &["unavailable"]));
+        }
+        <CatalogFeedUnavailableStatus>::deserialize(
+            serde::de::value::StringDeserializer::<D::Error>::new(value),
+        )
+    }
+}
+
+/// A generated feed's identity. It has no version; generatedAt is its only freshness signal.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogGeneratedFeedDescription {
+    /// When the feed was computed, as reported by the authority. Omitted when the authority reports no valid timestamp.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generated_at: Option<String>,
+    /// Feed key that was requested.
+    pub key: String,
+    /// Generation strategy that was requested.
+    pub strategy: String,
+}
+
+/// Retrieves one generated feed, computed on every request, by strategy and key, such as `telemetry` and `popular`. Requires catalog-feeds and catalog-search-credential-required; add catalog-search-session-bound with policySessionId to retain the selected session's authority for installation, exactly as for catalog.search.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogGetGeneratedFeedRequest {
+    /// Protocol version and capabilities the caller requires.
+    pub contract: CatalogClientContract,
+    /// Feed key within the strategy, such as `popular`.
+    pub key: String,
+    /// Select an existing attached local session. Requires authenticated, session-bound catalogue support.
+    /// The runtime never creates, resumes or reconfigures a session to honour this selector.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy_session_id: Option<String>,
+    /// Generation strategy, such as `telemetry`.
+    pub strategy: String,
+    /// Accept only resources currently assessed at one of these trust tiers. Entries whose resource is in another tier, or has none, are returned as filtered in their original position. Omit for an unfiltered feed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trust_tiers: Option<Vec<CatalogTrustTier>>,
+}
+
+/// The protocol version and capability set the runtime actually honoured for a successful catalog operation.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogNegotiatedContract {
+    /// Wire features the runtime understood for this operation. Includes the five original catalog capabilities and only explicitly requested supported additions, in supported order without duplicates. Capabilities that introduce new success-union variants or operations are therefore included only when explicitly required, preserving older protocol-v3 clients. Always a superset of the caller's required features, because any shortfall is a refusal instead. Operation availability remains a separate typed result.
+    pub granted_capabilities: Vec<CatalogCapability>,
+    /// Protocol version of the runtime that served the request.
+    pub runtime_protocol_version: i64,
+}
+
+/// A retrieved generated feed. Entries keep the feed's order and are never more than 100.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogGetGeneratedFeedSucceeded {
+    /// Feed entries in the feed's order.
+    pub entries: Vec<CatalogFeedEntry>,
+    /// The feed's own identity and freshness.
+    pub feed: CatalogGeneratedFeedDescription,
+    /// Discriminator: the feed was retrieved
+    pub kind: CatalogGetGeneratedFeedSucceededKind,
+    /// Protocol version and capabilities the runtime honoured.
+    pub negotiated: CatalogNegotiatedContract,
+    /// Runtime-issued identifier for this retrieval, with the same meaning as a catalog.search searchId, so a plan can be tied to the feed that produced its candidate. Derived from no user, account, device or feed data.
+    pub search_id: String,
+}
+
+/// Retrieves one saved feed by its opaque ID. Requires catalog-feeds and catalog-search-credential-required; add catalog-search-session-bound with policySessionId to retain the selected session's authority for installation, exactly as for catalog.search.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogGetSavedFeedRequest {
+    /// Protocol version and capabilities the caller requires.
+    pub contract: CatalogClientContract,
+    /// Opaque saved feed ID. Treat it as an indivisible string.
+    pub feed_id: String,
+    /// Select an existing attached local session. Requires authenticated, session-bound catalogue support.
+    /// The runtime never creates, resumes or reconfigures a session to honour this selector.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub policy_session_id: Option<String>,
+    /// Accept only resources currently assessed at one of these trust tiers. Entries whose resource is in another tier, or has none, are returned as filtered in their original position. Omit for an unfiltered feed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trust_tiers: Option<Vec<CatalogTrustTier>>,
+}
+
+/// A saved feed's identity. Its version changes only when the feed's definition is replaced, not when a referenced resource changes.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogSavedFeedDescription {
+    /// Opaque feed ID.
+    pub id: String,
+    /// Feed name as saved by its creator. Inert untrusted text.
+    pub name: String,
+    /// Version of the saved feed definition.
+    pub version: i64,
+}
+
+/// A retrieved saved feed. Entries keep the feed's order and are never more than 100.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogGetSavedFeedSucceeded {
+    /// Feed entries in the feed's order.
+    pub entries: Vec<CatalogFeedEntry>,
+    /// The feed's own identity and freshness.
+    pub feed: CatalogSavedFeedDescription,
+    /// Discriminator: the feed was retrieved
+    pub kind: CatalogGetSavedFeedSucceededKind,
+    /// Protocol version and capabilities the runtime honoured.
+    pub negotiated: CatalogNegotiatedContract,
+    /// Runtime-issued identifier for this retrieval, with the same meaning as a catalog.search searchId, so a plan can be tied to the feed that produced its candidate. Derived from no user, account, device or feed data.
+    pub search_id: String,
+}
+
 /// A presented handle was not accepted. Handles are runtime-instance scoped, TTL-bound, and single-use, so each way of failing is reported distinctly.
 ///
 /// <div class="warning">
@@ -5441,23 +5705,6 @@ pub struct CatalogMaterializationReference {
     pub revision_id: String,
     /// Materialisation descriptor schema version, currently `1.0.0`.
     pub schema_version: String,
-}
-
-/// The protocol version and capability set the runtime actually honoured for a successful catalog operation.
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CatalogNegotiatedContract {
-    /// Wire features the runtime understood for this operation. Includes the five original catalog capabilities and only explicitly requested supported additions, in supported order without duplicates. Capabilities that introduce new success-union variants or operations are therefore included only when explicitly required, preserving older protocol-v3 clients. Always a superset of the caller's required features, because any shortfall is a refusal instead. Operation availability remains a separate typed result.
-    pub granted_capabilities: Vec<CatalogCapability>,
-    /// Protocol version of the runtime that served the request.
-    pub runtime_protocol_version: i64,
 }
 
 /// The caller's protocol version or required capabilities cannot be honoured. Returned instead of a partial or ambiguous success.
@@ -5585,6 +5832,11 @@ pub struct InstallationCatalogueIdentity {
     pub description: Option<String>,
     /// Human display name retained from the catalogue candidate.
     pub display_name: String,
+    /// HTTPS URL of the resource's icon on raw.githubusercontent.com, retained from the catalogue
+    /// candidate. Untrusted external content: load it without credentials. Omitted when the
+    /// candidate had none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
     /// Catalogue item URL when supplied by the authority.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub item_url: Option<String>,
@@ -5813,6 +6065,26 @@ pub struct PluginInstallationFileReview {
     pub size_bytes: i64,
 }
 
+/// One MCP server a reviewed plugin declares.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallationMcpServerReview {
+    /// Host of a remote server's URL.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// Server name as the plugin declares it.
+    pub name: String,
+    /// `remote` for an HTTP or SSE server, `local` for a command the plugin runs.
+    pub transport: PluginInstallationMcpTransport,
+}
+
 /// Source identity retained from Agent Finder and the pinned GitHub descriptor.
 ///
 /// <div class="warning">
@@ -5879,6 +6151,10 @@ pub struct PluginInstallPlanReview {
     pub manifest_content: String,
     /// Relative path of the verified plugin manifest.
     pub manifest_path: String,
+    /// MCP servers the verified files declare, exactly as an install of these files loads
+    /// them. Omitted when the plugin declares none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_servers: Option<Vec<PluginInstallationMcpServerReview>>,
     /// Installed plugin name, derived from the verified manifest exactly as a direct install derives it.
     pub name: String,
     /// Exact verified source identity.
@@ -5931,6 +6207,9 @@ pub struct CatalogReferenceInstallationOutcomeRefused {
     pub kind: CatalogReferenceInstallationOutcomeRefusedKind,
     /// Bounded refusal reason.
     pub reason: CatalogReferenceInstallationFailureReason,
+    /// Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_after_seconds: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -5942,6 +6221,44 @@ pub struct CatalogReferenceInstallationResultOutcome {
     pub negotiated: CatalogNegotiatedContract,
     /// Planning outcome.
     pub outcome: CatalogReferenceInstallationOutcome,
+}
+
+/// Retrieval was refused by the runtime's hardened fetch boundary before any request left the process, or before a redirect was followed.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogUnsafeRetrievalError {
+    /// Discriminator: retrieval was refused as unsafe
+    pub kind: CatalogUnsafeRetrievalErrorKind,
+    /// Human-readable explanation, safe to surface. Never contains the refused URL, nor a query, handle, or secret.
+    pub message: String,
+    /// Which control refused the retrieval, low cardinality so it can be aggregated without carrying a URL.
+    pub reason: CatalogUnsafeRetrievalReason,
+}
+
+/// The operation is not available on this runtime. Distinct from a network failure: nothing was attempted.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogUnavailableError {
+    /// Discriminator: the operation is not available
+    pub kind: CatalogUnavailableErrorKind,
+    /// Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.
+    pub message: String,
+    /// Why the operation is unavailable.
+    pub reason: CatalogUnavailableReason,
 }
 
 /// An explicit numbered-page request. SDK consumers treat the token as opaque. For bound search, the runtime unwraps an expiring owner-bound reference to the private authority token; only the runtime changes the authority token's targetPage. Legacy unbound navigation keeps its authority-issued token semantics. No snapshot stability is promised.
@@ -6122,44 +6439,6 @@ pub struct CatalogUnsupportedKindError {
     pub requested_kinds: Vec<CatalogCandidateKind>,
     /// Every candidate kind this runtime can serve.
     pub supported_kinds: Vec<CatalogCandidateKind>,
-}
-
-/// Retrieval was refused by the runtime's hardened fetch boundary before any request left the process, or before a redirect was followed.
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CatalogUnsafeRetrievalError {
-    /// Discriminator: retrieval was refused as unsafe
-    pub kind: CatalogUnsafeRetrievalErrorKind,
-    /// Human-readable explanation, safe to surface. Never contains the refused URL, nor a query, handle, or secret.
-    pub message: String,
-    /// Which control refused the retrieval, low cardinality so it can be aggregated without carrying a URL.
-    pub reason: CatalogUnsafeRetrievalReason,
-}
-
-/// The operation is not available on this runtime. Distinct from a network failure: nothing was attempted.
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CatalogUnavailableError {
-    /// Discriminator: the operation is not available
-    pub kind: CatalogUnavailableErrorKind,
-    /// Human-readable explanation, safe to surface. Never contains a query, URL, handle, or secret.
-    pub message: String,
-    /// Why the operation is unavailable.
-    pub reason: CatalogUnavailableReason,
 }
 
 /// The caller cancelled the selection interaction and the retained search state was released.
@@ -11760,6 +12039,10 @@ pub struct InstallationReviewPluginReview {
     pub manifest_content: String,
     /// Relative path of the verified plugin manifest.
     pub manifest_path: String,
+    /// MCP servers the verified files declare, exactly as an install of these files loads
+    /// them. Omitted when the plugin declares none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_servers: Option<Vec<PluginInstallationMcpServerReview>>,
     /// Installed plugin name, derived from the verified manifest exactly as a direct install derives it.
     pub name: String,
     /// Exact verified source identity.
@@ -11814,6 +12097,23 @@ pub struct InstallationConfirmationResponse {
     pub review_fingerprint: String,
 }
 
+/// The GitHub repository and commit an installed plugin is pinned to.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledPluginVerifiedSource {
+    /// GitHub repository in `owner/repo` form.
+    pub repository: String,
+    /// Full 40-character hexadecimal commit SHA the plugin is pinned to.
+    pub revision: String,
+}
+
 /// Information about an installed plugin tracked in global state.
 ///
 /// <div class="warning">
@@ -11825,11 +12125,17 @@ pub struct InstallationConfirmationResponse {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstalledPluginInfo {
+    /// Description from the manifest of the installed copy. Present only for a direct install pinned to one GitHub commit, such as a verified install from GitHub.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// Opaque, stable hash identifying a direct (non-marketplace) install source. Present only for direct repo / URL / local installs; absent for marketplace plugins. Same source yields the same id; distinct sources never collide.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub direct_source_id: Option<String>,
     /// Whether the plugin is currently enabled for new sessions
     pub enabled: bool,
+    /// HTTPS URL of the plugin's icon on raw.githubusercontent.com, retained from the catalogue entry it was installed from. Untrusted external content: load it without credentials. Present only for a direct install pinned to one GitHub commit whose catalogue entry had an icon.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
     /// Whether the managed desired plugin currently has an installed or live record. Set to false for a managed desired entry retained in the listing after installation or reconciliation failed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub installed: Option<bool>,
@@ -11849,6 +12155,9 @@ pub struct InstalledPluginInfo {
     /// Runtime-reported plugin provenance. Currently set to "builtin" only for plugins registered through the trusted host built-in boundary; absent for installed, marketplace, direct, and live plugins.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// The GitHub repository and commit a direct install is pinned to, from its install record. Present only for a direct install pinned to one GitHub commit, such as a verified install from GitHub; absent for marketplace, local and unpinned installs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verified_source: Option<InstalledPluginVerifiedSource>,
     /// Installed version (when reported by the plugin manifest)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
@@ -12846,6 +13155,9 @@ pub struct ManagedSettingsMeta {
     /// Lock state and provenance of `values.effortLevel`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort_level: Option<ManagedSettingMeta>,
+    /// Lock state and provenance of values.ensembleTier, including a legacy alias's original source. An unmanaged value imposes no tier lock.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ensemble_tier: Option<ManagedSettingMeta>,
     /// Lock state and provenance of `values.model`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<ManagedSettingMeta>,
@@ -12914,6 +13226,9 @@ pub struct ManagedSettingsValues {
     /// Managed reasoning-effort default for the managed concrete model. The runtime clamps it to an entitled effort when model availability is known.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort_level: Option<String>,
+    /// Managed Ensemble preference. Takes precedence over autoTier even when unmanaged, which means no managed tier and forbids legacy fallback. Legacy Auto values are mapped only when no managed source supplies ensembleTier.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ensemble_tier: Option<ManagedEnsembleTier>,
     /// Managed default model identifier. When model availability was resolved, aliases and family names are projected to a concrete available model ID; otherwise the configured value is returned.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
@@ -21414,6 +21729,9 @@ pub struct PluginInstallationManagementOutcomeRefused {
     pub kind: PluginInstallationManagementOutcomeRefusedKind,
     /// Bounded refusal reason.
     pub reason: PluginInstallationFailureReason,
+    /// Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_after_seconds: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21495,6 +21813,9 @@ pub struct PluginInstallationOutcomeRefused {
     pub operation_id: Option<String>,
     /// Bounded refusal reason.
     pub reason: PluginInstallationFailureReason,
+    /// Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_after_seconds: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21535,6 +21856,10 @@ pub struct PluginInstallationReview {
     pub manifest_content: String,
     /// Relative path of the verified plugin manifest.
     pub manifest_path: String,
+    /// MCP servers the verified files declare, exactly as an install of these files loads
+    /// them. Omitted when the plugin declares none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mcp_servers: Option<Vec<PluginInstallationMcpServerReview>>,
     /// Installed plugin name, derived from the verified manifest exactly as a direct install derives it.
     pub name: String,
     /// Exact verified source identity.
@@ -29200,6 +29525,9 @@ pub struct SkillInstallationOutcomeRefused {
     pub operation_id: Option<String>,
     /// Bounded refusal reason.
     pub reason: SkillInstallationFailureReason,
+    /// Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_after_seconds: Option<i64>,
 }
 
 /// Original operation progress discriminator.
@@ -29245,6 +29573,9 @@ pub struct SkillInstallationManagementOutcomeRefused {
     pub kind: SkillInstallationManagementOutcomeRefusedKind,
     /// Bounded refusal reason.
     pub reason: SkillInstallationFailureReason,
+    /// Whole seconds GitHub asked the caller to wait, present only with source-rate-limited.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_after_seconds: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30524,6 +30855,24 @@ pub struct TaskShellInfo {
     pub r#type: TaskShellInfoType,
 }
 
+/// How a shell task ended, reported with the read that reaches the end of its output.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskShellOutputExit {
+    /// Process exit code, when the runtime recorded one. Absent when the shell was stopped before reporting an exit code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i64>,
+    /// Final lifecycle status of the shell task: completed, failed, or cancelled
+    pub status: TaskStatus,
+}
+
 /// Progress snapshot for a shell task, with recent stdout/stderr output and optional process ID.
 ///
 /// <div class="warning">
@@ -30588,6 +30937,47 @@ pub struct TasksPromoteToBackgroundRequest {
 pub struct TasksPromoteToBackgroundResult {
     /// Whether the task was successfully promoted to background mode
     pub promoted: bool,
+}
+
+/// Detached shell task to read output from, with an optional cursor and long-poll wait. waitMs defaults to zero (maximum 30000).
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TasksReadOutputRequest {
+    /// Opaque cursor returned by an earlier read of the same task. Omit to read from the beginning of the shell's output. If the output no longer reaches the cursor, for example because its log was removed, the request fails; read again without a cursor.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    /// Identifier of a detached shell task, as returned by tasks.list
+    pub id: String,
+    /// Milliseconds to wait for new output, or for the shell to finish, when the cursor is already at the end of the available output. 0 (default) returns immediately. Capped at 30000ms.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wait_ms: Option<i32>,
+}
+
+/// Output a detached shell task wrote after the request cursor, with the cursor for the next read.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TasksReadOutputResult {
+    /// Opaque cursor to pass to the next read of this task. Always present, even when no output was returned.
+    pub cursor: String,
+    /// Present once the shell has finished and this read reaches the end of its output. Later reads with the returned cursor return no new text and the same exit details.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit: Option<TaskShellOutputExit>,
+    /// Output after the request cursor, decoded as UTF-8 and redacted. At most 64 KiB per read, so a large backlog takes several reads; the text never splits a character, and text that stops before the end of the output ends at a line break when it contains one. Empty when no new output is available. Detached shells write stdout and stderr to one output, so the text does not separate them.
+    pub text: String,
 }
 
 /// Refresh metadata for any detached background shells the runtime knows about. Use after a long pause to pick up exit/output state for shells running outside the agent loop.
@@ -38280,6 +38670,26 @@ pub struct SessionTasksGetProgressResult {
     pub progress: serde_json::Value,
 }
 
+/// Output a detached shell task wrote after the request cursor, with the cursor for the next read.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionTasksReadOutputResult {
+    /// Opaque cursor to pass to the next read of this task. Always present, even when no output was returned.
+    pub cursor: String,
+    /// Present once the shell has finished and this read reaches the end of its output. Later reads with the returned cursor return no new text and the same exit details.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit: Option<TaskShellOutputExit>,
+    /// Output after the request cursor, decoded as UTF-8 and redacted. At most 64 KiB per read, so a large backlog takes several reads; the text never splits a character, and text that stops before the end of the output ends at a line break when it contains one. Empty when no new output is available. Detached shells write stdout and stderr to one output, so the text does not separate them.
+    pub text: String,
+}
+
 /// Identifies the target session.
 ///
 /// <div class="warning">
@@ -44385,6 +44795,9 @@ pub enum CatalogCapability {
     /// Understands catalog.planInstallFromReference, which plans installing whatever resource an Agent Finder materialisation reference pins. It plans only kinds whose installation capability the caller also requires: skill-confirmed-installation for Skills, agent-plugin-confirmed-installation for Agent Plugins. Advertised only by runtimes with the Skill installation engine linked.
     #[serde(rename = "catalog-reference-installation")]
     CatalogReferenceInstallation,
+    /// Understands catalog.getSavedFeed and catalog.getGeneratedFeed, which retrieve a saved or generated feed with entries projected exactly like catalog.search candidates. Requires catalog-search-credential-required; add catalog-search-session-bound to bind the retrieval to a selected session.
+    #[serde(rename = "catalog-feeds")]
+    CatalogFeeds,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]
@@ -44425,6 +44838,140 @@ pub enum CatalogContractViolationReason {
     #[default]
     #[serde(other)]
     Unknown,
+}
+
+/// Discriminator for an available feed entry
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogFeedAvailableStatus {
+    /// The entry's resource resolves and can be presented.
+    #[serde(rename = "available")]
+    Available,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Discriminator for a feed entry filtered by trust tier
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogFeedFilteredStatus {
+    /// The entry's resource is not in a requested trust tier.
+    #[serde(rename = "filtered")]
+    Filtered,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Why a feed entry cannot be presented
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogFeedUnavailableReason {
+    /// The identifier no longer resolves to a resource.
+    #[serde(rename = "not-found")]
+    NotFound,
+    /// The resource is of a kind this caller did not negotiate or this runtime does not support.
+    #[serde(rename = "unsupported-kind")]
+    UnsupportedKind,
+    /// The resource failed the same validation catalog.search applies, or repeats an earlier entry.
+    #[serde(rename = "invalid-resource")]
+    InvalidResource,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Discriminator for an unavailable feed entry
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogFeedUnavailableStatus {
+    /// The entry's resource cannot be presented.
+    #[serde(rename = "unavailable")]
+    Unavailable,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Service-computed trust tier currently emitted by Agent Finder. It is independent of search score, popularity, and client-side ranking.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogTrustTier {
+    /// Tier one as assigned by the catalogue authority.
+    T1,
+    /// Tier two as assigned by the catalogue authority.
+    T2,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// One feed entry, in its feed position. Only available entries carry a candidate.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CatalogFeedEntry {
+    Available(CatalogFeedAvailableEntry),
+    Unavailable(CatalogFeedUnavailableEntry),
+    Filtered(CatalogFeedFilteredEntry),
+}
+
+/// Discriminator: the feed was retrieved
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogGetGeneratedFeedSucceededKind {
+    #[serde(rename = "succeeded")]
+    #[default]
+    Succeeded,
+}
+
+/// Discriminator: the feed was retrieved
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogGetSavedFeedSucceededKind {
+    #[serde(rename = "succeeded")]
+    #[default]
+    Succeeded,
 }
 
 /// Which kind of opaque handle was presented
@@ -44540,6 +45087,12 @@ pub enum CatalogInvalidRequestField {
     /// The terminal selection outcome was missing or unsupported.
     #[serde(rename = "outcome")]
     Outcome,
+    /// The saved feed ID, or the generated feed strategy or key, was missing or malformed.
+    #[serde(rename = "feed")]
+    Feed,
+    /// The trust tier filter was empty, repeated a tier or named an unknown tier.
+    #[serde(rename = "trustTiers")]
+    TrustTiers,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]
@@ -44838,6 +45391,15 @@ pub enum CatalogReferenceInstallationFailureReason {
     /// The resource's entrypoint could not be retrieved or verified.
     #[serde(rename = "entrypoint-unavailable")]
     EntrypointUnavailable,
+    /// GitHub rate limited retrieval from the pinned public source. Retry after retryAfterSeconds when present.
+    #[serde(rename = "source-rate-limited")]
+    SourceRateLimited,
+    /// No GitHub sign-in or credential is available, so the caller must sign in.
+    #[serde(rename = "no-credential")]
+    NoCredential,
+    /// Agent Finder refused the GitHub credential (HTTP 401, or a 403 without rate-limit evidence); the caller must sign in again.
+    #[serde(rename = "credential-rejected")]
+    CredentialRejected,
     /// The Skill entrypoint is not a valid Skill.
     #[serde(rename = "invalid-skill")]
     InvalidSkill,
@@ -44985,6 +45547,28 @@ pub enum PluginInstallPlanReviewAction {
     Install,
 }
 
+/// How a reviewed plugin's MCP server is reached.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PluginInstallationMcpTransport {
+    /// An HTTP or SSE server reached over the network, which may ask the user to sign in.
+    #[serde(rename = "remote")]
+    Remote,
+    /// A command the plugin runs on this machine.
+    #[serde(rename = "local")]
+    Local,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
 /// Reference planning outcome discriminator naming the planned kind.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CatalogReferenceInstallationOutcomeRefusedKind {
@@ -45031,41 +45615,7 @@ pub enum CatalogReferenceInstallationResult {
     Outcome(CatalogReferenceInstallationResultOutcome),
     NegotiationRefused(CatalogNegotiationRefusedError),
     InvalidRequest(CatalogInvalidRequestError),
-}
-
-/// Relationship of the backend-reported count to the complete query result set.
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CatalogSearchTotalCountRelation {
-    /// No exact/full-query or lower-bound guarantee is available.
-    #[serde(rename = "unknown")]
-    UnknownValue,
-    /// Unknown variant for forward compatibility.
-    #[default]
-    #[serde(other)]
-    Unknown,
-}
-
-/// Discriminator: the search completed
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CatalogSearchSucceededKind {
-    #[serde(rename = "succeeded")]
-    #[default]
-    Succeeded,
-}
-
-/// Discriminator: an unsupported candidate kind was requested
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CatalogUnsupportedKindErrorKind {
-    #[serde(rename = "unsupported-kind")]
-    #[default]
-    UnsupportedKind,
+    NetworkFailure(CatalogNetworkFailureError),
 }
 
 /// Discriminator: retrieval was refused as unsafe
@@ -45143,10 +45693,92 @@ pub enum CatalogUnavailableReason {
     /// The surface is disabled by policy on this runtime.
     #[serde(rename = "disabled-by-policy")]
     DisabledByPolicy,
+    /// The requested saved feed, or generated feed strategy or key, does not exist.
+    #[serde(rename = "feed-not-found")]
+    FeedNotFound,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]
     Unknown,
+}
+
+/// Outcome of catalog.getGeneratedFeed: the feed with its entries, or one typed refusal. An entry that cannot be presented never fails the feed.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CatalogResourceGeneratedFeedResult {
+    Succeeded(CatalogGetGeneratedFeedSucceeded),
+    NegotiationRefused(CatalogNegotiationRefusedError),
+    InvalidRequest(CatalogInvalidRequestError),
+    AuthenticationRequired(CatalogAuthenticationRequiredError),
+    PolicyRejected(CatalogPolicyRejectedError),
+    NetworkFailure(CatalogNetworkFailureError),
+    UnsafeRetrieval(CatalogUnsafeRetrievalError),
+    MalformedCard(CatalogMalformedCardError),
+    Unavailable(CatalogUnavailableError),
+}
+
+/// Outcome of catalog.getSavedFeed: the feed with its entries, or one typed refusal. An entry that cannot be presented never fails the feed.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CatalogResourceSavedFeedResult {
+    Succeeded(CatalogGetSavedFeedSucceeded),
+    NegotiationRefused(CatalogNegotiationRefusedError),
+    InvalidRequest(CatalogInvalidRequestError),
+    AuthenticationRequired(CatalogAuthenticationRequiredError),
+    PolicyRejected(CatalogPolicyRejectedError),
+    NetworkFailure(CatalogNetworkFailureError),
+    UnsafeRetrieval(CatalogUnsafeRetrievalError),
+    MalformedCard(CatalogMalformedCardError),
+    Unavailable(CatalogUnavailableError),
+}
+
+/// Relationship of the backend-reported count to the complete query result set.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogSearchTotalCountRelation {
+    /// No exact/full-query or lower-bound guarantee is available.
+    #[serde(rename = "unknown")]
+    UnknownValue,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Discriminator: the search completed
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogSearchSucceededKind {
+    #[serde(rename = "succeeded")]
+    #[default]
+    Succeeded,
+}
+
+/// Discriminator: an unsupported candidate kind was requested
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogUnsupportedKindErrorKind {
+    #[serde(rename = "unsupported-kind")]
+    #[default]
+    UnsupportedKind,
 }
 
 /// Outcome of a catalog.search call: either bounded inert candidates, or one typed refusal. Never a partial success.
@@ -45396,26 +46028,6 @@ pub enum CatalogTrustSnapshotCurrentStatus {
     /// A recognised T1 or T2 service tier was observed.
     #[serde(rename = "current")]
     Current,
-    /// Unknown variant for forward compatibility.
-    #[default]
-    #[serde(other)]
-    Unknown,
-}
-
-/// Service-computed trust tier currently emitted by Agent Finder. It is independent of search score, popularity, and client-side ranking.
-///
-/// <div class="warning">
-///
-/// **Experimental.** This type is part of an experimental wire-protocol surface
-/// and may change or be removed in future SDK or CLI releases.
-///
-/// </div>
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CatalogTrustTier {
-    /// Tier one as assigned by the catalogue authority.
-    T1,
-    /// Tier two as assigned by the catalogue authority.
-    T2,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]
@@ -47714,6 +48326,34 @@ pub enum SessionLogLevel {
     /// Error message describing a failure.
     #[serde(rename = "error")]
     Error,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Administrator-configured Ensemble preference, independent of execution support.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ManagedEnsembleTier {
+    /// Balance efficiency and intelligence.
+    #[serde(rename = "balance")]
+    Balance,
+    /// Prefer higher intelligence.
+    #[serde(rename = "high")]
+    High,
+    /// Prefer maximum intelligence.
+    #[serde(rename = "max")]
+    Max,
+    /// Leave tier selection unmanaged without falling back to legacy Auto policy.
+    #[serde(rename = "unmanaged")]
+    Unmanaged,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]
@@ -50499,6 +51139,15 @@ pub enum PluginInstallationFailureReason {
     /// The acquired files no longer match the reviewed descriptor.
     #[serde(rename = "payload-mismatch")]
     PayloadMismatch,
+    /// GitHub rate limited retrieval from the pinned public source; nothing was installed. Retry after retryAfterSeconds when present.
+    #[serde(rename = "source-rate-limited")]
+    SourceRateLimited,
+    /// No GitHub sign-in or credential is available, so the caller must sign in.
+    #[serde(rename = "no-credential")]
+    NoCredential,
+    /// Agent Finder refused the GitHub credential (HTTP 401, or a 403 without rate-limit evidence); the caller must sign in again.
+    #[serde(rename = "credential-rejected")]
+    CredentialRejected,
     /// Plugin installation storage or admission is busy.
     #[serde(rename = "busy")]
     Busy,
@@ -50567,6 +51216,7 @@ pub enum PluginInstallationManagementResult {
     Outcome(PluginInstallationManagementResultOutcome),
     NegotiationRefused(CatalogNegotiationRefusedError),
     InvalidRequest(CatalogInvalidRequestError),
+    NetworkFailure(CatalogNetworkFailureError),
 }
 
 /// Terminal Agent Plugin installation outcome discriminator.
@@ -50640,6 +51290,7 @@ pub enum PluginInstallationResult {
     Outcome(PluginInstallationResultOutcome),
     NegotiationRefused(CatalogNegotiationRefusedError),
     InvalidRequest(CatalogInvalidRequestError),
+    NetworkFailure(CatalogNetworkFailureError),
 }
 
 /// Exact reviewed Agent Plugin installation action.
@@ -52219,6 +52870,15 @@ pub enum SkillInstallationFailureReason {
     /// The acquired payload no longer matches the reviewed descriptor.
     #[serde(rename = "payload-mismatch")]
     PayloadMismatch,
+    /// GitHub rate limited retrieval from the pinned public source; nothing was installed. Retry after retryAfterSeconds when present. Reported only to callers that require catalog-reference-installation; others receive payload-unavailable.
+    #[serde(rename = "source-rate-limited")]
+    SourceRateLimited,
+    /// No GitHub sign-in or credential is available, so the caller must sign in. Reported only to callers that require catalog-reference-installation; others receive policy-context-unavailable.
+    #[serde(rename = "no-credential")]
+    NoCredential,
+    /// Agent Finder refused the GitHub credential (HTTP 401, or a 403 without rate-limit evidence); the caller must sign in again. Reported only to callers that require catalog-reference-installation; others receive descriptor-unavailable.
+    #[serde(rename = "credential-rejected")]
+    CredentialRejected,
     /// The retained Skill source changed after planning.
     #[serde(rename = "source-changed")]
     SourceChanged,
@@ -52502,6 +53162,7 @@ pub enum SkillInstallationManagementResult {
     Outcome(SkillInstallationManagementResultOutcome),
     NegotiationRefused(CatalogNegotiationRefusedError),
     InvalidRequest(CatalogInvalidRequestError),
+    NetworkFailure(CatalogNetworkFailureError),
 }
 
 /// Discriminator: handled operation outcome.
@@ -52526,6 +53187,7 @@ pub enum SkillInstallationResult {
     Outcome(SkillInstallationResultOutcome),
     NegotiationRefused(CatalogNegotiationRefusedError),
     InvalidRequest(CatalogInvalidRequestError),
+    NetworkFailure(CatalogNetworkFailureError),
 }
 
 /// Discriminator for an add-timeline-entry result.

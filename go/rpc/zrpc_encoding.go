@@ -1382,7 +1382,7 @@ func (r *CatalogAgentPluginInstallPlan) UnmarshalJSON(data []byte) error {
 		ConnectorDependencies []string                      `json:"connectorDependencies"`
 		ExtensionIDs          []string                      `json:"extensionIds"`
 		MCPDependencies       []string                      `json:"mcpDependencies"`
-		PluginName            string                        `json:"pluginName"`
+		PluginName            *string                       `json:"pluginName,omitempty"`
 		Sources               []json.RawMessage             `json:"sources"`
 		Version               *string                       `json:"version,omitempty"`
 	}
@@ -1805,7 +1805,7 @@ func (r *CatalogAgentPluginCandidate) UnmarshalJSON(data []byte) error {
 		MediaType         CatalogAgentPluginMediaType           `json:"mediaType"`
 		Provenance        CatalogAgentPluginCandidateProvenance `json:"provenance"`
 		Publisher         *string                               `json:"publisher,omitempty"`
-		Source            CatalogPluginRepositorySource         `json:"source"`
+		Source            *CatalogPluginRepositorySource        `json:"source,omitempty"`
 		Trust             json.RawMessage                       `json:"trust,omitempty"`
 		Version           *string                               `json:"version,omitempty"`
 	}
@@ -2036,6 +2036,106 @@ func (r CatalogMCPServerCandidate) MarshalJSON() ([]byte, error) {
 	})
 }
 
+func unmarshalCatalogFeedEntry(data []byte) (CatalogFeedEntry, error) {
+	if string(data) == "null" {
+		return nil, nil
+	}
+	type rawUnion struct {
+		Status CatalogFeedEntryStatus `json:"status"`
+	}
+	var raw rawUnion
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+
+	switch raw.Status {
+	case CatalogFeedEntryStatusAvailable:
+		var d CatalogFeedAvailableEntry
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogFeedEntryStatusFiltered:
+		var d CatalogFeedFilteredEntry
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogFeedEntryStatusUnavailable:
+		var d CatalogFeedUnavailableEntry
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	default:
+		return &RawCatalogFeedEntryData{Discriminator: raw.Status, Raw: data}, nil
+	}
+}
+
+func (r RawCatalogFeedEntryData) MarshalJSON() ([]byte, error) {
+	if r.Raw != nil {
+		return r.Raw, nil
+	}
+	return json.Marshal(struct {
+		Status CatalogFeedEntryStatus `json:"status"`
+	}{
+		Status: r.Discriminator,
+	})
+}
+
+func (r *CatalogFeedAvailableEntry) UnmarshalJSON(data []byte) error {
+	type rawCatalogFeedAvailableEntry struct {
+		Candidate  json.RawMessage `json:"candidate"`
+		Identifier string          `json:"identifier"`
+	}
+	var raw rawCatalogFeedAvailableEntry
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw.Candidate != nil {
+		value, err := unmarshalCatalogCandidate(raw.Candidate)
+		if err != nil {
+			return err
+		}
+		r.Candidate = value
+	}
+	r.Identifier = raw.Identifier
+	return nil
+}
+
+func (r CatalogFeedAvailableEntry) MarshalJSON() ([]byte, error) {
+	type alias CatalogFeedAvailableEntry
+	return json.Marshal(struct {
+		Status CatalogFeedEntryStatus `json:"status"`
+		alias
+	}{
+		Status: r.Status(),
+		alias:  alias(r),
+	})
+}
+
+func (r CatalogFeedFilteredEntry) MarshalJSON() ([]byte, error) {
+	type alias CatalogFeedFilteredEntry
+	return json.Marshal(struct {
+		Status CatalogFeedEntryStatus `json:"status"`
+		alias
+	}{
+		Status: r.Status(),
+		alias:  alias(r),
+	})
+}
+
+func (r CatalogFeedUnavailableEntry) MarshalJSON() ([]byte, error) {
+	type alias CatalogFeedUnavailableEntry
+	return json.Marshal(struct {
+		Status CatalogFeedEntryStatus `json:"status"`
+		alias
+	}{
+		Status: r.Status(),
+		alias:  alias(r),
+	})
+}
+
 func unmarshalCatalogReferenceInstallationOutcome(data []byte) (CatalogReferenceInstallationOutcome, error) {
 	if string(data) == "null" {
 		return nil, nil
@@ -2087,6 +2187,7 @@ func (r *InstallationCatalogueIdentity) UnmarshalJSON(data []byte) error {
 	type rawInstallationCatalogueIdentity struct {
 		Description    *string         `json:"description,omitempty"`
 		DisplayName    string          `json:"displayName"`
+		IconURL        *string         `json:"iconUrl,omitempty"`
 		ItemURL        *string         `json:"itemUrl,omitempty"`
 		Publisher      *string         `json:"publisher,omitempty"`
 		ResourceID     *string         `json:"resourceId,omitempty"`
@@ -2100,6 +2201,7 @@ func (r *InstallationCatalogueIdentity) UnmarshalJSON(data []byte) error {
 	}
 	r.Description = raw.Description
 	r.DisplayName = raw.DisplayName
+	r.IconURL = raw.IconURL
 	r.ItemURL = raw.ItemURL
 	r.Publisher = raw.Publisher
 	r.ResourceID = raw.ResourceID
@@ -2260,6 +2362,12 @@ func unmarshalCatalogReferenceInstallationResult(data []byte) (CatalogReferenceI
 			return nil, err
 		}
 		return &d, nil
+	case CatalogReferenceInstallationResultKindNetworkFailure:
+		var d CatalogNetworkFailureError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
 	case CatalogReferenceInstallationResultKindOutcome:
 		var d CatalogReferenceInstallationResultOutcome
 		if err := json.Unmarshal(data, &d); err != nil {
@@ -2304,6 +2412,17 @@ func (r CatalogNegotiationRefusedError) MarshalJSON() ([]byte, error) {
 	})
 }
 
+func (r CatalogNetworkFailureError) MarshalJSON() ([]byte, error) {
+	type alias CatalogNetworkFailureError
+	return json.Marshal(struct {
+		Kind CatalogReferenceInstallationResultKind `json:"kind"`
+		alias
+	}{
+		Kind:  r.Kind(),
+		alias: alias(r),
+	})
+}
+
 func (r *CatalogReferenceInstallationResultOutcome) UnmarshalJSON(data []byte) error {
 	type rawCatalogReferenceInstallationResultOutcome struct {
 		Negotiated CatalogNegotiatedContract `json:"negotiated"`
@@ -2331,6 +2450,303 @@ func (r CatalogReferenceInstallationResultOutcome) MarshalJSON() ([]byte, error)
 		alias
 	}{
 		Kind:  r.Kind(),
+		alias: alias(r),
+	})
+}
+
+func unmarshalCatalogResourceGeneratedFeedResult(data []byte) (CatalogResourceGeneratedFeedResult, error) {
+	if string(data) == "null" {
+		return nil, nil
+	}
+	type rawUnion struct {
+		Kind CatalogResourceGeneratedFeedResultKind `json:"kind"`
+	}
+	var raw rawUnion
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+
+	switch raw.Kind {
+	case CatalogResourceGeneratedFeedResultKindAuthenticationRequired:
+		var d CatalogAuthenticationRequiredError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogResourceGeneratedFeedResultKindInvalidRequest:
+		var d CatalogInvalidRequestError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogResourceGeneratedFeedResultKindMalformedCard:
+		var d CatalogMalformedCardError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogResourceGeneratedFeedResultKindNegotiationRefused:
+		var d CatalogNegotiationRefusedError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogResourceGeneratedFeedResultKindNetworkFailure:
+		var d CatalogNetworkFailureError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogResourceGeneratedFeedResultKindPolicyRejected:
+		var d CatalogPolicyRejectedError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogResourceGeneratedFeedResultKindSucceeded:
+		var d CatalogGetGeneratedFeedSucceeded
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogResourceGeneratedFeedResultKindUnavailable:
+		var d CatalogUnavailableError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogResourceGeneratedFeedResultKindUnsafeRetrieval:
+		var d CatalogUnsafeRetrievalError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	default:
+		return &RawCatalogResourceGeneratedFeedResultData{Discriminator: raw.Kind, Raw: data}, nil
+	}
+}
+
+func (r RawCatalogResourceGeneratedFeedResultData) MarshalJSON() ([]byte, error) {
+	if r.Raw != nil {
+		return r.Raw, nil
+	}
+	return json.Marshal(struct {
+		Kind CatalogResourceGeneratedFeedResultKind `json:"kind"`
+	}{
+		Kind: r.Discriminator,
+	})
+}
+
+func (r CatalogAuthenticationRequiredError) MarshalJSON() ([]byte, error) {
+	type alias CatalogAuthenticationRequiredError
+	return json.Marshal(struct {
+		Kind CatalogResourceGeneratedFeedResultKind `json:"kind"`
+		alias
+	}{
+		Kind:  r.catalogResourceGeneratedFeedResultKind(),
+		alias: alias(r),
+	})
+}
+
+func (r *CatalogGetGeneratedFeedSucceeded) UnmarshalJSON(data []byte) error {
+	type rawCatalogGetGeneratedFeedSucceeded struct {
+		Entries    []json.RawMessage               `json:"entries"`
+		Feed       CatalogGeneratedFeedDescription `json:"feed"`
+		Negotiated CatalogNegotiatedContract       `json:"negotiated"`
+		SearchID   string                          `json:"searchId"`
+	}
+	var raw rawCatalogGetGeneratedFeedSucceeded
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw.Entries != nil {
+		r.Entries = make([]CatalogFeedEntry, 0, len(raw.Entries))
+		for _, rawItem := range raw.Entries {
+			value, err := unmarshalCatalogFeedEntry(rawItem)
+			if err != nil {
+				return err
+			}
+			r.Entries = append(r.Entries, value)
+		}
+	}
+	r.Feed = raw.Feed
+	r.Negotiated = raw.Negotiated
+	r.SearchID = raw.SearchID
+	return nil
+}
+
+func (r CatalogGetGeneratedFeedSucceeded) MarshalJSON() ([]byte, error) {
+	type alias CatalogGetGeneratedFeedSucceeded
+	return json.Marshal(struct {
+		Kind CatalogResourceGeneratedFeedResultKind `json:"kind"`
+		alias
+	}{
+		Kind:  r.catalogResourceGeneratedFeedResultKind(),
+		alias: alias(r),
+	})
+}
+
+func (r CatalogMalformedCardError) MarshalJSON() ([]byte, error) {
+	type alias CatalogMalformedCardError
+	return json.Marshal(struct {
+		Kind CatalogResourceGeneratedFeedResultKind `json:"kind"`
+		alias
+	}{
+		Kind:  r.catalogResourceGeneratedFeedResultKind(),
+		alias: alias(r),
+	})
+}
+
+func (r CatalogPolicyRejectedError) MarshalJSON() ([]byte, error) {
+	type alias CatalogPolicyRejectedError
+	return json.Marshal(struct {
+		Kind CatalogResourceGeneratedFeedResultKind `json:"kind"`
+		alias
+	}{
+		Kind:  r.catalogResourceGeneratedFeedResultKind(),
+		alias: alias(r),
+	})
+}
+
+func (r CatalogUnavailableError) MarshalJSON() ([]byte, error) {
+	type alias CatalogUnavailableError
+	return json.Marshal(struct {
+		Kind CatalogResourceGeneratedFeedResultKind `json:"kind"`
+		alias
+	}{
+		Kind:  r.catalogResourceGeneratedFeedResultKind(),
+		alias: alias(r),
+	})
+}
+
+func (r CatalogUnsafeRetrievalError) MarshalJSON() ([]byte, error) {
+	type alias CatalogUnsafeRetrievalError
+	return json.Marshal(struct {
+		Kind CatalogResourceGeneratedFeedResultKind `json:"kind"`
+		alias
+	}{
+		Kind:  r.catalogResourceGeneratedFeedResultKind(),
+		alias: alias(r),
+	})
+}
+
+func unmarshalCatalogResourceSavedFeedResult(data []byte) (CatalogResourceSavedFeedResult, error) {
+	if string(data) == "null" {
+		return nil, nil
+	}
+	type rawUnion struct {
+		Kind CatalogResourceSavedFeedResultKind `json:"kind"`
+	}
+	var raw rawUnion
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+
+	switch raw.Kind {
+	case CatalogResourceSavedFeedResultKindAuthenticationRequired:
+		var d CatalogAuthenticationRequiredError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogResourceSavedFeedResultKindInvalidRequest:
+		var d CatalogInvalidRequestError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogResourceSavedFeedResultKindMalformedCard:
+		var d CatalogMalformedCardError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogResourceSavedFeedResultKindNegotiationRefused:
+		var d CatalogNegotiationRefusedError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogResourceSavedFeedResultKindNetworkFailure:
+		var d CatalogNetworkFailureError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogResourceSavedFeedResultKindPolicyRejected:
+		var d CatalogPolicyRejectedError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogResourceSavedFeedResultKindSucceeded:
+		var d CatalogGetSavedFeedSucceeded
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogResourceSavedFeedResultKindUnavailable:
+		var d CatalogUnavailableError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case CatalogResourceSavedFeedResultKindUnsafeRetrieval:
+		var d CatalogUnsafeRetrievalError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	default:
+		return &RawCatalogResourceSavedFeedResultData{Discriminator: raw.Kind, Raw: data}, nil
+	}
+}
+
+func (r RawCatalogResourceSavedFeedResultData) MarshalJSON() ([]byte, error) {
+	if r.Raw != nil {
+		return r.Raw, nil
+	}
+	return json.Marshal(struct {
+		Kind CatalogResourceSavedFeedResultKind `json:"kind"`
+	}{
+		Kind: r.Discriminator,
+	})
+}
+
+func (r *CatalogGetSavedFeedSucceeded) UnmarshalJSON(data []byte) error {
+	type rawCatalogGetSavedFeedSucceeded struct {
+		Entries    []json.RawMessage           `json:"entries"`
+		Feed       CatalogSavedFeedDescription `json:"feed"`
+		Negotiated CatalogNegotiatedContract   `json:"negotiated"`
+		SearchID   string                      `json:"searchId"`
+	}
+	var raw rawCatalogGetSavedFeedSucceeded
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw.Entries != nil {
+		r.Entries = make([]CatalogFeedEntry, 0, len(raw.Entries))
+		for _, rawItem := range raw.Entries {
+			value, err := unmarshalCatalogFeedEntry(rawItem)
+			if err != nil {
+				return err
+			}
+			r.Entries = append(r.Entries, value)
+		}
+	}
+	r.Feed = raw.Feed
+	r.Negotiated = raw.Negotiated
+	r.SearchID = raw.SearchID
+	return nil
+}
+
+func (r CatalogGetSavedFeedSucceeded) MarshalJSON() ([]byte, error) {
+	type alias CatalogGetSavedFeedSucceeded
+	return json.Marshal(struct {
+		Kind CatalogResourceSavedFeedResultKind `json:"kind"`
+		alias
+	}{
+		Kind:  r.catalogResourceSavedFeedResultKind(),
 		alias: alias(r),
 	})
 }
@@ -2430,52 +2846,8 @@ func (r RawCatalogSearchResultData) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func (r CatalogAuthenticationRequiredError) MarshalJSON() ([]byte, error) {
-	type alias CatalogAuthenticationRequiredError
-	return json.Marshal(struct {
-		Kind CatalogSearchResultKind `json:"kind"`
-		alias
-	}{
-		Kind:  r.catalogSearchResultKind(),
-		alias: alias(r),
-	})
-}
-
 func (r CatalogContractViolationError) MarshalJSON() ([]byte, error) {
 	type alias CatalogContractViolationError
-	return json.Marshal(struct {
-		Kind CatalogSearchResultKind `json:"kind"`
-		alias
-	}{
-		Kind:  r.catalogSearchResultKind(),
-		alias: alias(r),
-	})
-}
-
-func (r CatalogMalformedCardError) MarshalJSON() ([]byte, error) {
-	type alias CatalogMalformedCardError
-	return json.Marshal(struct {
-		Kind CatalogSearchResultKind `json:"kind"`
-		alias
-	}{
-		Kind:  r.catalogSearchResultKind(),
-		alias: alias(r),
-	})
-}
-
-func (r CatalogNetworkFailureError) MarshalJSON() ([]byte, error) {
-	type alias CatalogNetworkFailureError
-	return json.Marshal(struct {
-		Kind CatalogSearchResultKind `json:"kind"`
-		alias
-	}{
-		Kind:  r.catalogSearchResultKind(),
-		alias: alias(r),
-	})
-}
-
-func (r CatalogPolicyRejectedError) MarshalJSON() ([]byte, error) {
-	type alias CatalogPolicyRejectedError
 	return json.Marshal(struct {
 		Kind CatalogSearchResultKind `json:"kind"`
 		alias
@@ -2516,28 +2888,6 @@ func (r *CatalogSearchSucceeded) UnmarshalJSON(data []byte) error {
 
 func (r CatalogSearchSucceeded) MarshalJSON() ([]byte, error) {
 	type alias CatalogSearchSucceeded
-	return json.Marshal(struct {
-		Kind CatalogSearchResultKind `json:"kind"`
-		alias
-	}{
-		Kind:  r.catalogSearchResultKind(),
-		alias: alias(r),
-	})
-}
-
-func (r CatalogUnavailableError) MarshalJSON() ([]byte, error) {
-	type alias CatalogUnavailableError
-	return json.Marshal(struct {
-		Kind CatalogSearchResultKind `json:"kind"`
-		alias
-	}{
-		Kind:  r.catalogSearchResultKind(),
-		alias: alias(r),
-	})
-}
-
-func (r CatalogUnsafeRetrievalError) MarshalJSON() ([]byte, error) {
-	type alias CatalogUnsafeRetrievalError
 	return json.Marshal(struct {
 		Kind CatalogSearchResultKind `json:"kind"`
 		alias
@@ -7372,6 +7722,12 @@ func unmarshalPluginInstallationManagementResult(data []byte) (PluginInstallatio
 			return nil, err
 		}
 		return &d, nil
+	case PluginInstallationManagementResultKindNetworkFailure:
+		var d CatalogNetworkFailureError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
 	case PluginInstallationManagementResultKindOutcome:
 		var d PluginInstallationManagementResultOutcome
 		if err := json.Unmarshal(data, &d); err != nil {
@@ -7543,6 +7899,12 @@ func unmarshalPluginInstallationResult(data []byte) (PluginInstallationResult, e
 		return &d, nil
 	case PluginInstallationResultKindNegotiationRefused:
 		var d CatalogNegotiationRefusedError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case PluginInstallationResultKindNetworkFailure:
+		var d CatalogNetworkFailureError
 		if err := json.Unmarshal(data, &d); err != nil {
 			return nil, err
 		}
@@ -9540,6 +9902,12 @@ func unmarshalSkillInstallationManagementResult(data []byte) (SkillInstallationM
 			return nil, err
 		}
 		return &d, nil
+	case SkillInstallationManagementResultKindNetworkFailure:
+		var d CatalogNetworkFailureError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
 	case SkillInstallationManagementResultKindOutcome:
 		var d SkillInstallationManagementResultOutcome
 		if err := json.Unmarshal(data, &d); err != nil {
@@ -9614,6 +9982,12 @@ func unmarshalSkillInstallationResult(data []byte) (SkillInstallationResult, err
 		return &d, nil
 	case SkillInstallationResultKindNegotiationRefused:
 		var d CatalogNegotiationRefusedError
+		if err := json.Unmarshal(data, &d); err != nil {
+			return nil, err
+		}
+		return &d, nil
+	case SkillInstallationResultKindNetworkFailure:
+		var d CatalogNetworkFailureError
 		if err := json.Unmarshal(data, &d); err != nil {
 			return nil, err
 		}

@@ -518,8 +518,6 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
 
-      - uses: ./.github/actions/setup-copilot
-
       - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
         with:
           java-version: "25"
@@ -752,7 +750,7 @@ jobs:
       - name: Build Linux classifier and deploy complete snapshot
         run: |
           VERSION="${{ steps.windows-artifact.outputs.version }}"
-          mvn -B deploy -DskipTests -DskipITs -Dcopilot.native.libc=glibc \
+          mvn -B deploy -DskipTests -DskipITs -Pskip-test-harness -Dcopilot.native.libc=glibc \
             "-Dcopilot.native.external.linux.arm64.classifier.path=${{ steps.linux-arm64-artifact.outputs.linux_arm64_jar }}" \
             "-Dcopilot.native.external.linuxmusl.x64.classifier.path=${{ steps.linuxmusl-x64-artifact.outputs.linuxmusl_x64_jar }}" \
             "-Dcopilot.native.external.linuxmusl.arm64.classifier.path=${{ steps.linuxmusl-arm64-artifact.outputs.linuxmusl_arm64_jar }}" \

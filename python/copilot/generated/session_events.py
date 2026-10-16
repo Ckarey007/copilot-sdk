@@ -8806,6 +8806,8 @@ class PermissionRequestedData:
     permission_request: PermissionRequest
     request_id: str
     agent_mode: SessionMode | None = None
+    # Experimental: this field is part of an experimental API and may change or be removed.
+    fusion: FusionAttribution | None = None
     owner_agent_id: str | None = None
     owner_session_id: str | None = None
     permission_mode: PermissionMode | None = None
@@ -8820,6 +8822,7 @@ class PermissionRequestedData:
         permission_request = _load_PermissionRequest(obj.get("permissionRequest"))
         request_id = from_str(obj.get("requestId"))
         agent_mode = from_union([from_none, lambda x: parse_enum(SessionMode, x)], obj.get("agentMode"))
+        fusion = from_union([from_none, FusionAttribution.from_dict], obj.get("fusion"))
         owner_agent_id = from_union([from_none, from_str], obj.get("ownerAgentId"))
         owner_session_id = from_union([from_none, from_str], obj.get("ownerSessionId"))
         permission_mode = from_union([from_none, lambda x: parse_enum(PermissionMode, x)], obj.get("permissionMode"))
@@ -8831,6 +8834,7 @@ class PermissionRequestedData:
             permission_request=permission_request,
             request_id=request_id,
             agent_mode=agent_mode,
+            fusion=fusion,
             owner_agent_id=owner_agent_id,
             owner_session_id=owner_session_id,
             permission_mode=permission_mode,
@@ -8846,6 +8850,8 @@ class PermissionRequestedData:
         result["requestId"] = from_str(self.request_id)
         if self.agent_mode is not None:
             result["agentMode"] = from_union([from_none, lambda x: to_enum(SessionMode, x)], self.agent_mode)
+        if self.fusion is not None:
+            result["fusion"] = from_union([from_none, lambda x: to_class(FusionAttribution, x)], self.fusion)
         if self.owner_agent_id is not None:
             result["ownerAgentId"] = from_union([from_none, from_str], self.owner_agent_id)
         if self.owner_session_id is not None:
@@ -13758,6 +13764,8 @@ class ToolShellOutputData:
     sequence: int
     text: str
     tool_call_id: str
+    # Experimental: this field is part of an experimental API and may change or be removed.
+    fusion: FusionAttribution | None = None
     stream: ToolShellOutputStream | None = None
 
     @staticmethod
@@ -13766,11 +13774,13 @@ class ToolShellOutputData:
         sequence = from_int(obj.get("sequence"))
         text = from_str(obj.get("text"))
         tool_call_id = from_str(obj.get("toolCallId"))
+        fusion = from_union([from_none, FusionAttribution.from_dict], obj.get("fusion"))
         stream = from_union([from_none, lambda x: parse_enum(ToolShellOutputStream, x)], obj.get("stream"))
         return ToolShellOutputData(
             sequence=sequence,
             text=text,
             tool_call_id=tool_call_id,
+            fusion=fusion,
             stream=stream,
         )
 
@@ -13779,6 +13789,8 @@ class ToolShellOutputData:
         result["sequence"] = to_int(self.sequence)
         result["text"] = from_str(self.text)
         result["toolCallId"] = from_str(self.tool_call_id)
+        if self.fusion is not None:
+            result["fusion"] = from_union([from_none, lambda x: to_class(FusionAttribution, x)], self.fusion)
         if self.stream is not None:
             result["stream"] = from_union([from_none, lambda x: to_enum(ToolShellOutputStream, x)], self.stream)
         return result

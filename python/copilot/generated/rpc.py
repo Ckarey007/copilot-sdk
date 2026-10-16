@@ -1773,28 +1773,38 @@ class CatalogAgentPluginInstallSourceKind(Enum):
 @dataclass
 class CatalogPluginRepositorySource:
     """Bounded repository provenance declared through the catalog's sourceSet and repoPath
-    metadata. It contains no descriptor URL.
+    metadata. It contains no descriptor URL. Always present, with a path, unless the caller
+    requires agent-plugin-confirmed-installation. Such a caller also receives a
+    repository-root plugin (sourceSet without repoPath) whose source has no path, and a
+    plugin with no usable declaration (neither key, or repoPath alone) and no source; the
+    latter carries a complete materialisation reference and a handle, and the verified
+    descriptor supplies the repository, commit and root when it is planned. Never derived
+    from the catalogue URL.
 
     Syntactically validated GitHub repository provenance declared by catalog metadata. This
     is a source claim rather than proof that the descriptor URL resolves to the repository.
     """
-    path: str
-    """Case-preserving safe relative POSIX path derived from metadata.repoPath."""
-
     repository: str
     """Canonical lowercase owner/repository name derived from metadata.sourceSet."""
+
+    path: str | None = None
+    """Case-preserving safe relative POSIX path derived from metadata.repoPath. Absent when the
+    catalog declared sourceSet without repoPath, meaning the plugin is at the repository
+    root; only callers that require agent-plugin-confirmed-installation receive such a source.
+    """
 
     @staticmethod
     def from_dict(obj: Any) -> 'CatalogPluginRepositorySource':
         assert isinstance(obj, dict)
-        path = from_str(obj.get("path"))
         repository = from_str(obj.get("repository"))
-        return CatalogPluginRepositorySource(path, repository)
+        path = from_union([from_str, from_none], obj.get("path"))
+        return CatalogPluginRepositorySource(repository, path)
 
     def to_dict(self) -> dict:
         result: dict = {}
-        result["path"] = from_str(self.path)
         result["repository"] = from_str(self.repository)
+        if self.path is not None:
+            result["path"] = from_union([from_str, from_none], self.path)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -1946,6 +1956,7 @@ class CatalogCapability(Enum):
     AGENT_PLUGIN_DISCOVERY = "agent-plugin-discovery"
     AGENT_PLUGIN_FORMATS = "agent-plugin-formats"
     AI_SKILL_DISCOVERY = "ai-skill-discovery"
+    CATALOG_FEEDS = "catalog-feeds"
     CATALOG_REFERENCE_INSTALLATION = "catalog-reference-installation"
     CATALOG_SEARCH_CREDENTIAL_REQUIRED = "catalog-search-credential-required"
     CATALOG_SEARCH_PAGINATION = "catalog-search-pagination"
@@ -1973,6 +1984,115 @@ class CatalogContractViolationReason(Enum):
     DUPLICATE_IDENTITY = "duplicate-identity"
     NEITHER_URL_NOR_DATA = "neither-url-nor-data"
     UNKNOWN_MEDIA_TYPE = "unknown-media-type"
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+class CatalogFeedAvailableStatus(Enum):
+    """Discriminator for an available feed entry"""
+
+    AVAILABLE = "available"
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+class CatalogFeedUnavailableReason(Enum):
+    """Why the entry cannot be presented.
+
+    Why a feed entry cannot be presented
+    """
+    INVALID_RESOURCE = "invalid-resource"
+    NOT_FOUND = "not-found"
+    UNSUPPORTED_KIND = "unsupported-kind"
+
+class CatalogFeedEntryStatus(Enum):
+    """Discriminator for an available feed entry
+
+    Discriminator for an unavailable feed entry
+
+    Discriminator for a feed entry filtered by trust tier
+    """
+    AVAILABLE = "available"
+    FILTERED = "filtered"
+    UNAVAILABLE = "unavailable"
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+class CatalogFeedFilteredStatus(Enum):
+    """Discriminator for a feed entry filtered by trust tier"""
+
+    FILTERED = "filtered"
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+class CatalogFeedUnavailableStatus(Enum):
+    """Discriminator for an unavailable feed entry"""
+
+    UNAVAILABLE = "unavailable"
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
+class CatalogGeneratedFeedDescription:
+    """A generated feed's identity. It has no version; generatedAt is its only freshness
+    signal.
+
+    The feed's own identity and freshness.
+    """
+    key: str
+    """Feed key that was requested."""
+
+    strategy: str
+    """Generation strategy that was requested."""
+
+    generated_at: str | None = None
+    """When the feed was computed, as reported by the authority. Omitted when the authority
+    reports no valid timestamp.
+    """
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'CatalogGeneratedFeedDescription':
+        assert isinstance(obj, dict)
+        key = from_str(obj.get("key"))
+        strategy = from_str(obj.get("strategy"))
+        generated_at = from_union([from_str, from_none], obj.get("generatedAt"))
+        return CatalogGeneratedFeedDescription(key, strategy, generated_at)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["key"] = from_str(self.key)
+        result["strategy"] = from_str(self.strategy)
+        if self.generated_at is not None:
+            result["generatedAt"] = from_union([from_str, from_none], self.generated_at)
+        return result
+
+class CatalogGetGeneratedFeedSucceededKind(Enum):
+    SUCCEEDED = "succeeded"
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
+class CatalogSavedFeedDescription:
+    """The feed's own identity and freshness.
+
+    A saved feed's identity. Its version changes only when the feed's definition is replaced,
+    not when a referenced resource changes.
+    """
+    id: str
+    """Opaque feed ID."""
+
+    name: str
+    """Feed name as saved by its creator. Inert untrusted text."""
+
+    version: int
+    """Version of the saved feed definition."""
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'CatalogSavedFeedDescription':
+        assert isinstance(obj, dict)
+        id = from_str(obj.get("id"))
+        name = from_str(obj.get("name"))
+        version = from_int(obj.get("version"))
+        return CatalogSavedFeedDescription(id, name, version)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["id"] = from_str(self.id)
+        result["name"] = from_str(self.name)
+        result["version"] = from_int(self.version)
+        return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
 class CatalogHandleType(Enum):
@@ -2008,6 +2128,7 @@ class CatalogInvalidRequestField(Enum):
     """
     CARD = "card"
     CONTRACT = "contract"
+    FEED = "feed"
     KINDS = "kinds"
     LIMIT = "limit"
     OUTCOME = "outcome"
@@ -2018,6 +2139,7 @@ class CatalogInvalidRequestField(Enum):
     SELECTION_REF = "selectionRef"
     SESSION_ID = "sessionId"
     SOURCE = "source"
+    TRUST_TIERS = "trustTiers"
 
 class CatalogInvalidRequestErrorKind(Enum):
     INVALID_REQUEST = "invalid-request"
@@ -2137,6 +2259,7 @@ class CatalogReferenceInstallationFailureReason(Enum):
     ALREADY_INSTALLED = "already-installed"
     BUSY = "busy"
     CONFIRMATION_UNAVAILABLE = "confirmation-unavailable"
+    CREDENTIAL_REJECTED = "credential-rejected"
     DESCRIPTOR_INVALID = "descriptor-invalid"
     DESCRIPTOR_NOT_FOUND = "descriptor-not-found"
     DESCRIPTOR_UNAVAILABLE = "descriptor-unavailable"
@@ -2148,10 +2271,12 @@ class CatalogReferenceInstallationFailureReason(Enum):
     INVALID_REFERENCE = "invalid-reference"
     INVALID_REQUEST = "invalid-request"
     INVALID_SKILL = "invalid-skill"
+    NO_CREDENTIAL = "no-credential"
     OPERATION_LIMIT = "operation-limit"
     POLICY_BLOCKED = "policy-blocked"
     POLICY_CONTEXT_UNAVAILABLE = "policy-context-unavailable"
     REVIEW_TOO_LARGE = "review-too-large"
+    SOURCE_RATE_LIMITED = "source-rate-limited"
     UNSUPPORTED_RESOURCE = "unsupported-resource"
     WRITE_FAILED = "write-failed"
 
@@ -2188,6 +2313,12 @@ class InstallationCatalogueIdentity:
     description: str | None = None
     """Catalogue description retained at install planning time."""
 
+    icon_url: str | None = None
+    """HTTPS URL of the resource's icon on raw.githubusercontent.com, retained from the
+    catalogue
+    candidate. Untrusted external content: load it without credentials. Omitted when the
+    candidate had none.
+    """
     item_url: str | None = None
     """Catalogue item URL when supplied by the authority."""
 
@@ -2209,12 +2340,13 @@ class InstallationCatalogueIdentity:
         display_name = from_str(obj.get("displayName"))
         source = from_str(obj.get("source"))
         description = from_union([from_str, from_none], obj.get("description"))
+        icon_url = from_union([from_str, from_none], obj.get("iconUrl"))
         item_url = from_union([from_str, from_none], obj.get("itemUrl"))
         publisher = from_union([from_str, from_none], obj.get("publisher"))
         resource_id = from_union([from_str, from_none], obj.get("resourceId"))
         trust_at_install = from_union([_load_CatalogTrustSnapshot, from_none], obj.get("trustAtInstall"))
         version = from_union([from_str, from_none], obj.get("version"))
-        return InstallationCatalogueIdentity(display_name, source, description, item_url, publisher, resource_id, trust_at_install, version)
+        return InstallationCatalogueIdentity(display_name, source, description, icon_url, item_url, publisher, resource_id, trust_at_install, version)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -2222,6 +2354,8 @@ class InstallationCatalogueIdentity:
         result["source"] = from_str(self.source)
         if self.description is not None:
             result["description"] = from_union([from_str, from_none], self.description)
+        if self.icon_url is not None:
+            result["iconUrl"] = from_union([from_str, from_none], self.icon_url)
         if self.item_url is not None:
             result["itemUrl"] = from_union([from_str, from_none], self.item_url)
         if self.publisher is not None:
@@ -2309,10 +2443,117 @@ class SkillInstallationScope(Enum):
 
     PERSONAL = "personal"
 
+# Experimental: this type is part of an experimental API and may change or be removed.
+class PluginInstallationMCPTransport(Enum):
+    """`remote` for an HTTP or SSE server, `local` for a command the plugin runs.
+
+    How a reviewed plugin's MCP server is reached.
+    """
+    LOCAL = "local"
+    REMOTE = "remote"
+
 class CatalogReferenceInstallationResultKind(Enum):
     INVALID_REQUEST = "invalid-request"
     NEGOTIATION_REFUSED = "negotiation-refused"
+    NETWORK_FAILURE = "network-failure"
     OUTCOME = "outcome"
+
+class CatalogNeReason(Enum):
+    """Whether the version or the capability set was the problem.
+
+    Why capability and protocol-version negotiation refused a caller
+
+    Categorised failure, low cardinality so it can be aggregated without carrying a URL.
+
+    Categorised network failure, low cardinality so it can be aggregated without carrying a
+    URL
+    """
+    CONNECTION_REFUSED = "connection-refused"
+    DNS = "dns"
+    HTTP_STATUS = "http-status"
+    OFFLINE = "offline"
+    PROXY_AUTHENTICATION_REQUIRED = "proxy-authentication-required"
+    RATE_LIMITED = "rate-limited"
+    REDIRECT_REJECTED = "redirect-rejected"
+    RESPONSE_TOO_LARGE = "response-too-large"
+    SERVICE_UNAVAILABLE = "service-unavailable"
+    TIMEOUT = "timeout"
+    TLS = "tls"
+    UNSUPPORTED_CAPABILITY = "unsupported-capability"
+    UNSUPPORTED_PROTOCOL_VERSION = "unsupported-protocol-version"
+
+class CatalogResourceGeneratedFeedResultKind(Enum):
+    AUTHENTICATION_REQUIRED = "authentication-required"
+    INVALID_REQUEST = "invalid-request"
+    MALFORMED_CARD = "malformed-card"
+    NEGOTIATION_REFUSED = "negotiation-refused"
+    NETWORK_FAILURE = "network-failure"
+    POLICY_REJECTED = "policy-rejected"
+    SUCCEEDED = "succeeded"
+    UNAVAILABLE = "unavailable"
+    UNSAFE_RETRIEVAL = "unsafe-retrieval"
+
+class CatalogResourceGeneratedFeedResultReason(Enum):
+    """Whether the version or the capability set was the problem.
+
+    Why capability and protocol-version negotiation refused a caller
+
+    Why authentication failed. Only an expired credential justifies attempting a silent
+    refresh; an absent or rejected credential requires sign-in.
+
+    Why the catalog authority did not accept the caller's identity
+
+    Categorised failure, low cardinality so it can be aggregated without carrying a URL.
+
+    Categorised network failure, low cardinality so it can be aggregated without carrying a
+    URL
+
+    Which control refused the retrieval, low cardinality so it can be aggregated without
+    carrying a URL.
+
+    Which hardened-fetch control refused a retrieval
+
+    How the card failed validation.
+
+    How a card failed validation
+
+    Why the operation is unavailable.
+
+    Why a catalog operation is not available on this runtime
+    """
+    AUTHORITY_NOT_CONFIGURED = "authority-not-configured"
+    BLOCKED_ADDRESS = "blocked-address"
+    BLOCKED_SCHEME = "blocked-scheme"
+    CONNECTION_REFUSED = "connection-refused"
+    CREDENTIALS_IN_URL = "credentials-in-url"
+    CREDENTIAL_EXPIRED = "credential-expired"
+    CREDENTIAL_REJECTED = "credential-rejected"
+    DISABLED_BY_POLICY = "disabled-by-policy"
+    DNS = "dns"
+    FEED_NOT_FOUND = "feed-not-found"
+    HOST_NOT_PERMITTED = "host-not-permitted"
+    HTTP_STATUS = "http-status"
+    INVALID_JSON = "invalid-json"
+    MISSING_REQUIRED_FIELD = "missing-required-field"
+    NO_CREDENTIAL = "no-credential"
+    OFFLINE = "offline"
+    PLANNING_UNAVAILABLE = "planning-unavailable"
+    PROXY_AUTHENTICATION_REQUIRED = "proxy-authentication-required"
+    PROXY_REJECTED = "proxy-rejected"
+    RATE_LIMITED = "rate-limited"
+    REDIRECT_REJECTED = "redirect-rejected"
+    REDIRECT_TO_BLOCKED_ADDRESS = "redirect-to-blocked-address"
+    RESPONSE_TOO_LARGE = "response-too-large"
+    SCHEMA_VIOLATION = "schema-violation"
+    SEARCH_UNAVAILABLE = "search-unavailable"
+    SELECTION_UNAVAILABLE = "selection-unavailable"
+    SERVICE_UNAVAILABLE = "service-unavailable"
+    SIZE_LIMIT_EXCEEDED = "size-limit-exceeded"
+    TIMEOUT = "timeout"
+    TLS = "tls"
+    UNSUPPORTED_CAPABILITY = "unsupported-capability"
+    UNSUPPORTED_MEDIA_TYPE = "unsupported-media-type"
+    UNSUPPORTED_PROTOCOL_VERSION = "unsupported-protocol-version"
 
 # Experimental: this type is part of an experimental API and may change or be removed.
 @dataclass
@@ -2416,6 +2657,7 @@ class CatalogSearchResultReason(Enum):
     DISABLED_BY_POLICY = "disabled-by-policy"
     DNS = "dns"
     DUPLICATE_IDENTITY = "duplicate-identity"
+    FEED_NOT_FOUND = "feed-not-found"
     HOST_NOT_PERMITTED = "host-not-permitted"
     HTTP_STATUS = "http-status"
     INVALID_JSON = "invalid-json"
@@ -2441,9 +2683,6 @@ class CatalogSearchResultReason(Enum):
     UNSUPPORTED_CAPABILITY = "unsupported-capability"
     UNSUPPORTED_MEDIA_TYPE = "unsupported-media-type"
     UNSUPPORTED_PROTOCOL_VERSION = "unsupported-protocol-version"
-
-class CatalogSearchSucceededKind(Enum):
-    SUCCEEDED = "succeeded"
 
 class CatalogSelectionCancelledKind(Enum):
     CANCELLED = "cancelled"
@@ -2497,6 +2736,7 @@ class CatalogSelectionResultReason(Enum):
     """
     AUTHORITY_NOT_CONFIGURED = "authority-not-configured"
     DISABLED_BY_POLICY = "disabled-by-policy"
+    FEED_NOT_FOUND = "feed-not-found"
     PLANNING_UNAVAILABLE = "planning-unavailable"
     SEARCH_UNAVAILABLE = "search-unavailable"
     SELECTION_UNAVAILABLE = "selection-unavailable"
@@ -2554,9 +2794,6 @@ class CatalogTrustSnapshotUnsupportedStatus(Enum):
 
     UNSUPPORTED = "unsupported"
 
-class CatalogUnavailableErrorKind(Enum):
-    UNAVAILABLE = "unavailable"
-
 # Experimental: this type is part of an experimental API and may change or be removed.
 class CatalogUnavailableReason(Enum):
     """Why the operation is unavailable.
@@ -2565,6 +2802,7 @@ class CatalogUnavailableReason(Enum):
     """
     AUTHORITY_NOT_CONFIGURED = "authority-not-configured"
     DISABLED_BY_POLICY = "disabled-by-policy"
+    FEED_NOT_FOUND = "feed-not-found"
     PLANNING_UNAVAILABLE = "planning-unavailable"
     SEARCH_UNAVAILABLE = "search-unavailable"
     SELECTION_UNAVAILABLE = "selection-unavailable"
@@ -6641,6 +6879,34 @@ class InstallationDecision(Enum):
     CONFIRM = "confirm"
     DECLINE = "decline"
 
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
+class InstalledPluginVerifiedSource:
+    """The GitHub repository and commit a direct install is pinned to, from its install record.
+    Present only for a direct install pinned to one GitHub commit, such as a verified install
+    from GitHub; absent for marketplace, local and unpinned installs.
+
+    The GitHub repository and commit an installed plugin is pinned to.
+    """
+    repository: str
+    """GitHub repository in `owner/repo` form."""
+
+    revision: str
+    """Full 40-character hexadecimal commit SHA the plugin is pinned to."""
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'InstalledPluginVerifiedSource':
+        assert isinstance(obj, dict)
+        repository = from_str(obj.get("repository"))
+        revision = from_str(obj.get("revision"))
+        return InstalledPluginVerifiedSource(repository, revision)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["repository"] = from_str(self.repository)
+        result["revision"] = from_str(self.revision)
+        return result
+
 class PurpleSource(Enum):
     GITHUB = "github"
 
@@ -7231,6 +7497,19 @@ class LspInitializeRequest:
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
+class ManagedEnsembleTier(Enum):
+    """Administrator-configured Ensemble preference, independent of execution support.
+
+    Managed Ensemble preference. Takes precedence over autoTier even when unmanaged, which
+    means no managed tier and forbids legacy fallback. Legacy Auto values are mapped only
+    when no managed source supplies ensembleTier.
+    """
+    BALANCE = "balance"
+    HIGH = "high"
+    MAX = "max"
+    UNMANAGED = "unmanaged"
+
+# Experimental: this type is part of an experimental API and may change or be removed.
 @dataclass
 class ManagedMCPServerConfig:
     """Non-secret host-managed HTTP MCP server configuration. The containing map key is the
@@ -7310,6 +7589,9 @@ class ManagedSettingMeta:
     Lock state and provenance of `values.contextTier`.
 
     Lock state and provenance of `values.effortLevel`.
+
+    Lock state and provenance of values.ensembleTier, including a legacy alias's original
+    source. An unmanaged value imposes no tier lock.
 
     Lock state and provenance of `values.model`.
     """
@@ -7576,56 +7858,6 @@ class ManagedSettingsResolvedData:
             result["sandboxEnabledByUndeterminedPolicy"] = from_union([from_bool, from_none], self.sandbox_enabled_by_undetermined_policy)
         if self.settings is not None:
             result["settings"] = self.settings
-        return result
-
-# Experimental: this type is part of an experimental API and may change or be removed.
-@dataclass
-class ManagedSettingsValues:
-    """Typed effective values, as in `managedSettings.resolve`.
-
-    Typed effective values of managed settings. Each field mirrors the managed-settings
-    schema key of the same name; more keys are added as they are typed.
-
-    Typed effective values of managed settings, keyed like the managed-settings schema and
-    already resolved across channels, with the `{ "overridable": ... }` wrapper removed.
-    Present when policy sets at least one typed key. Keys not typed here are available in
-    `resolved.settings`.
-    """
-    auto_tier: AutoTier | None = None
-    """Managed Auto routing preference, used when the selected model is `auto`."""
-
-    context_tier: ContextTier | None = None
-    """Managed context-tier default for the managed concrete model."""
-
-    effort_level: str | None = None
-    """Managed reasoning-effort default for the managed concrete model. The runtime clamps it to
-    an entitled effort when model availability is known.
-    """
-    model: str | None = None
-    """Managed default model identifier. When model availability was resolved, aliases and
-    family names are projected to a concrete available model ID; otherwise the configured
-    value is returned.
-    """
-
-    @staticmethod
-    def from_dict(obj: Any) -> 'ManagedSettingsValues':
-        assert isinstance(obj, dict)
-        auto_tier = from_union([AutoTier, from_none], obj.get("autoTier"))
-        context_tier = from_union([ContextTier, from_none], obj.get("contextTier"))
-        effort_level = from_union([from_str, from_none], obj.get("effortLevel"))
-        model = from_union([from_str, from_none], obj.get("model"))
-        return ManagedSettingsValues(auto_tier, context_tier, effort_level, model)
-
-    def to_dict(self) -> dict:
-        result: dict = {}
-        if self.auto_tier is not None:
-            result["autoTier"] = from_union([lambda x: to_enum(AutoTier, x), from_none], self.auto_tier)
-        if self.context_tier is not None:
-            result["contextTier"] = from_union([lambda x: to_enum(ContextTier, x), from_none], self.context_tier)
-        if self.effort_level is not None:
-            result["effortLevel"] = from_union([from_str, from_none], self.effort_level)
-        if self.model is not None:
-            result["model"] = from_union([from_str, from_none], self.model)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -8951,6 +9183,11 @@ class Phase(Enum):
     PREPARING = "preparing"
     REVALIDATING = "revalidating"
 
+class MCPInstallationManagementResultKind(Enum):
+    INVALID_REQUEST = "invalid-request"
+    NEGOTIATION_REFUSED = "negotiation-refused"
+    OUTCOME = "outcome"
+
 # Experimental: this type is part of an experimental API and may change or be removed.
 @dataclass
 class MCPInstallationSecret:
@@ -9584,6 +9821,7 @@ class MCPPlanInstallResultReason(Enum):
     DISABLED_BY_POLICY = "disabled-by-policy"
     DNS = "dns"
     DUPLICATE_IDENTITY = "duplicate-identity"
+    FEED_NOT_FOUND = "feed-not-found"
     FOREIGN = "foreign"
     HOST_NOT_PERMITTED = "host-not-permitted"
     HTTP_STATUS = "http-status"
@@ -19383,8 +19621,10 @@ class TaskExecutionMode(Enum):
 
 # Experimental: this type is part of an experimental API and may change or be removed.
 class TaskStatus(Enum):
-    """Current lifecycle status of the task"""
+    """Current lifecycle status of the task
 
+    Final lifecycle status of the shell task: completed, failed, or cancelled
+    """
     CANCELLED = "cancelled"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -19462,6 +19702,8 @@ class TaskClientStatus(Enum):
     Current client task lifecycle status
 
     Current lifecycle status of the task
+
+    Final lifecycle status of the shell task: completed, failed, or cancelled
     """
     CANCELLED = "cancelled"
     COMPLETED = "completed"
@@ -19761,6 +20003,43 @@ class TasksPromoteToBackgroundResult:
     def to_dict(self) -> dict:
         result: dict = {}
         result["promoted"] = from_bool(self.promoted)
+        return result
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
+class TasksReadOutputRequest:
+    """Detached shell task to read output from, with an optional cursor and long-poll wait.
+    waitMs defaults to zero (maximum 30000).
+    """
+    id: str
+    """Identifier of a detached shell task, as returned by tasks.list"""
+
+    cursor: str | None = None
+    """Opaque cursor returned by an earlier read of the same task. Omit to read from the
+    beginning of the shell's output. If the output no longer reaches the cursor, for example
+    because its log was removed, the request fails; read again without a cursor.
+    """
+    wait_ms: int | None = None
+    """Milliseconds to wait for new output, or for the shell to finish, when the cursor is
+    already at the end of the available output. 0 (default) returns immediately. Capped at
+    30000ms.
+    """
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'TasksReadOutputRequest':
+        assert isinstance(obj, dict)
+        id = from_str(obj.get("id"))
+        cursor = from_union([from_str, from_none], obj.get("cursor"))
+        wait_ms = from_union([from_int, from_none], obj.get("waitMs"))
+        return TasksReadOutputRequest(id, cursor, wait_ms)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["id"] = from_str(self.id)
+        if self.cursor is not None:
+            result["cursor"] = from_union([from_str, from_none], self.cursor)
+        if self.wait_ms is not None:
+            result["waitMs"] = from_union([from_int, from_none], self.wait_ms)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -23639,7 +23918,13 @@ class SourceClass:
     properties stay behind the runtime boundary.
 
     Bounded repository provenance declared through the catalog's sourceSet and repoPath
-    metadata. It contains no descriptor URL.
+    metadata. It contains no descriptor URL. Always present, with a path, unless the caller
+    requires agent-plugin-confirmed-installation. Such a caller also receives a
+    repository-root plugin (sourceSet without repoPath) whose source has no path, and a
+    plugin with no usable declaration (neither key, or repoPath alone) and no source; the
+    latter carries a complete materialisation reference and a handle, and the verified
+    descriptor supplies the repository, commit and root when it is planned. Never derived
+    from the catalogue URL.
 
     Syntactically validated GitHub repository provenance declared by catalog metadata. This
     is a source claim rather than proof that the descriptor URL resolves to the repository.
@@ -23654,8 +23939,10 @@ class SourceClass:
     own hardened boundary, and it is never logged.
     """
     path: str | None = None
-    """Case-preserving safe relative POSIX path derived from metadata.repoPath."""
-
+    """Case-preserving safe relative POSIX path derived from metadata.repoPath. Absent when the
+    catalog declared sourceSet without repoPath, meaning the plugin is at the repository
+    root; only callers that require agent-plugin-confirmed-installation receive such a source.
+    """
     repository: str | None = None
     """Canonical lowercase owner/repository name derived from metadata.sourceSet."""
 
@@ -23848,12 +24135,12 @@ class SessionInstalledPluginSourceURL:
 # Experimental: this type is part of an experimental API and may change or be removed.
 @dataclass
 class CatalogNegotiatedContract:
-    """The protocol version and capability set the runtime actually honoured for a successful
+    """Protocol version and capabilities the runtime honoured.
+
+    The protocol version and capability set the runtime actually honoured for a successful
     catalog operation.
 
     Capabilities honoured for this request.
-
-    Protocol version and capabilities the runtime honoured.
 
     Capabilities actually honoured for this request.
     """
@@ -23910,6 +24197,58 @@ class CatalogContractViolationError:
         result["kind"] = self.kind
         result["message"] = from_str(self.message)
         result["reason"] = to_enum(CatalogContractViolationReason, self.reason)
+        return result
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
+class CatalogFeedFilteredEntry:
+    """An entry whose resource resolves but is not in one of the requested trust tiers."""
+
+    identifier: str
+    """The entry's resource identifier as saved in the feed."""
+
+    status: ClassVar[str] = "filtered"
+    """Discriminator: the entry was filtered by trust tier."""
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'CatalogFeedFilteredEntry':
+        assert isinstance(obj, dict)
+        identifier = from_str(obj.get("identifier"))
+        return CatalogFeedFilteredEntry(identifier)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["identifier"] = from_str(self.identifier)
+        result["status"] = self.status
+        return result
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
+class CatalogFeedUnavailableEntry:
+    """An entry that cannot be presented, kept in its position so clients decide how to render
+    it.
+    """
+    identifier: str
+    """The entry's resource identifier as saved in the feed."""
+
+    reason: CatalogFeedUnavailableReason
+    """Why the entry cannot be presented."""
+
+    status: ClassVar[str] = "unavailable"
+    """Discriminator: the entry's resource is unavailable."""
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'CatalogFeedUnavailableEntry':
+        assert isinstance(obj, dict)
+        identifier = from_str(obj.get("identifier"))
+        reason = CatalogFeedUnavailableReason(obj.get("reason"))
+        return CatalogFeedUnavailableEntry(identifier, reason)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["identifier"] = from_str(self.identifier)
+        result["reason"] = to_enum(CatalogFeedUnavailableReason, self.reason)
+        result["status"] = self.status
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -25396,6 +25735,36 @@ class CatalogMCPServerCandidateProvenance:
         result["authority"] = from_str(self.authority)
         result["mediaType"] = to_enum(MCPServerCardMediaType, self.media_type)
         result["observedAt"] = from_str(self.observed_at)
+        return result
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
+class PluginInstallationMCPServerReview:
+    """One MCP server a reviewed plugin declares."""
+
+    name: str
+    """Server name as the plugin declares it."""
+
+    transport: PluginInstallationMCPTransport
+    """`remote` for an HTTP or SSE server, `local` for a command the plugin runs."""
+
+    host: str | None = None
+    """Host of a remote server's URL."""
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'PluginInstallationMCPServerReview':
+        assert isinstance(obj, dict)
+        name = from_str(obj.get("name"))
+        transport = PluginInstallationMCPTransport(obj.get("transport"))
+        host = from_union([from_str, from_none], obj.get("host"))
+        return PluginInstallationMCPServerReview(name, transport, host)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["name"] = from_str(self.name)
+        result["transport"] = to_enum(PluginInstallationMCPTransport, self.transport)
+        if self.host is not None:
+            result["host"] = from_union([from_str, from_none], self.host)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -28638,6 +29007,64 @@ class LogRequest:
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
+class ManagedSettingsValues:
+    """Typed effective values, as in `managedSettings.resolve`.
+
+    Typed effective values of managed settings. Each field mirrors the managed-settings
+    schema key of the same name; more keys are added as they are typed.
+
+    Typed effective values of managed settings, keyed like the managed-settings schema and
+    already resolved across channels, with the `{ "overridable": ... }` wrapper removed.
+    Present when policy sets at least one typed key. Keys not typed here are available in
+    `resolved.settings`.
+    """
+    auto_tier: AutoTier | None = None
+    """Managed Auto routing preference, used when the selected model is `auto`."""
+
+    context_tier: ContextTier | None = None
+    """Managed context-tier default for the managed concrete model."""
+
+    effort_level: str | None = None
+    """Managed reasoning-effort default for the managed concrete model. The runtime clamps it to
+    an entitled effort when model availability is known.
+    """
+    ensemble_tier: ManagedEnsembleTier | None = None
+    """Managed Ensemble preference. Takes precedence over autoTier even when unmanaged, which
+    means no managed tier and forbids legacy fallback. Legacy Auto values are mapped only
+    when no managed source supplies ensembleTier.
+    """
+    model: str | None = None
+    """Managed default model identifier. When model availability was resolved, aliases and
+    family names are projected to a concrete available model ID; otherwise the configured
+    value is returned.
+    """
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'ManagedSettingsValues':
+        assert isinstance(obj, dict)
+        auto_tier = from_union([AutoTier, from_none], obj.get("autoTier"))
+        context_tier = from_union([ContextTier, from_none], obj.get("contextTier"))
+        effort_level = from_union([from_str, from_none], obj.get("effortLevel"))
+        ensemble_tier = from_union([ManagedEnsembleTier, from_none], obj.get("ensembleTier"))
+        model = from_union([from_str, from_none], obj.get("model"))
+        return ManagedSettingsValues(auto_tier, context_tier, effort_level, ensemble_tier, model)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        if self.auto_tier is not None:
+            result["autoTier"] = from_union([lambda x: to_enum(AutoTier, x), from_none], self.auto_tier)
+        if self.context_tier is not None:
+            result["contextTier"] = from_union([lambda x: to_enum(ContextTier, x), from_none], self.context_tier)
+        if self.effort_level is not None:
+            result["effortLevel"] = from_union([from_str, from_none], self.effort_level)
+        if self.ensemble_tier is not None:
+            result["ensembleTier"] = from_union([lambda x: to_enum(ManagedEnsembleTier, x), from_none], self.ensemble_tier)
+        if self.model is not None:
+            result["model"] = from_union([from_str, from_none], self.model)
+        return result
+
+# Experimental: this type is part of an experimental API and may change or be removed.
 # Internal: this type is an internal SDK API and is not part of the public surface.
 @dataclass
 class _ManagedSettingsResolveBypassDisableTransitionResult:
@@ -28777,50 +29204,6 @@ class ManagedSettingsDiagnostic:
         result["message"] = from_str(self.message)
         result["path"] = from_str(self.path)
         result["severity"] = to_enum(ManagedSettingsDiagnosticSeverity, self.severity)
-        return result
-
-# Experimental: this type is part of an experimental API and may change or be removed.
-@dataclass
-class ManagedSettingsMeta:
-    """Per-key lock state and provenance for `values`.
-
-    Per-key lock state and provenance for `ManagedSettingsValues`, with the same field names.
-    Producers emit each typed key in values and meta together; both outer objects are omitted
-    when no typed key is set.
-
-    Per-key lock state and provenance for the entries in `values`, using the same key names.
-    """
-    auto_tier: ManagedSettingMeta | None = None
-    """Lock state and provenance of `values.autoTier`."""
-
-    context_tier: ManagedSettingMeta | None = None
-    """Lock state and provenance of `values.contextTier`."""
-
-    effort_level: ManagedSettingMeta | None = None
-    """Lock state and provenance of `values.effortLevel`."""
-
-    model: ManagedSettingMeta | None = None
-    """Lock state and provenance of `values.model`."""
-
-    @staticmethod
-    def from_dict(obj: Any) -> 'ManagedSettingsMeta':
-        assert isinstance(obj, dict)
-        auto_tier = from_union([ManagedSettingMeta.from_dict, from_none], obj.get("autoTier"))
-        context_tier = from_union([ManagedSettingMeta.from_dict, from_none], obj.get("contextTier"))
-        effort_level = from_union([ManagedSettingMeta.from_dict, from_none], obj.get("effortLevel"))
-        model = from_union([ManagedSettingMeta.from_dict, from_none], obj.get("model"))
-        return ManagedSettingsMeta(auto_tier, context_tier, effort_level, model)
-
-    def to_dict(self) -> dict:
-        result: dict = {}
-        if self.auto_tier is not None:
-            result["autoTier"] = from_union([lambda x: to_class(ManagedSettingMeta, x), from_none], self.auto_tier)
-        if self.context_tier is not None:
-            result["contextTier"] = from_union([lambda x: to_class(ManagedSettingMeta, x), from_none], self.context_tier)
-        if self.effort_level is not None:
-            result["effortLevel"] = from_union([lambda x: to_class(ManagedSettingMeta, x), from_none], self.effort_level)
-        if self.model is not None:
-            result["model"] = from_union([lambda x: to_class(ManagedSettingMeta, x), from_none], self.model)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -32548,10 +32931,20 @@ class InstalledPluginInfo:
     name: str
     """Plugin name"""
 
+    description: str | None = None
+    """Description from the manifest of the installed copy. Present only for a direct install
+    pinned to one GitHub commit, such as a verified install from GitHub.
+    """
     direct_source_id: str | None = None
     """Opaque, stable hash identifying a direct (non-marketplace) install source. Present only
     for direct repo / URL / local installs; absent for marketplace plugins. Same source
     yields the same id; distinct sources never collide.
+    """
+    icon_url: str | None = None
+    """HTTPS URL of the plugin's icon on raw.githubusercontent.com, retained from the catalogue
+    entry it was installed from. Untrusted external content: load it without credentials.
+    Present only for a direct install pinned to one GitHub commit whose catalogue entry had
+    an icon.
     """
     installed: bool | None = None
     """Whether the managed desired plugin currently has an installed or live record. Set to
@@ -32578,6 +32971,11 @@ class InstalledPluginInfo:
     registered through the trusted host built-in boundary; absent for installed, marketplace,
     direct, and live plugins.
     """
+    verified_source: InstalledPluginVerifiedSource | None = None
+    """The GitHub repository and commit a direct install is pinned to, from its install record.
+    Present only for a direct install pinned to one GitHub commit, such as a verified install
+    from GitHub; absent for marketplace, local and unpinned installs.
+    """
     version: str | None = None
     """Installed version (when reported by the plugin manifest)"""
 
@@ -32587,22 +32985,29 @@ class InstalledPluginInfo:
         enabled = from_bool(obj.get("enabled"))
         marketplace = from_str(obj.get("marketplace"))
         name = from_str(obj.get("name"))
+        description = from_union([from_str, from_none], obj.get("description"))
         direct_source_id = from_union([from_str, from_none], obj.get("directSourceId"))
+        icon_url = from_union([from_str, from_none], obj.get("iconUrl"))
         installed = from_union([from_bool, from_none], obj.get("installed"))
         installed_from = from_union([from_str, from_none], obj.get("installedFrom"))
         managed = from_union([from_bool, from_none], obj.get("managed"))
         managed_desired_enabled = from_union([from_bool, from_none], obj.get("managedDesiredEnabled"))
         source = from_union([from_str, from_none], obj.get("source"))
+        verified_source = from_union([InstalledPluginVerifiedSource.from_dict, from_none], obj.get("verifiedSource"))
         version = from_union([from_str, from_none], obj.get("version"))
-        return InstalledPluginInfo(enabled, marketplace, name, direct_source_id, installed, installed_from, managed, managed_desired_enabled, source, version)
+        return InstalledPluginInfo(enabled, marketplace, name, description, direct_source_id, icon_url, installed, installed_from, managed, managed_desired_enabled, source, verified_source, version)
 
     def to_dict(self) -> dict:
         result: dict = {}
         result["enabled"] = from_bool(self.enabled)
         result["marketplace"] = from_str(self.marketplace)
         result["name"] = from_str(self.name)
+        if self.description is not None:
+            result["description"] = from_union([from_str, from_none], self.description)
         if self.direct_source_id is not None:
             result["directSourceId"] = from_union([from_str, from_none], self.direct_source_id)
+        if self.icon_url is not None:
+            result["iconUrl"] = from_union([from_str, from_none], self.icon_url)
         if self.installed is not None:
             result["installed"] = from_union([from_bool, from_none], self.installed)
         if self.installed_from is not None:
@@ -32613,6 +33018,8 @@ class InstalledPluginInfo:
             result["managedDesiredEnabled"] = from_union([from_bool, from_none], self.managed_desired_enabled)
         if self.source is not None:
             result["source"] = from_union([from_str, from_none], self.source)
+        if self.verified_source is not None:
+            result["verifiedSource"] = from_union([lambda x: to_class(InstalledPluginVerifiedSource, x), from_none], self.verified_source)
         if self.version is not None:
             result["version"] = from_union([from_str, from_none], self.version)
         return result
@@ -32875,6 +33282,7 @@ class PluginInstallationFailureReason(Enum):
     BUSY = "busy"
     CONFIRMATION_INVALID = "confirmation-invalid"
     CONFIRMATION_UNAVAILABLE = "confirmation-unavailable"
+    CREDENTIAL_REJECTED = "credential-rejected"
     DESCRIPTOR_INVALID = "descriptor-invalid"
     DESCRIPTOR_NOT_FOUND = "descriptor-not-found"
     DESCRIPTOR_UNAVAILABLE = "descriptor-unavailable"
@@ -32887,6 +33295,7 @@ class PluginInstallationFailureReason(Enum):
     INVALID_CANDIDATE = "invalid-candidate"
     INVALID_PLUGIN = "invalid-plugin"
     INVALID_REQUEST = "invalid-request"
+    NO_CREDENTIAL = "no-credential"
     PAYLOAD_MISMATCH = "payload-mismatch"
     PAYLOAD_UNAVAILABLE = "payload-unavailable"
     PLAN_EXPIRED = "plan-expired"
@@ -32896,6 +33305,7 @@ class PluginInstallationFailureReason(Enum):
     POLICY_CONTEXT_UNAVAILABLE = "policy-context-unavailable"
     REVIEW_TOO_LARGE = "review-too-large"
     SEARCH_MISMATCH = "search-mismatch"
+    SOURCE_RATE_LIMITED = "source-rate-limited"
     UNSUPPORTED_RESOURCE = "unsupported-resource"
     WRITE_FAILED = "write-failed"
     WRONG_KIND = "wrong-kind"
@@ -35997,10 +36407,10 @@ class CatalogClientContract:
     """The protocol version and capability set a caller requires, supplied on every catalog
     request so negotiation cannot be skipped by omission.
 
+    Protocol version and capabilities the caller requires.
+
     Required authenticated bound catalogue and catalog-reference-installation capabilities,
     plus the installation capability of each kind the caller can apply.
-
-    Protocol version and capabilities the caller requires.
 
     Capabilities required by the original prepared operation.
 
@@ -36359,6 +36769,7 @@ class SkillInstallationFailureReason(Enum):
     CONFIGURATION_MODIFIED = "configuration-modified"
     CONFIRMATION_INVALID = "confirmation-invalid"
     CONFIRMATION_UNAVAILABLE = "confirmation-unavailable"
+    CREDENTIAL_REJECTED = "credential-rejected"
     DESCRIPTOR_INVALID = "descriptor-invalid"
     DESCRIPTOR_UNAVAILABLE = "descriptor-unavailable"
     ENTRYPOINT_UNAVAILABLE = "entrypoint-unavailable"
@@ -36369,6 +36780,7 @@ class SkillInstallationFailureReason(Enum):
     INVALID_REQUEST = "invalid-request"
     INVALID_SKILL = "invalid-skill"
     LIFECYCLE_UNAVAILABLE = "lifecycle-unavailable"
+    NO_CREDENTIAL = "no-credential"
     OPERATION_LIMIT = "operation-limit"
     PAYLOAD_MISMATCH = "payload-mismatch"
     PAYLOAD_UNAVAILABLE = "payload-unavailable"
@@ -36381,6 +36793,7 @@ class SkillInstallationFailureReason(Enum):
     REVIEW_TOO_LARGE = "review-too-large"
     SEARCH_MISMATCH = "search-mismatch"
     SOURCE_CHANGED = "source-changed"
+    SOURCE_RATE_LIMITED = "source-rate-limited"
     WRITE_FAILED = "write-failed"
     WRONG_KIND = "wrong-kind"
 
@@ -36787,6 +37200,36 @@ class _UserSettingsMigrateStaffUpdateChannelOnceResult:
         result["status"] = to_enum(StaffUpdateChannelMigrationStatus, self.status)
         if self.completed_at is not None:
             result["completedAt"] = from_union([from_str, from_none], self.completed_at)
+        return result
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
+class TaskShellOutputExit:
+    """How a shell task ended, reported with the read that reaches the end of its output.
+
+    Present once the shell has finished and this read reaches the end of its output. Later
+    reads with the returned cursor return no new text and the same exit details.
+    """
+    status: TaskStatus
+    """Final lifecycle status of the shell task: completed, failed, or cancelled"""
+
+    exit_code: int | None = None
+    """Process exit code, when the runtime recorded one. Absent when the shell was stopped
+    before reporting an exit code.
+    """
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'TaskShellOutputExit':
+        assert isinstance(obj, dict)
+        status = TaskStatus(obj.get("status"))
+        exit_code = from_union([from_int, from_none], obj.get("exitCode"))
+        return TaskShellOutputExit(status, exit_code)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["status"] = to_enum(TaskStatus, self.status)
+        if self.exit_code is not None:
+            result["exitCode"] = from_union([from_int, from_none], self.exit_code)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -39477,6 +39920,88 @@ class CatalogTrustSnapshotUnsupported:
 
 # Experimental: this type is part of an experimental API and may change or be removed.
 @dataclass
+class CatalogGetGeneratedFeedSucceeded:
+    """A retrieved generated feed. Entries keep the feed's order and are never more than 100."""
+
+    entries: list[CatalogFeedEntry]
+    """Feed entries in the feed's order."""
+
+    feed: CatalogGeneratedFeedDescription
+    """The feed's own identity and freshness."""
+
+    kind: ClassVar[str] = "succeeded"
+    """Discriminator: the feed was retrieved"""
+
+    negotiated: CatalogNegotiatedContract
+    """Protocol version and capabilities the runtime honoured."""
+
+    search_id: str
+    """Runtime-issued identifier for this retrieval, with the same meaning as a catalog.search
+    searchId, so a plan can be tied to the feed that produced its candidate. Derived from no
+    user, account, device or feed data.
+    """
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'CatalogGetGeneratedFeedSucceeded':
+        assert isinstance(obj, dict)
+        entries = from_list(_load_CatalogFeedEntry, obj.get("entries"))
+        feed = CatalogGeneratedFeedDescription.from_dict(obj.get("feed"))
+        negotiated = CatalogNegotiatedContract.from_dict(obj.get("negotiated"))
+        search_id = from_str(obj.get("searchId"))
+        return CatalogGetGeneratedFeedSucceeded(entries, feed, negotiated, search_id)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["entries"] = from_list(lambda x: (x).to_dict(), self.entries)
+        result["feed"] = to_class(CatalogGeneratedFeedDescription, self.feed)
+        result["kind"] = self.kind
+        result["negotiated"] = to_class(CatalogNegotiatedContract, self.negotiated)
+        result["searchId"] = from_str(self.search_id)
+        return result
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
+class CatalogGetSavedFeedSucceeded:
+    """A retrieved saved feed. Entries keep the feed's order and are never more than 100."""
+
+    entries: list[CatalogFeedEntry]
+    """Feed entries in the feed's order."""
+
+    feed: CatalogSavedFeedDescription
+    """The feed's own identity and freshness."""
+
+    kind: ClassVar[str] = "succeeded"
+    """Discriminator: the feed was retrieved"""
+
+    negotiated: CatalogNegotiatedContract
+    """Protocol version and capabilities the runtime honoured."""
+
+    search_id: str
+    """Runtime-issued identifier for this retrieval, with the same meaning as a catalog.search
+    searchId, so a plan can be tied to the feed that produced its candidate. Derived from no
+    user, account, device or feed data.
+    """
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'CatalogGetSavedFeedSucceeded':
+        assert isinstance(obj, dict)
+        entries = from_list(_load_CatalogFeedEntry, obj.get("entries"))
+        feed = CatalogSavedFeedDescription.from_dict(obj.get("feed"))
+        negotiated = CatalogNegotiatedContract.from_dict(obj.get("negotiated"))
+        search_id = from_str(obj.get("searchId"))
+        return CatalogGetSavedFeedSucceeded(entries, feed, negotiated, search_id)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["entries"] = from_list(lambda x: (x).to_dict(), self.entries)
+        result["feed"] = to_class(CatalogSavedFeedDescription, self.feed)
+        result["kind"] = self.kind
+        result["negotiated"] = to_class(CatalogNegotiatedContract, self.negotiated)
+        result["searchId"] = from_str(self.search_id)
+        return result
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
 class SlashCommandInfo:
     """Slash-command metadata with name, aliases, description, kind, input hint, execution
     allowance, and schedulability.
@@ -41671,6 +42196,57 @@ class WorkspacesUpdateMetadataRequest:
 
 # Experimental: this type is part of an experimental API and may change or be removed.
 @dataclass
+class ManagedSettingsMeta:
+    """Per-key lock state and provenance for `values`.
+
+    Per-key lock state and provenance for `ManagedSettingsValues`, with the same field names.
+    Producers emit each typed key in values and meta together; both outer objects are omitted
+    when no typed key is set.
+
+    Per-key lock state and provenance for the entries in `values`, using the same key names.
+    """
+    auto_tier: ManagedSettingMeta | None = None
+    """Lock state and provenance of `values.autoTier`."""
+
+    context_tier: ManagedSettingMeta | None = None
+    """Lock state and provenance of `values.contextTier`."""
+
+    effort_level: ManagedSettingMeta | None = None
+    """Lock state and provenance of `values.effortLevel`."""
+
+    ensemble_tier: ManagedSettingMeta | None = None
+    """Lock state and provenance of values.ensembleTier, including a legacy alias's original
+    source. An unmanaged value imposes no tier lock.
+    """
+    model: ManagedSettingMeta | None = None
+    """Lock state and provenance of `values.model`."""
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'ManagedSettingsMeta':
+        assert isinstance(obj, dict)
+        auto_tier = from_union([ManagedSettingMeta.from_dict, from_none], obj.get("autoTier"))
+        context_tier = from_union([ManagedSettingMeta.from_dict, from_none], obj.get("contextTier"))
+        effort_level = from_union([ManagedSettingMeta.from_dict, from_none], obj.get("effortLevel"))
+        ensemble_tier = from_union([ManagedSettingMeta.from_dict, from_none], obj.get("ensembleTier"))
+        model = from_union([ManagedSettingMeta.from_dict, from_none], obj.get("model"))
+        return ManagedSettingsMeta(auto_tier, context_tier, effort_level, ensemble_tier, model)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        if self.auto_tier is not None:
+            result["autoTier"] = from_union([lambda x: to_class(ManagedSettingMeta, x), from_none], self.auto_tier)
+        if self.context_tier is not None:
+            result["contextTier"] = from_union([lambda x: to_class(ManagedSettingMeta, x), from_none], self.context_tier)
+        if self.effort_level is not None:
+            result["effortLevel"] = from_union([lambda x: to_class(ManagedSettingMeta, x), from_none], self.effort_level)
+        if self.ensemble_tier is not None:
+            result["ensembleTier"] = from_union([lambda x: to_class(ManagedSettingMeta, x), from_none], self.ensemble_tier)
+        if self.model is not None:
+            result["model"] = from_union([lambda x: to_class(ManagedSettingMeta, x), from_none], self.model)
+        return result
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
 class ManagedSettingsComposeRequest:
     """Candidate managed-settings documents to merge without applying them."""
 
@@ -41727,116 +42303,6 @@ class ManagedSettingsValidateResult:
         result["valid"] = from_bool(self.valid)
         if self.settings is not None:
             result["settings"] = self.settings
-        return result
-
-# Experimental: this type is part of an experimental API and may change or be removed.
-@dataclass
-class ManagedSettingsComposeResult:
-    """The effective managed settings the runtime would enforce for the given documents, in the
-    same shape `managedSettings.resolve` returns.
-    """
-    diagnostics: list[ManagedSettingsDiagnostic]
-    """Warnings about ignored content, with paths prefixed by the channel name."""
-
-    layers: list[ManagedSettingsLayer]
-    """Only the supplied channels, strongest first, with canonical documents. Empty canonical
-    documents are represented as absent settings, as in live resolution.
-    """
-    resolved: ManagedSettingsResolvedData
-    """Effective managed settings, in the same shape as `session.managedSettings.get`."""
-
-    meta: ManagedSettingsMeta | None = None
-    """Per-key lock state and provenance for `values`."""
-
-    values: ManagedSettingsValues | None = None
-    """Typed effective values, as in `managedSettings.resolve`."""
-
-    @staticmethod
-    def from_dict(obj: Any) -> 'ManagedSettingsComposeResult':
-        assert isinstance(obj, dict)
-        diagnostics = from_list(ManagedSettingsDiagnostic.from_dict, obj.get("diagnostics"))
-        layers = from_list(ManagedSettingsLayer.from_dict, obj.get("layers"))
-        resolved = ManagedSettingsResolvedData.from_dict(obj.get("resolved"))
-        meta = from_union([ManagedSettingsMeta.from_dict, from_none], obj.get("meta"))
-        values = from_union([ManagedSettingsValues.from_dict, from_none], obj.get("values"))
-        return ManagedSettingsComposeResult(diagnostics, layers, resolved, meta, values)
-
-    def to_dict(self) -> dict:
-        result: dict = {}
-        result["diagnostics"] = from_list(lambda x: to_class(ManagedSettingsDiagnostic, x), self.diagnostics)
-        result["layers"] = from_list(lambda x: to_class(ManagedSettingsLayer, x), self.layers)
-        result["resolved"] = to_class(ManagedSettingsResolvedData, self.resolved)
-        if self.meta is not None:
-            result["meta"] = from_union([lambda x: to_class(ManagedSettingsMeta, x), from_none], self.meta)
-        if self.values is not None:
-            result["values"] = from_union([lambda x: to_class(ManagedSettingsValues, x), from_none], self.values)
-        return result
-
-# Experimental: this type is part of an experimental API and may change or be removed.
-@dataclass
-class ManagedSettingsResolveResult:
-    """Effective enterprise managed settings for an account, resolved without a session."""
-
-    diagnostics: list[ManagedSettingsDiagnostic]
-    """Warnings about unavailable policy sources or a failed refresh served from cache. A cached
-    response is not proof of a successful live fetch; `resolved.failClosed` separately
-    describes enforcement.
-    """
-    layers: list[ManagedSettingsLayer]
-    """Each managed-settings channel consulted, strongest first, with the validated document it
-    delivered before merging. `resolved.settings` is the merged result. More channels may be
-    added over time.
-    """
-    resolved: ManagedSettingsResolvedData
-    """Effective managed settings from the device and account (server) channels, in the same
-    shape as `session.managedSettings.get`, excluding session-local injection.
-    """
-    account: str | None = None
-    """Printable opaque identity of the account the settings were resolved for, suitable for
-    comparison and storage, not an account selectionId. Absent when no account was available,
-    in which case only device policy is reported.
-    """
-    meta: ManagedSettingsMeta | None = None
-    """Per-key lock state and provenance for the entries in `values`, using the same key names."""
-
-    permissions_context: ManagedPermissionsContext | None = None
-    """Reusable source-composed permission policy for managedSettings.permissions.evaluate.
-    Unlike resolved.settings.permissions, this retains every source's allowlist and
-    default-prompt semantics. Refresh through resolve when account/device policy changes.
-    Absent on runtimes that do not support permission evaluation.
-    """
-    values: ManagedSettingsValues | None = None
-    """Typed effective values of managed settings, keyed like the managed-settings schema and
-    already resolved across channels, with the `{ "overridable": ... }` wrapper removed.
-    Present when policy sets at least one typed key. Keys not typed here are available in
-    `resolved.settings`.
-    """
-
-    @staticmethod
-    def from_dict(obj: Any) -> 'ManagedSettingsResolveResult':
-        assert isinstance(obj, dict)
-        diagnostics = from_list(ManagedSettingsDiagnostic.from_dict, obj.get("diagnostics"))
-        layers = from_list(ManagedSettingsLayer.from_dict, obj.get("layers"))
-        resolved = ManagedSettingsResolvedData.from_dict(obj.get("resolved"))
-        account = from_union([from_str, from_none], obj.get("account"))
-        meta = from_union([ManagedSettingsMeta.from_dict, from_none], obj.get("meta"))
-        permissions_context = from_union([ManagedPermissionsContext.from_dict, from_none], obj.get("permissionsContext"))
-        values = from_union([ManagedSettingsValues.from_dict, from_none], obj.get("values"))
-        return ManagedSettingsResolveResult(diagnostics, layers, resolved, account, meta, permissions_context, values)
-
-    def to_dict(self) -> dict:
-        result: dict = {}
-        result["diagnostics"] = from_list(lambda x: to_class(ManagedSettingsDiagnostic, x), self.diagnostics)
-        result["layers"] = from_list(lambda x: to_class(ManagedSettingsLayer, x), self.layers)
-        result["resolved"] = to_class(ManagedSettingsResolvedData, self.resolved)
-        if self.account is not None:
-            result["account"] = from_union([from_str, from_none], self.account)
-        if self.meta is not None:
-            result["meta"] = from_union([lambda x: to_class(ManagedSettingsMeta, x), from_none], self.meta)
-        if self.permissions_context is not None:
-            result["permissionsContext"] = from_union([lambda x: to_class(ManagedPermissionsContext, x), from_none], self.permissions_context)
-        if self.values is not None:
-            result["values"] = from_union([lambda x: to_class(ManagedSettingsValues, x), from_none], self.values)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -42825,8 +43291,10 @@ class CatalogAgentPluginInstallPlan:
     """Canvas IDs the plugin contributes. Non-empty exactly when components include `canvas`."""
 
     components: list[CatalogAgentPluginComponent]
-    """Components the plugin contributes, in canonical order."""
-
+    """Components the plugin contributes, in canonical order. Empty only in a
+    materialisation-only plan, where the verified manifests list them in the
+    plugins.planInstall review.
+    """
     connector_dependencies: list[str]
     """Connectors the plugin depends on."""
 
@@ -42837,9 +43305,6 @@ class CatalogAgentPluginInstallPlan:
     mcp_dependencies: list[str]
     """MCP servers the plugin depends on but does not bundle."""
 
-    plugin_name: str
-    """The plugin's name, as named in its marketplace or manifest."""
-
     sources: list[CatalogAgentPluginInstallSource]
     """Every valid install source, in preference order: materialization, then marketplace, then
     repository. Each kind appears at most once.
@@ -42848,6 +43313,11 @@ class CatalogAgentPluginInstallPlan:
     """Exact full commit ID to install, in lowercase hex. Always present when the plan has a
     repository source; a plan with a marketplace source carries at least one of version and
     commit.
+    """
+    plugin_name: str | None = None
+    """The plugin's name, as named in its marketplace or manifest. Omitted from a
+    materialisation-only plan, whose sources are only `materialization`: the verified
+    manifests supply the name in the plugins.planInstall review.
     """
     version: str | None = None
     """Exact plugin version to install. A plan with a marketplace source carries at least one of
@@ -42862,11 +43332,11 @@ class CatalogAgentPluginInstallPlan:
         connector_dependencies = from_list(from_str, obj.get("connectorDependencies"))
         extension_ids = from_list(from_str, obj.get("extensionIds"))
         mcp_dependencies = from_list(from_str, obj.get("mcpDependencies"))
-        plugin_name = from_str(obj.get("pluginName"))
         sources = from_list(_load_CatalogAgentPluginInstallSource, obj.get("sources"))
         commit = from_union([from_str, from_none], obj.get("commit"))
+        plugin_name = from_union([from_str, from_none], obj.get("pluginName"))
         version = from_union([from_str, from_none], obj.get("version"))
-        return CatalogAgentPluginInstallPlan(canvas_ids, components, connector_dependencies, extension_ids, mcp_dependencies, plugin_name, sources, commit, version)
+        return CatalogAgentPluginInstallPlan(canvas_ids, components, connector_dependencies, extension_ids, mcp_dependencies, sources, commit, plugin_name, version)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -42875,10 +43345,11 @@ class CatalogAgentPluginInstallPlan:
         result["connectorDependencies"] = from_list(from_str, self.connector_dependencies)
         result["extensionIds"] = from_list(from_str, self.extension_ids)
         result["mcpDependencies"] = from_list(from_str, self.mcp_dependencies)
-        result["pluginName"] = from_str(self.plugin_name)
         result["sources"] = from_list(lambda x: (x).to_dict(), self.sources)
         if self.commit is not None:
             result["commit"] = from_union([from_str, from_none], self.commit)
+        if self.plugin_name is not None:
+            result["pluginName"] = from_union([from_str, from_none], self.plugin_name)
         if self.version is not None:
             result["version"] = from_union([from_str, from_none], self.version)
         return result
@@ -43276,6 +43747,10 @@ class PluginInstallationReview:
     description: str | None = None
     """Manifest description when present."""
 
+    mcp_servers: list[PluginInstallationMCPServerReview] | None = None
+    """MCP servers the verified files declare, exactly as an install of these files loads
+    them. Omitted when the plugin declares none.
+    """
     version: str | None = None
     """Manifest version when present."""
 
@@ -43293,8 +43768,9 @@ class PluginInstallationReview:
         target = PluginInstallationLocation.from_dict(obj.get("target"))
         total_bytes = from_int(obj.get("totalBytes"))
         description = from_union([from_str, from_none], obj.get("description"))
+        mcp_servers = from_union([lambda x: from_list(PluginInstallationMCPServerReview.from_dict, x), from_none], obj.get("mcpServers"))
         version = from_union([from_str, from_none], obj.get("version"))
-        return PluginInstallationReview(action, catalogue, files, installs_disabled, manifest_content, manifest_path, name, source, target, total_bytes, description, version)
+        return PluginInstallationReview(action, catalogue, files, installs_disabled, manifest_content, manifest_path, name, source, target, total_bytes, description, mcp_servers, version)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -43310,6 +43786,8 @@ class PluginInstallationReview:
         result["totalBytes"] = from_int(self.total_bytes)
         if self.description is not None:
             result["description"] = from_union([from_str, from_none], self.description)
+        if self.mcp_servers is not None:
+            result["mcpServers"] = from_union([lambda x: from_list(lambda x: to_class(PluginInstallationMCPServerReview, x), x), from_none], self.mcp_servers)
         if self.version is not None:
             result["version"] = from_union([from_str, from_none], self.version)
         return result
@@ -44402,6 +44880,99 @@ class SessionAgentListRequest:
 
 # Experimental: this type is part of an experimental API and may change or be removed.
 @dataclass
+class CatalogGetGeneratedFeedRequest:
+    """Retrieves one generated feed, computed on every request, by strategy and key, such as
+    `telemetry` and `popular`. Requires catalog-feeds and catalog-search-credential-required;
+    add catalog-search-session-bound with policySessionId to retain the selected session's
+    authority for installation, exactly as for catalog.search.
+    """
+    contract: CatalogClientContract
+    """Protocol version and capabilities the caller requires."""
+
+    key: str
+    """Feed key within the strategy, such as `popular`."""
+
+    strategy: str
+    """Generation strategy, such as `telemetry`."""
+
+    policy_session_id: str | None = None
+    """Select an existing attached local session. Requires authenticated, session-bound
+    catalogue support.
+    The runtime never creates, resumes or reconfigures a session to honour this selector.
+    """
+    trust_tiers: list[CatalogTrustTier] | None = None
+    """Accept only resources currently assessed at one of these trust tiers. Entries whose
+    resource is in another tier, or has none, are returned as filtered in their original
+    position. Omit for an unfiltered feed.
+    """
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'CatalogGetGeneratedFeedRequest':
+        assert isinstance(obj, dict)
+        contract = CatalogClientContract.from_dict(obj.get("contract"))
+        key = from_str(obj.get("key"))
+        strategy = from_str(obj.get("strategy"))
+        policy_session_id = from_union([from_str, from_none], obj.get("policySessionId"))
+        trust_tiers = from_union([lambda x: from_list(CatalogTrustTier, x), from_none], obj.get("trustTiers"))
+        return CatalogGetGeneratedFeedRequest(contract, key, strategy, policy_session_id, trust_tiers)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["contract"] = to_class(CatalogClientContract, self.contract)
+        result["key"] = from_str(self.key)
+        result["strategy"] = from_str(self.strategy)
+        if self.policy_session_id is not None:
+            result["policySessionId"] = from_union([from_str, from_none], self.policy_session_id)
+        if self.trust_tiers is not None:
+            result["trustTiers"] = from_union([lambda x: from_list(lambda x: to_enum(CatalogTrustTier, x), x), from_none], self.trust_tiers)
+        return result
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
+class CatalogGetSavedFeedRequest:
+    """Retrieves one saved feed by its opaque ID. Requires catalog-feeds and
+    catalog-search-credential-required; add catalog-search-session-bound with policySessionId
+    to retain the selected session's authority for installation, exactly as for
+    catalog.search.
+    """
+    contract: CatalogClientContract
+    """Protocol version and capabilities the caller requires."""
+
+    feed_id: str
+    """Opaque saved feed ID. Treat it as an indivisible string."""
+
+    policy_session_id: str | None = None
+    """Select an existing attached local session. Requires authenticated, session-bound
+    catalogue support.
+    The runtime never creates, resumes or reconfigures a session to honour this selector.
+    """
+    trust_tiers: list[CatalogTrustTier] | None = None
+    """Accept only resources currently assessed at one of these trust tiers. Entries whose
+    resource is in another tier, or has none, are returned as filtered in their original
+    position. Omit for an unfiltered feed.
+    """
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'CatalogGetSavedFeedRequest':
+        assert isinstance(obj, dict)
+        contract = CatalogClientContract.from_dict(obj.get("contract"))
+        feed_id = from_str(obj.get("feedId"))
+        policy_session_id = from_union([from_str, from_none], obj.get("policySessionId"))
+        trust_tiers = from_union([lambda x: from_list(CatalogTrustTier, x), from_none], obj.get("trustTiers"))
+        return CatalogGetSavedFeedRequest(contract, feed_id, policy_session_id, trust_tiers)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["contract"] = to_class(CatalogClientContract, self.contract)
+        result["feedId"] = from_str(self.feed_id)
+        if self.policy_session_id is not None:
+            result["policySessionId"] = from_union([from_str, from_none], self.policy_session_id)
+        if self.trust_tiers is not None:
+            result["trustTiers"] = from_union([lambda x: from_list(lambda x: to_enum(CatalogTrustTier, x), x), from_none], self.trust_tiers)
+        return result
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
 class CatalogSearchRequest:
     """A bounded catalog search. Both the query length and the result count are capped by the
     schema so a caller cannot request an unbounded scan.
@@ -45121,6 +45692,44 @@ class SkillDiscoveryPathList:
     def to_dict(self) -> dict:
         result: dict = {}
         result["paths"] = from_list(lambda x: to_class(SkillDiscoveryPath, x), self.paths)
+        return result
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
+class TasksReadOutputResult:
+    """Output a detached shell task wrote after the request cursor, with the cursor for the next
+    read.
+    """
+    cursor: str
+    """Opaque cursor to pass to the next read of this task. Always present, even when no output
+    was returned.
+    """
+    text: str
+    """Output after the request cursor, decoded as UTF-8 and redacted. At most 64 KiB per read,
+    so a large backlog takes several reads; the text never splits a character, and text that
+    stops before the end of the output ends at a line break when it contains one. Empty when
+    no new output is available. Detached shells write stdout and stderr to one output, so the
+    text does not separate them.
+    """
+    exit: TaskShellOutputExit | None = None
+    """Present once the shell has finished and this read reaches the end of its output. Later
+    reads with the returned cursor return no new text and the same exit details.
+    """
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'TasksReadOutputResult':
+        assert isinstance(obj, dict)
+        cursor = from_str(obj.get("cursor"))
+        text = from_str(obj.get("text"))
+        exit = from_union([TaskShellOutputExit.from_dict, from_none], obj.get("exit"))
+        return TasksReadOutputResult(cursor, text, exit)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["cursor"] = from_str(self.cursor)
+        result["text"] = from_str(self.text)
+        if self.exit is not None:
+            result["exit"] = from_union([lambda x: to_class(TaskShellOutputExit, x), from_none], self.exit)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -47803,6 +48412,116 @@ class WorkspacesListCheckpointsResult:
         result["checkpoints"] = from_list(lambda x: to_class(WorkspacesCheckpoints, x), self.checkpoints)
         return result
 
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
+class ManagedSettingsComposeResult:
+    """The effective managed settings the runtime would enforce for the given documents, in the
+    same shape `managedSettings.resolve` returns.
+    """
+    diagnostics: list[ManagedSettingsDiagnostic]
+    """Warnings about ignored content, with paths prefixed by the channel name."""
+
+    layers: list[ManagedSettingsLayer]
+    """Only the supplied channels, strongest first, with canonical documents. Empty canonical
+    documents are represented as absent settings, as in live resolution.
+    """
+    resolved: ManagedSettingsResolvedData
+    """Effective managed settings, in the same shape as `session.managedSettings.get`."""
+
+    meta: ManagedSettingsMeta | None = None
+    """Per-key lock state and provenance for `values`."""
+
+    values: ManagedSettingsValues | None = None
+    """Typed effective values, as in `managedSettings.resolve`."""
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'ManagedSettingsComposeResult':
+        assert isinstance(obj, dict)
+        diagnostics = from_list(ManagedSettingsDiagnostic.from_dict, obj.get("diagnostics"))
+        layers = from_list(ManagedSettingsLayer.from_dict, obj.get("layers"))
+        resolved = ManagedSettingsResolvedData.from_dict(obj.get("resolved"))
+        meta = from_union([ManagedSettingsMeta.from_dict, from_none], obj.get("meta"))
+        values = from_union([ManagedSettingsValues.from_dict, from_none], obj.get("values"))
+        return ManagedSettingsComposeResult(diagnostics, layers, resolved, meta, values)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["diagnostics"] = from_list(lambda x: to_class(ManagedSettingsDiagnostic, x), self.diagnostics)
+        result["layers"] = from_list(lambda x: to_class(ManagedSettingsLayer, x), self.layers)
+        result["resolved"] = to_class(ManagedSettingsResolvedData, self.resolved)
+        if self.meta is not None:
+            result["meta"] = from_union([lambda x: to_class(ManagedSettingsMeta, x), from_none], self.meta)
+        if self.values is not None:
+            result["values"] = from_union([lambda x: to_class(ManagedSettingsValues, x), from_none], self.values)
+        return result
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
+class ManagedSettingsResolveResult:
+    """Effective enterprise managed settings for an account, resolved without a session."""
+
+    diagnostics: list[ManagedSettingsDiagnostic]
+    """Warnings about unavailable policy sources or a failed refresh served from cache. A cached
+    response is not proof of a successful live fetch; `resolved.failClosed` separately
+    describes enforcement.
+    """
+    layers: list[ManagedSettingsLayer]
+    """Each managed-settings channel consulted, strongest first, with the validated document it
+    delivered before merging. `resolved.settings` is the merged result. More channels may be
+    added over time.
+    """
+    resolved: ManagedSettingsResolvedData
+    """Effective managed settings from the device and account (server) channels, in the same
+    shape as `session.managedSettings.get`, excluding session-local injection.
+    """
+    account: str | None = None
+    """Printable opaque identity of the account the settings were resolved for, suitable for
+    comparison and storage, not an account selectionId. Absent when no account was available,
+    in which case only device policy is reported.
+    """
+    meta: ManagedSettingsMeta | None = None
+    """Per-key lock state and provenance for the entries in `values`, using the same key names."""
+
+    permissions_context: ManagedPermissionsContext | None = None
+    """Reusable source-composed permission policy for managedSettings.permissions.evaluate.
+    Unlike resolved.settings.permissions, this retains every source's allowlist and
+    default-prompt semantics. Refresh through resolve when account/device policy changes.
+    Absent on runtimes that do not support permission evaluation.
+    """
+    values: ManagedSettingsValues | None = None
+    """Typed effective values of managed settings, keyed like the managed-settings schema and
+    already resolved across channels, with the `{ "overridable": ... }` wrapper removed.
+    Present when policy sets at least one typed key. Keys not typed here are available in
+    `resolved.settings`.
+    """
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'ManagedSettingsResolveResult':
+        assert isinstance(obj, dict)
+        diagnostics = from_list(ManagedSettingsDiagnostic.from_dict, obj.get("diagnostics"))
+        layers = from_list(ManagedSettingsLayer.from_dict, obj.get("layers"))
+        resolved = ManagedSettingsResolvedData.from_dict(obj.get("resolved"))
+        account = from_union([from_str, from_none], obj.get("account"))
+        meta = from_union([ManagedSettingsMeta.from_dict, from_none], obj.get("meta"))
+        permissions_context = from_union([ManagedPermissionsContext.from_dict, from_none], obj.get("permissionsContext"))
+        values = from_union([ManagedSettingsValues.from_dict, from_none], obj.get("values"))
+        return ManagedSettingsResolveResult(diagnostics, layers, resolved, account, meta, permissions_context, values)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["diagnostics"] = from_list(lambda x: to_class(ManagedSettingsDiagnostic, x), self.diagnostics)
+        result["layers"] = from_list(lambda x: to_class(ManagedSettingsLayer, x), self.layers)
+        result["resolved"] = to_class(ManagedSettingsResolvedData, self.resolved)
+        if self.account is not None:
+            result["account"] = from_union([from_str, from_none], self.account)
+        if self.meta is not None:
+            result["meta"] = from_union([lambda x: to_class(ManagedSettingsMeta, x), from_none], self.meta)
+        if self.permissions_context is not None:
+            result["permissionsContext"] = from_union([lambda x: to_class(ManagedPermissionsContext, x), from_none], self.permissions_context)
+        if self.values is not None:
+            result["values"] = from_union([lambda x: to_class(ManagedSettingsValues, x), from_none], self.values)
+        return result
+
 @dataclass
 class OperationClass:
     """Known original operation identity, returned before callback or effects.
@@ -47926,7 +48645,7 @@ class MCPInstallationResult:
     required field was unusable. Pagination may also be rejected by the authority after a
     continuation request; repeat the search without page.
     """
-    kind: CatalogReferenceInstallationResultKind
+    kind: MCPInstallationManagementResultKind
     """A handled operation outcome with an honoured contract.
 
     Discriminator: capability or protocol-version negotiation failed
@@ -47972,7 +48691,7 @@ class MCPInstallationResult:
     @staticmethod
     def from_dict(obj: Any) -> 'MCPInstallationResult':
         assert isinstance(obj, dict)
-        kind = CatalogReferenceInstallationResultKind(obj.get("kind"))
+        kind = MCPInstallationManagementResultKind(obj.get("kind"))
         negotiated = from_union([CatalogNegotiatedContract.from_dict, from_none], obj.get("negotiated"))
         outcome = from_union([MCPInstallationOutcome.from_dict, from_none], obj.get("outcome"))
         message = from_union([from_str, from_none], obj.get("message"))
@@ -47986,7 +48705,7 @@ class MCPInstallationResult:
 
     def to_dict(self) -> dict:
         result: dict = {}
-        result["kind"] = to_enum(CatalogReferenceInstallationResultKind, self.kind)
+        result["kind"] = to_enum(MCPInstallationManagementResultKind, self.kind)
         if self.negotiated is not None:
             result["negotiated"] = from_union([lambda x: to_class(CatalogNegotiatedContract, x), from_none], self.negotiated)
         if self.outcome is not None:
@@ -48328,10 +49047,6 @@ class CatalogAgentPluginCandidate:
     """Where the Agent Plugin catalog reference was observed, without its descriptor, URL, raw
     data, or content digest.
     """
-    source: CatalogPluginRepositorySource
-    """Bounded repository provenance declared through the catalog's sourceSet and repoPath
-    metadata. It contains no descriptor URL.
-    """
     categories: list[str] | None = None
     """Category slugs reported by the feed, such as `build` or `review`, without repeats. Values
     are passed through, so clients must tolerate slugs they do not recognise. Inert untrusted
@@ -48375,6 +49090,16 @@ class CatalogAgentPluginCandidate:
     publisher: str | None = None
     """Publisher taken verbatim from the card. Inert untrusted text."""
 
+    source: CatalogPluginRepositorySource | None = None
+    """Bounded repository provenance declared through the catalog's sourceSet and repoPath
+    metadata. It contains no descriptor URL. Always present, with a path, unless the caller
+    requires agent-plugin-confirmed-installation. Such a caller also receives a
+    repository-root plugin (sourceSet without repoPath) whose source has no path, and a
+    plugin with no usable declaration (neither key, or repoPath alone) and no source; the
+    latter carries a complete materialisation reference and a handle, and the verified
+    descriptor supplies the repository, commit and root when it is planned. Never derived
+    from the catalogue URL.
+    """
     trust: CatalogTrustSnapshot | None = None
     """Versioned trust metadata observed from the catalog authority. Optional for protocol-3
     compatibility and emitted only when the caller also requires the trust-snapshot
@@ -48394,7 +49119,6 @@ class CatalogAgentPluginCandidate:
         kind = CatalogAgentPluginCandidateKind(obj.get("kind"))
         media_type = CatalogAgentPluginMediaType(obj.get("mediaType"))
         provenance = CatalogAgentPluginCandidateProvenance.from_dict(obj.get("provenance"))
-        source = CatalogPluginRepositorySource.from_dict(obj.get("source"))
         categories = from_union([lambda x: from_list(from_str, x), from_none], obj.get("categories"))
         connector_ids = from_union([lambda x: from_list(from_str, x), from_none], obj.get("connectorIds"))
         description = from_union([from_str, from_none], obj.get("description"))
@@ -48405,9 +49129,10 @@ class CatalogAgentPluginCandidate:
         install_count = from_union([from_int, from_none], obj.get("installCount"))
         install_plan = from_union([CatalogAgentPluginInstallPlan.from_dict, from_none], obj.get("installPlan"))
         publisher = from_union([from_str, from_none], obj.get("publisher"))
+        source = from_union([CatalogPluginRepositorySource.from_dict, from_none], obj.get("source"))
         trust = from_union([_load_CatalogTrustSnapshot, from_none], obj.get("trust"))
         version = from_union([from_str, from_none], obj.get("version"))
-        return CatalogAgentPluginCandidate(compatibility_tags, display_name, identity, kind, media_type, provenance, source, categories, connector_ids, description, handle, handle_expires_at, icon_url, installability, install_count, install_plan, publisher, trust, version)
+        return CatalogAgentPluginCandidate(compatibility_tags, display_name, identity, kind, media_type, provenance, categories, connector_ids, description, handle, handle_expires_at, icon_url, installability, install_count, install_plan, publisher, source, trust, version)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -48417,7 +49142,6 @@ class CatalogAgentPluginCandidate:
         result["kind"] = to_enum(CatalogAgentPluginCandidateKind, self.kind)
         result["mediaType"] = to_enum(CatalogAgentPluginMediaType, self.media_type)
         result["provenance"] = to_class(CatalogAgentPluginCandidateProvenance, self.provenance)
-        result["source"] = to_class(CatalogPluginRepositorySource, self.source)
         if self.categories is not None:
             result["categories"] = from_union([lambda x: from_list(from_str, x), from_none], self.categories)
         if self.connector_ids is not None:
@@ -48438,6 +49162,8 @@ class CatalogAgentPluginCandidate:
             result["installPlan"] = from_union([lambda x: to_class(CatalogAgentPluginInstallPlan, x), from_none], self.install_plan)
         if self.publisher is not None:
             result["publisher"] = from_union([from_str, from_none], self.publisher)
+        if self.source is not None:
+            result["source"] = from_union([lambda x: to_class(CatalogPluginRepositorySource, x), from_none], self.source)
         if self.trust is not None:
             result["trust"] = from_union([lambda x: (x).to_dict(), from_none], self.trust)
         if self.version is not None:
@@ -48450,6 +49176,9 @@ class CatalogCandidate:
     """One inert catalog result, represented as an MCP server, discovery-only AI skill, or
     opt-in Agent Plugin variant so kind, media type, provenance, and available operations
     cannot contradict each other.
+
+    The entry's resource, with the same projection, installability, handle and display
+    metadata as a catalog.search candidate.
 
     An inert MCP server catalog result. Every free-text field is untrusted external data and
     must never be treated as an instruction, and the handle is the only way to refer to the
@@ -48487,13 +49216,6 @@ class CatalogCandidate:
 
     Where the Agent Plugin catalog reference was observed, without its descriptor, URL, raw
     data, or content digest.
-    """
-    source: SourceClass
-    """Where the card came from: exactly one of a URL or embedded data, encoded as a tagged
-    union so neither both nor neither can be represented.
-
-    Bounded repository provenance declared through the catalog's sourceSet and repoPath
-    metadata. It contains no descriptor URL.
     """
     categories: list[str] | None = None
     """Category slugs reported by the feed, such as `build` or `review`, without repeats. Values
@@ -48544,6 +49266,19 @@ class CatalogCandidate:
     publisher: str | None = None
     """Publisher taken verbatim from the card. Inert untrusted text."""
 
+    source: SourceClass | None = None
+    """Where the card came from: exactly one of a URL or embedded data, encoded as a tagged
+    union so neither both nor neither can be represented.
+
+    Bounded repository provenance declared through the catalog's sourceSet and repoPath
+    metadata. It contains no descriptor URL. Always present, with a path, unless the caller
+    requires agent-plugin-confirmed-installation. Such a caller also receives a
+    repository-root plugin (sourceSet without repoPath) whose source has no path, and a
+    plugin with no usable declaration (neither key, or repoPath alone) and no source; the
+    latter carries a complete materialisation reference and a handle, and the verified
+    descriptor supplies the repository, commit and root when it is planned. Never derived
+    from the catalogue URL.
+    """
     trust: CatalogTrustSnapshot | None = None
     """Versioned trust metadata observed from the catalog authority. Optional for protocol-3
     compatibility with runtimes that predate trust snapshots. A trust-capable runtime emits
@@ -48579,7 +49314,6 @@ class CatalogCandidate:
         kind = CatalogCandidateKind(obj.get("kind"))
         media_type = CatalogMediaType(obj.get("mediaType"))
         provenance = CatalogCandidateProvenance.from_dict(obj.get("provenance"))
-        source = SourceClass.from_dict(obj.get("source"))
         categories = from_union([lambda x: from_list(from_str, x), from_none], obj.get("categories"))
         connector_ids = from_union([lambda x: from_list(from_str, x), from_none], obj.get("connectorIds"))
         description = from_union([from_str, from_none], obj.get("description"))
@@ -48589,12 +49323,13 @@ class CatalogCandidate:
         installability = from_union([CatalogInstallability, from_none], obj.get("installability"))
         install_count = from_union([from_int, from_none], obj.get("installCount"))
         publisher = from_union([from_str, from_none], obj.get("publisher"))
+        source = from_union([SourceClass.from_dict, from_none], obj.get("source"))
         trust = from_union([_load_CatalogTrustSnapshot, from_none], obj.get("trust"))
         compatibility_tags = from_union([lambda x: from_list(CatalogAgentPluginCompatibilityTag, x), from_none], obj.get("compatibilityTags"))
         identity = from_union([from_str, from_none], obj.get("identity"))
         install_plan = from_union([CatalogAgentPluginInstallPlan.from_dict, from_none], obj.get("installPlan"))
         version = from_union([from_str, from_none], obj.get("version"))
-        return CatalogCandidate(display_name, kind, media_type, provenance, source, categories, connector_ids, description, handle, handle_expires_at, icon_url, installability, install_count, publisher, trust, compatibility_tags, identity, install_plan, version)
+        return CatalogCandidate(display_name, kind, media_type, provenance, categories, connector_ids, description, handle, handle_expires_at, icon_url, installability, install_count, publisher, source, trust, compatibility_tags, identity, install_plan, version)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -48602,7 +49337,6 @@ class CatalogCandidate:
         result["kind"] = to_enum(CatalogCandidateKind, self.kind)
         result["mediaType"] = to_enum(CatalogMediaType, self.media_type)
         result["provenance"] = to_class(CatalogCandidateProvenance, self.provenance)
-        result["source"] = to_class(SourceClass, self.source)
         if self.categories is not None:
             result["categories"] = from_union([lambda x: from_list(from_str, x), from_none], self.categories)
         if self.connector_ids is not None:
@@ -48621,6 +49355,8 @@ class CatalogCandidate:
             result["installCount"] = from_union([from_int, from_none], self.install_count)
         if self.publisher is not None:
             result["publisher"] = from_union([from_str, from_none], self.publisher)
+        if self.source is not None:
+            result["source"] = from_union([lambda x: to_class(SourceClass, x), from_none], self.source)
         if self.trust is not None:
             result["trust"] = from_union([lambda x: (x).to_dict(), from_none], self.trust)
         if self.compatibility_tags is not None:
@@ -48754,6 +49490,9 @@ class PluginInstallationOutcome:
     reason: PluginInstallationFailureReason | None = None
     """Bounded refusal reason."""
 
+    retry_after_seconds: int | None = None
+    """Whole seconds GitHub asked the caller to wait, present only with source-rate-limited."""
+
     @staticmethod
     def from_dict(obj: Any) -> 'PluginInstallationOutcome':
         assert isinstance(obj, dict)
@@ -48761,7 +49500,8 @@ class PluginInstallationOutcome:
         installation = from_union([PluginInstallationSummary.from_dict, from_none], obj.get("installation"))
         operation_id = from_union([from_str, from_none], obj.get("operationId"))
         reason = from_union([PluginInstallationFailureReason, from_none], obj.get("reason"))
-        return PluginInstallationOutcome(kind, installation, operation_id, reason)
+        retry_after_seconds = from_union([from_int, from_none], obj.get("retryAfterSeconds"))
+        return PluginInstallationOutcome(kind, installation, operation_id, reason, retry_after_seconds)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -48772,6 +49512,8 @@ class PluginInstallationOutcome:
             result["operationId"] = from_union([from_str, from_none], self.operation_id)
         if self.reason is not None:
             result["reason"] = from_union([lambda x: to_enum(PluginInstallationFailureReason, x), from_none], self.reason)
+        if self.retry_after_seconds is not None:
+            result["retryAfterSeconds"] = from_union([from_int, from_none], self.retry_after_seconds)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -49041,6 +49783,10 @@ class ReviewClass:
     manifest_path: str | None = None
     """Relative path of the verified plugin manifest."""
 
+    mcp_servers: list[PluginInstallationMCPServerReview] | None = None
+    """MCP servers the verified files declare, exactly as an install of these files loads
+    them. Omitted when the plugin declares none.
+    """
     version: str | None = None
     """Manifest version when present."""
 
@@ -49062,8 +49808,9 @@ class ReviewClass:
         installation = from_union([SkillInstallationSummary.from_dict, from_none], obj.get("installation"))
         manifest_content = from_union([from_str, from_none], obj.get("manifestContent"))
         manifest_path = from_union([from_str, from_none], obj.get("manifestPath"))
+        mcp_servers = from_union([lambda x: from_list(PluginInstallationMCPServerReview.from_dict, x), from_none], obj.get("mcpServers"))
         version = from_union([from_str, from_none], obj.get("version"))
-        return ReviewClass(action, catalogue, files, total_bytes, description, entrypoint_content, entrypoint_path, installs_disabled, name, source, target, files_modified, installation, manifest_content, manifest_path, version)
+        return ReviewClass(action, catalogue, files, total_bytes, description, entrypoint_content, entrypoint_path, installs_disabled, name, source, target, files_modified, installation, manifest_content, manifest_path, mcp_servers, version)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -49093,6 +49840,8 @@ class ReviewClass:
             result["manifestContent"] = from_union([from_str, from_none], self.manifest_content)
         if self.manifest_path is not None:
             result["manifestPath"] = from_union([from_str, from_none], self.manifest_path)
+        if self.mcp_servers is not None:
+            result["mcpServers"] = from_union([lambda x: from_list(lambda x: to_class(PluginInstallationMCPServerReview, x), x), from_none], self.mcp_servers)
         if self.version is not None:
             result["version"] = from_union([from_str, from_none], self.version)
         return result
@@ -49246,6 +49995,10 @@ class InstallationReviewReview:
     manifest_path: str | None = None
     """Relative path of the verified plugin manifest."""
 
+    mcp_servers: list[PluginInstallationMCPServerReview] | None = None
+    """MCP servers the verified files declare, exactly as an install of these files loads
+    them. Omitted when the plugin declares none.
+    """
     version: str | None = None
     """Manifest version when present."""
 
@@ -49281,8 +50034,9 @@ class InstallationReviewReview:
         installation = from_union([SkillInstallationSummary.from_dict, from_none], obj.get("installation"))
         manifest_content = from_union([from_str, from_none], obj.get("manifestContent"))
         manifest_path = from_union([from_str, from_none], obj.get("manifestPath"))
+        mcp_servers = from_union([lambda x: from_list(PluginInstallationMCPServerReview.from_dict, x), from_none], obj.get("mcpServers"))
         version = from_union([from_str, from_none], obj.get("version"))
-        return InstallationReviewReview(action, catalogue, catalogue_trust, configuration_change, effective_configuration, identity, inputs, policy, provenance, secret_storage, selected_choice, supplied_secrets, target, installation_id, owned_secret_count, preserves_shared_authentication, restores_previous_configuration, description, entrypoint_content, entrypoint_path, files, installs_disabled, name, source, total_bytes, files_modified, installation, manifest_content, manifest_path, version)
+        return InstallationReviewReview(action, catalogue, catalogue_trust, configuration_change, effective_configuration, identity, inputs, policy, provenance, secret_storage, selected_choice, supplied_secrets, target, installation_id, owned_secret_count, preserves_shared_authentication, restores_previous_configuration, description, entrypoint_content, entrypoint_path, files, installs_disabled, name, source, total_bytes, files_modified, installation, manifest_content, manifest_path, mcp_servers, version)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -49343,6 +50097,8 @@ class InstallationReviewReview:
             result["manifestContent"] = from_union([from_str, from_none], self.manifest_content)
         if self.manifest_path is not None:
             result["manifestPath"] = from_union([from_str, from_none], self.manifest_path)
+        if self.mcp_servers is not None:
+            result["mcpServers"] = from_union([lambda x: from_list(lambda x: to_class(PluginInstallationMCPServerReview, x), x), from_none], self.mcp_servers)
         if self.version is not None:
             result["version"] = from_union([from_str, from_none], self.version)
         return result
@@ -49498,6 +50254,8 @@ class SkillInstallationOutcome:
 
     Bounded refusal reason.
     """
+    retry_after_seconds: int | None = None
+    """Whole seconds GitHub asked the caller to wait, present only with source-rate-limited."""
 
     @staticmethod
     def from_dict(obj: Any) -> 'SkillInstallationOutcome':
@@ -49507,7 +50265,8 @@ class SkillInstallationOutcome:
         installation_id = from_union([from_str, from_none], obj.get("installationId"))
         operation_id = from_union([from_str, from_none], obj.get("operationId"))
         reason = from_union([SkillInstallationFailureReason, from_none], obj.get("reason"))
-        return SkillInstallationOutcome(kind, installation, installation_id, operation_id, reason)
+        retry_after_seconds = from_union([from_int, from_none], obj.get("retryAfterSeconds"))
+        return SkillInstallationOutcome(kind, installation, installation_id, operation_id, reason, retry_after_seconds)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -49520,6 +50279,8 @@ class SkillInstallationOutcome:
             result["operationId"] = from_union([from_str, from_none], self.operation_id)
         if self.reason is not None:
             result["reason"] = from_union([lambda x: to_enum(SkillInstallationFailureReason, x), from_none], self.reason)
+        if self.retry_after_seconds is not None:
+            result["retryAfterSeconds"] = from_union([from_int, from_none], self.retry_after_seconds)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -50077,6 +50838,36 @@ class MCPInstallationManagementOutcome:
 
 # Experimental: this type is part of an experimental API and may change or be removed.
 @dataclass
+class CatalogFeedAvailableEntry:
+    """An entry whose resource resolves and is presented as the same candidate catalog.search
+    would return.
+    """
+    candidate: CatalogCandidate
+    """The entry's resource, with the same projection, installability, handle and display
+    metadata as a catalog.search candidate.
+    """
+    identifier: str
+    """The entry's resource identifier as saved in the feed."""
+
+    status: ClassVar[str] = "available"
+    """Discriminator: the entry's resource is available."""
+
+    @staticmethod
+    def from_dict(obj: Any) -> 'CatalogFeedAvailableEntry':
+        assert isinstance(obj, dict)
+        candidate = CatalogCandidate.from_dict(obj.get("candidate"))
+        identifier = from_str(obj.get("identifier"))
+        return CatalogFeedAvailableEntry(candidate, identifier)
+
+    def to_dict(self) -> dict:
+        result: dict = {}
+        result["candidate"] = to_class(CatalogCandidate, self.candidate)
+        result["identifier"] = from_str(self.identifier)
+        result["status"] = self.status
+        return result
+
+# Experimental: this type is part of an experimental API and may change or be removed.
+@dataclass
 class CatalogSearchSucceeded:
     """A completed catalog search containing inert candidate summaries. MCP server and AI skill
     variants carry a single-use handle; the Agent Plugin variant is handleless.
@@ -50170,13 +50961,17 @@ class PluginInstallationManagementOutcome:
     reason: PluginInstallationFailureReason | None = None
     """Bounded refusal reason."""
 
+    retry_after_seconds: int | None = None
+    """Whole seconds GitHub asked the caller to wait, present only with source-rate-limited."""
+
     @staticmethod
     def from_dict(obj: Any) -> 'PluginInstallationManagementOutcome':
         assert isinstance(obj, dict)
         kind = PluginInstallationManagementOutcomeKind(obj.get("kind"))
         plan = from_union([PluginInstallPlan.from_dict, from_none], obj.get("plan"))
         reason = from_union([PluginInstallationFailureReason, from_none], obj.get("reason"))
-        return PluginInstallationManagementOutcome(kind, plan, reason)
+        retry_after_seconds = from_union([from_int, from_none], obj.get("retryAfterSeconds"))
+        return PluginInstallationManagementOutcome(kind, plan, reason, retry_after_seconds)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -50185,6 +50980,8 @@ class PluginInstallationManagementOutcome:
             result["plan"] = from_union([lambda x: to_class(PluginInstallPlan, x), from_none], self.plan)
         if self.reason is not None:
             result["reason"] = from_union([lambda x: to_enum(PluginInstallationFailureReason, x), from_none], self.reason)
+        if self.retry_after_seconds is not None:
+            result["retryAfterSeconds"] = from_union([from_int, from_none], self.retry_after_seconds)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -50199,6 +50996,9 @@ class PluginInstallationResult:
     The request was rejected because a bounded field fell outside its permitted range or a
     required field was unusable. Pagination may also be rejected by the authority after a
     continuation request; repeat the search without page.
+
+    The runtime could not reach the catalog authority or retrieve a card. Covers being
+    offline as well as transport-level failure.
     """
     kind: CatalogReferenceInstallationResultKind
     """Discriminator: handled operation outcome.
@@ -50206,6 +51006,8 @@ class PluginInstallationResult:
     Discriminator: capability or protocol-version negotiation failed
 
     Discriminator: the request itself was invalid
+
+    Discriminator: the network operation failed
     """
     negotiated: CatalogNegotiatedContract | None = None
     """Capabilities honoured for this request."""
@@ -50223,9 +51025,11 @@ class PluginInstallationResult:
     minimum_supported_protocol_version: int | None = None
     """Lowest caller protocol version this runtime will serve."""
 
-    reason: CatalogNegotiationRefusedReason | None = None
-    """Whether the version or the capability set was the problem."""
+    reason: CatalogNeReason | None = None
+    """Whether the version or the capability set was the problem.
 
+    Categorised failure, low cardinality so it can be aggregated without carrying a URL.
+    """
     runtime_protocol_version: int | None = None
     """Protocol version of the runtime that refused the request."""
 
@@ -50243,6 +51047,14 @@ class PluginInstallationResult:
     field: CatalogInvalidRequestField | None = None
     """Which request field was rejected."""
 
+    retry_after_seconds: int | None = None
+    """Bounded cooldown in seconds before another catalog request should be attempted, when the
+    authority supplied a numeric Retry-After value or the runtime applied its documented
+    fallback.
+    """
+    status_code: int | None = None
+    """HTTP status code, when the failure was a rejected response."""
+
     @staticmethod
     def from_dict(obj: Any) -> 'PluginInstallationResult':
         assert isinstance(obj, dict)
@@ -50251,12 +51063,14 @@ class PluginInstallationResult:
         outcome = from_union([PluginInstallationOutcome.from_dict, from_none], obj.get("outcome"))
         message = from_union([from_str, from_none], obj.get("message"))
         minimum_supported_protocol_version = from_union([from_int, from_none], obj.get("minimumSupportedProtocolVersion"))
-        reason = from_union([CatalogNegotiationRefusedReason, from_none], obj.get("reason"))
+        reason = from_union([CatalogNeReason, from_none], obj.get("reason"))
         runtime_protocol_version = from_union([from_int, from_none], obj.get("runtimeProtocolVersion"))
         supported_capabilities = from_union([lambda x: from_list(from_str, x), from_none], obj.get("supportedCapabilities"))
         unsupported_capabilities = from_union([lambda x: from_list(from_str, x), from_none], obj.get("unsupportedCapabilities"))
         field = from_union([CatalogInvalidRequestField, from_none], obj.get("field"))
-        return PluginInstallationResult(kind, negotiated, outcome, message, minimum_supported_protocol_version, reason, runtime_protocol_version, supported_capabilities, unsupported_capabilities, field)
+        retry_after_seconds = from_union([from_int, from_none], obj.get("retryAfterSeconds"))
+        status_code = from_union([from_int, from_none], obj.get("statusCode"))
+        return PluginInstallationResult(kind, negotiated, outcome, message, minimum_supported_protocol_version, reason, runtime_protocol_version, supported_capabilities, unsupported_capabilities, field, retry_after_seconds, status_code)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -50270,7 +51084,7 @@ class PluginInstallationResult:
         if self.minimum_supported_protocol_version is not None:
             result["minimumSupportedProtocolVersion"] = from_union([from_int, from_none], self.minimum_supported_protocol_version)
         if self.reason is not None:
-            result["reason"] = from_union([lambda x: to_enum(CatalogNegotiationRefusedReason, x), from_none], self.reason)
+            result["reason"] = from_union([lambda x: to_enum(CatalogNeReason, x), from_none], self.reason)
         if self.runtime_protocol_version is not None:
             result["runtimeProtocolVersion"] = from_union([from_int, from_none], self.runtime_protocol_version)
         if self.supported_capabilities is not None:
@@ -50279,6 +51093,10 @@ class PluginInstallationResult:
             result["unsupportedCapabilities"] = from_union([lambda x: from_list(from_str, x), from_none], self.unsupported_capabilities)
         if self.field is not None:
             result["field"] = from_union([lambda x: to_enum(CatalogInvalidRequestField, x), from_none], self.field)
+        if self.retry_after_seconds is not None:
+            result["retryAfterSeconds"] = from_union([from_int, from_none], self.retry_after_seconds)
+        if self.status_code is not None:
+            result["statusCode"] = from_union([from_int, from_none], self.status_code)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -51017,6 +51835,9 @@ class SkillInstallationResult:
     The request was rejected because a bounded field fell outside its permitted range or a
     required field was unusable. Pagination may also be rejected by the authority after a
     continuation request; repeat the search without page.
+
+    The runtime could not reach the catalog authority or retrieve a card. Covers being
+    offline as well as transport-level failure.
     """
     kind: CatalogReferenceInstallationResultKind
     """Discriminator: handled operation outcome.
@@ -51024,6 +51845,8 @@ class SkillInstallationResult:
     Discriminator: capability or protocol-version negotiation failed
 
     Discriminator: the request itself was invalid
+
+    Discriminator: the network operation failed
     """
     negotiated: CatalogNegotiatedContract | None = None
     """Capabilities honoured for this request."""
@@ -51041,9 +51864,11 @@ class SkillInstallationResult:
     minimum_supported_protocol_version: int | None = None
     """Lowest caller protocol version this runtime will serve."""
 
-    reason: CatalogNegotiationRefusedReason | None = None
-    """Whether the version or the capability set was the problem."""
+    reason: CatalogNeReason | None = None
+    """Whether the version or the capability set was the problem.
 
+    Categorised failure, low cardinality so it can be aggregated without carrying a URL.
+    """
     runtime_protocol_version: int | None = None
     """Protocol version of the runtime that refused the request."""
 
@@ -51061,6 +51886,14 @@ class SkillInstallationResult:
     field: CatalogInvalidRequestField | None = None
     """Which request field was rejected."""
 
+    retry_after_seconds: int | None = None
+    """Bounded cooldown in seconds before another catalog request should be attempted, when the
+    authority supplied a numeric Retry-After value or the runtime applied its documented
+    fallback.
+    """
+    status_code: int | None = None
+    """HTTP status code, when the failure was a rejected response."""
+
     @staticmethod
     def from_dict(obj: Any) -> 'SkillInstallationResult':
         assert isinstance(obj, dict)
@@ -51069,12 +51902,14 @@ class SkillInstallationResult:
         outcome = from_union([SkillInstallationOutcome.from_dict, from_none], obj.get("outcome"))
         message = from_union([from_str, from_none], obj.get("message"))
         minimum_supported_protocol_version = from_union([from_int, from_none], obj.get("minimumSupportedProtocolVersion"))
-        reason = from_union([CatalogNegotiationRefusedReason, from_none], obj.get("reason"))
+        reason = from_union([CatalogNeReason, from_none], obj.get("reason"))
         runtime_protocol_version = from_union([from_int, from_none], obj.get("runtimeProtocolVersion"))
         supported_capabilities = from_union([lambda x: from_list(from_str, x), from_none], obj.get("supportedCapabilities"))
         unsupported_capabilities = from_union([lambda x: from_list(from_str, x), from_none], obj.get("unsupportedCapabilities"))
         field = from_union([CatalogInvalidRequestField, from_none], obj.get("field"))
-        return SkillInstallationResult(kind, negotiated, outcome, message, minimum_supported_protocol_version, reason, runtime_protocol_version, supported_capabilities, unsupported_capabilities, field)
+        retry_after_seconds = from_union([from_int, from_none], obj.get("retryAfterSeconds"))
+        status_code = from_union([from_int, from_none], obj.get("statusCode"))
+        return SkillInstallationResult(kind, negotiated, outcome, message, minimum_supported_protocol_version, reason, runtime_protocol_version, supported_capabilities, unsupported_capabilities, field, retry_after_seconds, status_code)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -51088,7 +51923,7 @@ class SkillInstallationResult:
         if self.minimum_supported_protocol_version is not None:
             result["minimumSupportedProtocolVersion"] = from_union([from_int, from_none], self.minimum_supported_protocol_version)
         if self.reason is not None:
-            result["reason"] = from_union([lambda x: to_enum(CatalogNegotiationRefusedReason, x), from_none], self.reason)
+            result["reason"] = from_union([lambda x: to_enum(CatalogNeReason, x), from_none], self.reason)
         if self.runtime_protocol_version is not None:
             result["runtimeProtocolVersion"] = from_union([from_int, from_none], self.runtime_protocol_version)
         if self.supported_capabilities is not None:
@@ -51097,6 +51932,10 @@ class SkillInstallationResult:
             result["unsupportedCapabilities"] = from_union([lambda x: from_list(from_str, x), from_none], self.unsupported_capabilities)
         if self.field is not None:
             result["field"] = from_union([lambda x: to_enum(CatalogInvalidRequestField, x), from_none], self.field)
+        if self.retry_after_seconds is not None:
+            result["retryAfterSeconds"] = from_union([from_int, from_none], self.retry_after_seconds)
+        if self.status_code is not None:
+            result["statusCode"] = from_union([from_int, from_none], self.status_code)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -51196,7 +52035,7 @@ class MCPInstallationManagementResult:
     required field was unusable. Pagination may also be rejected by the authority after a
     continuation request; repeat the search without page.
     """
-    kind: CatalogReferenceInstallationResultKind
+    kind: MCPInstallationManagementResultKind
     """A handled management outcome with an honoured contract.
 
     Discriminator: capability or protocol-version negotiation failed
@@ -51242,7 +52081,7 @@ class MCPInstallationManagementResult:
     @staticmethod
     def from_dict(obj: Any) -> 'MCPInstallationManagementResult':
         assert isinstance(obj, dict)
-        kind = CatalogReferenceInstallationResultKind(obj.get("kind"))
+        kind = MCPInstallationManagementResultKind(obj.get("kind"))
         negotiated = from_union([CatalogNegotiatedContract.from_dict, from_none], obj.get("negotiated"))
         outcome = from_union([MCPInstallationManagementOutcome.from_dict, from_none], obj.get("outcome"))
         message = from_union([from_str, from_none], obj.get("message"))
@@ -51256,7 +52095,7 @@ class MCPInstallationManagementResult:
 
     def to_dict(self) -> dict:
         result: dict = {}
-        result["kind"] = to_enum(CatalogReferenceInstallationResultKind, self.kind)
+        result["kind"] = to_enum(MCPInstallationManagementResultKind, self.kind)
         if self.negotiated is not None:
             result["negotiated"] = from_union([lambda x: to_class(CatalogNegotiatedContract, x), from_none], self.negotiated)
         if self.outcome is not None:
@@ -51289,6 +52128,9 @@ class PluginInstallationManagementResult:
     The request was rejected because a bounded field fell outside its permitted range or a
     required field was unusable. Pagination may also be rejected by the authority after a
     continuation request; repeat the search without page.
+
+    The runtime could not reach the catalog authority or retrieve a card. Covers being
+    offline as well as transport-level failure.
     """
     kind: CatalogReferenceInstallationResultKind
     """Discriminator: handled management outcome.
@@ -51296,6 +52138,8 @@ class PluginInstallationManagementResult:
     Discriminator: capability or protocol-version negotiation failed
 
     Discriminator: the request itself was invalid
+
+    Discriminator: the network operation failed
     """
     negotiated: CatalogNegotiatedContract | None = None
     """Capabilities honoured for this request."""
@@ -51313,9 +52157,11 @@ class PluginInstallationManagementResult:
     minimum_supported_protocol_version: int | None = None
     """Lowest caller protocol version this runtime will serve."""
 
-    reason: CatalogNegotiationRefusedReason | None = None
-    """Whether the version or the capability set was the problem."""
+    reason: CatalogNeReason | None = None
+    """Whether the version or the capability set was the problem.
 
+    Categorised failure, low cardinality so it can be aggregated without carrying a URL.
+    """
     runtime_protocol_version: int | None = None
     """Protocol version of the runtime that refused the request."""
 
@@ -51333,6 +52179,14 @@ class PluginInstallationManagementResult:
     field: CatalogInvalidRequestField | None = None
     """Which request field was rejected."""
 
+    retry_after_seconds: int | None = None
+    """Bounded cooldown in seconds before another catalog request should be attempted, when the
+    authority supplied a numeric Retry-After value or the runtime applied its documented
+    fallback.
+    """
+    status_code: int | None = None
+    """HTTP status code, when the failure was a rejected response."""
+
     @staticmethod
     def from_dict(obj: Any) -> 'PluginInstallationManagementResult':
         assert isinstance(obj, dict)
@@ -51341,12 +52195,14 @@ class PluginInstallationManagementResult:
         outcome = from_union([PluginInstallationManagementOutcome.from_dict, from_none], obj.get("outcome"))
         message = from_union([from_str, from_none], obj.get("message"))
         minimum_supported_protocol_version = from_union([from_int, from_none], obj.get("minimumSupportedProtocolVersion"))
-        reason = from_union([CatalogNegotiationRefusedReason, from_none], obj.get("reason"))
+        reason = from_union([CatalogNeReason, from_none], obj.get("reason"))
         runtime_protocol_version = from_union([from_int, from_none], obj.get("runtimeProtocolVersion"))
         supported_capabilities = from_union([lambda x: from_list(from_str, x), from_none], obj.get("supportedCapabilities"))
         unsupported_capabilities = from_union([lambda x: from_list(from_str, x), from_none], obj.get("unsupportedCapabilities"))
         field = from_union([CatalogInvalidRequestField, from_none], obj.get("field"))
-        return PluginInstallationManagementResult(kind, negotiated, outcome, message, minimum_supported_protocol_version, reason, runtime_protocol_version, supported_capabilities, unsupported_capabilities, field)
+        retry_after_seconds = from_union([from_int, from_none], obj.get("retryAfterSeconds"))
+        status_code = from_union([from_int, from_none], obj.get("statusCode"))
+        return PluginInstallationManagementResult(kind, negotiated, outcome, message, minimum_supported_protocol_version, reason, runtime_protocol_version, supported_capabilities, unsupported_capabilities, field, retry_after_seconds, status_code)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -51360,7 +52216,7 @@ class PluginInstallationManagementResult:
         if self.minimum_supported_protocol_version is not None:
             result["minimumSupportedProtocolVersion"] = from_union([from_int, from_none], self.minimum_supported_protocol_version)
         if self.reason is not None:
-            result["reason"] = from_union([lambda x: to_enum(CatalogNegotiationRefusedReason, x), from_none], self.reason)
+            result["reason"] = from_union([lambda x: to_enum(CatalogNeReason, x), from_none], self.reason)
         if self.runtime_protocol_version is not None:
             result["runtimeProtocolVersion"] = from_union([from_int, from_none], self.runtime_protocol_version)
         if self.supported_capabilities is not None:
@@ -51369,6 +52225,10 @@ class PluginInstallationManagementResult:
             result["unsupportedCapabilities"] = from_union([lambda x: from_list(from_str, x), from_none], self.unsupported_capabilities)
         if self.field is not None:
             result["field"] = from_union([lambda x: to_enum(CatalogInvalidRequestField, x), from_none], self.field)
+        if self.retry_after_seconds is not None:
+            result["retryAfterSeconds"] = from_union([from_int, from_none], self.retry_after_seconds)
+        if self.status_code is not None:
+            result["statusCode"] = from_union([from_int, from_none], self.status_code)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -51396,13 +52256,17 @@ class CatalogReferenceInstallationOutcome:
     reason: CatalogReferenceInstallationFailureReason | None = None
     """Bounded refusal reason."""
 
+    retry_after_seconds: int | None = None
+    """Whole seconds GitHub asked the caller to wait, present only with source-rate-limited."""
+
     @staticmethod
     def from_dict(obj: Any) -> 'CatalogReferenceInstallationOutcome':
         assert isinstance(obj, dict)
         kind = CatalogReferenceInstallationOutcomeKind(obj.get("kind"))
         plan = from_union([InstallPlan.from_dict, from_none], obj.get("plan"))
         reason = from_union([CatalogReferenceInstallationFailureReason, from_none], obj.get("reason"))
-        return CatalogReferenceInstallationOutcome(kind, plan, reason)
+        retry_after_seconds = from_union([from_int, from_none], obj.get("retryAfterSeconds"))
+        return CatalogReferenceInstallationOutcome(kind, plan, reason, retry_after_seconds)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -51411,6 +52275,8 @@ class CatalogReferenceInstallationOutcome:
             result["plan"] = from_union([lambda x: to_class(InstallPlan, x), from_none], self.plan)
         if self.reason is not None:
             result["reason"] = from_union([lambda x: to_enum(CatalogReferenceInstallationFailureReason, x), from_none], self.reason)
+        if self.retry_after_seconds is not None:
+            result["retryAfterSeconds"] = from_union([from_int, from_none], self.retry_after_seconds)
         return result
 
 @dataclass
@@ -51514,6 +52380,9 @@ class SkillInstallationManagementOutcome:
     installation: SkillInstallationSummary | None = None
     """Updated installation summary."""
 
+    retry_after_seconds: int | None = None
+    """Whole seconds GitHub asked the caller to wait, present only with source-rate-limited."""
+
     @staticmethod
     def from_dict(obj: Any) -> 'SkillInstallationManagementOutcome':
         assert isinstance(obj, dict)
@@ -51525,7 +52394,8 @@ class SkillInstallationManagementOutcome:
         operation = from_union([SkillInstallationOperationStatus.from_dict, from_none], obj.get("operation"))
         diagnostics = from_union([lambda x: from_list(from_str, x), from_none], obj.get("diagnostics"))
         installation = from_union([SkillInstallationSummary.from_dict, from_none], obj.get("installation"))
-        return SkillInstallationManagementOutcome(kind, plan, installations, operation_id, reason, operation, diagnostics, installation)
+        retry_after_seconds = from_union([from_int, from_none], obj.get("retryAfterSeconds"))
+        return SkillInstallationManagementOutcome(kind, plan, installations, operation_id, reason, operation, diagnostics, installation, retry_after_seconds)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -51544,6 +52414,8 @@ class SkillInstallationManagementOutcome:
             result["diagnostics"] = from_union([lambda x: from_list(from_str, x), from_none], self.diagnostics)
         if self.installation is not None:
             result["installation"] = from_union([lambda x: to_class(SkillInstallationSummary, x), from_none], self.installation)
+        if self.retry_after_seconds is not None:
+            result["retryAfterSeconds"] = from_union([from_int, from_none], self.retry_after_seconds)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -51558,6 +52430,9 @@ class CatalogReferenceInstallationResult:
     The request was rejected because a bounded field fell outside its permitted range or a
     required field was unusable. Pagination may also be rejected by the authority after a
     continuation request; repeat the search without page.
+
+    The runtime could not reach the catalog authority or retrieve a card. Covers being
+    offline as well as transport-level failure.
     """
     kind: CatalogReferenceInstallationResultKind
     """Discriminator: handled planning outcome.
@@ -51565,6 +52440,8 @@ class CatalogReferenceInstallationResult:
     Discriminator: capability or protocol-version negotiation failed
 
     Discriminator: the request itself was invalid
+
+    Discriminator: the network operation failed
     """
     negotiated: CatalogNegotiatedContract | None = None
     """Capabilities honoured for this request."""
@@ -51582,9 +52459,11 @@ class CatalogReferenceInstallationResult:
     minimum_supported_protocol_version: int | None = None
     """Lowest caller protocol version this runtime will serve."""
 
-    reason: CatalogNegotiationRefusedReason | None = None
-    """Whether the version or the capability set was the problem."""
+    reason: CatalogNeReason | None = None
+    """Whether the version or the capability set was the problem.
 
+    Categorised failure, low cardinality so it can be aggregated without carrying a URL.
+    """
     runtime_protocol_version: int | None = None
     """Protocol version of the runtime that refused the request."""
 
@@ -51602,6 +52481,14 @@ class CatalogReferenceInstallationResult:
     field: CatalogInvalidRequestField | None = None
     """Which request field was rejected."""
 
+    retry_after_seconds: int | None = None
+    """Bounded cooldown in seconds before another catalog request should be attempted, when the
+    authority supplied a numeric Retry-After value or the runtime applied its documented
+    fallback.
+    """
+    status_code: int | None = None
+    """HTTP status code, when the failure was a rejected response."""
+
     @staticmethod
     def from_dict(obj: Any) -> 'CatalogReferenceInstallationResult':
         assert isinstance(obj, dict)
@@ -51610,12 +52497,14 @@ class CatalogReferenceInstallationResult:
         outcome = from_union([CatalogReferenceInstallationOutcome.from_dict, from_none], obj.get("outcome"))
         message = from_union([from_str, from_none], obj.get("message"))
         minimum_supported_protocol_version = from_union([from_int, from_none], obj.get("minimumSupportedProtocolVersion"))
-        reason = from_union([CatalogNegotiationRefusedReason, from_none], obj.get("reason"))
+        reason = from_union([CatalogNeReason, from_none], obj.get("reason"))
         runtime_protocol_version = from_union([from_int, from_none], obj.get("runtimeProtocolVersion"))
         supported_capabilities = from_union([lambda x: from_list(from_str, x), from_none], obj.get("supportedCapabilities"))
         unsupported_capabilities = from_union([lambda x: from_list(from_str, x), from_none], obj.get("unsupportedCapabilities"))
         field = from_union([CatalogInvalidRequestField, from_none], obj.get("field"))
-        return CatalogReferenceInstallationResult(kind, negotiated, outcome, message, minimum_supported_protocol_version, reason, runtime_protocol_version, supported_capabilities, unsupported_capabilities, field)
+        retry_after_seconds = from_union([from_int, from_none], obj.get("retryAfterSeconds"))
+        status_code = from_union([from_int, from_none], obj.get("statusCode"))
+        return CatalogReferenceInstallationResult(kind, negotiated, outcome, message, minimum_supported_protocol_version, reason, runtime_protocol_version, supported_capabilities, unsupported_capabilities, field, retry_after_seconds, status_code)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -51629,7 +52518,7 @@ class CatalogReferenceInstallationResult:
         if self.minimum_supported_protocol_version is not None:
             result["minimumSupportedProtocolVersion"] = from_union([from_int, from_none], self.minimum_supported_protocol_version)
         if self.reason is not None:
-            result["reason"] = from_union([lambda x: to_enum(CatalogNegotiationRefusedReason, x), from_none], self.reason)
+            result["reason"] = from_union([lambda x: to_enum(CatalogNeReason, x), from_none], self.reason)
         if self.runtime_protocol_version is not None:
             result["runtimeProtocolVersion"] = from_union([from_int, from_none], self.runtime_protocol_version)
         if self.supported_capabilities is not None:
@@ -51638,6 +52527,10 @@ class CatalogReferenceInstallationResult:
             result["unsupportedCapabilities"] = from_union([lambda x: from_list(from_str, x), from_none], self.unsupported_capabilities)
         if self.field is not None:
             result["field"] = from_union([lambda x: to_enum(CatalogInvalidRequestField, x), from_none], self.field)
+        if self.retry_after_seconds is not None:
+            result["retryAfterSeconds"] = from_union([from_int, from_none], self.retry_after_seconds)
+        if self.status_code is not None:
+            result["statusCode"] = from_union([from_int, from_none], self.status_code)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -51651,6 +52544,9 @@ class SkillInstallationManagementResult:
     The request was rejected because a bounded field fell outside its permitted range or a
     required field was unusable. Pagination may also be rejected by the authority after a
     continuation request; repeat the search without page.
+
+    The runtime could not reach the catalog authority or retrieve a card. Covers being
+    offline as well as transport-level failure.
     """
     kind: CatalogReferenceInstallationResultKind
     """Discriminator: handled management outcome.
@@ -51658,6 +52554,8 @@ class SkillInstallationManagementResult:
     Discriminator: capability or protocol-version negotiation failed
 
     Discriminator: the request itself was invalid
+
+    Discriminator: the network operation failed
     """
     negotiated: CatalogNegotiatedContract | None = None
     """Capabilities honoured for this request."""
@@ -51675,9 +52573,11 @@ class SkillInstallationManagementResult:
     minimum_supported_protocol_version: int | None = None
     """Lowest caller protocol version this runtime will serve."""
 
-    reason: CatalogNegotiationRefusedReason | None = None
-    """Whether the version or the capability set was the problem."""
+    reason: CatalogNeReason | None = None
+    """Whether the version or the capability set was the problem.
 
+    Categorised failure, low cardinality so it can be aggregated without carrying a URL.
+    """
     runtime_protocol_version: int | None = None
     """Protocol version of the runtime that refused the request."""
 
@@ -51695,6 +52595,14 @@ class SkillInstallationManagementResult:
     field: CatalogInvalidRequestField | None = None
     """Which request field was rejected."""
 
+    retry_after_seconds: int | None = None
+    """Bounded cooldown in seconds before another catalog request should be attempted, when the
+    authority supplied a numeric Retry-After value or the runtime applied its documented
+    fallback.
+    """
+    status_code: int | None = None
+    """HTTP status code, when the failure was a rejected response."""
+
     @staticmethod
     def from_dict(obj: Any) -> 'SkillInstallationManagementResult':
         assert isinstance(obj, dict)
@@ -51703,12 +52611,14 @@ class SkillInstallationManagementResult:
         outcome = from_union([SkillInstallationManagementOutcome.from_dict, from_none], obj.get("outcome"))
         message = from_union([from_str, from_none], obj.get("message"))
         minimum_supported_protocol_version = from_union([from_int, from_none], obj.get("minimumSupportedProtocolVersion"))
-        reason = from_union([CatalogNegotiationRefusedReason, from_none], obj.get("reason"))
+        reason = from_union([CatalogNeReason, from_none], obj.get("reason"))
         runtime_protocol_version = from_union([from_int, from_none], obj.get("runtimeProtocolVersion"))
         supported_capabilities = from_union([lambda x: from_list(from_str, x), from_none], obj.get("supportedCapabilities"))
         unsupported_capabilities = from_union([lambda x: from_list(from_str, x), from_none], obj.get("unsupportedCapabilities"))
         field = from_union([CatalogInvalidRequestField, from_none], obj.get("field"))
-        return SkillInstallationManagementResult(kind, negotiated, outcome, message, minimum_supported_protocol_version, reason, runtime_protocol_version, supported_capabilities, unsupported_capabilities, field)
+        retry_after_seconds = from_union([from_int, from_none], obj.get("retryAfterSeconds"))
+        status_code = from_union([from_int, from_none], obj.get("statusCode"))
+        return SkillInstallationManagementResult(kind, negotiated, outcome, message, minimum_supported_protocol_version, reason, runtime_protocol_version, supported_capabilities, unsupported_capabilities, field, retry_after_seconds, status_code)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -51722,7 +52632,7 @@ class SkillInstallationManagementResult:
         if self.minimum_supported_protocol_version is not None:
             result["minimumSupportedProtocolVersion"] = from_union([from_int, from_none], self.minimum_supported_protocol_version)
         if self.reason is not None:
-            result["reason"] = from_union([lambda x: to_enum(CatalogNegotiationRefusedReason, x), from_none], self.reason)
+            result["reason"] = from_union([lambda x: to_enum(CatalogNeReason, x), from_none], self.reason)
         if self.runtime_protocol_version is not None:
             result["runtimeProtocolVersion"] = from_union([from_int, from_none], self.runtime_protocol_version)
         if self.supported_capabilities is not None:
@@ -51731,6 +52641,10 @@ class SkillInstallationManagementResult:
             result["unsupportedCapabilities"] = from_union([lambda x: from_list(from_str, x), from_none], self.unsupported_capabilities)
         if self.field is not None:
             result["field"] = from_union([lambda x: to_enum(CatalogInvalidRequestField, x), from_none], self.field)
+        if self.retry_after_seconds is not None:
+            result["retryAfterSeconds"] = from_union([from_int, from_none], self.retry_after_seconds)
+        if self.status_code is not None:
+            result["statusCode"] = from_union([from_int, from_none], self.status_code)
         return result
 
 # Experimental: this type is part of an experimental API and may change or be removed.
@@ -57023,6 +57937,19 @@ class RPC:
     catalog_client_contract: CatalogClientContract
     catalog_contract_violation_error: CatalogContractViolationError
     catalog_contract_violation_reason: CatalogContractViolationReason
+    catalog_feed_available_entry: CatalogFeedAvailableEntry
+    catalog_feed_available_status: CatalogFeedAvailableStatus
+    catalog_feed_entry: CatalogFeedEntry
+    catalog_feed_filtered_entry: CatalogFeedFilteredEntry
+    catalog_feed_filtered_status: CatalogFeedFilteredStatus
+    catalog_feed_unavailable_entry: CatalogFeedUnavailableEntry
+    catalog_feed_unavailable_reason: CatalogFeedUnavailableReason
+    catalog_feed_unavailable_status: CatalogFeedUnavailableStatus
+    catalog_generated_feed_description: CatalogGeneratedFeedDescription
+    catalog_get_generated_feed_request: CatalogGetGeneratedFeedRequest
+    catalog_get_generated_feed_succeeded: CatalogGetGeneratedFeedSucceeded
+    catalog_get_saved_feed_request: CatalogGetSavedFeedRequest
+    catalog_get_saved_feed_succeeded: CatalogGetSavedFeedSucceeded
     catalog_handle_rejected_error: CatalogHandleRejectedError
     catalog_handle_rejection_reason: CatalogHandleRejectionReason
     catalog_handle_type: CatalogHandleType
@@ -57049,8 +57976,11 @@ class RPC:
     catalog_reference_installation_failure_reason: CatalogReferenceInstallationFailureReason
     catalog_reference_installation_outcome: CatalogReferenceInstallationOutcome
     catalog_reference_installation_result: CatalogReferenceInstallationResult
+    catalog_resource_generated_feed_result: CatalogResourceGeneratedFeedResult
     catalog_resource_identity: str
+    catalog_resource_saved_feed_result: CatalogResourceSavedFeedResult
     catalog_resource_version: str
+    catalog_saved_feed_description: CatalogSavedFeedDescription
     catalog_search_page: CatalogSearchPage
     catalog_search_pagination: CatalogSearchPagination
     catalog_search_request: CatalogSearchRequest
@@ -57360,6 +58290,7 @@ class RPC:
     installed_plugin_source_git_hub: InstalledPluginSourceGitHub
     installed_plugin_source_local: InstalledPluginSourceLocal
     installed_plugin_source_url: InstalledPluginSourceURL
+    installed_plugin_verified_source: InstalledPluginVerifiedSource
     instruction_discovery_path: InstructionDiscoveryPath
     instruction_discovery_path_kind: DebugCollectLogsEntryKind
     instruction_discovery_path_list: InstructionDiscoveryPathList
@@ -57394,6 +58325,7 @@ class RPC:
     log_request: LogRequest
     log_result: LogResult
     lsp_initialize_request: LspInitializeRequest
+    managed_ensemble_tier: ManagedEnsembleTier
     managed_mcp_server_config: ManagedMCPServerConfig
     managed_permission_evaluation: ManagedPermissionEvaluation
     managed_permission_operation: ManagedPermissionOperation
@@ -57898,6 +58830,8 @@ class RPC:
     plugin_installation_location: PluginInstallationLocation
     plugin_installation_management_outcome: PluginInstallationManagementOutcome
     plugin_installation_management_result: PluginInstallationManagementResult
+    plugin_installation_mcp_server_review: PluginInstallationMCPServerReview
+    plugin_installation_mcp_transport: PluginInstallationMCPTransport
     plugin_installation_outcome: PluginInstallationOutcome
     plugin_installation_result: PluginInstallationResult
     plugin_installation_review: PluginInstallationReview
@@ -58435,10 +59369,13 @@ class RPC:
     tasks_get_progress_result: TasksGetProgressResult
     task_shell_info: TaskShellInfo
     task_shell_info_attachment_mode: TaskShellInfoAttachmentMode
+    task_shell_output_exit: TaskShellOutputExit
     task_shell_progress: TaskShellProgress
     tasks_promote_current_to_background_result: TasksPromoteCurrentToBackgroundResult
     tasks_promote_to_background_request: TasksPromoteToBackgroundRequest
     tasks_promote_to_background_result: TasksPromoteToBackgroundResult
+    tasks_read_output_request: TasksReadOutputRequest
+    tasks_read_output_result: TasksReadOutputResult
     tasks_refresh_result: TasksRefreshResult
     tasks_register_request: TasksRegisterRequest
     tasks_register_result: TasksRegisterResult
@@ -58829,6 +59766,19 @@ class RPC:
         catalog_client_contract = CatalogClientContract.from_dict(obj.get("CatalogClientContract"))
         catalog_contract_violation_error = CatalogContractViolationError.from_dict(obj.get("CatalogContractViolationError"))
         catalog_contract_violation_reason = CatalogContractViolationReason(obj.get("CatalogContractViolationReason"))
+        catalog_feed_available_entry = CatalogFeedAvailableEntry.from_dict(obj.get("CatalogFeedAvailableEntry"))
+        catalog_feed_available_status = CatalogFeedAvailableStatus(obj.get("CatalogFeedAvailableStatus"))
+        catalog_feed_entry = _load_CatalogFeedEntry(obj.get("CatalogFeedEntry"))
+        catalog_feed_filtered_entry = CatalogFeedFilteredEntry.from_dict(obj.get("CatalogFeedFilteredEntry"))
+        catalog_feed_filtered_status = CatalogFeedFilteredStatus(obj.get("CatalogFeedFilteredStatus"))
+        catalog_feed_unavailable_entry = CatalogFeedUnavailableEntry.from_dict(obj.get("CatalogFeedUnavailableEntry"))
+        catalog_feed_unavailable_reason = CatalogFeedUnavailableReason(obj.get("CatalogFeedUnavailableReason"))
+        catalog_feed_unavailable_status = CatalogFeedUnavailableStatus(obj.get("CatalogFeedUnavailableStatus"))
+        catalog_generated_feed_description = CatalogGeneratedFeedDescription.from_dict(obj.get("CatalogGeneratedFeedDescription"))
+        catalog_get_generated_feed_request = CatalogGetGeneratedFeedRequest.from_dict(obj.get("CatalogGetGeneratedFeedRequest"))
+        catalog_get_generated_feed_succeeded = CatalogGetGeneratedFeedSucceeded.from_dict(obj.get("CatalogGetGeneratedFeedSucceeded"))
+        catalog_get_saved_feed_request = CatalogGetSavedFeedRequest.from_dict(obj.get("CatalogGetSavedFeedRequest"))
+        catalog_get_saved_feed_succeeded = CatalogGetSavedFeedSucceeded.from_dict(obj.get("CatalogGetSavedFeedSucceeded"))
         catalog_handle_rejected_error = CatalogHandleRejectedError.from_dict(obj.get("CatalogHandleRejectedError"))
         catalog_handle_rejection_reason = CatalogHandleRejectionReason(obj.get("CatalogHandleRejectionReason"))
         catalog_handle_type = CatalogHandleType(obj.get("CatalogHandleType"))
@@ -58855,8 +59805,11 @@ class RPC:
         catalog_reference_installation_failure_reason = CatalogReferenceInstallationFailureReason(obj.get("CatalogReferenceInstallationFailureReason"))
         catalog_reference_installation_outcome = CatalogReferenceInstallationOutcome.from_dict(obj.get("CatalogReferenceInstallationOutcome"))
         catalog_reference_installation_result = CatalogReferenceInstallationResult.from_dict(obj.get("CatalogReferenceInstallationResult"))
+        catalog_resource_generated_feed_result = _load_CatalogResourceGeneratedFeedResult(obj.get("CatalogResourceGeneratedFeedResult"))
         catalog_resource_identity = from_str(obj.get("CatalogResourceIdentity"))
+        catalog_resource_saved_feed_result = _load_CatalogResourceSavedFeedResult(obj.get("CatalogResourceSavedFeedResult"))
         catalog_resource_version = from_str(obj.get("CatalogResourceVersion"))
+        catalog_saved_feed_description = CatalogSavedFeedDescription.from_dict(obj.get("CatalogSavedFeedDescription"))
         catalog_search_page = CatalogSearchPage.from_dict(obj.get("CatalogSearchPage"))
         catalog_search_pagination = CatalogSearchPagination.from_dict(obj.get("CatalogSearchPagination"))
         catalog_search_request = CatalogSearchRequest.from_dict(obj.get("CatalogSearchRequest"))
@@ -59166,6 +60119,7 @@ class RPC:
         installed_plugin_source_git_hub = InstalledPluginSourceGitHub.from_dict(obj.get("InstalledPluginSourceGitHub"))
         installed_plugin_source_local = InstalledPluginSourceLocal.from_dict(obj.get("InstalledPluginSourceLocal"))
         installed_plugin_source_url = InstalledPluginSourceURL.from_dict(obj.get("InstalledPluginSourceUrl"))
+        installed_plugin_verified_source = InstalledPluginVerifiedSource.from_dict(obj.get("InstalledPluginVerifiedSource"))
         instruction_discovery_path = InstructionDiscoveryPath.from_dict(obj.get("InstructionDiscoveryPath"))
         instruction_discovery_path_kind = DebugCollectLogsEntryKind(obj.get("InstructionDiscoveryPathKind"))
         instruction_discovery_path_list = InstructionDiscoveryPathList.from_dict(obj.get("InstructionDiscoveryPathList"))
@@ -59200,6 +60154,7 @@ class RPC:
         log_request = LogRequest.from_dict(obj.get("LogRequest"))
         log_result = LogResult.from_dict(obj.get("LogResult"))
         lsp_initialize_request = LspInitializeRequest.from_dict(obj.get("LspInitializeRequest"))
+        managed_ensemble_tier = ManagedEnsembleTier(obj.get("ManagedEnsembleTier"))
         managed_mcp_server_config = ManagedMCPServerConfig.from_dict(obj.get("ManagedMcpServerConfig"))
         managed_permission_evaluation = ManagedPermissionEvaluation.from_dict(obj.get("ManagedPermissionEvaluation"))
         managed_permission_operation = ManagedPermissionOperation.from_dict(obj.get("ManagedPermissionOperation"))
@@ -59704,6 +60659,8 @@ class RPC:
         plugin_installation_location = PluginInstallationLocation.from_dict(obj.get("PluginInstallationLocation"))
         plugin_installation_management_outcome = PluginInstallationManagementOutcome.from_dict(obj.get("PluginInstallationManagementOutcome"))
         plugin_installation_management_result = PluginInstallationManagementResult.from_dict(obj.get("PluginInstallationManagementResult"))
+        plugin_installation_mcp_server_review = PluginInstallationMCPServerReview.from_dict(obj.get("PluginInstallationMcpServerReview"))
+        plugin_installation_mcp_transport = PluginInstallationMCPTransport(obj.get("PluginInstallationMcpTransport"))
         plugin_installation_outcome = PluginInstallationOutcome.from_dict(obj.get("PluginInstallationOutcome"))
         plugin_installation_result = PluginInstallationResult.from_dict(obj.get("PluginInstallationResult"))
         plugin_installation_review = PluginInstallationReview.from_dict(obj.get("PluginInstallationReview"))
@@ -60241,10 +61198,13 @@ class RPC:
         tasks_get_progress_result = TasksGetProgressResult.from_dict(obj.get("TasksGetProgressResult"))
         task_shell_info = TaskShellInfo.from_dict(obj.get("TaskShellInfo"))
         task_shell_info_attachment_mode = TaskShellInfoAttachmentMode(obj.get("TaskShellInfoAttachmentMode"))
+        task_shell_output_exit = TaskShellOutputExit.from_dict(obj.get("TaskShellOutputExit"))
         task_shell_progress = TaskShellProgress.from_dict(obj.get("TaskShellProgress"))
         tasks_promote_current_to_background_result = TasksPromoteCurrentToBackgroundResult.from_dict(obj.get("TasksPromoteCurrentToBackgroundResult"))
         tasks_promote_to_background_request = TasksPromoteToBackgroundRequest.from_dict(obj.get("TasksPromoteToBackgroundRequest"))
         tasks_promote_to_background_result = TasksPromoteToBackgroundResult.from_dict(obj.get("TasksPromoteToBackgroundResult"))
+        tasks_read_output_request = TasksReadOutputRequest.from_dict(obj.get("TasksReadOutputRequest"))
+        tasks_read_output_result = TasksReadOutputResult.from_dict(obj.get("TasksReadOutputResult"))
         tasks_refresh_result = TasksRefreshResult.from_dict(obj.get("TasksRefreshResult"))
         tasks_register_request = TasksRegisterRequest.from_dict(obj.get("TasksRegisterRequest"))
         tasks_register_result = TasksRegisterResult.from_dict(obj.get("TasksRegisterResult"))
@@ -60467,7 +61427,7 @@ class RPC:
         subagent_settings = from_union([SubagentSettings.from_dict, from_none], obj.get("SubagentSettings"))
         task_progress = from_union([TaskProgress.from_dict, from_none], obj.get("TaskProgress"))
         workspace_summary = from_union([WorkspaceSummary.from_dict, from_none], obj.get("WorkspaceSummary"))
-        return RPC(abort_request, abort_result, accepted_enqueue_command_result, account_all_users, account_auth_info, account_describe_auth_info_request, account_describe_auth_info_result, account_get_all_users_result, account_get_current_auth_result, account_get_gist_support_request, account_get_gist_support_result, account_get_quota_request, account_get_quota_result, account_get_token_env_var_result, account_get_web_url_request, account_get_web_url_result, account_kind, account_login_request, account_login_result, account_logout_request, account_logout_result, account_quota_snapshot, accounts_enumerate_request, accounts_get_request, accounts_set_request, account_status, adaptive_thinking_support, agent_discovery_path, agent_discovery_path_list, agent_discovery_path_scope, agent_get_current_result, agent_info, agent_info_source, agent_list, agent_list_request, agent_registry_live_target_entry, agent_registry_live_target_entry_attention_kind, agent_registry_live_target_entry_kind, agent_registry_live_target_entry_last_terminal_event, agent_registry_live_target_entry_status, agent_registry_log_capture, agent_registry_log_capture_open_error_reason, agent_registry_spawn_error, agent_registry_spawn_permission_mode, agent_registry_spawn_registry_timeout, agent_registry_spawn_request, agent_registry_spawn_result, agent_registry_spawn_spawned, agent_registry_spawn_validation_error, agent_registry_spawn_validation_error_field, agent_registry_spawn_validation_error_reason, agent_reload_result, agents_custom_agent_initial_model_decision_params, agents_custom_agent_initial_model_decision_result, agents_discover_request, agent_select_request, agent_select_result, agent_set_prompt_request, agents_get_available_builtins_request, agents_get_available_builtins_result, agents_get_builtin_definition_request, agents_get_builtin_definition_result, agents_get_builtin_listing_definition_request, agents_get_builtin_listing_definition_result, agents_get_builtins_result, agents_get_discovery_paths_request, api_key_auth_info, auth_enumerate_query, auth_enumerate_value, auth_enumerate_value_accounts, auth_enumerate_value_login_accounts, auth_enumerate_value_providers, auth_identity, auth_identity_metadata, auth_info, auth_info_type, auth_login_account, auth_login_advance_request, auth_login_begin_request, auth_login_begun, auth_login_cancel_request, auth_login_identity, auth_login_mode, auth_login_result_dto, auth_login_result_status, auth_login_step, auth_read_query, auth_read_value, auth_status_dto, auth_validation_error, auth_validation_errors, auth_write, auth_write_result, autopilot_objective_credit_limit, autopilot_objective_get_state_result, autopilot_objective_state, autopilot_objective_status, auto_tier_descriptor, auto_tier_metadata, auto_tier_status, builtin_agent_summary, built_in_model_catalog, built_in_model_catalog_entry, builtin_tool_descriptor, builtin_tool_format, builtin_tool_format_type, builtin_tool_input_schema, builtin_tool_input_schema_type, builtin_tool_safe_for_telemetry, builtin_tool_safe_telemetry_fields, cancel_user_requested_shell_command_result, canvas_action, canvas_action_invoke_request, canvas_action_invoke_result, canvas_close_request, canvas_host_context, canvas_host_context_capabilities, canvas_json_schema, canvas_list, canvas_list_open_result, canvas_open_request, canvas_provider_close_request, canvas_provider_invoke_action_request, canvas_provider_open_request, canvas_provider_open_result, canvas_provider_register_request, canvas_provider_unregister_request, canvas_session_context, capi_session_options, card_digest, card_digest_algorithm, card_digest_value, catalog_agent_plugin_candidate, catalog_agent_plugin_candidate_kind, catalog_agent_plugin_candidate_provenance, catalog_agent_plugin_compatibility_tag, catalog_agent_plugin_component, catalog_agent_plugin_installability, catalog_agent_plugin_install_plan, catalog_agent_plugin_install_source, catalog_agent_plugin_marketplace_source, catalog_agent_plugin_marketplace_source_kind, catalog_agent_plugin_materialization_source, catalog_agent_plugin_materialization_source_kind, catalog_agent_plugin_media_type, catalog_agent_plugin_repository_source, catalog_agent_plugin_repository_source_kind, catalog_ai_skill_candidate, catalog_ai_skill_candidate_kind, catalog_ai_skill_candidate_provenance, catalog_ai_skill_installability, catalog_ai_skill_media_type, catalog_authentication_required_error, catalog_authentication_required_reason, catalog_candidate, catalog_candidate_kind, catalog_candidate_source, catalog_candidate_source_embedded, catalog_candidate_source_url, catalog_capability, catalog_capability_id, catalog_client_contract, catalog_contract_violation_error, catalog_contract_violation_reason, catalog_handle_rejected_error, catalog_handle_rejection_reason, catalog_handle_type, catalog_invalid_request_error, catalog_invalid_request_field, catalog_malformed_card_error, catalog_malformed_card_reason, catalog_materialization_reference, catalog_mcp_server_candidate, catalog_mcp_server_candidate_kind, catalog_mcp_server_candidate_provenance, catalog_mcp_server_installability, catalog_media_type, catalog_negotiated_contract, catalog_negotiation_refused_error, catalog_negotiation_refused_reason, catalog_network_failure_error, catalog_network_failure_reason, catalog_not_installable_error, catalog_not_installable_reason, catalog_plan_install_from_reference_request, catalog_plugin_repository_source, catalog_policy_rejected_error, catalog_reference_installation_failure_reason, catalog_reference_installation_outcome, catalog_reference_installation_result, catalog_resource_identity, catalog_resource_version, catalog_search_page, catalog_search_pagination, catalog_search_request, catalog_search_result, catalog_search_succeeded, catalog_search_total_count_relation, catalog_selection_cancelled, catalog_selection_decision, catalog_selection_declined, catalog_selection_foreign, catalog_selection_invalid, catalog_selection_replayed, catalog_selection_request, catalog_selection_result, catalog_selection_selected, catalog_selection_stale, catalog_selection_timed_out, catalog_selection_wrong_kind, catalog_trust_eligibility, catalog_trust_provenance, catalog_trust_snapshot, catalog_trust_snapshot_absent, catalog_trust_snapshot_absent_status, catalog_trust_snapshot_current, catalog_trust_snapshot_current_status, catalog_trust_snapshot_downgraded, catalog_trust_snapshot_downgraded_status, catalog_trust_snapshot_malformed, catalog_trust_snapshot_malformed_status, catalog_trust_snapshot_revoked, catalog_trust_snapshot_revoked_status, catalog_trust_snapshot_schema_version, catalog_trust_snapshot_stale, catalog_trust_snapshot_stale_status, catalog_trust_snapshot_unsupported, catalog_trust_snapshot_unsupported_status, catalog_trust_source, catalog_trust_tier, catalog_unavailable_error, catalog_unavailable_reason, catalog_unavailable_transport_error, catalog_unavailable_transport_reason, catalog_unsafe_retrieval_error, catalog_unsafe_retrieval_reason, catalog_unsupported_kind_error, client_metadata, client_task_cancel_reason, client_task_cancel_request, client_task_cancel_result, command_list, commands_finalize_invocation_effect_request, commands_finalize_invocation_effect_result, commands_handle_pending_command_request, commands_handle_pending_command_result, commands_invocation_effect_outcome, commands_invocation_origin, commands_invoke_request, commands_list_request, commands_respond_to_queued_command_request, commands_respond_to_queued_command_result, completions_get_trigger_characters_result, completions_request_request, completions_request_result, configure_session_extensions_params, connect_client_info, connected_remote_session_metadata, connected_remote_session_metadata_kind, connected_remote_session_metadata_repository, connector_account_request, connector_authorization_requirement, connector_authorization_scope, connector_availability, connector_capabilities, connector_catalog_entry, connector_catalog_result, connector_catalog_status, connector_connect_request, connector_connect_result, connector_continue_request, connector_disconnect_result, connector_discovery_account, connector_discovery_account_list, connector_discovery_account_request, connector_discovery_auth_info, connector_discovery_availability, connector_discovery_capabilities, connector_discovery_catalog_entry, connector_discovery_catalog_result, connector_mcp_status, connector_reconcile_request, connector_runtime_status, connector_session_account, connector_status, connect_remote_session_params, connect_request, connect_result, content_exclusion_check_paths_request, content_exclusion_check_paths_result, content_exclusion_path_check, content_exclusion_validate_policies_request, content_exclusion_validate_policies_result, content_filter_mode, context_heaviest_message, copilot_api_token_auth_info, copilot_user_response, copilot_user_response_endpoints, copilot_user_response_quota_snapshots, copilot_user_response_quota_snapshots_chat, copilot_user_response_quota_snapshots_completions, copilot_user_response_quota_snapshots_premium_interactions, current_model, current_tool_metadata, customization_reload_outcome, customization_reload_status, customization_reload_subsystem, customizations_reload_result, debug_collect_logs_collected_entry, debug_collect_logs_destination, debug_collect_logs_entry, debug_collect_logs_entry_kind, debug_collect_logs_include, debug_collect_logs_redaction, debug_collect_logs_request, debug_collect_logs_result, debug_collect_logs_result_kind, debug_collect_logs_skipped_entry, debug_collect_logs_source, diagnostic_cursor_status, diagnostic_entry, diagnostic_log_level, diagnostics_configuration, diagnostics_configure_request, diagnostic_severity, diagnostic_source, diagnostic_sources_configuration, diagnostics_read_request, diagnostics_read_result, discovered_canvas, discovered_extension, discovered_extension_mode, discovered_extension_plugin, discovered_extensions, discovered_extensions_disable_request, discovered_extensions_enable_request, discovered_extension_source, discovered_hook, discovered_mcp_server, discovered_mcp_server_type, discovered_model, discovered_model_list, enqueue_command_params, enqueue_command_result, env_auth_info, environment_capabilities, environment_kind, environments_delete_request, environments_delete_result, environments_get_request, environments_get_result, environments_list_request, environments_list_result, event_log_read_request, event_log_release_interest_result, event_log_tail_result, event_log_types, events_agent_scope, events_cursor_status, events_read_direction, events_read_result, execute_command_params, execute_command_result, extension, extension_context_push_input, extension_launch_profile, extension_launch_provider_resolve_request, extension_launch_provider_resolve_result, extension_list, extensions_disable_request, extensions_enable_request, extension_source, extension_status, external_tool_result, external_tool_text_result_for_llm, external_tool_text_result_for_llm_binary_results_for_llm, external_tool_text_result_for_llm_binary_results_for_llm_type, external_tool_text_result_for_llm_content, external_tool_text_result_for_llm_content_audio, external_tool_text_result_for_llm_content_image, external_tool_text_result_for_llm_content_resource, external_tool_text_result_for_llm_content_resource_details, external_tool_text_result_for_llm_content_resource_link, external_tool_text_result_for_llm_content_resource_link_icon, external_tool_text_result_for_llm_content_resource_link_icon_theme, external_tool_text_result_for_llm_content_shell_exit, external_tool_text_result_for_llm_content_terminal, external_tool_text_result_for_llm_content_text, feature_flag_availability, feature_flag_metadata, feature_flags_metadata_result, feature_flags_resolve_request, feature_flags_resolve_result, feature_flags_resolve_startup_gates_request, feature_flags_resolve_startup_gates_result, filter_mapping, fleet_start_request, fleet_start_result, folder_trust_add_params, folder_trust_check_params, folder_trust_check_result, folder_trust_is_trusted_params, force_login_orgs_decision, gh_cli_auth_info, git_current_branch_remote_result, git_cwd_request, git_hub_environment, git_hub_owner_option, git_hub_owners_cancel_request, git_hub_owners_cancel_result, git_hub_owners_list_request, git_hub_owners_list_result, git_hub_owners_request_id_result, git_hub_repository_at_path_request, git_hub_repository_at_path_result, git_hub_repository_identity, git_hub_telemetry_client_info, git_hub_telemetry_event, git_hub_telemetry_notification, git_hub_token_acquire_reason, git_hub_token_acquire_request, git_hub_token_acquire_result, git_remote_repository, git_repos_from_remotes_request, git_repos_from_remotes_result, global_state_load_for_config_dir_request, global_state_load_result, global_state_write_key_request, handle_pending_tool_call_request, handle_pending_tool_call_result, history_abort_manual_compaction_result, history_cancel_background_compaction_result, history_clear_context_request, history_clear_context_result, history_compact_context_window, history_compact_request, history_compact_result, history_file_restore_skip_reason, history_list_rewind_points_result, history_preview_rewind_request, history_preview_rewind_result, history_rewind_change_type, history_rewind_file_preview, history_rewind_mode, history_rewind_outcome, history_rewind_point, history_rewind_request, history_rewind_result, history_rewind_unavailable_reason, history_skipped_file_restore, history_summarize_for_handoff_result, history_truncate_request, history_truncate_result, hmac_auth_info, hook_invoke_request, hook_invoke_response, hook_origin, hooks_discover_request, hooks_discover_result, hook_type, host_configuration, host_dispose_request, host_empty_result, host_environment_credentials, host_exited_notification, host_exit_reason, host_git_hub_environment_options, host_list_sessions_request, host_list_sessions_result, host_local_server_configuration, host_local_server_options, host_publish_session_request, host_publish_session_result, host_ready_request, host_register_session_request, host_session_create_callback, host_session_create_request, host_session_create_result, host_session_released_notification, host_session_release_request, host_session_summary, host_start_request, host_start_result, host_unpublish_session_request, host_unpublish_session_result, host_unregister_session_request, image_tool_model, image_tool_model_availability, image_tool_model_operation, image_tool_model_pricing, installation_catalogue_identity, installation_confirmation_request, installation_confirmation_response, installation_decision, installation_review, installed_plugin, installed_plugin_info, installed_plugin_source, installed_plugin_source_git_hub, installed_plugin_source_local, installed_plugin_source_url, instruction_discovery_path, instruction_discovery_path_kind, instruction_discovery_path_list, instruction_discovery_path_location, instructions_discover_repo_sources_request, instructions_discover_request, instructions_get_discovery_paths_request, instructions_get_sources_result, instructions_init_prompt_result, instruction_source, instruction_source_location, instruction_source_type, interrupt_main_turn_request, interrupt_main_turn_result, json_schema_response_format, llm_inference_headers, llm_inference_http_request_chunk_request, llm_inference_http_request_chunk_result, llm_inference_http_request_start_request, llm_inference_http_request_start_result, llm_inference_http_request_start_transport, llm_inference_http_response_chunk_error, llm_inference_http_response_chunk_request, llm_inference_http_response_chunk_result, llm_inference_http_response_start_request, llm_inference_http_response_start_result, llm_inference_set_provider_result, local_session_metadata_value, location_permissions_cleanup_result, logged_in_user, login_provider_kind, log_request, log_result, lsp_initialize_request, managed_mcp_server_config, managed_permission_evaluation, managed_permission_operation, managed_permission_operation_kind, managed_permissions_evaluate_request, managed_permissions_evaluate_result, managed_permission_verdict, managed_plugin_retry_entry, managed_plugin_retry_status, managed_setting_meta, managed_settings_apply_controls_params, managed_settings_apply_controls_result, managed_settings_bypass_disable_source, managed_settings_bypass_policy_resolution, managed_settings_channel, managed_settings_compose_layer, managed_settings_compose_request, managed_settings_compose_result, managed_settings_diagnostic, managed_settings_diagnostic_severity, managed_settings_ingest_params, managed_settings_ingest_result, managed_settings_layer, managed_settings_load_remote_control_params, managed_settings_load_remote_control_result, managed_settings_log_level, managed_settings_log_message, managed_settings_meta, managed_settings_parse_client_value_params, managed_settings_parse_client_value_result, managed_settings_policy_helper_authority, managed_settings_policy_helper_reason, managed_settings_read_device_result, managed_settings_read_result, managed_settings_resolve_bypass_disable_transition_params, managed_settings_resolve_bypass_disable_transition_result, managed_settings_resolved_data, managed_settings_resolve_device_force_login_orgs_gate_params, managed_settings_resolve_effective_value_params, managed_settings_resolve_effective_value_result, managed_settings_resolve_request, managed_settings_resolve_result, managed_settings_resolve_startup_policy_params, managed_settings_resolve_startup_policy_result, managed_settings_retain_policy_params, managed_settings_schema_result, managed_settings_server_policy_cache_mode, managed_settings_server_policy_resolution, managed_settings_validate_request, managed_settings_validate_result, managed_settings_values, marketplace_add_result, marketplace_browse_result, marketplace_info, marketplace_list_result, marketplace_plugin_info, marketplace_refresh_entry, marketplace_refresh_result, marketplace_remove_result, mcp_allowed_server, mcp_apply_install_request, mcp_apply_uninstall_request, mcp_apps_call_tool_request, mcp_apps_diagnose_capability, mcp_apps_diagnose_request, mcp_apps_diagnose_result, mcp_apps_diagnose_server, mcp_apps_host_context, mcp_apps_host_context_details, mcp_apps_host_context_details_available_display_mode, mcp_apps_host_context_details_display_mode, mcp_apps_host_context_details_platform, mcp_apps_host_context_details_theme, mcp_apps_list_tools_request, mcp_apps_list_tools_result, mcp_apps_read_resource_request, mcp_apps_read_resource_result, mcp_apps_resource_content, mcp_apps_set_host_context_details, mcp_apps_set_host_context_details_available_display_mode, mcp_apps_set_host_context_details_display_mode, mcp_apps_set_host_context_details_platform, mcp_apps_set_host_context_details_theme, mcp_apps_set_host_context_request, mcp_cancel_sampling_execution_params, mcp_cancel_sampling_execution_result, mcp_config_add_request, mcp_config_disable_request, mcp_config_enable_request, mcp_config_list, mcp_config_remove_request, mcp_config_update_request, mcp_configured_server, mcp_configured_server_list, mcp_configured_server_state, mcp_configure_git_hub_request, mcp_configure_git_hub_result, mcp_diagnostic_details, mcp_diagnostic_direction, mcp_diagnostic_kind, mcp_diagnostic_source_configuration, mcp_disable_request, mcp_discover_request, mcp_discover_result, mcp_elicitation_form_mode, mcp_enable_request, mcp_execute_sampling_params, mcp_execute_sampling_request, mcp_execute_sampling_result, mcp_failed_server, mcp_filtered_server, mcp_headers_handle_pending_headers_refresh_request, mcp_headers_handle_pending_headers_refresh_request_request, mcp_headers_handle_pending_headers_refresh_request_result, mcp_host_state, mcp_installation_failure_reason, mcp_installation_input, mcp_installation_management_outcome, mcp_installation_management_result, mcp_installation_operation_request, mcp_installation_operation_status, mcp_installation_outcome, mcp_installation_remote_configuration, mcp_installation_result, mcp_installation_review, mcp_installation_secret, mcp_installation_secret_storage, mcp_installations_request, mcp_installation_state, mcp_installation_summary, mcp_install_plan, mcp_is_server_running_request, mcp_is_server_running_result, mcp_list_builtin_server_names_result, mcp_list_tools_request, mcp_list_tools_result, mcp_oauth_authentication_state_changed_request, mcp_oauth_cancel_login_request, mcp_oauth_cancel_login_result, mcp_oauth_check_dcr_support_request, mcp_oauth_check_dcr_support_result, mcp_oauth_complete_request, mcp_oauth_fetch_protected_resource_metadata_request, mcp_oauth_fetch_protected_resource_metadata_result, mcp_oauth_handle_pending_request, mcp_oauth_handle_pending_result, mcp_oauth_is_microsoft_authorization_server_request, mcp_oauth_is_microsoft_authorization_server_result, mcp_oauth_login_grant_type, mcp_oauth_login_request, mcp_oauth_login_result, mcp_oauth_pending_request_response, mcp_oauth_prepare_login_request, mcp_oauth_prepare_login_result, mcp_oauth_probe_needs_auth_reason, mcp_oauth_probe_request, mcp_oauth_probe_result, mcp_oauth_respond_request, mcp_oauth_respond_result, mcp_oauth_static_client_config, mcp_oauth_static_client_config_request, mcp_oauth_static_client_config_result, mcp_owned_oauth_login_status, mcp_plan_configuration_change, mcp_plan_configuration_operation, mcp_plan_enum_value_type, mcp_plan_install_planned, mcp_plan_install_request, mcp_plan_install_result, mcp_plan_install_source, mcp_plan_install_source_candidate, mcp_plan_install_source_candidate_kind, mcp_plan_install_source_card, mcp_plan_install_source_card_kind, mcp_plan_package_install_method, mcp_plan_package_transport, mcp_plan_policy_decision, mcp_plan_policy_result, mcp_plan_policy_source, mcp_plan_provenance, mcp_plan_remote_install_method, mcp_plan_remote_transport, mcp_plan_required_value, mcp_plan_required_value_enum, mcp_plan_required_value_enum_kind, mcp_plan_required_value_scalar, mcp_plan_required_value_scalar_kind, mcp_plan_resource_identity, mcp_plan_scalar_value_type, mcp_plan_scope, mcp_plan_secret_placeholder, mcp_plan_secret_reference, mcp_plan_target, mcp_plan_transport_choice, mcp_plan_transport_choice_package, mcp_plan_transport_choice_remote, mcp_plan_uninstall_request, mcp_plan_value_category, mcp_prepared_install, mcp_prepare_install_request, mcp_prompt, mcp_prompt_argument, mcp_prompt_icon, mcp_prompt_message, mcp_prompt_role, mcp_prompts_get_request, mcp_prompts_get_result, mcp_prompts_list_request, mcp_prompts_list_result, mcp_register_external_client_request, mcp_registry_cancel_request, mcp_registry_cancel_result, mcp_registry_request_id_result, mcp_registry_search_request, mcp_registry_search_result, mcp_reload_config, mcp_reload_with_config_request, mcp_remove_git_hub_result, mcp_resource, mcp_resource_annotations, mcp_resource_content, mcp_resource_icon, mcp_resources_list_request, mcp_resources_list_result, mcp_resources_list_templates_request, mcp_resources_list_templates_result, mcp_resources_read_request, mcp_resources_read_result, mcp_resource_template, mcp_restart_server_request, mcp_safe_for_telemetry, mcp_safe_for_telemetry_fields, mcp_sampling_execution_action, mcp_sampling_execution_result, mcp_serializable_server_config, mcp_server, mcp_server_auth_config, mcp_server_auth_config_redirect_port, mcp_server_card_embedded, mcp_server_card_embedded_kind, mcp_server_card_media_type, mcp_server_card_reference, mcp_server_card_url, mcp_server_card_url_kind, mcp_server_config, mcp_server_config_defer_tools, mcp_server_config_http, mcp_server_config_http_oauth_grant_type, mcp_server_config_http_type, mcp_server_config_memory, mcp_server_config_memory_type, mcp_server_config_stdio, mcp_server_config_stdio_type, mcp_server_failure_info, mcp_server_list, mcp_server_needs_auth_info, mcp_server_ownership, mcp_set_env_value_mode_details, mcp_set_env_value_mode_params, mcp_set_env_value_mode_result, mcp_should_exclude_git_hub_tools_request, mcp_should_exclude_git_hub_tools_result, mcp_source_file, mcp_source_plugin, mcp_source_ref, mcp_start_server_request, mcp_start_servers_result, mcp_stop_server_request, mcp_task_metadata, mcp_tools, mcp_tool_ui, mcp_tool_ui_visibility, mcp_uninstall_plan, mcp_unregister_external_client_request, memory_configuration, metadata_context_attribution_result, metadata_context_heaviest_messages_request, metadata_context_heaviest_messages_result, metadata_context_info_request, metadata_context_info_result, metadata_is_processing_result, metadata_recompute_context_tokens_request, metadata_recompute_context_tokens_result, metadata_record_context_change_request, metadata_record_context_change_result, metadata_set_working_directory_request, metadata_set_working_directory_result, metadata_snapshot_current_mode, metadata_snapshot_remote_metadata, metadata_snapshot_remote_metadata_repository, metadata_snapshot_remote_metadata_task_type, metadata_update_client_metadata_request, model, model_apply_startup_overlay_request, model_artifact_details, model_billing, model_billing_promo, model_billing_token_prices, model_billing_token_prices_long_context, model_capabilities, model_capabilities_limits, model_capabilities_limits_vision, model_capabilities_override, model_capabilities_override_limits, model_capabilities_override_limits_vision, model_capabilities_override_supports, model_capabilities_supports, model_clear_startup_seed_request, model_clear_startup_seed_result, model_get_reasoning_summaries_request, model_get_reasoning_summaries_result, model_list, model_list_request, model_message, model_picker_category, model_picker_persistence_request, model_picker_price_category, model_picker_settings_context, model_policy, model_policy_state, model_provider_adapter_catalog, model_provider_adapter_descriptor, model_provider_adapter_operation_descriptor, model_provider_attribution, model_provider_automatic_discovery_mode, model_provider_automatic_discovery_policy, model_provider_configuration_disposition, model_provider_configuration_plan, model_provider_descriptor, model_provider_discover_request, model_provider_discover_result, model_provider_discovery_network_scope, model_provider_get_status_request, model_provider_instance, model_provider_instance_reference, model_provider_models_list_request, model_provider_operation_outcome, model_provider_operation_outcome_code, model_provider_prepare_configuration_request, model_provider_provenance, model_provider_provenance_source, model_provider_status, model_provider_warning, model_set_allowed_models_request, model_set_allowed_models_result, model_set_reasoning_effort_request, model_set_reasoning_effort_result, models_list_request, models_list_token_price_units_request, model_switch_auto_tier_request, model_switch_auto_tier_result, model_switch_auto_tier_status, model_switch_confirmation, model_switch_to_request, model_switch_to_result, model_token_price_unit, model_token_price_unit_list, model_warning_text, mode_set_request, mode_set_result, move_mcp_loading_to_background_result, named_provider_config, name_get_result, name_set_auto_request, name_set_auto_result, name_set_request, open_canvas_instance, options_update_additional_content_exclusion_policy, options_update_additional_content_exclusion_policy_rule, options_update_additional_content_exclusion_policy_rule_source, options_update_additional_content_exclusion_policy_scope, options_update_context_tier, options_update_env_value_mode, options_update_reasoning_summary, options_update_tool_filter_precedence, pending_external_tool_request, pending_external_tool_request_list, pending_permission_request, pending_permission_request_list, permission_decision, permission_decision_approved, permission_decision_approved_for_location, permission_decision_approved_for_session, permission_decision_approve_for_location, permission_decision_approve_for_location_approval, permission_decision_approve_for_location_approval_commands, permission_decision_approve_for_location_approval_custom_tool, permission_decision_approve_for_location_approval_extension_env_access, permission_decision_approve_for_location_approval_extension_management, permission_decision_approve_for_location_approval_extension_permission_access, permission_decision_approve_for_location_approval_mcp, permission_decision_approve_for_location_approval_mcp_sampling, permission_decision_approve_for_location_approval_memory, permission_decision_approve_for_location_approval_read, permission_decision_approve_for_location_approval_workflow, permission_decision_approve_for_location_approval_write, permission_decision_approve_for_session, permission_decision_approve_for_session_approval, permission_decision_approve_for_session_approval_commands, permission_decision_approve_for_session_approval_custom_tool, permission_decision_approve_for_session_approval_extension_env_access, permission_decision_approve_for_session_approval_extension_management, permission_decision_approve_for_session_approval_extension_permission_access, permission_decision_approve_for_session_approval_mcp, permission_decision_approve_for_session_approval_mcp_sampling, permission_decision_approve_for_session_approval_memory, permission_decision_approve_for_session_approval_read, permission_decision_approve_for_session_approval_workflow, permission_decision_approve_for_session_approval_write, permission_decision_approve_once, permission_decision_approve_permanently, permission_decision_approve_read_only_for_session, permission_decision_cancelled, permission_decision_context, permission_decision_denied_by_content_exclusion_policy, permission_decision_denied_by_permission_request_hook, permission_decision_denied_by_rules, permission_decision_denied_interactively_by_user, permission_decision_denied_no_approval_rule_and_could_not_request_from_user, permission_decision_outcome, permission_decision_reject, permission_decision_request, permission_decision_surface, permission_decision_user_not_available, permission_location_add_tool_approval_params, permission_location_apply_params, permission_location_apply_result, permission_location_resolve_params, permission_location_resolve_result, permission_location_type, permission_mode_source, permission_paths_add_params, permission_paths_allowed_check_params, permission_paths_allowed_check_result, permission_paths_config, permission_paths_list, permission_paths_update_primary_params, permission_paths_workspace_check_params, permission_paths_workspace_check_result, permission_prompt_shown_notification, permission_request_result, permission_response_capability, permission_rules_set, permissions_configure_additional_content_exclusion_policy, permissions_configure_additional_content_exclusion_policy_rule, permissions_configure_additional_content_exclusion_policy_rule_source, permissions_configure_additional_content_exclusion_policy_scope, permissions_configure_params, permissions_configure_result, permissions_evaluate_managed_policy_params, permissions_evaluate_managed_policy_result, permissions_folder_trust_add_trusted_result, permissions_get_mode_request, permissions_get_mode_result, permissions_locations_add_tool_approval_details, permissions_locations_add_tool_approval_details_commands, permissions_locations_add_tool_approval_details_custom_tool, permissions_locations_add_tool_approval_details_extension_env_access, permissions_locations_add_tool_approval_details_extension_management, permissions_locations_add_tool_approval_details_extension_permission_access, permissions_locations_add_tool_approval_details_mcp, permissions_locations_add_tool_approval_details_mcp_sampling, permissions_locations_add_tool_approval_details_memory, permissions_locations_add_tool_approval_details_read, permissions_locations_add_tool_approval_details_workflow, permissions_locations_add_tool_approval_details_write, permissions_locations_add_tool_approval_result, permissions_modify_rules_params, permissions_modify_rules_result, permissions_modify_rules_scope, permissions_notify_prompt_shown_result, permissions_paths_add_result, permissions_paths_list_request, permissions_paths_update_primary_result, permissions_pending_requests_request, permissions_reset_session_approvals_request, permissions_reset_session_approvals_result, permissions_set_approve_all_request, permissions_set_approve_all_result, permissions_set_approve_all_source, permissions_set_mode_request, permissions_set_mode_result, permissions_set_required_request, permissions_set_required_result, permissions_urls_set_unrestricted_mode_result, permission_urls_config, permission_urls_set_unrestricted_mode_params, persistence_write_raw_json_locked_request, persistence_write_raw_json_locked_result, ping_request, ping_result, plan_read_result, plan_read_sql_todos_result, plan_read_sql_todos_with_dependencies_result, plan_sql_todo_dependency, plan_sql_todos_row, plan_update_request, plugin, plugin_apply_install_request, plugin_installation_failure_reason, plugin_installation_file_review, plugin_installation_location, plugin_installation_management_outcome, plugin_installation_management_result, plugin_installation_outcome, plugin_installation_result, plugin_installation_review, plugin_installation_source, plugin_installation_summary, plugin_install_plan, plugin_install_result, plugin_install_staging_mode, plugin_list, plugin_list_result, plugin_plan_install_request, plugins_builtin_set_request, plugins_disable_request, plugins_enable_request, plugins_install_request, plugins_marketplaces_add_request, plugins_marketplaces_browse_request, plugins_marketplaces_refresh_request, plugins_marketplaces_remove_request, plugins_reload_request, plugins_uninstall_request, plugins_update_request, plugin_update_all_entry, plugin_update_all_result, plugin_update_result, protocol_append_mode, protocol_customize_mode, protocol_external_tool_defer, protocol_external_tool_definition, protocol_image_generation_options, protocol_marker_section_override, protocol_replace_mode, protocol_section_override, protocol_static_section_action, protocol_static_section_override, protocol_system_message_append_config, protocol_system_message_config, protocol_system_message_customize_config, protocol_system_message_replace_config, provider_add_request, provider_add_result, provider_config, provider_config_azure, provider_config_model_provider, provider_config_transport, provider_config_type, provider_config_wire_api, provider_descriptor, provider_endpoint, provider_endpoint_transport, provider_endpoint_type, provider_endpoint_wire_api, provider_get_endpoint_request, provider_model_config, provider_session_token, provider_sync_request, provider_sync_result, provider_token_acquire_request, provider_token_acquire_result, provider_withdraw_request, provider_withdraw_result, push_attachment, push_attachment_blob, push_attachment_directory, push_attachment_file, push_attachment_file_line_range, push_attachment_git_hub_actions_job, push_attachment_git_hub_commit, push_attachment_git_hub_file, push_attachment_git_hub_file_diff, push_attachment_git_hub_file_diff_side, push_attachment_git_hub_reference, push_attachment_git_hub_reference_type, push_attachment_git_hub_release, push_attachment_git_hub_repository, push_attachment_git_hub_snippet, push_attachment_git_hub_tree_comparison, push_attachment_git_hub_tree_comparison_side, push_attachment_git_hub_url, push_attachment_selection, push_attachment_selection_details, push_attachment_selection_details_end, push_attachment_selection_details_start, push_git_hub_repo_ref, queue_append_steering_request, queue_begin_deferred_idle_drain_request, queue_begin_deferred_idle_drain_result, queue_consume_system_notifications_request, queued_command_handled, queued_command_not_handled, queued_command_result, queue_defer_session_idle_request, queue_duplicate_at_request, queue_duplicate_at_result, queue_enqueue_resume_pending_result, queue_finish_deferred_idle_drain_request, queue_finish_deferred_idle_drain_result, queue_has_pending_result, queue_insert_at_request, queue_insert_at_result, queue_insert_message, queue_move_item_request, queue_move_item_result, queue_pending_items, queue_pending_items_kind, queue_pending_items_result, queue_remove_at_request, queue_remove_at_result, queue_remove_most_recent_result, queue_send_now_request, queue_send_now_result, queue_set_drain_paused_request, queue_snapshot_result, queue_update_text_request, queue_update_text_result, queue_withdraw_message_request, queue_withdraw_message_result, quota_take_warnings_result, quota_warning_projection, register_event_interest_params, register_event_interest_result, release_event_interest_params, remote_control_config, remote_control_config_existing_mc_session, remote_control_status, remote_control_status_active, remote_control_status_connecting, remote_control_status_error, remote_control_status_off, remote_control_status_result, remote_control_stop_result, remote_control_transfer_result, remote_enable_request, remote_enable_result, remote_notify_steerable_changed_request, remote_notify_steerable_changed_result, remote_session_connection_result, remote_session_host_status, remote_session_metadata_repository, remote_session_metadata_task_type, remote_session_metadata_value, remote_session_mode, remote_session_repository, repo_settings_edit_request, repo_settings_edit_scope, repo_settings_read_raw_request, repo_settings_read_raw_result, repo_settings_write_all_request, repo_settings_write_key_request, response_format, sandbox_apply_defaults_request, sandbox_check_enforcement_command_result, sandbox_check_platform_support_result, sandbox_check_windows_host_loopback_support_result, sandbox_config, sandbox_config_auth, sandbox_config_source, sandbox_config_user_policy, sandbox_config_user_policy_experimental, sandbox_config_user_policy_experimental_seatbelt, sandbox_config_user_policy_filesystem, sandbox_config_user_policy_network, sandbox_config_user_policy_network_proxy, sandbox_config_user_policy_seatbelt, sandbox_credentials_config, sandbox_credential_suggestion, sandbox_credential_suggestions_result, sandbox_disable_for_session_request, sandbox_disable_for_session_result, sandbox_docs_url_result, sandbox_effective_for_optional_params, sandbox_effective_for_optional_result, sandbox_enforcement_command_allowed_params, sandbox_enforcement_status, sandbox_filter_picker_candidates_params, sandbox_filter_picker_candidates_result, sandbox_get_unsupported_message_result, sandbox_get_unsupported_setting_disabled_notice_result, sandbox_grant_path_for_request_request, sandbox_grant_path_for_request_result, sandbox_host_capability, sandbox_host_capability_name, sandbox_host_support, sandbox_masked_env_var, sandbox_picker_candidate, sandbox_prepare_picker_policy_params, sandbox_prepare_picker_policy_result, sandbox_proxy_ca_check_installation_support_result, sandbox_proxy_ca_check_relevance_result, sandbox_proxy_ca_create_result, sandbox_proxy_ca_request, sandbox_proxy_ca_state, sandbox_proxy_ca_status, sandbox_proxy_secret_get_result, sandbox_proxy_secret_location, sandbox_proxy_secret_save_request, sandbox_proxy_secret_save_result, sandbox_resolve_floored_config_params, sandbox_resolve_floored_config_result, sandbox_session_change, sandbox_settings_apply_defaults_result, sandbox_unsupported_startup_notice_params, sandbox_unsupported_startup_notice_result, schedule_add_at_request, schedule_add_cron_request, schedule_add_request, schedule_add_result, schedule_add_self_paced_request, schedule_entry, schedule_has_self_paced_result, schedule_list, schedule_rearm_self_paced_request, schedule_stop_request, schedule_stop_result, secrets_add_filter_values_request, secrets_add_filter_values_result, send_agent_mode, send_attachments_to_message_params, send_message_item, send_messages_request, send_messages_result, send_mode, send_request, send_result, send_system_notification_request, server_agent_list, server_instruction_source_list, server_skill, server_skill_list, session_activity, session_agent_list_request, session_auth_login_request, session_auth_logout_user_request, session_auth_status, session_auth_switch_request, session_bulk_delete_result, session_cancel_all_background_agents_result, session_capability, session_commands_list_request, session_completion_item, session_connected_ide_info, session_context, session_context_host_type, session_enrich_metadata_result, session_fs_append_file_request, session_fs_error, session_fs_error_code, session_fs_exists_request, session_fs_exists_result, session_fs_mkdir_request, session_fs_readdir_request, session_fs_readdir_result, session_fs_readdir_with_types_entry, session_fs_readdir_with_types_entry_type, session_fs_readdir_with_types_request, session_fs_readdir_with_types_result, session_fs_read_file_bytes_request, session_fs_read_file_bytes_result, session_fs_read_file_request, session_fs_read_file_result, session_fs_rename_request, session_fs_rm_request, session_fs_set_provider_capabilities, session_fs_set_provider_conventions, session_fs_set_provider_request, session_fs_set_provider_result, session_fs_sqlite_exists_request, session_fs_sqlite_exists_result, session_fs_sqlite_query_request, session_fs_sqlite_query_result, session_fs_sqlite_query_type, session_fs_sqlite_transaction_error, session_fs_sqlite_transaction_error_class, session_fs_sqlite_transaction_request, session_fs_sqlite_transaction_result, session_fs_sqlite_transaction_statement, session_fs_stat_request, session_fs_stat_result, session_fs_write_file_bytes_request, session_fs_write_file_request, session_git_hub_auth_get_all_auth_available_result, session_git_hub_auth_logout_result, session_git_hub_auth_logout_user_result, session_history_compact_request, session_installed_plugin, session_installed_plugin_source, session_installed_plugin_source_git_hub, session_installed_plugin_source_local, session_installed_plugin_source_url, session_limit_prediction_baseline_data, session_limit_prediction_client_type, session_limit_prediction_details, session_limit_prediction_predict_request, session_limit_prediction_request, session_limit_prediction_result, session_limit_prediction_source, session_limit_prediction_tier, session_limit_prediction_tier_option, session_limit_prediction_unavailable_reason, session_list, session_list_entry, session_list_filter, session_load_deferred_repo_hooks_result, session_log_level, session_managed_permissions, session_managed_settings, session_mcp_apps_call_tool_result, session_mcp_oauth_cancel_login_request, session_mcp_oauth_cancel_login_result, session_mcp_oauth_prepare_login_request, session_mcp_oauth_prepare_login_result, session_mcp_set_connected_ide_info_params, session_metadata_snapshot, session_mode, session_model_clear_startup_seed_request, session_model_clear_startup_seed_result, session_model_list, session_model_list_request, session_model_price_category, session_open_options, session_open_options_additional_content_exclusion_policy, session_open_options_additional_content_exclusion_policy_rule, session_open_options_additional_content_exclusion_policy_rule_source, session_open_options_additional_content_exclusion_policy_scope, session_open_options_env_value_mode, session_open_options_reasoning_summary, session_open_params, session_open_result, session_plugins_disable_request, session_plugins_enable_request, session_plugins_install_request, session_plugins_marketplaces_refresh_request, session_plugins_reload_request, session_plugins_retry_managed_request, session_plugins_retry_managed_result, session_provider_get_endpoint_request, session_prune_result, session_quota_delegate_warning, session_quota_get_result, session_quota_plan_tier, session_quota_projection, session_quota_refresh_result, session_quota_snapshot, session_quota_take_warnings_result, sessions_bulk_delete_request, sessions_check_in_use_request, sessions_check_in_use_result, sessions_client_metadata_entry, sessions_close_request, sessions_close_result, sessions_create_workspace_request, sessions_create_workspace_result, sessions_delete_request, sessions_enrich_metadata_request, session_set_credentials_params, session_set_credentials_result, session_settings_built_in_tool_availability_snapshot, session_settings_evaluate_predicate_request, session_settings_evaluate_predicate_result, session_settings_job_snapshot, session_settings_model_snapshot, session_settings_online_evaluation_snapshot, session_settings_predicate_name, session_settings_repo_snapshot, session_settings_snapshot, session_settings_validation_snapshot, sessions_find_by_prefix_request, sessions_find_by_prefix_result, sessions_find_by_task_id_request, sessions_find_by_task_id_result, sessions_fork_request, sessions_fork_result, sessions_get_board_entry_count_request, sessions_get_board_entry_count_result, sessions_get_client_metadata_request, sessions_get_client_metadata_result, sessions_get_event_file_path_request, sessions_get_event_file_path_result, sessions_get_last_for_context_request, sessions_get_last_for_context_result, sessions_get_metadata_request, sessions_get_metadata_result, sessions_get_persisted_remote_steerable_request, sessions_get_persisted_remote_steerable_result, session_sizes, sessions_list_non_empty_session_ids_request, sessions_list_non_empty_session_ids_result, sessions_list_request, sessions_load_deferred_repo_hooks_request, sessions_load_workspace_request, sessions_load_workspace_result, sessions_open_attach, sessions_open_cloud, sessions_open_create, sessions_open_handoff, sessions_open_handoff_task_type, sessions_open_progress, sessions_open_progress_status, sessions_open_progress_step, sessions_open_remote, sessions_open_resume, sessions_open_resume_last, sessions_open_status, session_source, sessions_prune_old_request, sessions_read_persisted_events_request, sessions_release_lock_request, sessions_release_lock_result, sessions_reload_plugin_hooks_request, sessions_reload_plugin_hooks_result, sessions_save_request, sessions_save_result, sessions_set_additional_plugins_request, sessions_set_additional_plugins_result, sessions_set_remote_control_steering_request, sessions_start_remote_control_request, sessions_stop_remote_control_request, sessions_transfer_remote_control_request, sessions_update_workspace_fields_request, sessions_update_workspace_fields_result, session_telemetry_engagement, session_update_options_params, session_update_options_result, session_usage_set_code_changes_request, session_visibility_status, session_workflow_pause_at_checkpoint_result, session_working_directory_context, session_working_directory_context_host_type, session_working_directory_context_with_client, settable_auth_info, settable_token_auth_info, settings_edit_operation, settings_edit_result, settings_edit_status, shell_cancel_user_requested_request, shell_credentials, shell_exec_request, shell_exec_result, shell_execute_user_requested_request, shell_init_profile, shell_init_script, shell_init_script_shell, shell_kill_request, shell_kill_result, shell_kill_signal, shell_options, shutdown_request, skill, skill_apply_install_request, skill_apply_uninstall_request, skill_discovery_path, skill_discovery_path_list, skill_discovery_scope, skill_installation_failure_reason, skill_installation_file_review, skill_installation_location, skill_installation_management_outcome, skill_installation_management_result, skill_installation_operation_request, skill_installation_operation_status, skill_installation_outcome, skill_installation_ownership_state, skill_installation_result, skill_installation_review, skill_installation_scope, skill_installation_session_state, skill_installation_source, skill_installations_request, skill_installation_summary, skill_install_plan, skill_list, skill_plan_install_request, skill_plan_uninstall_request, skill_provider_descriptor, skill_provider_list_request, skill_provider_list_result, skill_provider_read_request, skill_provider_read_result, skills_config_set_disabled_skills_request, skills_config_set_skill_disabled_request, skills_disable_request, skills_discover_request, skills_enable_request, skill_set_enabled_request, skills_get_discovery_paths_request, skills_get_invoked_result, skills_invoked_skill, skills_load_diagnostics, skill_uninstall_plan, slash_command_add_timeline_entry_result, slash_command_agent_prompt_result, slash_command_completed_result, slash_command_info, slash_command_input, slash_command_input_choice, slash_command_input_completion, slash_command_invocation_result, slash_command_kind, slash_command_model_picker_dialog, slash_command_select_subcommand_option, slash_command_select_subcommand_result, slash_command_set_model_result, slash_command_set_plan_model_result, slash_command_show_dialog_result, slash_command_text_result, slash_command_timeline_entry, staff_log_level_migration_status, staff_update_channel_migration_status, subagent_settings_entry, subagent_settings_entry_context_tier, system_message_block, task_agent_info, task_agent_progress, task_client_active_status, task_client_execution_mode, task_client_info, task_client_owner, task_client_owner_kind, task_client_owner_presence, task_client_progress, task_client_status, task_client_type, task_client_update, task_complete_data, task_completion_decision, task_execution_mode, task_info, task_kind, task_list, task_progress_line, tasks_cancel_request, tasks_cancel_result, tasks_get_current_promotable_result, tasks_get_progress_request, tasks_get_progress_result, task_shell_info, task_shell_info_attachment_mode, task_shell_progress, tasks_promote_current_to_background_result, tasks_promote_to_background_request, tasks_promote_to_background_result, tasks_refresh_result, tasks_register_request, tasks_register_result, tasks_remove_request, tasks_remove_result, tasks_send_message_request, tasks_send_message_result, tasks_start_agent_request, tasks_start_agent_result, task_status, tasks_update_request, tasks_update_result, tasks_wait_for_pending_result, telemetry_set_feature_overrides_request, token_auth_info, token_price_unit, token_provider_auth_info, tool, tool_list, tool_result, tool_result_expanded, tool_result_new_message, tool_result_type, tools_execute_request, tools_get_builtin_descriptors_request, tools_get_builtin_descriptors_result, tools_get_current_metadata_result, tools_initialize_and_validate_result, tools_list_pending_requests_request, tools_list_request, tools_set_request, tools_set_result, tools_shell_descriptor_config, tools_task_complete_event_data_request, tools_update_subagent_settings_result, ui_auto_mode_switch_response, ui_elicitation_array_any_of_field, ui_elicitation_array_any_of_field_items, ui_elicitation_array_any_of_field_items_any_of, ui_elicitation_array_enum_field, ui_elicitation_array_enum_field_items, ui_elicitation_field_value, ui_elicitation_request, ui_elicitation_response, ui_elicitation_response_action, ui_elicitation_response_content, ui_elicitation_result, ui_elicitation_schema, ui_elicitation_schema_property, ui_elicitation_schema_property_boolean, ui_elicitation_schema_property_number, ui_elicitation_schema_property_number_type, ui_elicitation_schema_property_string, ui_elicitation_schema_property_string_format, ui_elicitation_string_enum_field, ui_elicitation_string_one_of_field, ui_elicitation_string_one_of_field_one_of, ui_ephemeral_query_request, ui_ephemeral_query_result, ui_exit_plan_mode_action, ui_exit_plan_mode_response, ui_handle_pending_auto_mode_switch_request, ui_handle_pending_elicitation_request, ui_handle_pending_exit_plan_mode_request, ui_handle_pending_result, ui_handle_pending_sampling_request, ui_handle_pending_sampling_response, ui_handle_pending_session_limits_exhausted_request, ui_handle_pending_user_input_request, ui_register_direct_auto_mode_switch_handler_result, ui_session_limits_exhausted_response, ui_session_limits_exhausted_response_action, ui_unregister_direct_auto_mode_switch_handler_request, ui_unregister_direct_auto_mode_switch_handler_result, ui_user_input_response, unsupported_enqueue_command_result, update_subagent_settings_request, usage_get_metrics_result, usage_set_code_changes_request, user_auth_info, user_requested_shell_command_result, user_setting_metadata, user_settings_apply_top_key_request, user_settings_apply_top_key_result, user_settings_build_runtime_request, user_settings_build_runtime_result, user_settings_edit_request, user_settings_get_paths_request, user_settings_get_paths_result, user_settings_get_result, user_settings_governance_keys_result, user_settings_host_context, user_settings_load_and_merge_repo_request, user_settings_load_and_merge_repo_result, user_settings_load_for_config_dir_request, user_settings_load_for_config_dir_result, user_settings_load_for_edit_result, user_settings_load_repo_request, user_settings_load_repo_result, user_settings_load_with_warning_result, user_settings_merge_managed_and_user_params, user_settings_merge_managed_and_user_result, user_settings_merge_repo_value_params, user_settings_merge_repo_value_result, user_settings_migrate_obsolete_on_disk_request, user_settings_migrate_obsolete_on_disk_result, user_settings_migrate_obsolete_on_disk_status, user_settings_migrate_staff_log_level_once_request, user_settings_migrate_staff_log_level_once_result, user_settings_migrate_staff_update_channel_once_result, user_settings_normalize_request, user_settings_normalize_result, user_settings_path_result, user_settings_problem, user_settings_problem_location, user_settings_problem_source, user_settings_problems_request, user_settings_problems_result, user_settings_reset_staff_model_selection_once_request, user_settings_reset_staff_model_selection_once_result, user_settings_set_hook_disabled_request, user_settings_set_hook_disabled_result, user_settings_set_request, user_settings_unknown_keys_warning_request, user_settings_unknown_keys_warning_result, user_settings_update_request, user_settings_update_result, user_settings_validate_request, user_settings_validate_result, user_settings_validation_issue, user_settings_write_all_request, visibility_get_result, visibility_set_request, visibility_set_result, workflow_abort_request, workflow_ack_result, workflow_agent_options, workflow_agent_request, workflow_agent_result, workflow_agent_summary, workflow_cancel_request, workflow_current_phase, workflow_declared_limits, workflow_durable_operation, workflow_execute_request, workflow_execute_result, workflow_get_run_progress_request, workflow_get_run_request, workflow_journal_get_request, workflow_journal_get_result, workflow_journal_put_request, workflow_list_runs_request, workflow_list_runs_result, workflow_log_line, workflow_log_line_kind, workflow_log_request, workflow_pause_checkpoint_action, workflow_pause_checkpoint_request, workflow_pause_checkpoint_result, workflow_pause_info, workflow_pause_request, workflow_phase_observation, workflow_phase_status, workflow_progress_line, workflow_progress_page, workflow_resume_request, workflow_resume_result, workflow_run_consumed, workflow_run_detail, workflow_run_failure, workflow_run_failure_kind, workflow_run_limits, workflow_run_options, workflow_run_request, workflow_run_result, workflow_run_status, workflow_run_summary, workflow_run_terminal, workflow_tool_resume_request, workflow_tool_run_options, workflow_tool_run_request, workspace_diff_contents, workspace_diff_file_change, workspace_diff_file_change_type, workspace_diff_mode, workspace_diff_result, workspaces_add_summary_request, workspaces_add_summary_result, workspaces_autopilot_objective_exists_result, workspaces_checkpoints, workspaces_create_directory_request, workspaces_create_file_request, workspaces_delete_autopilot_objective_result, workspaces_diff_request, workspaces_ensure_request, workspaces_get_workspace_result, workspaces_list_checkpoints_result, workspaces_list_files_result, workspaces_read_autopilot_objective_result, workspaces_read_checkpoint_request, workspaces_read_checkpoint_result, workspaces_read_file_request, workspaces_read_file_result, workspaces_remove_path_request, workspaces_rename_path_request, workspaces_save_large_paste_request, workspaces_save_large_paste_result, workspaces_stat_file_request, workspaces_stat_file_result, workspaces_truncate_summaries_request, workspace_summary_host_type, workspaces_update_metadata_request, workspaces_workspace_details_host_type, workspaces_write_autopilot_objective_request, workspaces_write_autopilot_objective_result, connector_session_account_result, session_auth_info_result, session_context_attribution, session_context_info, subagent_settings, task_progress, workspace_summary)
+        return RPC(abort_request, abort_result, accepted_enqueue_command_result, account_all_users, account_auth_info, account_describe_auth_info_request, account_describe_auth_info_result, account_get_all_users_result, account_get_current_auth_result, account_get_gist_support_request, account_get_gist_support_result, account_get_quota_request, account_get_quota_result, account_get_token_env_var_result, account_get_web_url_request, account_get_web_url_result, account_kind, account_login_request, account_login_result, account_logout_request, account_logout_result, account_quota_snapshot, accounts_enumerate_request, accounts_get_request, accounts_set_request, account_status, adaptive_thinking_support, agent_discovery_path, agent_discovery_path_list, agent_discovery_path_scope, agent_get_current_result, agent_info, agent_info_source, agent_list, agent_list_request, agent_registry_live_target_entry, agent_registry_live_target_entry_attention_kind, agent_registry_live_target_entry_kind, agent_registry_live_target_entry_last_terminal_event, agent_registry_live_target_entry_status, agent_registry_log_capture, agent_registry_log_capture_open_error_reason, agent_registry_spawn_error, agent_registry_spawn_permission_mode, agent_registry_spawn_registry_timeout, agent_registry_spawn_request, agent_registry_spawn_result, agent_registry_spawn_spawned, agent_registry_spawn_validation_error, agent_registry_spawn_validation_error_field, agent_registry_spawn_validation_error_reason, agent_reload_result, agents_custom_agent_initial_model_decision_params, agents_custom_agent_initial_model_decision_result, agents_discover_request, agent_select_request, agent_select_result, agent_set_prompt_request, agents_get_available_builtins_request, agents_get_available_builtins_result, agents_get_builtin_definition_request, agents_get_builtin_definition_result, agents_get_builtin_listing_definition_request, agents_get_builtin_listing_definition_result, agents_get_builtins_result, agents_get_discovery_paths_request, api_key_auth_info, auth_enumerate_query, auth_enumerate_value, auth_enumerate_value_accounts, auth_enumerate_value_login_accounts, auth_enumerate_value_providers, auth_identity, auth_identity_metadata, auth_info, auth_info_type, auth_login_account, auth_login_advance_request, auth_login_begin_request, auth_login_begun, auth_login_cancel_request, auth_login_identity, auth_login_mode, auth_login_result_dto, auth_login_result_status, auth_login_step, auth_read_query, auth_read_value, auth_status_dto, auth_validation_error, auth_validation_errors, auth_write, auth_write_result, autopilot_objective_credit_limit, autopilot_objective_get_state_result, autopilot_objective_state, autopilot_objective_status, auto_tier_descriptor, auto_tier_metadata, auto_tier_status, builtin_agent_summary, built_in_model_catalog, built_in_model_catalog_entry, builtin_tool_descriptor, builtin_tool_format, builtin_tool_format_type, builtin_tool_input_schema, builtin_tool_input_schema_type, builtin_tool_safe_for_telemetry, builtin_tool_safe_telemetry_fields, cancel_user_requested_shell_command_result, canvas_action, canvas_action_invoke_request, canvas_action_invoke_result, canvas_close_request, canvas_host_context, canvas_host_context_capabilities, canvas_json_schema, canvas_list, canvas_list_open_result, canvas_open_request, canvas_provider_close_request, canvas_provider_invoke_action_request, canvas_provider_open_request, canvas_provider_open_result, canvas_provider_register_request, canvas_provider_unregister_request, canvas_session_context, capi_session_options, card_digest, card_digest_algorithm, card_digest_value, catalog_agent_plugin_candidate, catalog_agent_plugin_candidate_kind, catalog_agent_plugin_candidate_provenance, catalog_agent_plugin_compatibility_tag, catalog_agent_plugin_component, catalog_agent_plugin_installability, catalog_agent_plugin_install_plan, catalog_agent_plugin_install_source, catalog_agent_plugin_marketplace_source, catalog_agent_plugin_marketplace_source_kind, catalog_agent_plugin_materialization_source, catalog_agent_plugin_materialization_source_kind, catalog_agent_plugin_media_type, catalog_agent_plugin_repository_source, catalog_agent_plugin_repository_source_kind, catalog_ai_skill_candidate, catalog_ai_skill_candidate_kind, catalog_ai_skill_candidate_provenance, catalog_ai_skill_installability, catalog_ai_skill_media_type, catalog_authentication_required_error, catalog_authentication_required_reason, catalog_candidate, catalog_candidate_kind, catalog_candidate_source, catalog_candidate_source_embedded, catalog_candidate_source_url, catalog_capability, catalog_capability_id, catalog_client_contract, catalog_contract_violation_error, catalog_contract_violation_reason, catalog_feed_available_entry, catalog_feed_available_status, catalog_feed_entry, catalog_feed_filtered_entry, catalog_feed_filtered_status, catalog_feed_unavailable_entry, catalog_feed_unavailable_reason, catalog_feed_unavailable_status, catalog_generated_feed_description, catalog_get_generated_feed_request, catalog_get_generated_feed_succeeded, catalog_get_saved_feed_request, catalog_get_saved_feed_succeeded, catalog_handle_rejected_error, catalog_handle_rejection_reason, catalog_handle_type, catalog_invalid_request_error, catalog_invalid_request_field, catalog_malformed_card_error, catalog_malformed_card_reason, catalog_materialization_reference, catalog_mcp_server_candidate, catalog_mcp_server_candidate_kind, catalog_mcp_server_candidate_provenance, catalog_mcp_server_installability, catalog_media_type, catalog_negotiated_contract, catalog_negotiation_refused_error, catalog_negotiation_refused_reason, catalog_network_failure_error, catalog_network_failure_reason, catalog_not_installable_error, catalog_not_installable_reason, catalog_plan_install_from_reference_request, catalog_plugin_repository_source, catalog_policy_rejected_error, catalog_reference_installation_failure_reason, catalog_reference_installation_outcome, catalog_reference_installation_result, catalog_resource_generated_feed_result, catalog_resource_identity, catalog_resource_saved_feed_result, catalog_resource_version, catalog_saved_feed_description, catalog_search_page, catalog_search_pagination, catalog_search_request, catalog_search_result, catalog_search_succeeded, catalog_search_total_count_relation, catalog_selection_cancelled, catalog_selection_decision, catalog_selection_declined, catalog_selection_foreign, catalog_selection_invalid, catalog_selection_replayed, catalog_selection_request, catalog_selection_result, catalog_selection_selected, catalog_selection_stale, catalog_selection_timed_out, catalog_selection_wrong_kind, catalog_trust_eligibility, catalog_trust_provenance, catalog_trust_snapshot, catalog_trust_snapshot_absent, catalog_trust_snapshot_absent_status, catalog_trust_snapshot_current, catalog_trust_snapshot_current_status, catalog_trust_snapshot_downgraded, catalog_trust_snapshot_downgraded_status, catalog_trust_snapshot_malformed, catalog_trust_snapshot_malformed_status, catalog_trust_snapshot_revoked, catalog_trust_snapshot_revoked_status, catalog_trust_snapshot_schema_version, catalog_trust_snapshot_stale, catalog_trust_snapshot_stale_status, catalog_trust_snapshot_unsupported, catalog_trust_snapshot_unsupported_status, catalog_trust_source, catalog_trust_tier, catalog_unavailable_error, catalog_unavailable_reason, catalog_unavailable_transport_error, catalog_unavailable_transport_reason, catalog_unsafe_retrieval_error, catalog_unsafe_retrieval_reason, catalog_unsupported_kind_error, client_metadata, client_task_cancel_reason, client_task_cancel_request, client_task_cancel_result, command_list, commands_finalize_invocation_effect_request, commands_finalize_invocation_effect_result, commands_handle_pending_command_request, commands_handle_pending_command_result, commands_invocation_effect_outcome, commands_invocation_origin, commands_invoke_request, commands_list_request, commands_respond_to_queued_command_request, commands_respond_to_queued_command_result, completions_get_trigger_characters_result, completions_request_request, completions_request_result, configure_session_extensions_params, connect_client_info, connected_remote_session_metadata, connected_remote_session_metadata_kind, connected_remote_session_metadata_repository, connector_account_request, connector_authorization_requirement, connector_authorization_scope, connector_availability, connector_capabilities, connector_catalog_entry, connector_catalog_result, connector_catalog_status, connector_connect_request, connector_connect_result, connector_continue_request, connector_disconnect_result, connector_discovery_account, connector_discovery_account_list, connector_discovery_account_request, connector_discovery_auth_info, connector_discovery_availability, connector_discovery_capabilities, connector_discovery_catalog_entry, connector_discovery_catalog_result, connector_mcp_status, connector_reconcile_request, connector_runtime_status, connector_session_account, connector_status, connect_remote_session_params, connect_request, connect_result, content_exclusion_check_paths_request, content_exclusion_check_paths_result, content_exclusion_path_check, content_exclusion_validate_policies_request, content_exclusion_validate_policies_result, content_filter_mode, context_heaviest_message, copilot_api_token_auth_info, copilot_user_response, copilot_user_response_endpoints, copilot_user_response_quota_snapshots, copilot_user_response_quota_snapshots_chat, copilot_user_response_quota_snapshots_completions, copilot_user_response_quota_snapshots_premium_interactions, current_model, current_tool_metadata, customization_reload_outcome, customization_reload_status, customization_reload_subsystem, customizations_reload_result, debug_collect_logs_collected_entry, debug_collect_logs_destination, debug_collect_logs_entry, debug_collect_logs_entry_kind, debug_collect_logs_include, debug_collect_logs_redaction, debug_collect_logs_request, debug_collect_logs_result, debug_collect_logs_result_kind, debug_collect_logs_skipped_entry, debug_collect_logs_source, diagnostic_cursor_status, diagnostic_entry, diagnostic_log_level, diagnostics_configuration, diagnostics_configure_request, diagnostic_severity, diagnostic_source, diagnostic_sources_configuration, diagnostics_read_request, diagnostics_read_result, discovered_canvas, discovered_extension, discovered_extension_mode, discovered_extension_plugin, discovered_extensions, discovered_extensions_disable_request, discovered_extensions_enable_request, discovered_extension_source, discovered_hook, discovered_mcp_server, discovered_mcp_server_type, discovered_model, discovered_model_list, enqueue_command_params, enqueue_command_result, env_auth_info, environment_capabilities, environment_kind, environments_delete_request, environments_delete_result, environments_get_request, environments_get_result, environments_list_request, environments_list_result, event_log_read_request, event_log_release_interest_result, event_log_tail_result, event_log_types, events_agent_scope, events_cursor_status, events_read_direction, events_read_result, execute_command_params, execute_command_result, extension, extension_context_push_input, extension_launch_profile, extension_launch_provider_resolve_request, extension_launch_provider_resolve_result, extension_list, extensions_disable_request, extensions_enable_request, extension_source, extension_status, external_tool_result, external_tool_text_result_for_llm, external_tool_text_result_for_llm_binary_results_for_llm, external_tool_text_result_for_llm_binary_results_for_llm_type, external_tool_text_result_for_llm_content, external_tool_text_result_for_llm_content_audio, external_tool_text_result_for_llm_content_image, external_tool_text_result_for_llm_content_resource, external_tool_text_result_for_llm_content_resource_details, external_tool_text_result_for_llm_content_resource_link, external_tool_text_result_for_llm_content_resource_link_icon, external_tool_text_result_for_llm_content_resource_link_icon_theme, external_tool_text_result_for_llm_content_shell_exit, external_tool_text_result_for_llm_content_terminal, external_tool_text_result_for_llm_content_text, feature_flag_availability, feature_flag_metadata, feature_flags_metadata_result, feature_flags_resolve_request, feature_flags_resolve_result, feature_flags_resolve_startup_gates_request, feature_flags_resolve_startup_gates_result, filter_mapping, fleet_start_request, fleet_start_result, folder_trust_add_params, folder_trust_check_params, folder_trust_check_result, folder_trust_is_trusted_params, force_login_orgs_decision, gh_cli_auth_info, git_current_branch_remote_result, git_cwd_request, git_hub_environment, git_hub_owner_option, git_hub_owners_cancel_request, git_hub_owners_cancel_result, git_hub_owners_list_request, git_hub_owners_list_result, git_hub_owners_request_id_result, git_hub_repository_at_path_request, git_hub_repository_at_path_result, git_hub_repository_identity, git_hub_telemetry_client_info, git_hub_telemetry_event, git_hub_telemetry_notification, git_hub_token_acquire_reason, git_hub_token_acquire_request, git_hub_token_acquire_result, git_remote_repository, git_repos_from_remotes_request, git_repos_from_remotes_result, global_state_load_for_config_dir_request, global_state_load_result, global_state_write_key_request, handle_pending_tool_call_request, handle_pending_tool_call_result, history_abort_manual_compaction_result, history_cancel_background_compaction_result, history_clear_context_request, history_clear_context_result, history_compact_context_window, history_compact_request, history_compact_result, history_file_restore_skip_reason, history_list_rewind_points_result, history_preview_rewind_request, history_preview_rewind_result, history_rewind_change_type, history_rewind_file_preview, history_rewind_mode, history_rewind_outcome, history_rewind_point, history_rewind_request, history_rewind_result, history_rewind_unavailable_reason, history_skipped_file_restore, history_summarize_for_handoff_result, history_truncate_request, history_truncate_result, hmac_auth_info, hook_invoke_request, hook_invoke_response, hook_origin, hooks_discover_request, hooks_discover_result, hook_type, host_configuration, host_dispose_request, host_empty_result, host_environment_credentials, host_exited_notification, host_exit_reason, host_git_hub_environment_options, host_list_sessions_request, host_list_sessions_result, host_local_server_configuration, host_local_server_options, host_publish_session_request, host_publish_session_result, host_ready_request, host_register_session_request, host_session_create_callback, host_session_create_request, host_session_create_result, host_session_released_notification, host_session_release_request, host_session_summary, host_start_request, host_start_result, host_unpublish_session_request, host_unpublish_session_result, host_unregister_session_request, image_tool_model, image_tool_model_availability, image_tool_model_operation, image_tool_model_pricing, installation_catalogue_identity, installation_confirmation_request, installation_confirmation_response, installation_decision, installation_review, installed_plugin, installed_plugin_info, installed_plugin_source, installed_plugin_source_git_hub, installed_plugin_source_local, installed_plugin_source_url, installed_plugin_verified_source, instruction_discovery_path, instruction_discovery_path_kind, instruction_discovery_path_list, instruction_discovery_path_location, instructions_discover_repo_sources_request, instructions_discover_request, instructions_get_discovery_paths_request, instructions_get_sources_result, instructions_init_prompt_result, instruction_source, instruction_source_location, instruction_source_type, interrupt_main_turn_request, interrupt_main_turn_result, json_schema_response_format, llm_inference_headers, llm_inference_http_request_chunk_request, llm_inference_http_request_chunk_result, llm_inference_http_request_start_request, llm_inference_http_request_start_result, llm_inference_http_request_start_transport, llm_inference_http_response_chunk_error, llm_inference_http_response_chunk_request, llm_inference_http_response_chunk_result, llm_inference_http_response_start_request, llm_inference_http_response_start_result, llm_inference_set_provider_result, local_session_metadata_value, location_permissions_cleanup_result, logged_in_user, login_provider_kind, log_request, log_result, lsp_initialize_request, managed_ensemble_tier, managed_mcp_server_config, managed_permission_evaluation, managed_permission_operation, managed_permission_operation_kind, managed_permissions_evaluate_request, managed_permissions_evaluate_result, managed_permission_verdict, managed_plugin_retry_entry, managed_plugin_retry_status, managed_setting_meta, managed_settings_apply_controls_params, managed_settings_apply_controls_result, managed_settings_bypass_disable_source, managed_settings_bypass_policy_resolution, managed_settings_channel, managed_settings_compose_layer, managed_settings_compose_request, managed_settings_compose_result, managed_settings_diagnostic, managed_settings_diagnostic_severity, managed_settings_ingest_params, managed_settings_ingest_result, managed_settings_layer, managed_settings_load_remote_control_params, managed_settings_load_remote_control_result, managed_settings_log_level, managed_settings_log_message, managed_settings_meta, managed_settings_parse_client_value_params, managed_settings_parse_client_value_result, managed_settings_policy_helper_authority, managed_settings_policy_helper_reason, managed_settings_read_device_result, managed_settings_read_result, managed_settings_resolve_bypass_disable_transition_params, managed_settings_resolve_bypass_disable_transition_result, managed_settings_resolved_data, managed_settings_resolve_device_force_login_orgs_gate_params, managed_settings_resolve_effective_value_params, managed_settings_resolve_effective_value_result, managed_settings_resolve_request, managed_settings_resolve_result, managed_settings_resolve_startup_policy_params, managed_settings_resolve_startup_policy_result, managed_settings_retain_policy_params, managed_settings_schema_result, managed_settings_server_policy_cache_mode, managed_settings_server_policy_resolution, managed_settings_validate_request, managed_settings_validate_result, managed_settings_values, marketplace_add_result, marketplace_browse_result, marketplace_info, marketplace_list_result, marketplace_plugin_info, marketplace_refresh_entry, marketplace_refresh_result, marketplace_remove_result, mcp_allowed_server, mcp_apply_install_request, mcp_apply_uninstall_request, mcp_apps_call_tool_request, mcp_apps_diagnose_capability, mcp_apps_diagnose_request, mcp_apps_diagnose_result, mcp_apps_diagnose_server, mcp_apps_host_context, mcp_apps_host_context_details, mcp_apps_host_context_details_available_display_mode, mcp_apps_host_context_details_display_mode, mcp_apps_host_context_details_platform, mcp_apps_host_context_details_theme, mcp_apps_list_tools_request, mcp_apps_list_tools_result, mcp_apps_read_resource_request, mcp_apps_read_resource_result, mcp_apps_resource_content, mcp_apps_set_host_context_details, mcp_apps_set_host_context_details_available_display_mode, mcp_apps_set_host_context_details_display_mode, mcp_apps_set_host_context_details_platform, mcp_apps_set_host_context_details_theme, mcp_apps_set_host_context_request, mcp_cancel_sampling_execution_params, mcp_cancel_sampling_execution_result, mcp_config_add_request, mcp_config_disable_request, mcp_config_enable_request, mcp_config_list, mcp_config_remove_request, mcp_config_update_request, mcp_configured_server, mcp_configured_server_list, mcp_configured_server_state, mcp_configure_git_hub_request, mcp_configure_git_hub_result, mcp_diagnostic_details, mcp_diagnostic_direction, mcp_diagnostic_kind, mcp_diagnostic_source_configuration, mcp_disable_request, mcp_discover_request, mcp_discover_result, mcp_elicitation_form_mode, mcp_enable_request, mcp_execute_sampling_params, mcp_execute_sampling_request, mcp_execute_sampling_result, mcp_failed_server, mcp_filtered_server, mcp_headers_handle_pending_headers_refresh_request, mcp_headers_handle_pending_headers_refresh_request_request, mcp_headers_handle_pending_headers_refresh_request_result, mcp_host_state, mcp_installation_failure_reason, mcp_installation_input, mcp_installation_management_outcome, mcp_installation_management_result, mcp_installation_operation_request, mcp_installation_operation_status, mcp_installation_outcome, mcp_installation_remote_configuration, mcp_installation_result, mcp_installation_review, mcp_installation_secret, mcp_installation_secret_storage, mcp_installations_request, mcp_installation_state, mcp_installation_summary, mcp_install_plan, mcp_is_server_running_request, mcp_is_server_running_result, mcp_list_builtin_server_names_result, mcp_list_tools_request, mcp_list_tools_result, mcp_oauth_authentication_state_changed_request, mcp_oauth_cancel_login_request, mcp_oauth_cancel_login_result, mcp_oauth_check_dcr_support_request, mcp_oauth_check_dcr_support_result, mcp_oauth_complete_request, mcp_oauth_fetch_protected_resource_metadata_request, mcp_oauth_fetch_protected_resource_metadata_result, mcp_oauth_handle_pending_request, mcp_oauth_handle_pending_result, mcp_oauth_is_microsoft_authorization_server_request, mcp_oauth_is_microsoft_authorization_server_result, mcp_oauth_login_grant_type, mcp_oauth_login_request, mcp_oauth_login_result, mcp_oauth_pending_request_response, mcp_oauth_prepare_login_request, mcp_oauth_prepare_login_result, mcp_oauth_probe_needs_auth_reason, mcp_oauth_probe_request, mcp_oauth_probe_result, mcp_oauth_respond_request, mcp_oauth_respond_result, mcp_oauth_static_client_config, mcp_oauth_static_client_config_request, mcp_oauth_static_client_config_result, mcp_owned_oauth_login_status, mcp_plan_configuration_change, mcp_plan_configuration_operation, mcp_plan_enum_value_type, mcp_plan_install_planned, mcp_plan_install_request, mcp_plan_install_result, mcp_plan_install_source, mcp_plan_install_source_candidate, mcp_plan_install_source_candidate_kind, mcp_plan_install_source_card, mcp_plan_install_source_card_kind, mcp_plan_package_install_method, mcp_plan_package_transport, mcp_plan_policy_decision, mcp_plan_policy_result, mcp_plan_policy_source, mcp_plan_provenance, mcp_plan_remote_install_method, mcp_plan_remote_transport, mcp_plan_required_value, mcp_plan_required_value_enum, mcp_plan_required_value_enum_kind, mcp_plan_required_value_scalar, mcp_plan_required_value_scalar_kind, mcp_plan_resource_identity, mcp_plan_scalar_value_type, mcp_plan_scope, mcp_plan_secret_placeholder, mcp_plan_secret_reference, mcp_plan_target, mcp_plan_transport_choice, mcp_plan_transport_choice_package, mcp_plan_transport_choice_remote, mcp_plan_uninstall_request, mcp_plan_value_category, mcp_prepared_install, mcp_prepare_install_request, mcp_prompt, mcp_prompt_argument, mcp_prompt_icon, mcp_prompt_message, mcp_prompt_role, mcp_prompts_get_request, mcp_prompts_get_result, mcp_prompts_list_request, mcp_prompts_list_result, mcp_register_external_client_request, mcp_registry_cancel_request, mcp_registry_cancel_result, mcp_registry_request_id_result, mcp_registry_search_request, mcp_registry_search_result, mcp_reload_config, mcp_reload_with_config_request, mcp_remove_git_hub_result, mcp_resource, mcp_resource_annotations, mcp_resource_content, mcp_resource_icon, mcp_resources_list_request, mcp_resources_list_result, mcp_resources_list_templates_request, mcp_resources_list_templates_result, mcp_resources_read_request, mcp_resources_read_result, mcp_resource_template, mcp_restart_server_request, mcp_safe_for_telemetry, mcp_safe_for_telemetry_fields, mcp_sampling_execution_action, mcp_sampling_execution_result, mcp_serializable_server_config, mcp_server, mcp_server_auth_config, mcp_server_auth_config_redirect_port, mcp_server_card_embedded, mcp_server_card_embedded_kind, mcp_server_card_media_type, mcp_server_card_reference, mcp_server_card_url, mcp_server_card_url_kind, mcp_server_config, mcp_server_config_defer_tools, mcp_server_config_http, mcp_server_config_http_oauth_grant_type, mcp_server_config_http_type, mcp_server_config_memory, mcp_server_config_memory_type, mcp_server_config_stdio, mcp_server_config_stdio_type, mcp_server_failure_info, mcp_server_list, mcp_server_needs_auth_info, mcp_server_ownership, mcp_set_env_value_mode_details, mcp_set_env_value_mode_params, mcp_set_env_value_mode_result, mcp_should_exclude_git_hub_tools_request, mcp_should_exclude_git_hub_tools_result, mcp_source_file, mcp_source_plugin, mcp_source_ref, mcp_start_server_request, mcp_start_servers_result, mcp_stop_server_request, mcp_task_metadata, mcp_tools, mcp_tool_ui, mcp_tool_ui_visibility, mcp_uninstall_plan, mcp_unregister_external_client_request, memory_configuration, metadata_context_attribution_result, metadata_context_heaviest_messages_request, metadata_context_heaviest_messages_result, metadata_context_info_request, metadata_context_info_result, metadata_is_processing_result, metadata_recompute_context_tokens_request, metadata_recompute_context_tokens_result, metadata_record_context_change_request, metadata_record_context_change_result, metadata_set_working_directory_request, metadata_set_working_directory_result, metadata_snapshot_current_mode, metadata_snapshot_remote_metadata, metadata_snapshot_remote_metadata_repository, metadata_snapshot_remote_metadata_task_type, metadata_update_client_metadata_request, model, model_apply_startup_overlay_request, model_artifact_details, model_billing, model_billing_promo, model_billing_token_prices, model_billing_token_prices_long_context, model_capabilities, model_capabilities_limits, model_capabilities_limits_vision, model_capabilities_override, model_capabilities_override_limits, model_capabilities_override_limits_vision, model_capabilities_override_supports, model_capabilities_supports, model_clear_startup_seed_request, model_clear_startup_seed_result, model_get_reasoning_summaries_request, model_get_reasoning_summaries_result, model_list, model_list_request, model_message, model_picker_category, model_picker_persistence_request, model_picker_price_category, model_picker_settings_context, model_policy, model_policy_state, model_provider_adapter_catalog, model_provider_adapter_descriptor, model_provider_adapter_operation_descriptor, model_provider_attribution, model_provider_automatic_discovery_mode, model_provider_automatic_discovery_policy, model_provider_configuration_disposition, model_provider_configuration_plan, model_provider_descriptor, model_provider_discover_request, model_provider_discover_result, model_provider_discovery_network_scope, model_provider_get_status_request, model_provider_instance, model_provider_instance_reference, model_provider_models_list_request, model_provider_operation_outcome, model_provider_operation_outcome_code, model_provider_prepare_configuration_request, model_provider_provenance, model_provider_provenance_source, model_provider_status, model_provider_warning, model_set_allowed_models_request, model_set_allowed_models_result, model_set_reasoning_effort_request, model_set_reasoning_effort_result, models_list_request, models_list_token_price_units_request, model_switch_auto_tier_request, model_switch_auto_tier_result, model_switch_auto_tier_status, model_switch_confirmation, model_switch_to_request, model_switch_to_result, model_token_price_unit, model_token_price_unit_list, model_warning_text, mode_set_request, mode_set_result, move_mcp_loading_to_background_result, named_provider_config, name_get_result, name_set_auto_request, name_set_auto_result, name_set_request, open_canvas_instance, options_update_additional_content_exclusion_policy, options_update_additional_content_exclusion_policy_rule, options_update_additional_content_exclusion_policy_rule_source, options_update_additional_content_exclusion_policy_scope, options_update_context_tier, options_update_env_value_mode, options_update_reasoning_summary, options_update_tool_filter_precedence, pending_external_tool_request, pending_external_tool_request_list, pending_permission_request, pending_permission_request_list, permission_decision, permission_decision_approved, permission_decision_approved_for_location, permission_decision_approved_for_session, permission_decision_approve_for_location, permission_decision_approve_for_location_approval, permission_decision_approve_for_location_approval_commands, permission_decision_approve_for_location_approval_custom_tool, permission_decision_approve_for_location_approval_extension_env_access, permission_decision_approve_for_location_approval_extension_management, permission_decision_approve_for_location_approval_extension_permission_access, permission_decision_approve_for_location_approval_mcp, permission_decision_approve_for_location_approval_mcp_sampling, permission_decision_approve_for_location_approval_memory, permission_decision_approve_for_location_approval_read, permission_decision_approve_for_location_approval_workflow, permission_decision_approve_for_location_approval_write, permission_decision_approve_for_session, permission_decision_approve_for_session_approval, permission_decision_approve_for_session_approval_commands, permission_decision_approve_for_session_approval_custom_tool, permission_decision_approve_for_session_approval_extension_env_access, permission_decision_approve_for_session_approval_extension_management, permission_decision_approve_for_session_approval_extension_permission_access, permission_decision_approve_for_session_approval_mcp, permission_decision_approve_for_session_approval_mcp_sampling, permission_decision_approve_for_session_approval_memory, permission_decision_approve_for_session_approval_read, permission_decision_approve_for_session_approval_workflow, permission_decision_approve_for_session_approval_write, permission_decision_approve_once, permission_decision_approve_permanently, permission_decision_approve_read_only_for_session, permission_decision_cancelled, permission_decision_context, permission_decision_denied_by_content_exclusion_policy, permission_decision_denied_by_permission_request_hook, permission_decision_denied_by_rules, permission_decision_denied_interactively_by_user, permission_decision_denied_no_approval_rule_and_could_not_request_from_user, permission_decision_outcome, permission_decision_reject, permission_decision_request, permission_decision_surface, permission_decision_user_not_available, permission_location_add_tool_approval_params, permission_location_apply_params, permission_location_apply_result, permission_location_resolve_params, permission_location_resolve_result, permission_location_type, permission_mode_source, permission_paths_add_params, permission_paths_allowed_check_params, permission_paths_allowed_check_result, permission_paths_config, permission_paths_list, permission_paths_update_primary_params, permission_paths_workspace_check_params, permission_paths_workspace_check_result, permission_prompt_shown_notification, permission_request_result, permission_response_capability, permission_rules_set, permissions_configure_additional_content_exclusion_policy, permissions_configure_additional_content_exclusion_policy_rule, permissions_configure_additional_content_exclusion_policy_rule_source, permissions_configure_additional_content_exclusion_policy_scope, permissions_configure_params, permissions_configure_result, permissions_evaluate_managed_policy_params, permissions_evaluate_managed_policy_result, permissions_folder_trust_add_trusted_result, permissions_get_mode_request, permissions_get_mode_result, permissions_locations_add_tool_approval_details, permissions_locations_add_tool_approval_details_commands, permissions_locations_add_tool_approval_details_custom_tool, permissions_locations_add_tool_approval_details_extension_env_access, permissions_locations_add_tool_approval_details_extension_management, permissions_locations_add_tool_approval_details_extension_permission_access, permissions_locations_add_tool_approval_details_mcp, permissions_locations_add_tool_approval_details_mcp_sampling, permissions_locations_add_tool_approval_details_memory, permissions_locations_add_tool_approval_details_read, permissions_locations_add_tool_approval_details_workflow, permissions_locations_add_tool_approval_details_write, permissions_locations_add_tool_approval_result, permissions_modify_rules_params, permissions_modify_rules_result, permissions_modify_rules_scope, permissions_notify_prompt_shown_result, permissions_paths_add_result, permissions_paths_list_request, permissions_paths_update_primary_result, permissions_pending_requests_request, permissions_reset_session_approvals_request, permissions_reset_session_approvals_result, permissions_set_approve_all_request, permissions_set_approve_all_result, permissions_set_approve_all_source, permissions_set_mode_request, permissions_set_mode_result, permissions_set_required_request, permissions_set_required_result, permissions_urls_set_unrestricted_mode_result, permission_urls_config, permission_urls_set_unrestricted_mode_params, persistence_write_raw_json_locked_request, persistence_write_raw_json_locked_result, ping_request, ping_result, plan_read_result, plan_read_sql_todos_result, plan_read_sql_todos_with_dependencies_result, plan_sql_todo_dependency, plan_sql_todos_row, plan_update_request, plugin, plugin_apply_install_request, plugin_installation_failure_reason, plugin_installation_file_review, plugin_installation_location, plugin_installation_management_outcome, plugin_installation_management_result, plugin_installation_mcp_server_review, plugin_installation_mcp_transport, plugin_installation_outcome, plugin_installation_result, plugin_installation_review, plugin_installation_source, plugin_installation_summary, plugin_install_plan, plugin_install_result, plugin_install_staging_mode, plugin_list, plugin_list_result, plugin_plan_install_request, plugins_builtin_set_request, plugins_disable_request, plugins_enable_request, plugins_install_request, plugins_marketplaces_add_request, plugins_marketplaces_browse_request, plugins_marketplaces_refresh_request, plugins_marketplaces_remove_request, plugins_reload_request, plugins_uninstall_request, plugins_update_request, plugin_update_all_entry, plugin_update_all_result, plugin_update_result, protocol_append_mode, protocol_customize_mode, protocol_external_tool_defer, protocol_external_tool_definition, protocol_image_generation_options, protocol_marker_section_override, protocol_replace_mode, protocol_section_override, protocol_static_section_action, protocol_static_section_override, protocol_system_message_append_config, protocol_system_message_config, protocol_system_message_customize_config, protocol_system_message_replace_config, provider_add_request, provider_add_result, provider_config, provider_config_azure, provider_config_model_provider, provider_config_transport, provider_config_type, provider_config_wire_api, provider_descriptor, provider_endpoint, provider_endpoint_transport, provider_endpoint_type, provider_endpoint_wire_api, provider_get_endpoint_request, provider_model_config, provider_session_token, provider_sync_request, provider_sync_result, provider_token_acquire_request, provider_token_acquire_result, provider_withdraw_request, provider_withdraw_result, push_attachment, push_attachment_blob, push_attachment_directory, push_attachment_file, push_attachment_file_line_range, push_attachment_git_hub_actions_job, push_attachment_git_hub_commit, push_attachment_git_hub_file, push_attachment_git_hub_file_diff, push_attachment_git_hub_file_diff_side, push_attachment_git_hub_reference, push_attachment_git_hub_reference_type, push_attachment_git_hub_release, push_attachment_git_hub_repository, push_attachment_git_hub_snippet, push_attachment_git_hub_tree_comparison, push_attachment_git_hub_tree_comparison_side, push_attachment_git_hub_url, push_attachment_selection, push_attachment_selection_details, push_attachment_selection_details_end, push_attachment_selection_details_start, push_git_hub_repo_ref, queue_append_steering_request, queue_begin_deferred_idle_drain_request, queue_begin_deferred_idle_drain_result, queue_consume_system_notifications_request, queued_command_handled, queued_command_not_handled, queued_command_result, queue_defer_session_idle_request, queue_duplicate_at_request, queue_duplicate_at_result, queue_enqueue_resume_pending_result, queue_finish_deferred_idle_drain_request, queue_finish_deferred_idle_drain_result, queue_has_pending_result, queue_insert_at_request, queue_insert_at_result, queue_insert_message, queue_move_item_request, queue_move_item_result, queue_pending_items, queue_pending_items_kind, queue_pending_items_result, queue_remove_at_request, queue_remove_at_result, queue_remove_most_recent_result, queue_send_now_request, queue_send_now_result, queue_set_drain_paused_request, queue_snapshot_result, queue_update_text_request, queue_update_text_result, queue_withdraw_message_request, queue_withdraw_message_result, quota_take_warnings_result, quota_warning_projection, register_event_interest_params, register_event_interest_result, release_event_interest_params, remote_control_config, remote_control_config_existing_mc_session, remote_control_status, remote_control_status_active, remote_control_status_connecting, remote_control_status_error, remote_control_status_off, remote_control_status_result, remote_control_stop_result, remote_control_transfer_result, remote_enable_request, remote_enable_result, remote_notify_steerable_changed_request, remote_notify_steerable_changed_result, remote_session_connection_result, remote_session_host_status, remote_session_metadata_repository, remote_session_metadata_task_type, remote_session_metadata_value, remote_session_mode, remote_session_repository, repo_settings_edit_request, repo_settings_edit_scope, repo_settings_read_raw_request, repo_settings_read_raw_result, repo_settings_write_all_request, repo_settings_write_key_request, response_format, sandbox_apply_defaults_request, sandbox_check_enforcement_command_result, sandbox_check_platform_support_result, sandbox_check_windows_host_loopback_support_result, sandbox_config, sandbox_config_auth, sandbox_config_source, sandbox_config_user_policy, sandbox_config_user_policy_experimental, sandbox_config_user_policy_experimental_seatbelt, sandbox_config_user_policy_filesystem, sandbox_config_user_policy_network, sandbox_config_user_policy_network_proxy, sandbox_config_user_policy_seatbelt, sandbox_credentials_config, sandbox_credential_suggestion, sandbox_credential_suggestions_result, sandbox_disable_for_session_request, sandbox_disable_for_session_result, sandbox_docs_url_result, sandbox_effective_for_optional_params, sandbox_effective_for_optional_result, sandbox_enforcement_command_allowed_params, sandbox_enforcement_status, sandbox_filter_picker_candidates_params, sandbox_filter_picker_candidates_result, sandbox_get_unsupported_message_result, sandbox_get_unsupported_setting_disabled_notice_result, sandbox_grant_path_for_request_request, sandbox_grant_path_for_request_result, sandbox_host_capability, sandbox_host_capability_name, sandbox_host_support, sandbox_masked_env_var, sandbox_picker_candidate, sandbox_prepare_picker_policy_params, sandbox_prepare_picker_policy_result, sandbox_proxy_ca_check_installation_support_result, sandbox_proxy_ca_check_relevance_result, sandbox_proxy_ca_create_result, sandbox_proxy_ca_request, sandbox_proxy_ca_state, sandbox_proxy_ca_status, sandbox_proxy_secret_get_result, sandbox_proxy_secret_location, sandbox_proxy_secret_save_request, sandbox_proxy_secret_save_result, sandbox_resolve_floored_config_params, sandbox_resolve_floored_config_result, sandbox_session_change, sandbox_settings_apply_defaults_result, sandbox_unsupported_startup_notice_params, sandbox_unsupported_startup_notice_result, schedule_add_at_request, schedule_add_cron_request, schedule_add_request, schedule_add_result, schedule_add_self_paced_request, schedule_entry, schedule_has_self_paced_result, schedule_list, schedule_rearm_self_paced_request, schedule_stop_request, schedule_stop_result, secrets_add_filter_values_request, secrets_add_filter_values_result, send_agent_mode, send_attachments_to_message_params, send_message_item, send_messages_request, send_messages_result, send_mode, send_request, send_result, send_system_notification_request, server_agent_list, server_instruction_source_list, server_skill, server_skill_list, session_activity, session_agent_list_request, session_auth_login_request, session_auth_logout_user_request, session_auth_status, session_auth_switch_request, session_bulk_delete_result, session_cancel_all_background_agents_result, session_capability, session_commands_list_request, session_completion_item, session_connected_ide_info, session_context, session_context_host_type, session_enrich_metadata_result, session_fs_append_file_request, session_fs_error, session_fs_error_code, session_fs_exists_request, session_fs_exists_result, session_fs_mkdir_request, session_fs_readdir_request, session_fs_readdir_result, session_fs_readdir_with_types_entry, session_fs_readdir_with_types_entry_type, session_fs_readdir_with_types_request, session_fs_readdir_with_types_result, session_fs_read_file_bytes_request, session_fs_read_file_bytes_result, session_fs_read_file_request, session_fs_read_file_result, session_fs_rename_request, session_fs_rm_request, session_fs_set_provider_capabilities, session_fs_set_provider_conventions, session_fs_set_provider_request, session_fs_set_provider_result, session_fs_sqlite_exists_request, session_fs_sqlite_exists_result, session_fs_sqlite_query_request, session_fs_sqlite_query_result, session_fs_sqlite_query_type, session_fs_sqlite_transaction_error, session_fs_sqlite_transaction_error_class, session_fs_sqlite_transaction_request, session_fs_sqlite_transaction_result, session_fs_sqlite_transaction_statement, session_fs_stat_request, session_fs_stat_result, session_fs_write_file_bytes_request, session_fs_write_file_request, session_git_hub_auth_get_all_auth_available_result, session_git_hub_auth_logout_result, session_git_hub_auth_logout_user_result, session_history_compact_request, session_installed_plugin, session_installed_plugin_source, session_installed_plugin_source_git_hub, session_installed_plugin_source_local, session_installed_plugin_source_url, session_limit_prediction_baseline_data, session_limit_prediction_client_type, session_limit_prediction_details, session_limit_prediction_predict_request, session_limit_prediction_request, session_limit_prediction_result, session_limit_prediction_source, session_limit_prediction_tier, session_limit_prediction_tier_option, session_limit_prediction_unavailable_reason, session_list, session_list_entry, session_list_filter, session_load_deferred_repo_hooks_result, session_log_level, session_managed_permissions, session_managed_settings, session_mcp_apps_call_tool_result, session_mcp_oauth_cancel_login_request, session_mcp_oauth_cancel_login_result, session_mcp_oauth_prepare_login_request, session_mcp_oauth_prepare_login_result, session_mcp_set_connected_ide_info_params, session_metadata_snapshot, session_mode, session_model_clear_startup_seed_request, session_model_clear_startup_seed_result, session_model_list, session_model_list_request, session_model_price_category, session_open_options, session_open_options_additional_content_exclusion_policy, session_open_options_additional_content_exclusion_policy_rule, session_open_options_additional_content_exclusion_policy_rule_source, session_open_options_additional_content_exclusion_policy_scope, session_open_options_env_value_mode, session_open_options_reasoning_summary, session_open_params, session_open_result, session_plugins_disable_request, session_plugins_enable_request, session_plugins_install_request, session_plugins_marketplaces_refresh_request, session_plugins_reload_request, session_plugins_retry_managed_request, session_plugins_retry_managed_result, session_provider_get_endpoint_request, session_prune_result, session_quota_delegate_warning, session_quota_get_result, session_quota_plan_tier, session_quota_projection, session_quota_refresh_result, session_quota_snapshot, session_quota_take_warnings_result, sessions_bulk_delete_request, sessions_check_in_use_request, sessions_check_in_use_result, sessions_client_metadata_entry, sessions_close_request, sessions_close_result, sessions_create_workspace_request, sessions_create_workspace_result, sessions_delete_request, sessions_enrich_metadata_request, session_set_credentials_params, session_set_credentials_result, session_settings_built_in_tool_availability_snapshot, session_settings_evaluate_predicate_request, session_settings_evaluate_predicate_result, session_settings_job_snapshot, session_settings_model_snapshot, session_settings_online_evaluation_snapshot, session_settings_predicate_name, session_settings_repo_snapshot, session_settings_snapshot, session_settings_validation_snapshot, sessions_find_by_prefix_request, sessions_find_by_prefix_result, sessions_find_by_task_id_request, sessions_find_by_task_id_result, sessions_fork_request, sessions_fork_result, sessions_get_board_entry_count_request, sessions_get_board_entry_count_result, sessions_get_client_metadata_request, sessions_get_client_metadata_result, sessions_get_event_file_path_request, sessions_get_event_file_path_result, sessions_get_last_for_context_request, sessions_get_last_for_context_result, sessions_get_metadata_request, sessions_get_metadata_result, sessions_get_persisted_remote_steerable_request, sessions_get_persisted_remote_steerable_result, session_sizes, sessions_list_non_empty_session_ids_request, sessions_list_non_empty_session_ids_result, sessions_list_request, sessions_load_deferred_repo_hooks_request, sessions_load_workspace_request, sessions_load_workspace_result, sessions_open_attach, sessions_open_cloud, sessions_open_create, sessions_open_handoff, sessions_open_handoff_task_type, sessions_open_progress, sessions_open_progress_status, sessions_open_progress_step, sessions_open_remote, sessions_open_resume, sessions_open_resume_last, sessions_open_status, session_source, sessions_prune_old_request, sessions_read_persisted_events_request, sessions_release_lock_request, sessions_release_lock_result, sessions_reload_plugin_hooks_request, sessions_reload_plugin_hooks_result, sessions_save_request, sessions_save_result, sessions_set_additional_plugins_request, sessions_set_additional_plugins_result, sessions_set_remote_control_steering_request, sessions_start_remote_control_request, sessions_stop_remote_control_request, sessions_transfer_remote_control_request, sessions_update_workspace_fields_request, sessions_update_workspace_fields_result, session_telemetry_engagement, session_update_options_params, session_update_options_result, session_usage_set_code_changes_request, session_visibility_status, session_workflow_pause_at_checkpoint_result, session_working_directory_context, session_working_directory_context_host_type, session_working_directory_context_with_client, settable_auth_info, settable_token_auth_info, settings_edit_operation, settings_edit_result, settings_edit_status, shell_cancel_user_requested_request, shell_credentials, shell_exec_request, shell_exec_result, shell_execute_user_requested_request, shell_init_profile, shell_init_script, shell_init_script_shell, shell_kill_request, shell_kill_result, shell_kill_signal, shell_options, shutdown_request, skill, skill_apply_install_request, skill_apply_uninstall_request, skill_discovery_path, skill_discovery_path_list, skill_discovery_scope, skill_installation_failure_reason, skill_installation_file_review, skill_installation_location, skill_installation_management_outcome, skill_installation_management_result, skill_installation_operation_request, skill_installation_operation_status, skill_installation_outcome, skill_installation_ownership_state, skill_installation_result, skill_installation_review, skill_installation_scope, skill_installation_session_state, skill_installation_source, skill_installations_request, skill_installation_summary, skill_install_plan, skill_list, skill_plan_install_request, skill_plan_uninstall_request, skill_provider_descriptor, skill_provider_list_request, skill_provider_list_result, skill_provider_read_request, skill_provider_read_result, skills_config_set_disabled_skills_request, skills_config_set_skill_disabled_request, skills_disable_request, skills_discover_request, skills_enable_request, skill_set_enabled_request, skills_get_discovery_paths_request, skills_get_invoked_result, skills_invoked_skill, skills_load_diagnostics, skill_uninstall_plan, slash_command_add_timeline_entry_result, slash_command_agent_prompt_result, slash_command_completed_result, slash_command_info, slash_command_input, slash_command_input_choice, slash_command_input_completion, slash_command_invocation_result, slash_command_kind, slash_command_model_picker_dialog, slash_command_select_subcommand_option, slash_command_select_subcommand_result, slash_command_set_model_result, slash_command_set_plan_model_result, slash_command_show_dialog_result, slash_command_text_result, slash_command_timeline_entry, staff_log_level_migration_status, staff_update_channel_migration_status, subagent_settings_entry, subagent_settings_entry_context_tier, system_message_block, task_agent_info, task_agent_progress, task_client_active_status, task_client_execution_mode, task_client_info, task_client_owner, task_client_owner_kind, task_client_owner_presence, task_client_progress, task_client_status, task_client_type, task_client_update, task_complete_data, task_completion_decision, task_execution_mode, task_info, task_kind, task_list, task_progress_line, tasks_cancel_request, tasks_cancel_result, tasks_get_current_promotable_result, tasks_get_progress_request, tasks_get_progress_result, task_shell_info, task_shell_info_attachment_mode, task_shell_output_exit, task_shell_progress, tasks_promote_current_to_background_result, tasks_promote_to_background_request, tasks_promote_to_background_result, tasks_read_output_request, tasks_read_output_result, tasks_refresh_result, tasks_register_request, tasks_register_result, tasks_remove_request, tasks_remove_result, tasks_send_message_request, tasks_send_message_result, tasks_start_agent_request, tasks_start_agent_result, task_status, tasks_update_request, tasks_update_result, tasks_wait_for_pending_result, telemetry_set_feature_overrides_request, token_auth_info, token_price_unit, token_provider_auth_info, tool, tool_list, tool_result, tool_result_expanded, tool_result_new_message, tool_result_type, tools_execute_request, tools_get_builtin_descriptors_request, tools_get_builtin_descriptors_result, tools_get_current_metadata_result, tools_initialize_and_validate_result, tools_list_pending_requests_request, tools_list_request, tools_set_request, tools_set_result, tools_shell_descriptor_config, tools_task_complete_event_data_request, tools_update_subagent_settings_result, ui_auto_mode_switch_response, ui_elicitation_array_any_of_field, ui_elicitation_array_any_of_field_items, ui_elicitation_array_any_of_field_items_any_of, ui_elicitation_array_enum_field, ui_elicitation_array_enum_field_items, ui_elicitation_field_value, ui_elicitation_request, ui_elicitation_response, ui_elicitation_response_action, ui_elicitation_response_content, ui_elicitation_result, ui_elicitation_schema, ui_elicitation_schema_property, ui_elicitation_schema_property_boolean, ui_elicitation_schema_property_number, ui_elicitation_schema_property_number_type, ui_elicitation_schema_property_string, ui_elicitation_schema_property_string_format, ui_elicitation_string_enum_field, ui_elicitation_string_one_of_field, ui_elicitation_string_one_of_field_one_of, ui_ephemeral_query_request, ui_ephemeral_query_result, ui_exit_plan_mode_action, ui_exit_plan_mode_response, ui_handle_pending_auto_mode_switch_request, ui_handle_pending_elicitation_request, ui_handle_pending_exit_plan_mode_request, ui_handle_pending_result, ui_handle_pending_sampling_request, ui_handle_pending_sampling_response, ui_handle_pending_session_limits_exhausted_request, ui_handle_pending_user_input_request, ui_register_direct_auto_mode_switch_handler_result, ui_session_limits_exhausted_response, ui_session_limits_exhausted_response_action, ui_unregister_direct_auto_mode_switch_handler_request, ui_unregister_direct_auto_mode_switch_handler_result, ui_user_input_response, unsupported_enqueue_command_result, update_subagent_settings_request, usage_get_metrics_result, usage_set_code_changes_request, user_auth_info, user_requested_shell_command_result, user_setting_metadata, user_settings_apply_top_key_request, user_settings_apply_top_key_result, user_settings_build_runtime_request, user_settings_build_runtime_result, user_settings_edit_request, user_settings_get_paths_request, user_settings_get_paths_result, user_settings_get_result, user_settings_governance_keys_result, user_settings_host_context, user_settings_load_and_merge_repo_request, user_settings_load_and_merge_repo_result, user_settings_load_for_config_dir_request, user_settings_load_for_config_dir_result, user_settings_load_for_edit_result, user_settings_load_repo_request, user_settings_load_repo_result, user_settings_load_with_warning_result, user_settings_merge_managed_and_user_params, user_settings_merge_managed_and_user_result, user_settings_merge_repo_value_params, user_settings_merge_repo_value_result, user_settings_migrate_obsolete_on_disk_request, user_settings_migrate_obsolete_on_disk_result, user_settings_migrate_obsolete_on_disk_status, user_settings_migrate_staff_log_level_once_request, user_settings_migrate_staff_log_level_once_result, user_settings_migrate_staff_update_channel_once_result, user_settings_normalize_request, user_settings_normalize_result, user_settings_path_result, user_settings_problem, user_settings_problem_location, user_settings_problem_source, user_settings_problems_request, user_settings_problems_result, user_settings_reset_staff_model_selection_once_request, user_settings_reset_staff_model_selection_once_result, user_settings_set_hook_disabled_request, user_settings_set_hook_disabled_result, user_settings_set_request, user_settings_unknown_keys_warning_request, user_settings_unknown_keys_warning_result, user_settings_update_request, user_settings_update_result, user_settings_validate_request, user_settings_validate_result, user_settings_validation_issue, user_settings_write_all_request, visibility_get_result, visibility_set_request, visibility_set_result, workflow_abort_request, workflow_ack_result, workflow_agent_options, workflow_agent_request, workflow_agent_result, workflow_agent_summary, workflow_cancel_request, workflow_current_phase, workflow_declared_limits, workflow_durable_operation, workflow_execute_request, workflow_execute_result, workflow_get_run_progress_request, workflow_get_run_request, workflow_journal_get_request, workflow_journal_get_result, workflow_journal_put_request, workflow_list_runs_request, workflow_list_runs_result, workflow_log_line, workflow_log_line_kind, workflow_log_request, workflow_pause_checkpoint_action, workflow_pause_checkpoint_request, workflow_pause_checkpoint_result, workflow_pause_info, workflow_pause_request, workflow_phase_observation, workflow_phase_status, workflow_progress_line, workflow_progress_page, workflow_resume_request, workflow_resume_result, workflow_run_consumed, workflow_run_detail, workflow_run_failure, workflow_run_failure_kind, workflow_run_limits, workflow_run_options, workflow_run_request, workflow_run_result, workflow_run_status, workflow_run_summary, workflow_run_terminal, workflow_tool_resume_request, workflow_tool_run_options, workflow_tool_run_request, workspace_diff_contents, workspace_diff_file_change, workspace_diff_file_change_type, workspace_diff_mode, workspace_diff_result, workspaces_add_summary_request, workspaces_add_summary_result, workspaces_autopilot_objective_exists_result, workspaces_checkpoints, workspaces_create_directory_request, workspaces_create_file_request, workspaces_delete_autopilot_objective_result, workspaces_diff_request, workspaces_ensure_request, workspaces_get_workspace_result, workspaces_list_checkpoints_result, workspaces_list_files_result, workspaces_read_autopilot_objective_result, workspaces_read_checkpoint_request, workspaces_read_checkpoint_result, workspaces_read_file_request, workspaces_read_file_result, workspaces_remove_path_request, workspaces_rename_path_request, workspaces_save_large_paste_request, workspaces_save_large_paste_result, workspaces_stat_file_request, workspaces_stat_file_result, workspaces_truncate_summaries_request, workspace_summary_host_type, workspaces_update_metadata_request, workspaces_workspace_details_host_type, workspaces_write_autopilot_objective_request, workspaces_write_autopilot_objective_result, connector_session_account_result, session_auth_info_result, session_context_attribution, session_context_info, subagent_settings, task_progress, workspace_summary)
 
     def to_dict(self) -> dict:
         result: dict = {}
@@ -60635,6 +61595,19 @@ class RPC:
         result["CatalogClientContract"] = to_class(CatalogClientContract, self.catalog_client_contract)
         result["CatalogContractViolationError"] = to_class(CatalogContractViolationError, self.catalog_contract_violation_error)
         result["CatalogContractViolationReason"] = to_enum(CatalogContractViolationReason, self.catalog_contract_violation_reason)
+        result["CatalogFeedAvailableEntry"] = to_class(CatalogFeedAvailableEntry, self.catalog_feed_available_entry)
+        result["CatalogFeedAvailableStatus"] = to_enum(CatalogFeedAvailableStatus, self.catalog_feed_available_status)
+        result["CatalogFeedEntry"] = (self.catalog_feed_entry).to_dict()
+        result["CatalogFeedFilteredEntry"] = to_class(CatalogFeedFilteredEntry, self.catalog_feed_filtered_entry)
+        result["CatalogFeedFilteredStatus"] = to_enum(CatalogFeedFilteredStatus, self.catalog_feed_filtered_status)
+        result["CatalogFeedUnavailableEntry"] = to_class(CatalogFeedUnavailableEntry, self.catalog_feed_unavailable_entry)
+        result["CatalogFeedUnavailableReason"] = to_enum(CatalogFeedUnavailableReason, self.catalog_feed_unavailable_reason)
+        result["CatalogFeedUnavailableStatus"] = to_enum(CatalogFeedUnavailableStatus, self.catalog_feed_unavailable_status)
+        result["CatalogGeneratedFeedDescription"] = to_class(CatalogGeneratedFeedDescription, self.catalog_generated_feed_description)
+        result["CatalogGetGeneratedFeedRequest"] = to_class(CatalogGetGeneratedFeedRequest, self.catalog_get_generated_feed_request)
+        result["CatalogGetGeneratedFeedSucceeded"] = to_class(CatalogGetGeneratedFeedSucceeded, self.catalog_get_generated_feed_succeeded)
+        result["CatalogGetSavedFeedRequest"] = to_class(CatalogGetSavedFeedRequest, self.catalog_get_saved_feed_request)
+        result["CatalogGetSavedFeedSucceeded"] = to_class(CatalogGetSavedFeedSucceeded, self.catalog_get_saved_feed_succeeded)
         result["CatalogHandleRejectedError"] = to_class(CatalogHandleRejectedError, self.catalog_handle_rejected_error)
         result["CatalogHandleRejectionReason"] = to_enum(CatalogHandleRejectionReason, self.catalog_handle_rejection_reason)
         result["CatalogHandleType"] = to_enum(CatalogHandleType, self.catalog_handle_type)
@@ -60661,8 +61634,11 @@ class RPC:
         result["CatalogReferenceInstallationFailureReason"] = to_enum(CatalogReferenceInstallationFailureReason, self.catalog_reference_installation_failure_reason)
         result["CatalogReferenceInstallationOutcome"] = to_class(CatalogReferenceInstallationOutcome, self.catalog_reference_installation_outcome)
         result["CatalogReferenceInstallationResult"] = to_class(CatalogReferenceInstallationResult, self.catalog_reference_installation_result)
+        result["CatalogResourceGeneratedFeedResult"] = (self.catalog_resource_generated_feed_result).to_dict()
         result["CatalogResourceIdentity"] = from_str(self.catalog_resource_identity)
+        result["CatalogResourceSavedFeedResult"] = (self.catalog_resource_saved_feed_result).to_dict()
         result["CatalogResourceVersion"] = from_str(self.catalog_resource_version)
+        result["CatalogSavedFeedDescription"] = to_class(CatalogSavedFeedDescription, self.catalog_saved_feed_description)
         result["CatalogSearchPage"] = to_class(CatalogSearchPage, self.catalog_search_page)
         result["CatalogSearchPagination"] = to_class(CatalogSearchPagination, self.catalog_search_pagination)
         result["CatalogSearchRequest"] = to_class(CatalogSearchRequest, self.catalog_search_request)
@@ -60972,6 +61948,7 @@ class RPC:
         result["InstalledPluginSourceGitHub"] = to_class(InstalledPluginSourceGitHub, self.installed_plugin_source_git_hub)
         result["InstalledPluginSourceLocal"] = to_class(InstalledPluginSourceLocal, self.installed_plugin_source_local)
         result["InstalledPluginSourceUrl"] = to_class(InstalledPluginSourceURL, self.installed_plugin_source_url)
+        result["InstalledPluginVerifiedSource"] = to_class(InstalledPluginVerifiedSource, self.installed_plugin_verified_source)
         result["InstructionDiscoveryPath"] = to_class(InstructionDiscoveryPath, self.instruction_discovery_path)
         result["InstructionDiscoveryPathKind"] = to_enum(DebugCollectLogsEntryKind, self.instruction_discovery_path_kind)
         result["InstructionDiscoveryPathList"] = to_class(InstructionDiscoveryPathList, self.instruction_discovery_path_list)
@@ -61006,6 +61983,7 @@ class RPC:
         result["LogRequest"] = to_class(LogRequest, self.log_request)
         result["LogResult"] = to_class(LogResult, self.log_result)
         result["LspInitializeRequest"] = to_class(LspInitializeRequest, self.lsp_initialize_request)
+        result["ManagedEnsembleTier"] = to_enum(ManagedEnsembleTier, self.managed_ensemble_tier)
         result["ManagedMcpServerConfig"] = to_class(ManagedMCPServerConfig, self.managed_mcp_server_config)
         result["ManagedPermissionEvaluation"] = to_class(ManagedPermissionEvaluation, self.managed_permission_evaluation)
         result["ManagedPermissionOperation"] = to_class(ManagedPermissionOperation, self.managed_permission_operation)
@@ -61510,6 +62488,8 @@ class RPC:
         result["PluginInstallationLocation"] = to_class(PluginInstallationLocation, self.plugin_installation_location)
         result["PluginInstallationManagementOutcome"] = to_class(PluginInstallationManagementOutcome, self.plugin_installation_management_outcome)
         result["PluginInstallationManagementResult"] = to_class(PluginInstallationManagementResult, self.plugin_installation_management_result)
+        result["PluginInstallationMcpServerReview"] = to_class(PluginInstallationMCPServerReview, self.plugin_installation_mcp_server_review)
+        result["PluginInstallationMcpTransport"] = to_enum(PluginInstallationMCPTransport, self.plugin_installation_mcp_transport)
         result["PluginInstallationOutcome"] = to_class(PluginInstallationOutcome, self.plugin_installation_outcome)
         result["PluginInstallationResult"] = to_class(PluginInstallationResult, self.plugin_installation_result)
         result["PluginInstallationReview"] = to_class(PluginInstallationReview, self.plugin_installation_review)
@@ -62047,10 +63027,13 @@ class RPC:
         result["TasksGetProgressResult"] = to_class(TasksGetProgressResult, self.tasks_get_progress_result)
         result["TaskShellInfo"] = to_class(TaskShellInfo, self.task_shell_info)
         result["TaskShellInfoAttachmentMode"] = to_enum(TaskShellInfoAttachmentMode, self.task_shell_info_attachment_mode)
+        result["TaskShellOutputExit"] = to_class(TaskShellOutputExit, self.task_shell_output_exit)
         result["TaskShellProgress"] = to_class(TaskShellProgress, self.task_shell_progress)
         result["TasksPromoteCurrentToBackgroundResult"] = to_class(TasksPromoteCurrentToBackgroundResult, self.tasks_promote_current_to_background_result)
         result["TasksPromoteToBackgroundRequest"] = to_class(TasksPromoteToBackgroundRequest, self.tasks_promote_to_background_request)
         result["TasksPromoteToBackgroundResult"] = to_class(TasksPromoteToBackgroundResult, self.tasks_promote_to_background_result)
+        result["TasksReadOutputRequest"] = to_class(TasksReadOutputRequest, self.tasks_read_output_request)
+        result["TasksReadOutputResult"] = to_class(TasksReadOutputResult, self.tasks_read_output_result)
         result["TasksRefreshResult"] = to_class(TasksRefreshResult, self.tasks_refresh_result)
         result["TasksRegisterRequest"] = to_class(TasksRegisterRequest, self.tasks_register_request)
         result["TasksRegisterResult"] = to_class(TasksRegisterResult, self.tasks_register_result)
@@ -62345,6 +63328,54 @@ def _load_CatalogCandidateSource(obj: Any) -> "CatalogCandidateSource":
         case "url": return CatalogCandidateSourceURL.from_dict(obj)
         case "embedded": return CatalogCandidateSourceEmbedded.from_dict(obj)
         case _: raise ValueError(f"Unknown CatalogCandidateSource kind: {kind!r}")
+
+# One feed entry, in its feed position. Only available entries carry a candidate.
+CatalogFeedEntry = CatalogFeedAvailableEntry | CatalogFeedUnavailableEntry | CatalogFeedFilteredEntry
+
+def _load_CatalogFeedEntry(obj: Any) -> "CatalogFeedEntry":
+    assert isinstance(obj, dict)
+    kind = obj.get("status")
+    match kind:
+        case "available": return CatalogFeedAvailableEntry.from_dict(obj)
+        case "unavailable": return CatalogFeedUnavailableEntry.from_dict(obj)
+        case "filtered": return CatalogFeedFilteredEntry.from_dict(obj)
+        case _: raise ValueError(f"Unknown CatalogFeedEntry status: {kind!r}")
+
+# Outcome of catalog.getGeneratedFeed: the feed with its entries, or one typed refusal. An entry that cannot be presented never fails the feed.
+CatalogResourceGeneratedFeedResult = CatalogGetGeneratedFeedSucceeded | CatalogNegotiationRefusedError | CatalogInvalidRequestError | CatalogAuthenticationRequiredError | CatalogPolicyRejectedError | CatalogNetworkFailureError | CatalogUnsafeRetrievalError | CatalogMalformedCardError | CatalogUnavailableError
+
+def _load_CatalogResourceGeneratedFeedResult(obj: Any) -> "CatalogResourceGeneratedFeedResult":
+    assert isinstance(obj, dict)
+    kind = obj.get("kind")
+    match kind:
+        case "succeeded": return CatalogGetGeneratedFeedSucceeded.from_dict(obj)
+        case "negotiation-refused": return CatalogNegotiationRefusedError.from_dict(obj)
+        case "invalid-request": return CatalogInvalidRequestError.from_dict(obj)
+        case "authentication-required": return CatalogAuthenticationRequiredError.from_dict(obj)
+        case "policy-rejected": return CatalogPolicyRejectedError.from_dict(obj)
+        case "network-failure": return CatalogNetworkFailureError.from_dict(obj)
+        case "unsafe-retrieval": return CatalogUnsafeRetrievalError.from_dict(obj)
+        case "malformed-card": return CatalogMalformedCardError.from_dict(obj)
+        case "unavailable": return CatalogUnavailableError.from_dict(obj)
+        case _: raise ValueError(f"Unknown CatalogResourceGeneratedFeedResult kind: {kind!r}")
+
+# Outcome of catalog.getSavedFeed: the feed with its entries, or one typed refusal. An entry that cannot be presented never fails the feed.
+CatalogResourceSavedFeedResult = CatalogGetSavedFeedSucceeded | CatalogNegotiationRefusedError | CatalogInvalidRequestError | CatalogAuthenticationRequiredError | CatalogPolicyRejectedError | CatalogNetworkFailureError | CatalogUnsafeRetrievalError | CatalogMalformedCardError | CatalogUnavailableError
+
+def _load_CatalogResourceSavedFeedResult(obj: Any) -> "CatalogResourceSavedFeedResult":
+    assert isinstance(obj, dict)
+    kind = obj.get("kind")
+    match kind:
+        case "succeeded": return CatalogGetSavedFeedSucceeded.from_dict(obj)
+        case "negotiation-refused": return CatalogNegotiationRefusedError.from_dict(obj)
+        case "invalid-request": return CatalogInvalidRequestError.from_dict(obj)
+        case "authentication-required": return CatalogAuthenticationRequiredError.from_dict(obj)
+        case "policy-rejected": return CatalogPolicyRejectedError.from_dict(obj)
+        case "network-failure": return CatalogNetworkFailureError.from_dict(obj)
+        case "unsafe-retrieval": return CatalogUnsafeRetrievalError.from_dict(obj)
+        case "malformed-card": return CatalogMalformedCardError.from_dict(obj)
+        case "unavailable": return CatalogUnavailableError.from_dict(obj)
+        case _: raise ValueError(f"Unknown CatalogResourceSavedFeedResult kind: {kind!r}")
 
 # Outcome of a catalog.search call: either bounded inert candidates, or one typed refusal. Never a partial success.
 CatalogSearchResult = CatalogSearchSucceeded | CatalogNegotiationRefusedError | CatalogUnsupportedKindError | CatalogInvalidRequestError | CatalogAuthenticationRequiredError | CatalogPolicyRejectedError | CatalogNetworkFailureError | CatalogUnsafeRetrievalError | CatalogMalformedCardError | CatalogContractViolationError | CatalogUnavailableError
@@ -63415,6 +64446,16 @@ class ServerCatalogApi:
         "Requests a bounded catalog search. This host-implemented server method is available through SDK/TUI hosts; standalone and C-ABI runtimes whose host does not implement server-method dispatch return JSON-RPC MethodNotFound. A runtime with search available returns inert candidate summaries, each with an opaque single-use handle scoped to this runtime instance; a runtime without it returns the typed search-unavailable result. Public authorities may be searched anonymously, while an authority that requires credentials yields the typed authentication-required result. All returned text, URLs, and package metadata are untrusted external data and can never trigger instructions, tools, or installation. Read-only: nothing is installed, configured, or persisted.\n\nArgs:\n    params: A bounded catalog search. Both the query length and the result count are capped by the schema so a caller cannot request an unbounded scan.\n\nReturns:\n    Outcome of a catalog.search call: either bounded inert candidates, or one typed refusal. Never a partial success."
         params_dict = {k: v for k, v in params.to_dict().items() if v is not None}
         return _load_CatalogSearchResult(await self._client.request("catalog.search", params_dict, **_timeout_kwargs(timeout)))
+
+    async def get_saved_feed(self, params: CatalogGetSavedFeedRequest, *, timeout: float | None = None) -> CatalogResourceSavedFeedResult:
+        "Retrieves one saved feed by its opaque ID, optionally filtered by trust tier. Requires catalog-feeds and catalog-search-credential-required, and uses the same authority, credential policy, optional session binding and candidate projection as catalog.search, so available entries are the same inert candidates, with the same installability, handles and display metadata, and install through the same confirmed flows. Entries keep the feed's order; an entry the runtime cannot present is returned as unavailable with a reason rather than failing the feed. No anonymous retry. Read-only: nothing is installed, configured, or persisted.\n\nArgs:\n    params: Retrieves one saved feed by its opaque ID. Requires catalog-feeds and catalog-search-credential-required; add catalog-search-session-bound with policySessionId to retain the selected session's authority for installation, exactly as for catalog.search.\n\nReturns:\n    Outcome of catalog.getSavedFeed: the feed with its entries, or one typed refusal. An entry that cannot be presented never fails the feed."
+        params_dict = {k: v for k, v in params.to_dict().items() if v is not None}
+        return _load_CatalogResourceSavedFeedResult(await self._client.request("catalog.getSavedFeed", params_dict, **_timeout_kwargs(timeout)))
+
+    async def get_generated_feed(self, params: CatalogGetGeneratedFeedRequest, *, timeout: float | None = None) -> CatalogResourceGeneratedFeedResult:
+        "Retrieves one generated feed by strategy and key, such as telemetry/popular, optionally filtered by trust tier. Requires catalog-feeds and catalog-search-credential-required, and uses the same authority, credential policy, optional session binding and candidate projection as catalog.search, so available entries are the same inert candidates, with the same installability, handles and display metadata, and install through the same confirmed flows. Entries keep the feed's order; an entry the runtime cannot present is returned as unavailable with a reason rather than failing the feed. No anonymous retry. Read-only: nothing is installed, configured, or persisted.\n\nArgs:\n    params: Retrieves one generated feed, computed on every request, by strategy and key, such as `telemetry` and `popular`. Requires catalog-feeds and catalog-search-credential-required; add catalog-search-session-bound with policySessionId to retain the selected session's authority for installation, exactly as for catalog.search.\n\nReturns:\n    Outcome of catalog.getGeneratedFeed: the feed with its entries, or one typed refusal. An entry that cannot be presented never fails the feed."
+        params_dict = {k: v for k, v in params.to_dict().items() if v is not None}
+        return _load_CatalogResourceGeneratedFeedResult(await self._client.request("catalog.getGeneratedFeed", params_dict, **_timeout_kwargs(timeout)))
 
     async def select(self, params: CatalogSelectionRequest, *, timeout: float | None = None) -> CatalogSelectionResult:
         "Terminates one retained catalog selection group. A selected outcome returns the native host a fresh single-use candidate handle plus the original searchId for a later explicit mcp.planInstall call; non-selected outcomes release the group without producing a planning input. Candidate state, cards, URLs, credentials and private identifiers remain inside the runtime. The model-facing catalog_select tool projects the result separately and never exposes the candidate handle or searchId.\n\nArgs:\n    params: Terminates one retained catalog selection group through an opaque reference previously returned by the model-safe search projection.\n\nReturns:\n    Typed outcome of catalog.select. Only the selected host result carries a fresh candidate handle; the model-facing projection removes both that handle and searchId."
@@ -65049,6 +66090,12 @@ class TasksApi:
         params_dict: dict[str, Any] = {k: v for k, v in params.to_dict().items() if v is not None}
         params_dict["sessionId"] = self._session_id
         return TasksGetProgressResult.from_dict(await self._client.request("session.tasks.getProgress", params_dict, **_timeout_kwargs(timeout)))
+
+    async def read_output(self, params: TasksReadOutputRequest, *, timeout: float | None = None) -> TasksReadOutputResult:
+        "Reads a detached shell task's output after a cursor, optionally waiting for new output or for the shell to finish.\n\nArgs:\n    params: Detached shell task to read output from, with an optional cursor and long-poll wait. waitMs defaults to zero (maximum 30000).\n\nReturns:\n    Output a detached shell task wrote after the request cursor, with the cursor for the next read."
+        params_dict: dict[str, Any] = {k: v for k, v in params.to_dict().items() if v is not None}
+        params_dict["sessionId"] = self._session_id
+        return TasksReadOutputResult.from_dict(await self._client.request("session.tasks.readOutput", params_dict, **_timeout_kwargs(timeout)))
 
     async def get_current_promotable(self, *, timeout: float | None = None) -> TasksGetCurrentPromotableResult:
         "Returns the first sync-waiting task that can currently be promoted to background mode.\n\nReturns:\n    The first sync-waiting task that can currently be promoted to background mode."
@@ -67397,6 +68444,21 @@ __all__ = [
     "CatalogContractViolationError",
     "CatalogContractViolationErrorKind",
     "CatalogContractViolationReason",
+    "CatalogFeedAvailableEntry",
+    "CatalogFeedAvailableStatus",
+    "CatalogFeedEntry",
+    "CatalogFeedEntryStatus",
+    "CatalogFeedFilteredEntry",
+    "CatalogFeedFilteredStatus",
+    "CatalogFeedUnavailableEntry",
+    "CatalogFeedUnavailableReason",
+    "CatalogFeedUnavailableStatus",
+    "CatalogGeneratedFeedDescription",
+    "CatalogGetGeneratedFeedRequest",
+    "CatalogGetGeneratedFeedSucceeded",
+    "CatalogGetGeneratedFeedSucceededKind",
+    "CatalogGetSavedFeedRequest",
+    "CatalogGetSavedFeedSucceeded",
     "CatalogHandleRejectedError",
     "CatalogHandleRejectedErrorKind",
     "CatalogHandleRejectionReason",
@@ -67416,6 +68478,7 @@ __all__ = [
     "CatalogMaterializationReference",
     "CatalogMcpServerInstallability",
     "CatalogMediaType",
+    "CatalogNeReason",
     "CatalogNegotiatedContract",
     "CatalogNegotiationRefusedError",
     "CatalogNegotiationRefusedErrorKind",
@@ -67435,8 +68498,13 @@ __all__ = [
     "CatalogReferenceInstallationOutcomeKind",
     "CatalogReferenceInstallationResult",
     "CatalogReferenceInstallationResultKind",
+    "CatalogResourceGeneratedFeedResult",
+    "CatalogResourceGeneratedFeedResultKind",
+    "CatalogResourceGeneratedFeedResultReason",
     "CatalogResourceIdentity",
+    "CatalogResourceSavedFeedResult",
     "CatalogResourceVersion",
+    "CatalogSavedFeedDescription",
     "CatalogSearchPage",
     "CatalogSearchPagination",
     "CatalogSearchRequest",
@@ -67444,7 +68512,6 @@ __all__ = [
     "CatalogSearchResultKind",
     "CatalogSearchResultReason",
     "CatalogSearchSucceeded",
-    "CatalogSearchSucceededKind",
     "CatalogSearchTotalCountRelation",
     "CatalogSelectionCancelled",
     "CatalogSelectionCancelledKind",
@@ -67490,7 +68557,6 @@ __all__ = [
     "CatalogTrustSource",
     "CatalogTrustTier",
     "CatalogUnavailableError",
-    "CatalogUnavailableErrorKind",
     "CatalogUnavailableReason",
     "CatalogUnavailableTransportError",
     "CatalogUnavailableTransportErrorKind",
@@ -67784,6 +68850,7 @@ __all__ = [
     "InstalledPluginSourceLocal",
     "InstalledPluginSourceURL",
     "InstalledPluginSourceURLSource",
+    "InstalledPluginVerifiedSource",
     "InstructionDiscoveryPath",
     "InstructionDiscoveryPathKind",
     "InstructionDiscoveryPathList",
@@ -67875,6 +68942,7 @@ __all__ = [
     "MCPInstallationManagementOutcome",
     "MCPInstallationManagementOutcomeKind",
     "MCPInstallationManagementResult",
+    "MCPInstallationManagementResultKind",
     "MCPInstallationOperationRequest",
     "MCPInstallationOperationStatus",
     "MCPInstallationOutcome",
@@ -68012,6 +69080,7 @@ __all__ = [
     "MCPToolUIVisibility",
     "MCPTools",
     "MCPUninstallPlan",
+    "ManagedEnsembleTier",
     "ManagedMCPServerConfig",
     "ManagedPermissionEvaluation",
     "ManagedPermissionOperation",
@@ -68345,6 +69414,8 @@ __all__ = [
     "PluginInstallationFailureReason",
     "PluginInstallationFileReview",
     "PluginInstallationLocation",
+    "PluginInstallationMCPServerReview",
+    "PluginInstallationMCPTransport",
     "PluginInstallationManagementOutcome",
     "PluginInstallationManagementOutcomeKind",
     "PluginInstallationManagementResult",
@@ -68969,6 +70040,7 @@ __all__ = [
     "TaskShellInfo",
     "TaskShellInfoAttachmentMode",
     "TaskShellInfoType",
+    "TaskShellOutputExit",
     "TaskShellProgress",
     "TaskStatus",
     "TaskType",
@@ -68982,6 +70054,8 @@ __all__ = [
     "TasksPromoteCurrentToBackgroundResult",
     "TasksPromoteToBackgroundRequest",
     "TasksPromoteToBackgroundResult",
+    "TasksReadOutputRequest",
+    "TasksReadOutputResult",
     "TasksRefreshResult",
     "TasksRegisterRequest",
     "TasksRegisterResult",

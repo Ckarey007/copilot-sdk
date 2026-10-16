@@ -5963,6 +5963,12 @@ public sealed partial class ToolExecutionPartialResultData
 /// <summary>Live, append-only shell output. Not persisted or replayed to late subscribers. Text is decoded and redacted per chunk; chunks need not contain complete lines.</summary>
 public sealed partial class ToolShellOutputData
 {
+    /// <summary>Experimental HydraFusion attribution of the staged phase whose tool call produced this output. Absent outside a staged phase.</summary>
+    [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("fusion")]
+    public FusionAttribution? Fusion { get; set; }
+
     /// <summary>Zero-based publication sequence across all output streams for this tool call. Not a byte offset or an OS write-order guarantee.</summary>
     [JsonPropertyName("sequence")]
     public required long Sequence { get; set; }
@@ -6718,6 +6724,12 @@ public sealed partial class PermissionRequestedData
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("agentMode")]
     public SessionMode? AgentMode { get; set; }
+
+    /// <summary>Experimental HydraFusion attribution of the staged phase whose tool call raised this request. Absent outside a staged phase.</summary>
+    [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("fusion")]
+    public FusionAttribution? Fusion { get; set; }
 
     /// <summary>Delegated agent that owns permission recovery when the owner session multiplexes remote agents. Absent otherwise.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
