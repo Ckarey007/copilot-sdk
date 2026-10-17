@@ -585,6 +585,66 @@ New RPCs land in the namespace immediately as the schema regenerates;
 helpers are added on top only when an ergonomic story is worth the
 maintenance.
 
+#### Scoped managed-settings refresh (experimental)
+
+On a supporting runtime, read the session's retained refresh status without starting
+another resolution, then fence an explicit cache-bypassing refresh to that observation:
+
+```rust,no_run
+use github_copilot_sdk::rpc::SessionManagedSettingsRefreshParams;
+use github_copilot_sdk::session::Session;
+
+# async fn example(session: &Session) -> Result<(), github_copilot_sdk::Error> {
+let observed = session.rpc().managed_settings().get_refresh_status().await?;
+let refreshed = session.rpc().managed_settings().refresh(
+    SessionManagedSettingsRefreshParams {
+        expected_scope: Some(observed.scope),
+        expected_session_incarnation: Some(observed.session_incarnation),
+        expected_auth_generation: Some(observed.auth_generation),
+    },
+).await?;
+println!("{:?}, blocked={}", refreshed.state, refreshed.execution_blocked);
+# Ok(())
+# }
+```
+
+The opaque `scope` binds the selected account, host, and policy endpoint;
+`session_incarnation` separately fences session replacement. `auth_generation`,
+`attempt`, and `revision` fence credential changes, attempts, and status
+observations. The runtime's existing refresh service owns
+fetching and canonical policy application; the SDK adds no resolver or scheduler.
+`Satisfied` means fresh policy was canonically committed. A successful RPC can
+instead return `Failed` with `failure_cause` (`Auth`, `Outage`, `Refusal`, or `Other`);
+keep the runtime's `execution_blocked` verdict. `OutageRetained` denotes a periodic
+outage on a previously live-verified same-scope session, not a successful Retry.
+
+Subscribe with `session.subscribe()` to
+`session.managed_settings_refresh_status_changed`; parse its data as
+`session_events::SessionManagedSettingsRefreshStatusChangedData`. Initial status
+may precede subscription, so use readback and compare the incarnation and revision
+when reconciling events. Required policy refresh failure retains the session handle
+and execution barrier. Credential installation through
+`session.rpc().git_hub_auth().set_credentials(...)` is not policy recovery: observe
+the new auth-generation fence and refresh with the current session credential.
+
+These bindings do not add support to released CLI `1.0.95-3`, `1.0.99-0`, or
+`1.0.99-2`.
+An unsupported runtime returns JSON-RPC `-32601` for these refresh methods;
+check `Error::rpc_code()` and
+report unsupported rather than falling back to broad `clearCache`, a cached policy
+snapshot, or session replacement as proof of recovery. These historical limitations
+are not a fresh qualification of CLI `1.0.100-1`.
+
+This compatibility SDK export mechanically replays the existing `8027a1d5` policy
+delta (originally exported in `22bf6284`) onto SDK `b96cd2b5` with its CLI
+`1.0.100-1` pins unchanged. It is baseline compatibility only, not new API adoption.
+No installed-runtime probe or new schema generation was performed for this replay.
+The matching producer changes in
+[github/copilot-agent-runtime#26434](https://github.com/github/copilot-agent-runtime/pull/26434)
+and [github/copilot-agent-runtime#26869](https://github.com/github/copilot-agent-runtime/pull/26869)
+remain open and unmerged; this source export does not qualify their current heads
+or claim released runtime support.
+
 #### Typed MCP installation and removal payloads (breaking change)
 
 Three payloads in the experimental MCP installation and removal workflow are now typed

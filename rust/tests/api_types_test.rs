@@ -12,12 +12,14 @@ use github_copilot_sdk::rpc::{
     EnqueueCommandResult, Extension, ExtensionList, ExtensionSource, ExtensionStatus,
     ExtensionsDisableRequest, ExtensionsEnableRequest, FleetStartRequest, FleetStartResult,
     ManagedPermissionEvaluation, ManagedPermissionOperationKind, ManagedPermissionsEvaluateRequest,
-    McpConfiguredServer, McpConfiguredServerList, McpConfiguredServerState, McpDisableRequest,
-    McpEnableOptions, McpEnableRequest, McpInstallationOperationStatus, McpOauthLoginOptions,
-    McpOauthLoginRequest, McpServer, McpStopServerRequest, ModelSetAllowedModelsRequest,
-    ModelSetAllowedModelsResult, ModelSwitchAutoTierRequest, ModelSwitchAutoTierResult,
-    ModelSwitchAutoTierStatus, QueuePendingItems, QueuePendingItemsKind, SandboxConfig,
-    SendAgentMode, SessionMcpListConfiguredResult, TasksStartAgentRequest,
+    ManagedSettingsRefreshFailureCause, ManagedSettingsRefreshState, ManagedSettingsRefreshStatus,
+    ManagedSettingsRefreshTrigger, McpConfiguredServer, McpConfiguredServerList,
+    McpConfiguredServerState, McpDisableRequest, McpEnableOptions, McpEnableRequest,
+    McpInstallationOperationStatus, McpOauthLoginOptions, McpOauthLoginRequest, McpServer,
+    McpStopServerRequest, ModelSetAllowedModelsRequest, ModelSetAllowedModelsResult,
+    ModelSwitchAutoTierRequest, ModelSwitchAutoTierResult, ModelSwitchAutoTierStatus,
+    QueuePendingItems, QueuePendingItemsKind, SandboxConfig, SendAgentMode,
+    SessionManagedSettingsRefreshParams, SessionMcpListConfiguredResult, TasksStartAgentRequest,
     UnsupportedEnqueueCommandResult,
 };
 use github_copilot_sdk::session_events::{
@@ -48,6 +50,100 @@ fn managed_permission_results_reuse_operations_without_reconstruction() {
             "operations": [{"kind": "url", "url": "https://example.com/a"}],
         })
     );
+}
+
+#[test]
+fn managed_settings_refresh_status_preserves_fences_and_failure_classification() {
+    for (state, trigger, cause, blocked) in [
+        ("not_required", "startup", None, false),
+        ("pending", "resume", None, true),
+        ("satisfied", "explicit", None, false),
+        ("failed", "account_change", Some("auth"), true),
+        ("failed", "explicit", Some("outage"), true),
+        ("failed", "explicit", Some("refusal"), true),
+        ("failed", "startup", Some("other"), true),
+        ("outage_retained", "periodic", Some("outage"), false),
+    ] {
+        let mut wire = serde_json::json!({
+            "scope": "opaque-account-host-endpoint-scope",
+            "sessionIncarnation": "current-incarnation",
+            "authGeneration": i64::MAX,
+            "attempt": i64::MAX,
+            "revision": i64::MAX,
+            "trigger": trigger,
+            "required": state != "not_required",
+            "state": state,
+            "executionBlocked": blocked,
+        });
+        if let Some(cause) = cause {
+            wire["failureCause"] = serde_json::json!(cause);
+            if cause == "refusal" {
+                wire["clientUpdateRequiredMessage"] = serde_json::json!("Update this client");
+            }
+        }
+        let status: ManagedSettingsRefreshStatus = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(status.auth_generation, i64::MAX);
+        assert_eq!(status.attempt, i64::MAX);
+        assert_eq!(status.revision, i64::MAX);
+        assert_eq!(status.execution_blocked, blocked);
+        assert_ne!(status.state, ManagedSettingsRefreshState::Unknown);
+        assert_ne!(status.trigger, ManagedSettingsRefreshTrigger::Unknown);
+        assert_eq!(
+            status.failure_cause,
+            cause.map(|cause| match cause {
+                "auth" => ManagedSettingsRefreshFailureCause::Auth,
+                "outage" => ManagedSettingsRefreshFailureCause::Outage,
+                "refusal" => ManagedSettingsRefreshFailureCause::Refusal,
+                "other" => ManagedSettingsRefreshFailureCause::Other,
+                _ => unreachable!(),
+            })
+        );
+        assert_eq!(serde_json::to_value(status).unwrap(), wire);
+    }
+}
+
+#[test]
+fn managed_settings_refresh_preconditions_omit_unset_fields_and_echo_observed_fences() {
+    assert_eq!(
+        serde_json::to_value(SessionManagedSettingsRefreshParams::default()).unwrap(),
+        serde_json::json!({})
+    );
+    let params = SessionManagedSettingsRefreshParams {
+        expected_scope: Some("account-host-endpoint-scope".to_owned()),
+        expected_session_incarnation: Some("incarnation".to_owned()),
+        expected_auth_generation: Some(i64::MAX),
+    };
+    let wire = serde_json::json!({
+        "expectedScope": "account-host-endpoint-scope",
+        "expectedSessionIncarnation": "incarnation",
+        "expectedAuthGeneration": i64::MAX,
+    });
+    assert_eq!(serde_json::to_value(&params).unwrap(), wire);
+    let round_trip: SessionManagedSettingsRefreshParams = serde_json::from_value(wire).unwrap();
+    assert_eq!(round_trip.expected_auth_generation, Some(i64::MAX));
+}
+
+#[test]
+fn managed_settings_refresh_status_requires_barrier_and_identity_fields() {
+    let wire = serde_json::json!({
+        "scope": "scope",
+        "sessionIncarnation": "incarnation",
+        "authGeneration": 0,
+        "attempt": 0,
+        "revision": 0,
+        "trigger": "startup",
+        "required": true,
+        "state": "pending",
+        "executionBlocked": true,
+    });
+    for field in wire.as_object().unwrap().keys() {
+        let mut missing = wire.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        assert!(
+            serde_json::from_value::<ManagedSettingsRefreshStatus>(missing).is_err(),
+            "missing {field} must not become a default refresh status"
+        );
+    }
 }
 
 #[test]

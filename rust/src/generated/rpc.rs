@@ -12025,6 +12025,70 @@ impl<'a> SessionRpcManagedSettings<'a> {
             .await?;
         Ok(serde_json::from_value(_value)?)
     }
+
+    /// Reads the live session's current retained managed-settings refresh status, scope fences, and execution-barrier verdict immediately without waiting for in-flight fetches or starting a new resolution.
+    ///
+    /// Wire method: `session.managedSettings.getRefreshStatus`.
+    ///
+    /// # Returns
+    ///
+    /// Retained runtime status for the live session's enterprise managed-settings refresh attempt, scope fences, and execution-barrier verdict.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn get_refresh_status(&self) -> Result<ManagedSettingsRefreshStatus, Error> {
+        let wire_params = serde_json::json!({ "sessionId": self.session.id() });
+        let _value = self
+            .session
+            .client()
+            .call(
+                rpc_methods::SESSION_MANAGEDSETTINGS_GETREFRESHSTATUS,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
+
+    /// Performs a scoped, cache-bypassing live enterprise managed-settings fetch and canonical policy application for this session's current account without wiping unrelated accounts' caches, returning the committed terminal refresh status. Rejects when any supplied scope, session incarnation, or auth-generation precondition does not match at start or commit.
+    ///
+    /// Wire method: `session.managedSettings.refresh`.
+    ///
+    /// # Parameters
+    ///
+    /// * `params` - Optional preconditions fencing an explicit session managed-settings refresh to the scope, session incarnation, and authentication generation the caller observed.
+    ///
+    /// # Returns
+    ///
+    /// Retained runtime status for the live session's enterprise managed-settings refresh attempt, scope fences, and execution-barrier verdict.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This API is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases. Pin both the
+    /// SDK and CLI versions if your code depends on it.
+    ///
+    /// </div>
+    pub async fn refresh(
+        &self,
+        params: SessionManagedSettingsRefreshParams,
+    ) -> Result<ManagedSettingsRefreshStatus, Error> {
+        let mut wire_params = serde_json::to_value(params)?;
+        wire_params["sessionId"] = serde_json::Value::String(self.session.id().to_string());
+        let _value = self
+            .session
+            .client()
+            .call(
+                rpc_methods::SESSION_MANAGEDSETTINGS_REFRESH,
+                Some(wire_params),
+            )
+            .await?;
+        Ok(serde_json::from_value(_value)?)
+    }
 }
 
 /// `session.mcp.*` RPCs.

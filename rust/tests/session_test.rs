@@ -23,11 +23,14 @@ use github_copilot_sdk::rpc::{
     ConnectorCapabilities, ConnectorCatalogResult, ConnectorCatalogStatus, ConnectorConnectRequest,
     ConnectorConnectResult, ConnectorContinueRequest, ConnectorDisconnectResult,
     ConnectorMcpStatus, ConnectorReconcileOptions, ConnectorReconcileRequest,
-    ConnectorSessionAccount, ConnectorStatus, ModelSetAllowedModelsRequest, OpenCanvasInstance,
-    SendAgentMode, SendMode, SendRequest, SessionRpcConnectors,
+    ConnectorSessionAccount, ConnectorStatus, ManagedSettingsRefreshFailureCause,
+    ManagedSettingsRefreshState, ManagedSettingsRefreshTrigger, ModelSetAllowedModelsRequest,
+    OpenCanvasInstance, SendAgentMode, SendMode, SendRequest, SessionManagedSettingsRefreshParams,
+    SessionRpcConnectors,
 };
 use github_copilot_sdk::session_events::{
-    ManagedSettingsResolvedSource, McpOauthRequiredData, ReasoningSummary, SessionLimitsConfig,
+    ManagedSettingsResolvedSource, McpOauthRequiredData, ReasoningSummary, SessionEventType,
+    SessionLimitsConfig, SessionManagedSettingsRefreshStatusChangedData,
     SessionManagedSettingsResolvedData,
 };
 use github_copilot_sdk::types::{
@@ -7718,6 +7721,226 @@ async fn system_message_transform_returns_error_for_missing_sections() {
     let response = timeout(TIMEOUT, server.read_response()).await.unwrap();
     assert_eq!(response["id"], 401);
     assert_eq!(response["error"]["code"], -32602);
+}
+
+#[tokio::test]
+async fn managed_settings_refresh_rpc_preserves_readback_fences_and_terminal_status() {
+    let (session, mut server) = create_session_pair().await;
+    let session = Arc::new(session);
+    let readback = tokio::spawn({
+        let session = session.clone();
+        async move { session.rpc().managed_settings().get_refresh_status().await }
+    });
+    let request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+    assert_eq!(
+        request["method"],
+        "session.managedSettings.getRefreshStatus"
+    );
+    assert_eq!(
+        request["params"],
+        serde_json::json!({"sessionId": server.session_id})
+    );
+    let mut status = serde_json::json!({
+        "scope": "selected-account-host-endpoint-scope",
+        "sessionIncarnation": "live-incarnation",
+        "authGeneration": 2,
+        "attempt": 3,
+        "revision": 5,
+        "trigger": "startup",
+        "required": true,
+        "state": "pending",
+        "executionBlocked": true,
+    });
+    server.respond(&request, status.clone()).await;
+    let observed = timeout(TIMEOUT, readback).await.unwrap().unwrap().unwrap();
+    assert_eq!(observed.state, ManagedSettingsRefreshState::Pending);
+    assert!(observed.execution_blocked);
+
+    let refresh = tokio::spawn({
+        let session = session.clone();
+        async move {
+            session
+                .rpc()
+                .managed_settings()
+                .refresh(SessionManagedSettingsRefreshParams {
+                    expected_scope: Some(observed.scope),
+                    expected_session_incarnation: Some(observed.session_incarnation),
+                    expected_auth_generation: Some(observed.auth_generation),
+                })
+                .await
+        }
+    });
+    let request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+    assert_eq!(request["method"], "session.managedSettings.refresh");
+    assert_eq!(
+        request["params"],
+        serde_json::json!({
+            "sessionId": server.session_id,
+            "expectedScope": "selected-account-host-endpoint-scope",
+            "expectedSessionIncarnation": "live-incarnation",
+            "expectedAuthGeneration": 2,
+        })
+    );
+    status["state"] = serde_json::json!("satisfied");
+    status["executionBlocked"] = serde_json::json!(false);
+    status["trigger"] = serde_json::json!("explicit");
+    status["attempt"] = serde_json::json!(4);
+    status["revision"] = serde_json::json!(7);
+    server.respond(&request, status).await;
+    let committed = timeout(TIMEOUT, refresh).await.unwrap().unwrap().unwrap();
+    assert_eq!(committed.state, ManagedSettingsRefreshState::Satisfied);
+    assert_eq!(committed.trigger, ManagedSettingsRefreshTrigger::Explicit);
+    assert_eq!(committed.auth_generation, 2);
+    assert_eq!(committed.attempt, 4);
+    assert_eq!(committed.revision, 7);
+    assert!(!committed.execution_blocked);
+}
+
+#[tokio::test]
+async fn managed_settings_refresh_unsupported_and_stale_scope_errors_are_not_success() {
+    let (session, mut server) = create_session_pair().await;
+    let session = Arc::new(session);
+    let readback = tokio::spawn({
+        let session = session.clone();
+        async move { session.rpc().managed_settings().get_refresh_status().await }
+    });
+    let request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+    server
+        .respond_error(&request, -32601, "Method not found")
+        .await;
+    let error = timeout(TIMEOUT, readback)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(error.rpc_code(), Some(-32601));
+
+    for code in [-32601_i32, -32602] {
+        let refresh = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session
+                    .rpc()
+                    .managed_settings()
+                    .refresh(SessionManagedSettingsRefreshParams {
+                        expected_scope: Some("stale-scope".to_owned()),
+                        expected_session_incarnation: Some("old-incarnation".to_owned()),
+                        expected_auth_generation: Some(1),
+                    })
+                    .await
+            }
+        });
+        let request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+        assert_eq!(request["method"], "session.managedSettings.refresh");
+        server
+            .respond_error(&request, i64::from(code), "Refresh unavailable")
+            .await;
+        let error = timeout(TIMEOUT, refresh)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(error.rpc_code(), Some(code));
+    }
+    assert!(
+        timeout(Duration::from_millis(50), server.read_request())
+            .await
+            .is_err(),
+        "unsupported refresh must not fall back to broad cache clearing or another resolver"
+    );
+}
+
+#[tokio::test]
+async fn managed_settings_refresh_failed_status_is_returned_without_clearing_barrier() {
+    let (session, mut server) = create_session_pair().await;
+    let session = Arc::new(session);
+    let refresh = tokio::spawn({
+        let session = session.clone();
+        async move {
+            session
+                .rpc()
+                .managed_settings()
+                .refresh(SessionManagedSettingsRefreshParams::default())
+                .await
+        }
+    });
+    let request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+    assert_eq!(
+        request["params"],
+        serde_json::json!({"sessionId": server.session_id})
+    );
+    server
+        .respond(
+            &request,
+            serde_json::json!({
+                "scope": "current-scope",
+                "sessionIncarnation": "current-incarnation",
+                "authGeneration": 2,
+                "attempt": 3,
+                "revision": 6,
+                "trigger": "explicit",
+                "required": true,
+                "state": "failed",
+                "failureCause": "auth",
+                "executionBlocked": true,
+            }),
+        )
+        .await;
+    let failed = timeout(TIMEOUT, refresh).await.unwrap().unwrap().unwrap();
+    assert_eq!(failed.state, ManagedSettingsRefreshState::Failed);
+    assert_eq!(
+        failed.failure_cause,
+        Some(ManagedSettingsRefreshFailureCause::Auth)
+    );
+    assert!(failed.execution_blocked);
+}
+
+#[tokio::test]
+async fn managed_settings_refresh_status_notification_reaches_subscribers() {
+    let (session, mut server) = create_session_pair().await;
+    let mut events = session.subscribe();
+    let data = serde_json::json!({
+        "scope": "live-account-host-endpoint-scope",
+        "sessionIncarnation": "live-incarnation",
+        "authGeneration": 2,
+        "attempt": 3,
+        "revision": 6,
+        "trigger": "periodic",
+        "required": true,
+        "state": "outage_retained",
+        "failureCause": "outage",
+        "executionBlocked": false,
+    });
+    server
+        .send_notification(
+            "session.event",
+            serde_json::json!({
+                "sessionId": server.session_id,
+                "event": {
+                    "id": "refresh-status-event",
+                    "timestamp": "2026-10-13T21:00:00Z",
+                    "type": "session.managed_settings_refresh_status_changed",
+                    "ephemeral": true,
+                    "data": data,
+                },
+            }),
+        )
+        .await;
+    let event = timeout(TIMEOUT, events.recv()).await.unwrap().unwrap();
+    assert_eq!(
+        event.parsed_type(),
+        SessionEventType::SessionManagedSettingsRefreshStatusChanged
+    );
+    assert_eq!(event.data, data);
+    let status: SessionManagedSettingsRefreshStatusChangedData = event.typed_data().unwrap();
+    assert_eq!(status.state, ManagedSettingsRefreshState::OutageRetained);
+    assert_eq!(
+        status.failure_cause,
+        Some(ManagedSettingsRefreshFailureCause::Outage)
+    );
+    assert_eq!(status.auth_generation, 2);
+    assert_eq!(status.revision, 6);
+    assert!(!status.execution_blocked);
 }
 
 #[tokio::test]
