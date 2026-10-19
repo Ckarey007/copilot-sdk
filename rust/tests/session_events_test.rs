@@ -47,7 +47,7 @@ fn image_tool_usage_round_trips_without_inline_payload_storage() {
                 "success": success,
                 "toolUsage": {
                     "requestId": "image-usage",
-                    "model": "gpt-image-2.5-sunburst",
+                    "model": "gpt-image-2.5-flare",
                     "inputTokens": 21,
                     "outputTokens": 196,
                     "totalTokens": 217,
@@ -68,7 +68,7 @@ fn image_tool_usage_round_trips_without_inline_payload_storage() {
         );
         assert_eq!(
             data.tool_usage.as_ref().unwrap().model,
-            "gpt-image-2.5-sunburst"
+            "gpt-image-2.5-flare"
         );
         assert_eq!(serde_json::to_value(event).unwrap(), wire);
     }

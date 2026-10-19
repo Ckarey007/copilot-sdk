@@ -463,8 +463,8 @@ function getBundledRuntimePath(): Promise<string> {
  * A {@link StreamMessageWriter} that suppresses write failures while the client
  * is tearing down its transport.
  *
- * During `stop()`/`forceStop()` or transport EOF the runtime's end of the pipe
- * can close while vscode-jsonrpc still has an in-flight write — most commonly the
+ * During `stop()`/`forceStop()`, transport EOF, or a stdin pipe error, the runtime's
+ * end of the pipe can close while vscode-jsonrpc still has an in-flight write — most commonly the
  * auto-generated response to a server→client request (tool/hook/userInput/LLM
  * inference handler) that resolved just before teardown. That write rejects
  * with `ERR_STREAM_DESTROYED`, and because the response write is internal to
@@ -1151,11 +1151,21 @@ export class CopilotClient {
 
             // Try up to 3 times with exponential backoff
             for (let attempt = 1; attempt <= 3; attempt++) {
+                // Closure retires sessions after notification draining, so this
+                // snapshot may outlive the connection that could disconnect it.
+                if (this.connectionClosed) {
+                    lastError = null;
+                    break;
+                }
                 try {
                     await session.disconnect();
                     lastError = null;
                     break; // Success
                 } catch (error) {
+                    if (this.connectionClosed) {
+                        lastError = null;
+                        break;
+                    }
                     lastError = error instanceof Error ? error : new Error(String(error));
 
                     if (attempt < 3) {
@@ -1378,8 +1388,10 @@ export class CopilotClient {
      * - Clears all sessions immediately without destroying them
      * - Force closes the connection
      * - Sends SIGKILL to the CLI process (if spawned by this client)
+     * - Waits for the spawned CLI process to exit
      *
      * @returns A promise that resolves when the force stop is complete
+     * @throws If the spawned CLI process cannot be terminated
      *
      * @example
      * ```typescript
@@ -1437,16 +1449,6 @@ export class CopilotClient {
             this.socket = null;
         }
 
-        // Force kill CLI process (only if we spawned it)
-        if (this.cliProcess && !this.isExternalServer) {
-            try {
-                this.cliProcess.kill("SIGKILL");
-            } catch {
-                // Ignore errors
-            }
-            this.cliProcess = null;
-        }
-
         // Tear down the in-process FFI host (if any).
         if (this.ffiHost) {
             const host = this.ffiHost;
@@ -1467,6 +1469,21 @@ export class CopilotClient {
         this.runtimePort = null;
         this.stderrBuffer = "";
         this.processExitPromise = null;
+        if (this.cliProcess && !this.isExternalServer) {
+            const child = this.cliProcess;
+            if (child.exitCode == null && child.signalCode == null) {
+                child.kill("SIGKILL");
+                // SIGKILL requests termination; Windows file mappings can outlive that request.
+                if (!(await waitForChildExit(child, RUNTIME_SHUTDOWN_TIMEOUT_MS))) {
+                    throw new Error(
+                        `Timed out waiting for CLI process to exit after SIGKILL: ${RUNTIME_SHUTDOWN_TIMEOUT_MS}ms`
+                    );
+                }
+            }
+            if (this.cliProcess === child) {
+                this.cliProcess = null;
+            }
+        }
     }
 
     /**
@@ -1805,6 +1822,7 @@ export class CopilotClient {
                     defer: tool.defer,
                     metadata: tool.metadata,
                     isTerminal: tool.isTerminal,
+                    namespace: tool.namespace,
                 })),
                 toolSearch: config.toolSearch,
                 imageGeneration: config.imageGeneration,
@@ -1845,6 +1863,7 @@ export class CopilotClient {
                 requestAutoModeSwitch: !!config.onAutoModeSwitchRequest,
                 hooks: !!(config.hooks && Object.values(config.hooks).some(Boolean)),
                 workingDirectory: config.workingDirectory,
+                trustWorkingDirectory: config.trustWorkingDirectory,
                 additionalDirectories: config.additionalDirectories,
                 streaming: config.streaming,
                 includeSubAgentStreamingEvents: config.includeSubAgentStreamingEvents ?? true,
@@ -1870,7 +1889,6 @@ export class CopilotClient {
                 enableFileHooks: config.enableFileHooks,
                 enableHostGitOperations: config.enableHostGitOperations,
                 enableSessionStore: config.enableSessionStore,
-                enableGitHubCacheStore: config.enableGitHubCacheStore,
                 enableSkills: config.enableSkills,
                 skillDirectories: config.skillDirectories,
                 ...(config.skillProvider ? { hasSkillProvider: true } : {}),
@@ -2123,6 +2141,7 @@ export class CopilotClient {
                     defer: tool.defer,
                     metadata: tool.metadata,
                     isTerminal: tool.isTerminal,
+                    namespace: tool.namespace,
                 })),
                 toolSearch: config.toolSearch,
                 imageGeneration: config.imageGeneration,
@@ -2166,7 +2185,6 @@ export class CopilotClient {
                 enableFileHooks: config.enableFileHooks,
                 enableHostGitOperations: config.enableHostGitOperations,
                 enableSessionStore: config.enableSessionStore,
-                enableGitHubCacheStore: config.enableGitHubCacheStore,
                 enableSkills: config.enableSkills,
                 streaming: config.streaming,
                 includeSubAgentStreamingEvents: config.includeSubAgentStreamingEvents ?? true,
@@ -3234,7 +3252,13 @@ export class CopilotClient {
             this.cliStartTimeout = setTimeout(() => {
                 if (!resolved) {
                     resolved = true;
-                    reject(new Error("Timeout waiting for CLI server to start"));
+                    reject(
+                        new Error(
+                            "Timeout waiting for CLI server to start" +
+                                `\nstdout: ${stdout.trim().slice(-8192) || "(empty)"}` +
+                                `\nstderr: ${this.stderrBuffer.trim().slice(-8192) || "(empty)"}`
+                        )
+                    );
                 }
             }, 30000);
         });
@@ -3391,6 +3415,9 @@ export class CopilotClient {
                 `CLI server connection failed: ${reason}${stderrOutput ? `\nstderr: ${stderrOutput}` : ""}`
             );
             this.logDebug(`stdin pipe error: ${reason}`);
+            if (this.messageWriter) {
+                this.messageWriter.suppressWriteErrors = true;
+            }
             try {
                 this.connection?.dispose();
             } catch {

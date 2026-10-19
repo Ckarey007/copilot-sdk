@@ -30,6 +30,8 @@ public record AutoTierDescriptor(
     /** Execution kind; this client supports `auto` preferences on the Auto model. */
     @JsonProperty("type") String type,
     /** Current account-specific availability. */
-    @JsonProperty("status") AutoTierStatus status
+    @JsonProperty("status") AutoTierStatus status,
+    /** Billing information for this preference, such as an announced or active promotion. */
+    @JsonProperty("billing") AutoTierBilling billing
 ) {
 }

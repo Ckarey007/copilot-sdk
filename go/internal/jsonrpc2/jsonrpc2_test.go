@@ -29,12 +29,9 @@ func TestOnCloseCalledOnUnexpectedExit(t *testing.T) {
 
 	client := NewClient(stdinW, stdoutR)
 
-	var called bool
-	var mu sync.Mutex
+	called := make(chan struct{}, 1)
 	client.SetOnClose(func() {
-		mu.Lock()
-		called = true
-		mu.Unlock()
+		called <- struct{}{}
 	})
 
 	client.Start()
@@ -42,12 +39,9 @@ func TestOnCloseCalledOnUnexpectedExit(t *testing.T) {
 	// Simulate unexpected process death by closing the stdout writer
 	stdoutW.Close()
 
-	// Wait for readLoop to detect the close and invoke the callback
-	time.Sleep(200 * time.Millisecond)
-
-	mu.Lock()
-	defer mu.Unlock()
-	if !called {
+	select {
+	case <-called:
+	case <-time.After(200 * time.Millisecond):
 		t.Error("expected onClose to be called when read loop exits unexpectedly")
 	}
 }
@@ -385,8 +379,14 @@ func TestRequestReturnsContextErrorIfCanceledBeforeSend(t *testing.T) {
 }
 
 func TestRequestReturnsContextErrorWhileAwaitingResponse(t *testing.T) {
-	var stdin bytes.Buffer
-	client := NewClient(writeCloser{Writer: &stdin}, io.NopCloser(bytes.NewReader(nil)))
+	written := make(chan struct{}, 1)
+	client := NewClient(writeCloser{Writer: writeFunc(func(data []byte) (int, error) {
+		select {
+		case written <- struct{}{}:
+		default:
+		}
+		return len(data), nil
+	})}, io.NopCloser(bytes.NewReader(nil)))
 	ctx, cancel := context.WithCancel(context.Background())
 
 	errCh := make(chan error, 1)
@@ -395,7 +395,11 @@ func TestRequestReturnsContextErrorWhileAwaitingResponse(t *testing.T) {
 		errCh <- err
 	}()
 
-	waitForPendingRequest(t, client)
+	select {
+	case <-written:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for request write")
+	}
 	cancel()
 
 	select {
@@ -435,27 +439,5 @@ func TestSendMessageReturnsContextErrorWhileWaitingForWriter(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("sendMessage did not return after context cancellation")
-	}
-}
-
-func waitForPendingRequest(t *testing.T, client *Client) {
-	t.Helper()
-	deadline := time.After(time.Second)
-	ticker := time.NewTicker(time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		client.mu.Lock()
-		pending := len(client.pendingRequests)
-		client.mu.Unlock()
-		if pending > 0 {
-			return
-		}
-
-		select {
-		case <-deadline:
-			t.Fatal("timed out waiting for pending request")
-		case <-ticker.C:
-		}
 	}
 }

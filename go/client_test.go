@@ -1145,6 +1145,15 @@ func TestClient_RejectsInvalidAskUserVariant(t *testing.T) {
 	}
 }
 
+func TestClient_RejectsInvalidWorkingDirectoryTrustBeforeConnecting(t *testing.T) {
+	client := &Client{}
+	if _, err := client.CreateSession(t.Context(), &SessionConfig{
+		TrustWorkingDirectory: WorkingDirectoryTrust("unknown"),
+	}); err == nil || !strings.Contains(err.Error(), "TrustWorkingDirectory") {
+		t.Fatalf("CreateSession error = %v, want invalid TrustWorkingDirectory error", err)
+	}
+}
+
 func assertAskUserVariant(t *testing.T, params json.RawMessage, want string) {
 	t.Helper()
 	var payload map[string]any
@@ -1214,68 +1223,6 @@ func assertAdditionalDirectories(t *testing.T, params json.RawMessage, want []st
 	}
 	if !reflect.DeepEqual(payload.AdditionalDirectories, want) {
 		t.Fatalf("additionalDirectories = %v, want %v", payload.AdditionalDirectories, want)
-	}
-}
-
-func TestClient_ForwardsGitHubCacheStoreToSessionRequests(t *testing.T) {
-	rpcClient, server, _ := newRuntimeShutdownRpcPair(t)
-	t.Cleanup(server.Stop)
-	client := &Client{
-		client:   rpcClient,
-		RPC:      rpc.NewServerRPC(rpcClient),
-		sessions: make(map[string]*Session),
-	}
-
-	createParams := make(chan json.RawMessage, 2)
-	server.SetRequestHandler("session.create", func(params json.RawMessage) (json.RawMessage, *jsonrpc2.Error) {
-		createParams <- append(json.RawMessage(nil), params...)
-		sessionID := sessionIDFromParams(t, params)
-		return []byte(`{"sessionId":"` + sessionID + `","workspacePath":"/workspace"}`), nil
-	})
-	resumeParams := make(chan json.RawMessage, 2)
-	server.SetRequestHandler("session.resume", func(params json.RawMessage) (json.RawMessage, *jsonrpc2.Error) {
-		resumeParams <- append(json.RawMessage(nil), params...)
-		return []byte(`{"sessionId":"` + sessionIDFromParams(t, params) + `","workspacePath":"/workspace"}`), nil
-	})
-
-	if _, err := client.CreateSession(t.Context(), &SessionConfig{EnableGitHubCacheStore: Bool(true)}); err != nil {
-		t.Fatalf("CreateSession failed: %v", err)
-	}
-	assertGitHubCacheStoreParam(t, <-createParams, Bool(true))
-	if _, err := client.ResumeSessionWithOptions(
-		t.Context(),
-		"resumed-cache-store",
-		&ResumeSessionConfig{EnableGitHubCacheStore: Bool(false)},
-	); err != nil {
-		t.Fatalf("ResumeSessionWithOptions failed: %v", err)
-	}
-	assertGitHubCacheStoreParam(t, <-resumeParams, Bool(false))
-
-	if _, err := client.CreateSession(t.Context(), &SessionConfig{}); err != nil {
-		t.Fatalf("CreateSession without option failed: %v", err)
-	}
-	assertGitHubCacheStoreParam(t, <-createParams, nil)
-	if _, err := client.ResumeSessionWithOptions(t.Context(), "resumed-cache-store-unset", &ResumeSessionConfig{}); err != nil {
-		t.Fatalf("ResumeSessionWithOptions without option failed: %v", err)
-	}
-	assertGitHubCacheStoreParam(t, <-resumeParams, nil)
-}
-
-func assertGitHubCacheStoreParam(t *testing.T, params json.RawMessage, want *bool) {
-	t.Helper()
-	var payload map[string]any
-	if err := json.Unmarshal(params, &payload); err != nil {
-		t.Fatalf("failed to decode request params: %v", err)
-	}
-	got, present := payload["enableGitHubCacheStore"]
-	if want == nil {
-		if present {
-			t.Fatalf("enableGitHubCacheStore = %v, want omitted", got)
-		}
-		return
-	}
-	if got != *want {
-		t.Fatalf("enableGitHubCacheStore = %v (present=%v), want %v", got, present, *want)
 	}
 }
 
@@ -2629,6 +2576,54 @@ func TestSessionRequests_EnableConfigDiscovery(t *testing.T) {
 			t.Error("Expected enableConfigDiscovery to be omitted when unset")
 		}
 	})
+}
+
+func TestCreateSessionRequest_TrustAndCustomAgentModelPolicy(t *testing.T) {
+	for _, scope := range []WorkingDirectoryTrust{"", WorkingDirectoryTrustSession, WorkingDirectoryTrustUser} {
+		t.Run(string(scope), func(t *testing.T) {
+			policy := AgentModelPolicy("")
+			switch scope {
+			case "session":
+				policy = AgentModelPolicyPreferred
+			case "user":
+				policy = AgentModelPolicyRequired
+			}
+			config := SessionConfig{TrustWorkingDirectory: scope}
+			req := createSessionRequest{
+				TrustWorkingDirectory: string(config.TrustWorkingDirectory),
+				CustomAgents: []CustomAgentConfig{{
+					Name: "policy-agent", Prompt: "Use the authored model.", ModelPolicy: policy,
+				}},
+			}
+			data, err := json.Marshal(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var wire map[string]json.RawMessage
+			if err := json.Unmarshal(data, &wire); err != nil {
+				t.Fatal(err)
+			}
+			var agents []map[string]json.RawMessage
+			if err := json.Unmarshal(wire["customAgents"], &agents); err != nil {
+				t.Fatal(err)
+			}
+			if scope == "" {
+				if _, ok := wire["trustWorkingDirectory"]; ok {
+					t.Fatal("unset trustWorkingDirectory must be omitted")
+				}
+				if _, ok := agents[0]["modelPolicy"]; ok {
+					t.Fatal("unset modelPolicy must be omitted")
+				}
+			} else {
+				if string(wire["trustWorkingDirectory"]) != `"`+string(scope)+`"` {
+					t.Fatalf("unexpected trust scope: %s", wire["trustWorkingDirectory"])
+				}
+				if string(agents[0]["modelPolicy"]) != `"`+string(policy)+`"` {
+					t.Fatalf("unexpected model policy: %s", agents[0]["modelPolicy"])
+				}
+			}
+		})
+	}
 }
 
 func TestSessionRequests_PluginDirectoriesAndLargeOutput(t *testing.T) {
@@ -5600,6 +5595,45 @@ func TestIsTerminal(t *testing.T) {
 		}
 		if _, ok := m["isTerminal"]; ok {
 			t.Error("Expected isTerminal to be omitted when false")
+		}
+	})
+}
+
+func TestToolNamespace(t *testing.T) {
+	t.Run("Namespace is serialized in tool definition", func(t *testing.T) {
+		tool := Tool{
+			Name:        "word_create",
+			Description: "Create a document",
+			Namespace:   &ToolNamespace{Name: "word"},
+		}
+		data, err := json.Marshal(tool)
+		if err != nil {
+			t.Fatalf("Failed to marshal: %v", err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatalf("Failed to unmarshal: %v", err)
+		}
+		namespace, ok := m["namespace"].(map[string]any)
+		if !ok || namespace["name"] != "word" {
+			t.Fatalf("Expected namespace {name: word}, got %v", m["namespace"])
+		}
+		if _, ok := namespace["description"]; ok {
+			t.Errorf("Expected empty namespace description to be omitted, got %v", namespace["description"])
+		}
+	})
+
+	t.Run("Namespace is omitted when nil", func(t *testing.T) {
+		data, err := json.Marshal(Tool{Name: "plain", Description: "A plain tool"})
+		if err != nil {
+			t.Fatalf("Failed to marshal: %v", err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatalf("Failed to unmarshal: %v", err)
+		}
+		if _, ok := m["namespace"]; ok {
+			t.Error("Expected namespace to be omitted when nil")
 		}
 	})
 }

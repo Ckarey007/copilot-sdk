@@ -189,14 +189,6 @@ async def _connect(handler=None) -> _Harness:
     return _Harness(client, sdk_rpc, peer_rpc, sdk_process, peer_process)
 
 
-async def _wait_for(predicate, *, timeout: float = 5.0) -> None:
-    deadline = asyncio.get_running_loop().time() + timeout
-    while not predicate():
-        if asyncio.get_running_loop().time() >= deadline:
-            raise AssertionError("condition was not met before timeout")
-        await asyncio.sleep(0)
-
-
 async def test_closes_both_writers_before_waiting_for_pipe_readers(monkeypatch) -> None:
     loop = asyncio.get_running_loop()
     reading = asyncio.Event()
@@ -276,12 +268,15 @@ async def test_keeps_concurrent_reviews_independent_and_serves_other_rpc() -> No
         "b": asyncio.get_running_loop().create_future(),
     }
     seen: list[str] = []
+    both_entered = asyncio.Event()
 
     def handler(
         incoming: InstallationConfirmationRequest,
         _context: InstallationConfirmationContext,
     ):
         seen.append(incoming.operation_id)
+        if sorted(seen) == ["a", "b"]:
+            both_entered.set()
         return decisions[incoming.operation_id]
 
     harness = await _connect(handler)
@@ -292,7 +287,8 @@ async def test_keeps_concurrent_reviews_independent_and_serves_other_rpc() -> No
         second = asyncio.create_task(
             harness.peer.request(402, "installations.confirm", _request("b"))
         )
-        await _wait_for(lambda: sorted(seen) == ["a", "b"])
+        await asyncio.wait_for(both_entered.wait(), timeout=5.0)
+        assert sorted(seen) == ["a", "b"]
 
         with pytest.raises(JsonRpcError, match="No GitHub token provider"):
             await harness.peer.request(
@@ -316,6 +312,7 @@ async def test_keeps_concurrent_reviews_independent_and_serves_other_rpc() -> No
 async def test_cancel_request_retires_only_cancelled_review_and_drops_late_decision() -> None:
     late_decision = asyncio.get_running_loop().create_future()
     contexts: dict[str, InstallationConfirmationContext] = {}
+    entered = asyncio.Event()
 
     def handler(
         incoming: InstallationConfirmationRequest,
@@ -323,6 +320,7 @@ async def test_cancel_request_retires_only_cancelled_review_and_drops_late_decis
     ):
         contexts[incoming.operation_id] = context
         if incoming.operation_id == "a":
+            entered.set()
             return late_decision
         return "confirm"
 
@@ -331,7 +329,7 @@ async def test_cancel_request_retires_only_cancelled_review_and_drops_late_decis
         first = asyncio.create_task(
             harness.peer.request(501, "installations.confirm", _request("a"))
         )
-        await _wait_for(lambda: "a" in contexts)
+        await asyncio.wait_for(entered.wait(), timeout=5.0)
         await harness.peer.notify("$/cancelRequest", {"id": 501})
         with pytest.raises(JsonRpcError) as cancelled:
             await first
@@ -349,6 +347,7 @@ async def test_cancel_request_retires_only_cancelled_review_and_drops_late_decis
 async def test_cancel_request_and_decision_ready_together_rejects_decision() -> None:
     late_decision = asyncio.get_running_loop().create_future()
     context: InstallationConfirmationContext | None = None
+    entered = asyncio.Event()
 
     def handler(
         _incoming: InstallationConfirmationRequest,
@@ -356,6 +355,7 @@ async def test_cancel_request_and_decision_ready_together_rejects_decision() -> 
     ):
         nonlocal context
         context = incoming_context
+        entered.set()
         return late_decision
 
     harness = await _connect(handler)
@@ -363,7 +363,7 @@ async def test_cancel_request_and_decision_ready_together_rejects_decision() -> 
         pending = asyncio.create_task(
             harness.peer.request(551, "installations.confirm", _request("a"))
         )
-        await _wait_for(lambda: context is not None)
+        await asyncio.wait_for(entered.wait(), timeout=5.0)
         harness.sdk_rpc._handle_cancel_request({"id": 551})  # noqa: SLF001
         late_decision.set_result("confirm")
 
@@ -405,12 +405,15 @@ async def test_connection_close_cancels_all_reviews_and_isolated_to_original_con
         "b": asyncio.get_running_loop().create_future(),
     }
     originals: dict[str, InstallationConfirmationContext] = {}
+    both_entered = asyncio.Event()
 
     def first_handler(
         incoming: InstallationConfirmationRequest,
         context: InstallationConfirmationContext,
     ):
         originals[incoming.operation_id] = context
+        if set(originals) == {"a", "b"}:
+            both_entered.set()
         return decisions[incoming.operation_id]
 
     first = await _connect(first_handler)
@@ -422,9 +425,13 @@ async def test_connection_close_cancels_all_reviews_and_isolated_to_original_con
         pending_b = asyncio.create_task(
             first.peer.request(702, "installations.confirm", _request("b"))
         )
-        await _wait_for(lambda: set(originals) == {"a", "b"})
+        await asyncio.wait_for(both_entered.wait(), timeout=5.0)
+        assert set(originals) == {"a", "b"}
         await first.close_peer_connection()
-        await _wait_for(lambda: all(context.cancelled.is_set() for context in originals.values()))
+        await asyncio.wait_for(
+            asyncio.gather(*(context.cancelled.wait() for context in originals.values())),
+            timeout=5.0,
+        )
         decisions["a"].set_result("confirm")
         decisions["b"].set_result("decline")
         pending_a.cancel()
@@ -441,10 +448,12 @@ async def test_connection_close_cancels_all_reviews_and_isolated_to_original_con
 async def test_stopping_client_retires_pending_reviews() -> None:
     decision = asyncio.get_running_loop().create_future()
     context: InstallationConfirmationContext | None = None
+    entered = asyncio.Event()
 
     def handler(_incoming: InstallationConfirmationRequest, incoming_context):
         nonlocal context
         context = incoming_context
+        entered.set()
         return decision
 
     harness = await _connect(handler)
@@ -452,10 +461,10 @@ async def test_stopping_client_retires_pending_reviews() -> None:
         pending = asyncio.create_task(
             harness.peer.request(801, "installations.confirm", _request("a"))
         )
-        await _wait_for(lambda: context is not None)
+        await asyncio.wait_for(entered.wait(), timeout=5.0)
         await harness.client.stop()
-        await _wait_for(lambda: context is not None and context.cancelled.is_set())
         assert context is not None
+        await asyncio.wait_for(context.cancelled.wait(), timeout=5.0)
         assert context.cancelled.is_set()
         decision.set_result("confirm")
         pending.cancel()

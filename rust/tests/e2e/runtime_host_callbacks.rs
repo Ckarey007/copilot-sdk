@@ -108,7 +108,7 @@ async fn callback_resume_composes_tools_after_application_session_runtime_restar
             let restored = deadline(resumed.recv()).await.unwrap();
             assert_eq!(restored.id(), session_id);
             assert!(!Arc::ptr_eq(&original, &restored));
-            let (session, _) = ahp.client.subscribe(uri.clone()).await.unwrap();
+            let (session, mut session_updates) = ahp.client.subscribe(uri.clone()).await.unwrap();
             let session = serde_json::to_value(session).unwrap();
             let chat_uri = session["snapshot"]["state"]["defaultChat"].as_str().unwrap();
             let (history, subscription) = ahp.client.subscribe(chat_uri.into()).await.unwrap();
@@ -122,14 +122,24 @@ async fn callback_resume_composes_tools_after_application_session_runtime_restar
                     "tools":client_tools}
             })).unwrap()).await.unwrap();
             deadline(async {
-                loop {
-                    let (session, _) = ahp.client.subscribe(uri.clone()).await.unwrap();
-                    let state = serde_json::to_value(session).unwrap();
-                    if state["snapshot"]["state"]["activeClients"].as_array().unwrap().iter()
-                        .any(|entry| entry["clientId"] == ahp.client_id) { break; }
-                    tokio::task::yield_now().await;
+                while let Some(event) = session_updates.recv().await {
+                    let ahp::SubscriptionEvent::Action(envelope) = event else {
+                        continue;
+                    };
+                    let envelope = serde_json::to_value(envelope).unwrap();
+                    assert!(envelope["rejectionReason"].is_null(), "{envelope}");
+                    let action = &envelope["action"];
+                    if action["type"] == "session/activeClientSet"
+                        && action["activeClient"]["clientId"] == ahp.client_id {
+                        return;
+                    }
                 }
+                panic!("session subscription closed before active client update");
             }).await;
+            let (session, _) = ahp.client.subscribe(uri.clone()).await.unwrap();
+            let state = serde_json::to_value(session).unwrap();
+            assert!(state["snapshot"]["state"]["activeClients"].as_array().unwrap().iter()
+                .any(|entry| entry["clientId"] == ahp.client_id));
             let client_calls = AtomicUsize::new(0);
             let client_tool = |name: &str, input: Value| {
                 assert_eq!(name, "client_echo");
@@ -594,13 +604,7 @@ async fn callback_disposal_and_owner_termination_release_once() {
     run(|ctx| {
         Box::pin(async move {
             for owner_loss in [false, true] {
-                let port = unused_port();
-                let runtime = Client::start(options(ctx).with_transport(Transport::Tcp {
-                    port,
-                    connection_token: Some(RUNTIME_TOKEN.into()),
-                }))
-                .await
-                .unwrap();
+                let (runtime, port) = tcp_owner(ctx).await;
                 let owner = Client::start(options(ctx).with_transport(Transport::External {
                     host: "127.0.0.1".into(),
                     port,

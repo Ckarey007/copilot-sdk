@@ -8,6 +8,7 @@ import asyncio
 import inspect
 import json
 import os
+import subprocess
 import threading
 from dataclasses import fields
 from datetime import UTC, datetime
@@ -309,6 +310,7 @@ class TestClientShutdown:
     async def test_force_stop_and_external_stop_do_not_request_runtime_shutdown(self):
         calls: list[str] = []
         process = Mock()
+        process.wait.return_value = 0
 
         class Runtime:
             async def shutdown(self):
@@ -334,6 +336,95 @@ class TestClientShutdown:
         assert calls == []
 
     @pytest.mark.asyncio
+    async def test_force_stop_waits_for_owned_process_exit(self):
+        process = Mock()
+        client = CopilotClient(connection=RuntimeConnection.for_stdio(path="copilot"))
+        client._process = process
+        client._cli_process = process
+        loop = asyncio.get_running_loop()
+        event_loop_thread = threading.current_thread()
+        wait_entered = loop.create_future()
+        release_exit = threading.Event()
+
+        def wait(*, timeout):
+            assert threading.current_thread() is not event_loop_thread
+            loop.call_soon_threadsafe(wait_entered.set_result, None)
+            release_exit.wait()
+            return 0
+
+        process.wait.side_effect = wait
+        stopping = asyncio.create_task(client.force_stop())
+        try:
+            completed, _ = await asyncio.wait(
+                [stopping, wait_entered], timeout=5, return_when=asyncio.FIRST_COMPLETED
+            )
+            assert wait_entered in completed, "force_stop returned before waiting for CLI exit"
+            assert not stopping.done(), "force_stop completed while the CLI was still running"
+            assert client._process is process
+            assert client._cli_process is process
+
+            release_exit.set()
+            await asyncio.wait_for(stopping, timeout=5)
+            process.kill.assert_called_once()
+            process.wait.assert_called_once_with(
+                timeout=client_module._CLI_PROCESS_EXIT_TIMEOUT_SECONDS
+            )
+            assert client._process is None
+            assert client._cli_process is None
+            assert client._state == "disconnected"
+
+            await client.force_stop()
+            process.kill.assert_called_once()
+            process.wait.assert_called_once()
+        finally:
+            release_exit.set()
+            await asyncio.gather(stopping, return_exceptions=True)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("failure", ["kill", "wait", "timeout"])
+    async def test_force_stop_reports_owned_process_failure(self, failure):
+        process = Mock()
+        error = (
+            subprocess.TimeoutExpired("copilot", client_module._CLI_PROCESS_EXIT_TIMEOUT_SECONDS)
+            if failure == "timeout"
+            else PermissionError(f"CLI {failure} failed")
+        )
+        if failure == "kill":
+            process.kill.side_effect = error
+        else:
+            process.wait.side_effect = error
+        client = CopilotClient(connection=RuntimeConnection.for_stdio(path="copilot"))
+        client._process = process
+        client._cli_process = process
+        rpc_client = Mock(stop=AsyncMock())
+        client._client = rpc_client
+        client._rpc = Mock()
+
+        with pytest.raises(type(error)) as raised:
+            await client.force_stop()
+
+        assert raised.value is error
+        assert client._process is process
+        assert client._cli_process is process
+        assert client._client is None
+        assert client._rpc is None
+        assert client._state == "disconnected"
+        rpc_client.stop.assert_awaited_once()
+        if failure == "kill":
+            process.wait.assert_not_called()
+        else:
+            process.wait.assert_called_once_with(
+                timeout=client_module._CLI_PROCESS_EXIT_TIMEOUT_SECONDS
+            )
+
+        process.kill.side_effect = None
+        process.wait.side_effect = None
+        process.wait.return_value = 0
+        await client.force_stop()
+        assert client._process is None
+        assert client._cli_process is None
+
+    @pytest.mark.asyncio
     async def test_force_stop_external_server_clears_process_references(self):
         process = Mock()
         client = CopilotClient(connection=RuntimeConnection.for_uri("localhost:1234"))
@@ -344,6 +435,8 @@ class TestClientShutdown:
         await client.force_stop()
 
         process.terminate.assert_called_once()
+        process.kill.assert_not_called()
+        process.wait.assert_not_called()
         assert client._process is None
         assert client._cli_process is None
 
@@ -352,8 +445,10 @@ class TestClientShutdown:
         client = CopilotClient(connection=RuntimeConnection.for_uri("localhost:1234"))
         session = CopilotSession("session-1", Mock())
         cancelled = asyncio.Event()
+        started = asyncio.Event()
 
         async def blocked():
+            started.set()
             try:
                 await asyncio.Future()
             finally:
@@ -362,7 +457,7 @@ class TestClientShutdown:
         task = asyncio.create_task(blocked())
         session._pending_external_tools["request-1"] = task
         client._sessions["session-1"] = session
-        await asyncio.sleep(0)
+        await asyncio.wait_for(started.wait(), timeout=1)
 
         await client.force_stop()
 
@@ -374,8 +469,10 @@ class TestClientShutdown:
         client = CopilotClient(connection=RuntimeConnection.for_uri("localhost:1234"))
         session = CopilotSession("session-1", Mock())
         cancelled = asyncio.Event()
+        started = asyncio.Event()
 
         async def blocked():
+            started.set()
             try:
                 await asyncio.Future()
             finally:
@@ -384,7 +481,7 @@ class TestClientShutdown:
         task = asyncio.create_task(blocked())
         session._pending_external_tools["request-1"] = task
         client._sessions["session-1"] = session
-        await asyncio.sleep(0)
+        await asyncio.wait_for(started.wait(), timeout=1)
 
         client._client = Mock(_loop=asyncio.get_running_loop())
         await asyncio.to_thread(client._handle_connection_close)
@@ -845,6 +942,7 @@ class TestCreateSessionConfig:
             async def mock_request(method, params, **kwargs):
                 if method == "session.mcp.oauth.handlePendingRequest":
                     captured.append((method, params))
+                    request_handled.set()
                     return {"success": True}
                 if method == "session.create":
                     result = {"sessionId": params["sessionId"], "workspacePath": None}
@@ -858,6 +956,7 @@ class TestCreateSessionConfig:
 
             client._client.request = mock_request
             observed_request = None
+            request_handled = asyncio.Event()
 
             def handle_mcp_auth_request(request, invocation):
                 nonlocal observed_request
@@ -900,10 +999,7 @@ class TestCreateSessionConfig:
                 )
             )
 
-            for _ in range(200):
-                if captured:
-                    break
-                await asyncio.sleep(0.005)
+            await asyncio.wait_for(request_handled.wait(), timeout=1.0)
 
             assert observed_request is not None
             assert observed_request["resourceMetadata"] == '{"resource":"https://example.com/mcp"}'
@@ -933,6 +1029,7 @@ class TestCreateSessionConfig:
             ]
 
             observed_request = None
+            request_handled.clear()
             session._dispatch_event(
                 SessionEvent(
                     data=McpOauthRequiredData(
@@ -949,10 +1046,7 @@ class TestCreateSessionConfig:
                 )
             )
 
-            for _ in range(200):
-                if observed_request is not None:
-                    break
-                await asyncio.sleep(0.005)
+            await asyncio.wait_for(request_handled.wait(), timeout=1.0)
 
             assert observed_request is not None
             assert "resourceMetadata" not in observed_request
@@ -2049,49 +2143,6 @@ class TestCreateSessionConfig:
             await client.force_stop()
 
     @pytest.mark.asyncio
-    async def test_create_and_resume_session_forward_github_cache_store(self):
-        client = CopilotClient(connection=RuntimeConnection.for_stdio(path=CLI_PATH))
-        await client.start()
-        try:
-            captured = {}
-
-            async def mock_request(method, params, **kwargs):
-                captured[method] = params
-                if method in ("session.create", "session.resume"):
-                    result = {"sessionId": params.get("sessionId") or "session-1"}
-                    callback = kwargs.get("on_response_inline")
-                    if callback is not None:
-                        callback(result)
-                    return result
-                return {}
-
-            client._client.request = mock_request
-
-            session = await client.create_session(
-                on_permission_request=PermissionHandler.approve_all,
-                enable_github_cache_store=True,
-            )
-            await client.resume_session(
-                session.session_id,
-                on_permission_request=PermissionHandler.approve_all,
-                enable_github_cache_store=False,
-            )
-            assert captured["session.create"]["enableGitHubCacheStore"] is True
-            assert captured["session.resume"]["enableGitHubCacheStore"] is False
-
-            unset = await client.create_session(
-                on_permission_request=PermissionHandler.approve_all,
-            )
-            await client.resume_session(
-                unset.session_id,
-                on_permission_request=PermissionHandler.approve_all,
-            )
-            assert "enableGitHubCacheStore" not in captured["session.create"]
-            assert "enableGitHubCacheStore" not in captured["session.resume"]
-        finally:
-            await client.force_stop()
-
-    @pytest.mark.asyncio
     async def test_create_and_resume_session_forward_exp_assignments(self):
         client = CopilotClient(connection=RuntimeConnection.for_stdio(path=CLI_PATH))
         await client.start()
@@ -2823,6 +2874,33 @@ class TestOnListModels:
 
 class TestSessionConfigForwarding:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("trust", [None, "session", "user"])
+    async def test_create_session_forwards_working_directory_trust(self, trust, tmp_path):
+        client = CopilotClient(connection=RuntimeConnection.for_stdio(path=CLI_PATH))
+        await client.start()
+        try:
+            captured = {}
+            original_request = client._client.request
+
+            async def mock_request(method, params, **kwargs):
+                captured[method] = params
+                return await original_request(method, params, **kwargs)
+
+            client._client.request = mock_request
+            await client.create_session(
+                on_permission_request=PermissionHandler.approve_all,
+                trust_working_directory=trust,
+                working_directory=str(tmp_path),
+                config_directory=str(tmp_path / "config"),
+            )
+            if trust is None:
+                assert "trustWorkingDirectory" not in captured["session.create"]
+            else:
+                assert captured["session.create"]["trustWorkingDirectory"] == trust
+        finally:
+            await client.force_stop()
+
+    @pytest.mark.asyncio
     async def test_create_session_forwards_client_name(self):
         client = CopilotClient(connection=RuntimeConnection.for_stdio(path=CLI_PATH))
         await client.start()
@@ -3004,6 +3082,7 @@ class TestSessionConfigForwarding:
                     "model_id": "gpt-4o",
                     "wire_model": "my-finetune-v3",
                     "model_provider": "lm_studio",
+                    "api_key_command": "credential-helper --profile sdk",
                     "max_prompt_tokens": 100_000,
                     "max_output_tokens": 4096,
                     "transport": "websockets",
@@ -3016,6 +3095,8 @@ class TestSessionConfigForwarding:
             assert provider["modelId"] == "gpt-4o"
             assert provider["wireModel"] == "my-finetune-v3"
             assert provider["modelProvider"] == "lm_studio"
+            assert provider["apiKeyCommand"] == "credential-helper --profile sdk"
+            assert "api_key_command" not in provider
             assert provider["maxPromptTokens"] == 100_000
             assert provider["maxOutputTokens"] == 4096
             assert provider["transport"] == "websockets"
@@ -3051,6 +3132,7 @@ class TestSessionConfigForwarding:
                     "model_id": "gpt-4o",
                     "wire_model": "my-finetune-v3",
                     "model_provider": "ollama",
+                    "api_key_command": "credential-helper --profile resumed",
                     "max_prompt_tokens": 100_000,
                     "max_output_tokens": 4096,
                 },
@@ -3062,6 +3144,8 @@ class TestSessionConfigForwarding:
             assert provider["modelId"] == "gpt-4o"
             assert provider["wireModel"] == "my-finetune-v3"
             assert provider["modelProvider"] == "ollama"
+            assert provider["apiKeyCommand"] == "credential-helper --profile resumed"
+            assert "api_key_command" not in provider
             assert provider["maxPromptTokens"] == 100_000
             assert provider["maxOutputTokens"] == 4096
         finally:
@@ -3855,7 +3939,34 @@ class TestCopilotSessionContextManager:
             mock_disconnect.assert_awaited_once()
 
 
+class TestProviderWireFormat:
+    def test_api_key_command_is_forwarded_without_local_execution(self):
+        client = CopilotClient.__new__(CopilotClient)
+        wire = client._convert_provider_to_wire_format(
+            {
+                "base_url": "https://models.example.test",
+                "api_key_command": "credential-helper --profile sdk",
+            }
+        )
+        assert wire["apiKeyCommand"] == "credential-helper --profile sdk"
+        assert "api_key_command" not in wire
+
+    def test_api_key_command_is_omitted_when_absent(self):
+        client = CopilotClient.__new__(CopilotClient)
+        wire = client._convert_provider_to_wire_format({"base_url": "https://models.example.test"})
+        assert "apiKeyCommand" not in wire
+
+
 class TestCustomAgentWireFormat:
+    @pytest.mark.parametrize("policy", ["preferred", "required"])
+    def test_model_policy_is_forwarded_in_camel_case(self, policy):
+        client = CopilotClient.__new__(CopilotClient)
+        wire = client._convert_custom_agent_to_wire_format(
+            {"name": "policy-agent", "prompt": "Use the authored model.", "model_policy": policy}
+        )
+        assert wire["modelPolicy"] == policy
+        assert "model_policy" not in wire
+
     def test_model_field_is_forwarded_in_wire_format(self):
         """The model key in CustomAgentConfig should appear as 'model' in the wire payload."""
         from copilot.client import CopilotClient
@@ -3884,6 +3995,7 @@ class TestCustomAgentWireFormat:
         }
         wire = client._convert_custom_agent_to_wire_format(agent)
         assert "model" not in wire
+        assert "modelPolicy" not in wire
 
     def test_reasoning_effort_is_forwarded_in_camel_case(self):
         from copilot.client import CopilotClient
@@ -4362,9 +4474,11 @@ class TestGitHubTelemetry:
         from copilot.generated.rpc import GitHubTelemetryNotification
 
         received: list = []
+        delivered = asyncio.Event()
 
         def on_telemetry(notification):
             received.append(notification)
+            delivered.set()
 
         client = CopilotClient(
             connection=RuntimeConnection.for_stdio(path=CLI_PATH),
@@ -4399,11 +4513,7 @@ class TestGitHubTelemetry:
                 }
             )
 
-            # Notifications dispatch onto the event loop; yield until delivered.
-            for _ in range(100):
-                if received:
-                    break
-                await asyncio.sleep(0.01)
+            await asyncio.wait_for(delivered.wait(), timeout=1.0)
 
             assert len(received) == 1
             notification = received[0]

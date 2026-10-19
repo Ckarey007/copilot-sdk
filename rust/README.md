@@ -1303,8 +1303,6 @@ The CLI emits `session.compaction_start` / `session.compaction_complete` events 
 
 `enable_session_store` on `SessionConfig` enables the cross-session store for search and retrieval across sessions. When unset in the default client mode, the runtime default applies (enabled). In `Empty` mode, defaults to disabled.
 
-`enable_github_cache_store` on `SessionConfig` and `ResumeSessionConfig` (builder `with_enable_github_cache_store`) requests the read-only GitHub cache store (`github-cache-store` capability) on create or resume. The runtime registers the `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is also on. Defaults to disabled in every mode.
-
 ### Memory
 
 Configure the runtime memory feature for a session:

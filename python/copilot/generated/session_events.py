@@ -3813,6 +3813,8 @@ class AssistantUsageData:
     copilot_usage: AssistantUsageCopilotUsage | None = None
     # Experimental: this field is part of an experimental API and may change or be removed.
     cost: float | None = None
+    # Internal: this field is an internal SDK API and is not part of the public surface.
+    _custom_tool_call_count: int | None = None
     duration: timedelta | None = None
     finish_reason: str | None = None
     # Internal: this field is an internal SDK API and is not part of the public surface.
@@ -3831,6 +3833,8 @@ class AssistantUsageData:
     model_provider: str | None = None
     # Internal: this field is an internal SDK API and is not part of the public surface.
     _num_tool_calls: int | None = None
+    # Internal: this field is an internal SDK API and is not part of the public surface.
+    _orphan_tool_call_count: int | None = None
     output_tokens: int | None = None
     output_ttft: timedelta | None = None
     # Deprecated: this field is deprecated.
@@ -3863,6 +3867,8 @@ class AssistantUsageData:
     # Internal: this field is an internal SDK API and is not part of the public surface.
     _tool_token_count: int | None = None
     transport: AssistantUsageTransport | None = None
+    # Internal: this field is an internal SDK API and is not part of the public surface.
+    _unmatched_tool_result_count: int | None = None
     websocket_fallback_after: timedelta | None = None
     websocket_fallback_close_code: int | None = None
     websocket_fallback_error_kind: ModelCallWebSocketFallbackErrorKind | None = None
@@ -3890,6 +3896,7 @@ class AssistantUsageData:
         content_filter_triggered = from_union([from_none, from_bool], obj.get("contentFilterTriggered"))
         copilot_usage = from_union([from_none, AssistantUsageCopilotUsage.from_dict], obj.get("copilotUsage"))
         cost = from_union([from_none, from_float], obj.get("cost"))
+        _custom_tool_call_count = from_union([from_none, from_int], obj.get("customToolCallCount"))
         duration = from_union([from_none, from_timedelta], obj.get("duration"))
         finish_reason = from_union([from_none, from_str], obj.get("finishReason"))
         _frontier_source = from_union([from_none, from_str], obj.get("frontierSource"))
@@ -3905,6 +3912,7 @@ class AssistantUsageData:
         model_display_name = from_union([from_none, from_str], obj.get("modelDisplayName"))
         model_provider = from_union([from_none, from_str], obj.get("modelProvider"))
         _num_tool_calls = from_union([from_none, from_int], obj.get("numToolCalls"))
+        _orphan_tool_call_count = from_union([from_none, from_int], obj.get("orphanToolCallCount"))
         output_tokens = from_union([from_none, from_int], obj.get("outputTokens"))
         output_ttft = from_union([from_none, from_timedelta], obj.get("outputTtftMs"))
         parent_tool_call_id = from_union([from_none, from_str], obj.get("parentToolCallId"))
@@ -3930,6 +3938,7 @@ class AssistantUsageData:
         _tool_counts = from_union([from_none, lambda x: from_dict(from_int, x)], obj.get("toolCounts"))
         _tool_token_count = from_union([from_none, from_int], obj.get("toolTokenCount"))
         transport = from_union([from_none, lambda x: parse_enum(AssistantUsageTransport, x)], obj.get("transport"))
+        _unmatched_tool_result_count = from_union([from_none, from_int], obj.get("unmatchedToolResultCount"))
         websocket_fallback_after = from_union([from_none, from_timedelta], obj.get("websocketFallbackAfterMs"))
         websocket_fallback_close_code = from_union([from_none, from_int], obj.get("websocketFallbackCloseCode"))
         websocket_fallback_error_kind = from_union([from_none, lambda x: parse_enum(ModelCallWebSocketFallbackErrorKind, x)], obj.get("websocketFallbackErrorKind"))
@@ -3954,6 +3963,7 @@ class AssistantUsageData:
             content_filter_triggered=content_filter_triggered,
             copilot_usage=copilot_usage,
             cost=cost,
+            _custom_tool_call_count=_custom_tool_call_count,
             duration=duration,
             finish_reason=finish_reason,
             _frontier_source=_frontier_source,
@@ -3969,6 +3979,7 @@ class AssistantUsageData:
             model_display_name=model_display_name,
             model_provider=model_provider,
             _num_tool_calls=_num_tool_calls,
+            _orphan_tool_call_count=_orphan_tool_call_count,
             output_tokens=output_tokens,
             output_ttft=output_ttft,
             parent_tool_call_id=parent_tool_call_id,
@@ -3994,6 +4005,7 @@ class AssistantUsageData:
             _tool_counts=_tool_counts,
             _tool_token_count=_tool_token_count,
             transport=transport,
+            _unmatched_tool_result_count=_unmatched_tool_result_count,
             websocket_fallback_after=websocket_fallback_after,
             websocket_fallback_close_code=websocket_fallback_close_code,
             websocket_fallback_error_kind=websocket_fallback_error_kind,
@@ -4036,6 +4048,8 @@ class AssistantUsageData:
             result["copilotUsage"] = from_union([from_none, lambda x: to_class(AssistantUsageCopilotUsage, x)], self.copilot_usage)
         if self.cost is not None:
             result["cost"] = from_union([from_none, to_float], self.cost)
+        if self._custom_tool_call_count is not None:
+            result["customToolCallCount"] = from_union([from_none, to_int], self._custom_tool_call_count)
         if self.duration is not None:
             result["duration"] = from_union([from_none, to_timedelta_int], self.duration)
         if self.finish_reason is not None:
@@ -4066,6 +4080,8 @@ class AssistantUsageData:
             result["modelProvider"] = from_union([from_none, from_str], self.model_provider)
         if self._num_tool_calls is not None:
             result["numToolCalls"] = from_union([from_none, to_int], self._num_tool_calls)
+        if self._orphan_tool_call_count is not None:
+            result["orphanToolCallCount"] = from_union([from_none, to_int], self._orphan_tool_call_count)
         if self.output_tokens is not None:
             result["outputTokens"] = from_union([from_none, to_int], self.output_tokens)
         if self.output_ttft is not None:
@@ -4116,6 +4132,8 @@ class AssistantUsageData:
             result["toolTokenCount"] = from_union([from_none, to_int], self._tool_token_count)
         if self.transport is not None:
             result["transport"] = from_union([from_none, lambda x: to_enum(AssistantUsageTransport, x)], self.transport)
+        if self._unmatched_tool_result_count is not None:
+            result["unmatchedToolResultCount"] = from_union([from_none, to_int], self._unmatched_tool_result_count)
         if self.websocket_fallback_after is not None:
             result["websocketFallbackAfterMs"] = from_union([from_none, to_timedelta_int], self.websocket_fallback_after)
         if self.websocket_fallback_close_code is not None:
@@ -6853,10 +6871,13 @@ class ModelCallFailureRequestFingerprint:
     nameless_tool_call_count: int
     tool_call_count: int
     tool_result_message_count: int
+    custom_tool_call_count: int | None = None
     encrypted_content_bytes: int | None = None
     image_bytes: int | None = None
     last_message_role: str | None = None
+    orphan_tool_call_count: int | None = None
     reasoning_item_count: int | None = None
+    unmatched_tool_result_count: int | None = None
 
     @staticmethod
     def from_dict(obj: Any) -> "ModelCallFailureRequestFingerprint":
@@ -6867,10 +6888,13 @@ class ModelCallFailureRequestFingerprint:
         nameless_tool_call_count = from_int(obj.get("namelessToolCallCount"))
         tool_call_count = from_int(obj.get("toolCallCount"))
         tool_result_message_count = from_int(obj.get("toolResultMessageCount"))
+        custom_tool_call_count = from_union([from_none, from_int], obj.get("customToolCallCount"))
         encrypted_content_bytes = from_union([from_none, from_int], obj.get("encryptedContentBytes"))
         image_bytes = from_union([from_none, from_int], obj.get("imageBytes"))
         last_message_role = from_union([from_none, from_str], obj.get("lastMessageRole"))
+        orphan_tool_call_count = from_union([from_none, from_int], obj.get("orphanToolCallCount"))
         reasoning_item_count = from_union([from_none, from_int], obj.get("reasoningItemCount"))
+        unmatched_tool_result_count = from_union([from_none, from_int], obj.get("unmatchedToolResultCount"))
         return ModelCallFailureRequestFingerprint(
             image_part_count=image_part_count,
             image_parts_missing_media_type=image_parts_missing_media_type,
@@ -6878,10 +6902,13 @@ class ModelCallFailureRequestFingerprint:
             nameless_tool_call_count=nameless_tool_call_count,
             tool_call_count=tool_call_count,
             tool_result_message_count=tool_result_message_count,
+            custom_tool_call_count=custom_tool_call_count,
             encrypted_content_bytes=encrypted_content_bytes,
             image_bytes=image_bytes,
             last_message_role=last_message_role,
+            orphan_tool_call_count=orphan_tool_call_count,
             reasoning_item_count=reasoning_item_count,
+            unmatched_tool_result_count=unmatched_tool_result_count,
         )
 
     def to_dict(self) -> dict:
@@ -6892,14 +6919,20 @@ class ModelCallFailureRequestFingerprint:
         result["namelessToolCallCount"] = to_int(self.nameless_tool_call_count)
         result["toolCallCount"] = to_int(self.tool_call_count)
         result["toolResultMessageCount"] = to_int(self.tool_result_message_count)
+        if self.custom_tool_call_count is not None:
+            result["customToolCallCount"] = from_union([from_none, to_int], self.custom_tool_call_count)
         if self.encrypted_content_bytes is not None:
             result["encryptedContentBytes"] = from_union([from_none, to_int], self.encrypted_content_bytes)
         if self.image_bytes is not None:
             result["imageBytes"] = from_union([from_none, to_int], self.image_bytes)
         if self.last_message_role is not None:
             result["lastMessageRole"] = from_union([from_none, from_str], self.last_message_role)
+        if self.orphan_tool_call_count is not None:
+            result["orphanToolCallCount"] = from_union([from_none, to_int], self.orphan_tool_call_count)
         if self.reasoning_item_count is not None:
             result["reasoningItemCount"] = from_union([from_none, to_int], self.reasoning_item_count)
+        if self.unmatched_tool_result_count is not None:
+            result["unmatchedToolResultCount"] = from_union([from_none, to_int], self.unmatched_tool_result_count)
         return result
 
 
@@ -15318,7 +15351,7 @@ class CompactionTrigger(Enum):
     MANUAL = "manual"
     # Emergency compaction triggered by high process memory usage.
     MEMORY_PRESSURE = "memory_pressure"
-    # Compaction requested while switching to a model with a smaller context window.
+    # Compaction requested while switching to a model with a smaller context window, including a HydraFusion turn's routed root model.
     MODEL_SWITCH = "model_switch"
 
 

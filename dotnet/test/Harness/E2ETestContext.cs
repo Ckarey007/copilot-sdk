@@ -30,7 +30,6 @@ public sealed class E2ETestContext : IAsyncDisposable
     private readonly ReplayProxy _proxy;
     private readonly string _repoRoot;
     private readonly Lazy<string> _cliPath;
-    private readonly Lazy<string> _legacyCliPath;
     private readonly object _clientsLock = new();
     private readonly List<CopilotClient> _persistentClients = [];
     private readonly List<CopilotClient> _transientClients = [];
@@ -45,7 +44,6 @@ public sealed class E2ETestContext : IAsyncDisposable
         _proxy = proxy;
         _repoRoot = repoRoot;
         _cliPath = GetCachedCliPath(repoRoot, "--print-path");
-        _legacyCliPath = GetCachedCliPath(repoRoot, "--print-legacy-path");
     }
 
     public static Task<E2ETestContext> CreateAsync() => CreateAsync(
@@ -180,9 +178,6 @@ public sealed class E2ETestContext : IAsyncDisposable
 
     private string GetCliPath()
         => _cliPath.Value;
-
-    public string GetLegacyCliPath()
-        => _legacyCliPath.Value;
 
     private static Lazy<string> GetCachedCliPath(string repoRoot, string option)
     {
@@ -626,7 +621,7 @@ public sealed class E2ETestContext : IAsyncDisposable
 
         // Skip writing snapshots in CI to avoid corrupting them on test failures
         var isCI = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GITHUB_ACTIONS"));
-        try { await _proxy.StopAsync(skipWritingCache: isCI); } catch (Exception ex) when (IsTransientCleanupException(ex)) { errors.Add(ex); }
+        try { await _proxy.StopAsync(skipWritingCache: isCI); } catch (Exception ex) { errors.Add(ex); }
 
         // The in-process worker inherits this process's cwd, so ApplyInProcessEnvironment
         // may have pointed it at WorkDir. The assembly-level isolation attribute only

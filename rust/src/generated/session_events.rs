@@ -2492,7 +2492,7 @@ pub struct SessionCompactionStartData {
     /// Model identifier used for compaction, when known
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// Destination model for a model-switch compaction when it differs from the compacting model
+    /// Destination model for a model-switch compaction when it differs from the compacting model; for a HydraFusion turn, the routed root model
     #[serde(skip_serializing_if = "Option::is_none")]
     pub switch_target_model: Option<String>,
     /// Token count from system message(s) at compaction start
@@ -2674,7 +2674,7 @@ pub struct SessionCompactionCompleteData {
     /// LLM-generated summary of the compacted conversation history
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary_content: Option<String>,
-    /// Destination model for a model-switch compaction when it differs from the compacting model
+    /// Destination model for a model-switch compaction when it differs from the compacting model; for a HydraFusion turn, the routed root model
     #[serde(skip_serializing_if = "Option::is_none")]
     pub switch_target_model: Option<String>,
     /// Token count from system message(s) after compaction
@@ -4120,6 +4120,10 @@ pub struct AssistantUsageData {
     /// </div>
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cost: Option<f64>,
+    /// Free-form custom tool calls in the request history before request shaping, counted apart from named function calls
+    #[doc(hidden)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) custom_tool_call_count: Option<i64>,
     /// Duration of the API call in milliseconds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<i64>,
@@ -4176,6 +4180,10 @@ pub struct AssistantUsageData {
     #[doc(hidden)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) num_tool_calls: Option<i64>,
+    /// Tool calls in the request history before request shaping that no later tool result answers
+    #[doc(hidden)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) orphan_tool_call_count: Option<i64>,
     /// Number of output tokens produced
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_tokens: Option<i64>,
@@ -4259,6 +4267,10 @@ pub struct AssistantUsageData {
     /// Transport used for this model call (http or websocket)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transport: Option<AssistantUsageTransport>,
+    /// Tool results in the request history before request shaping that answer no earlier unanswered tool call
+    #[doc(hidden)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) unmatched_tool_result_count: Option<i64>,
     /// Milliseconds spent on the WebSocket attempt before falling back to HTTP
     #[serde(skip_serializing_if = "Option::is_none")]
     pub websocket_fallback_after_ms: Option<i64>,
@@ -4376,6 +4388,9 @@ pub struct PromptCacheBreakData {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelCallFailureRequestFingerprint {
+    /// Free-form custom tool calls in the request history before request shaping, counted apart from named function calls (rejected by strict providers)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_tool_call_count: Option<i64>,
     /// Summed byte length of opaque or encrypted reasoning payloads
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encrypted_content_bytes: Option<i64>,
@@ -4393,6 +4408,9 @@ pub struct ModelCallFailureRequestFingerprint {
     pub message_count: i64,
     /// Tool calls whose name is missing or empty (rejected by strict providers)
     pub nameless_tool_call_count: i64,
+    /// Tool calls in the request history before request shaping that no later tool result message answers
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orphan_tool_call_count: Option<i64>,
     /// Number of messages carrying opaque or encrypted reasoning
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_item_count: Option<i64>,
@@ -4400,6 +4418,9 @@ pub struct ModelCallFailureRequestFingerprint {
     pub tool_call_count: i64,
     /// Number of "tool" result messages in the request
     pub tool_result_message_count: i64,
+    /// Tool result messages in the request history before request shaping that answer no earlier unanswered tool call
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unmatched_tool_result_count: Option<i64>,
 }
 
 /// Session event "model.call_failure". Failed LLM API call metadata for telemetry
@@ -4421,13 +4442,13 @@ pub struct ModelCallFailureData {
     /// Duration of the failed API call in milliseconds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<i64>,
-    /// For HTTP 400 failures only: the `code` from the CAPI error envelope (e.g. 'model_max_prompt_tokens_exceeded') identifying which deterministic validation failure occurred. Raw server-controlled string, emitted only through restricted telemetry. Absent for bodyless or non-400 failures.
+    /// The `code` from the CAPI error envelope of an HTTP failure of any status (e.g. 'model_max_prompt_tokens_exceeded' on a 400, 'model_overloaded' on a 5xx) identifying which upstream failure occurred. Raw server-controlled string, emitted only through restricted telemetry. Absent when the response carried no error envelope.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_code: Option<String>,
     /// Raw provider/runtime error message for restricted telemetry
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
-    /// For HTTP 400 failures only: the `type` from the CAPI error envelope (e.g. 'websocket_error'), a coarser companion to errorCode for envelopes that carry no code. Raw server-controlled string, emitted only through restricted telemetry. Absent for bodyless or non-400 failures.
+    /// The `type` from the CAPI error envelope of an HTTP failure of any status (e.g. 'websocket_error'), a coarser companion to errorCode for envelopes that carry no code. Raw server-controlled string, emitted only through restricted telemetry. Absent when the response carried no error envelope.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_type: Option<String>,
     /// Whether the failure originated from an API response or the request transport
@@ -9868,7 +9889,7 @@ pub enum CompactionTrigger {
     /// Emergency compaction triggered by high process memory usage.
     #[serde(rename = "memory_pressure")]
     MemoryPressure,
-    /// Compaction requested while switching to a model with a smaller context window.
+    /// Compaction requested while switching to a model with a smaller context window, including a HydraFusion turn's routed root model.
     #[serde(rename = "model_switch")]
     ModelSwitch,
     /// Unknown variant for forward compatibility.

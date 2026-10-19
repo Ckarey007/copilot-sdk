@@ -23,6 +23,8 @@ import javax.annotation.processing.Generated;
 public record AutoTierStatus(
     /** Whether the provider permits selecting this preference. */
     @JsonProperty("enabled") Boolean enabled,
+    /** Whether hosts should list this preference in a picker. Absent means visible. A hidden preference can still be requested explicitly through the SDK. */
+    @JsonProperty("pickerVisible") Boolean pickerVisible,
     /** Extensible machine-readable unavailability reason. */
     @JsonProperty("reason") String reason,
     /** Human-readable explanation of availability. */

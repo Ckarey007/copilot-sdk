@@ -143,10 +143,6 @@ public final class ResumeSessionRequest {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Boolean enableSessionStore;
 
-    @JsonProperty("enableGitHubCacheStore")
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    private Boolean enableGitHubCacheStore;
-
     @JsonProperty("enableSkills")
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Boolean enableSkills;
@@ -772,25 +768,6 @@ public final class ResumeSessionRequest {
     /** Clears the enableSessionStore setting, reverting to the default behavior. */
     public void clearEnableSessionStore() {
         this.enableSessionStore = null;
-    }
-
-    /** Gets enable GitHub cache store flag. @return the flag */
-    public Boolean getEnableGitHubCacheStore() {
-        return enableGitHubCacheStore;
-    }
-
-    /**
-     * Sets enable GitHub cache store flag. @param enableGitHubCacheStore the flag
-     */
-    public void setEnableGitHubCacheStore(boolean enableGitHubCacheStore) {
-        this.enableGitHubCacheStore = enableGitHubCacheStore;
-    }
-
-    /**
-     * Clears the enableGitHubCacheStore setting, reverting to the default behavior.
-     */
-    public void clearEnableGitHubCacheStore() {
-        this.enableGitHubCacheStore = null;
     }
 
     /** Gets enable skills flag. @return the flag */

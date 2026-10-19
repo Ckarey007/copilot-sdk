@@ -85,15 +85,17 @@ func TestCommandsE2E(t *testing.T) {
 	})
 
 	t.Run("session commands execute runs registered command handler", func(t *testing.T) {
-		var captured *copilot.CommandContext
+		invoked := make(chan copilot.CommandContext, 1)
 		session, err := client1.CreateSession(t.Context(), &copilot.SessionConfig{
 			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 			Commands: []copilot.CommandDefinition{{
 				Name:        "deploy",
 				Description: "Deploy the app",
 				Handler: func(ctx copilot.CommandContext) error {
-					copy := ctx
-					captured = &copy
+					select {
+					case invoked <- ctx:
+					default:
+					}
 					return nil
 				},
 			}},
@@ -122,9 +124,12 @@ func TestCommandsE2E(t *testing.T) {
 		if result.Error != nil {
 			t.Fatalf("Expected command execution to succeed, got error %q", *result.Error)
 		}
-		waitForRPCCondition(t, 10*time.Second, "command handler execution", func() (bool, error) {
-			return captured != nil, nil
-		})
+		var captured copilot.CommandContext
+		select {
+		case captured = <-invoked:
+		case <-time.After(10 * time.Second):
+			t.Fatal("Timed out waiting for command handler execution")
+		}
 		if captured.SessionID != session.SessionID || captured.Command != "/deploy production" ||
 			captured.CommandName != "deploy" || captured.Args != "production" {
 			t.Fatalf("Unexpected command context: %+v", captured)

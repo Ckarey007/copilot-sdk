@@ -2313,6 +2313,14 @@ func toolDefinitionsForSetTools(tools []Tool) []rpc.ProtocolExternalToolDefiniti
 			deferPolicy := rpc.ProtocolExternalToolDefer(tool.Defer)
 			definition.Defer = &deferPolicy
 		}
+		if tool.Namespace != nil {
+			namespace := rpc.ProtocolExternalToolNamespace{Name: tool.Namespace.Name}
+			if tool.Namespace.Description != "" {
+				description := tool.Namespace.Description
+				namespace.Description = &description
+			}
+			definition.Namespace = &namespace
+		}
 		definitions = append(definitions, definition)
 	}
 	return definitions

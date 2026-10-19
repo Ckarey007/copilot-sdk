@@ -70,7 +70,7 @@ rust_library(
         ":build_script_build",
         "@sdk_vendor__bitflags-2.13.2//:bitflags",
         "@sdk_vendor__cfg-if-1.0.5//:cfg_if",
-        "@sdk_vendor__libc-0.2.190//:libc",
+        "@sdk_vendor__libc-0.2.191//:libc",
     ],
 )
 

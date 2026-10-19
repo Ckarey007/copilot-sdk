@@ -410,7 +410,7 @@ fn send_error(
         id: request_id,
         result: None,
         error: Some(JsonRpcError {
-            code,
+            code: code.into(),
             message,
             data: None,
         }),

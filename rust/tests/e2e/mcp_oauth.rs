@@ -288,10 +288,12 @@ async fn should_cancel_pending_mcp_oauth_request() {
                 .expect("reload MCP servers");
             wait_for_mcp_server_status(&session, server_name, McpServerStatus::NeedsAuth).await;
 
-            wait_for_condition("MCP OAuth request reaching the host callback", || async {
-                handler.request.lock().is_some()
-            })
-            .await;
+            tokio::time::timeout(
+                super::support::default_event_timeout(),
+                handler.request_seen.notified(),
+            )
+            .await
+            .expect("MCP OAuth request reaching the host callback");
 
             let request = handler
                 .request
@@ -399,6 +401,7 @@ impl McpAuthHandler for LifecycleAuthHandler {
 #[derive(Default)]
 struct CancelAuthHandler {
     request: Mutex<Option<McpAuthRequest>>,
+    request_seen: tokio::sync::Notify,
 }
 
 #[async_trait]
@@ -411,6 +414,7 @@ impl McpAuthHandler for CancelAuthHandler {
     ) -> McpAuthResult {
         assert_eq!(request.request_id, request_id);
         *self.request.lock() = Some(request);
+        self.request_seen.notify_one();
         McpAuthResult::Cancelled
     }
 }

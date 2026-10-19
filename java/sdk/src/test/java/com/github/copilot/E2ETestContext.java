@@ -562,11 +562,12 @@ public class E2ETestContext implements AutoCloseable {
         for (int i = inProcessEnvGuards.size() - 1; i >= 0; i--) {
             inProcessEnvGuards.get(i).close();
         }
-        proxy.stop();
-
-        // Clean up temp directories (best effort)
-        deleteRecursively(homeDir);
-        deleteRecursively(workDir);
+        try {
+            proxy.stop();
+        } finally {
+            deleteRecursively(homeDir);
+            deleteRecursively(workDir);
+        }
     }
 
     private static Path findRepoRoot() throws IOException {

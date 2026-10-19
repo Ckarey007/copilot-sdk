@@ -59,7 +59,7 @@ class TestClient:
             process = client._process
             assert process is not None
             process.kill()
-            await asyncio.sleep(0.1)
+            await asyncio.to_thread(process.wait, 10.0)
 
             try:
                 await client.stop()

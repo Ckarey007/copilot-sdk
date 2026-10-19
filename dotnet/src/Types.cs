@@ -2591,6 +2591,20 @@ public enum AgentMode
 }
 
 /// <summary>
+/// Selects the scope of a working-directory trust grant.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<WorkingDirectoryTrust>))]
+public enum WorkingDirectoryTrust
+{
+    /// <summary>Trust the directory for this session only.</summary>
+    [JsonStringEnumMemberName("session")]
+    Session,
+    /// <summary>Persist trust in the user's profile.</summary>
+    [JsonStringEnumMemberName("user")]
+    User
+}
+
+/// <summary>
 /// Identifies the origin of a message sent to a session.
 /// </summary>
 [JsonConverter(typeof(MessageSource.Converter))]
@@ -2863,6 +2877,13 @@ public sealed class ProviderConfig
     public string? ApiKey { get; set; }
 
     /// <summary>
+    /// Command run by the runtime before each provider request to obtain a fresh API key.
+    /// Command failures fail the turn before sending a model request.
+    /// </summary>
+    [JsonPropertyName("apiKeyCommand")]
+    public string? ApiKeyCommand { get; set; }
+
+    /// <summary>
     /// Bearer token for authentication. Sets the Authorization header directly.
     /// Use this for services requiring bearer token auth instead of API key.
     /// Takes precedence over ApiKey when both are set.
@@ -2885,9 +2906,10 @@ public sealed class ProviderConfig
     /// example via Azure Managed Identity). The Copilot SDK takes no identity dependency: supply a
     /// callback backed by your own identity library. Never serialized — setting it makes the SDK send
     /// <c>hasBearerTokenProvider: true</c> on the wire and answer the runtime's
-    /// <c>providerToken.getToken</c> requests. When set alongside <see cref="ApiKey"/>/<see cref="BearerToken"/>, this callback takes precedence:
+    /// <c>providerToken.getToken</c> requests. When set alongside <see cref="ApiKey"/>,
+    /// <see cref="ApiKeyCommand"/>, or <see cref="BearerToken"/>, this callback takes precedence:
     /// the runtime applies the token it returns as the Authorization: Bearer header for each request
-    /// and does not send the static credential.
+    /// without sending the static credential or running the command.
     /// </summary>
     [JsonIgnore]
     [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
@@ -3380,10 +3402,18 @@ public sealed class CustomAgentConfig
     /// <summary>
     /// Model identifier for this agent (e.g. "claude-haiku-4.5").
     /// When set, the runtime will attempt to use this model for the agent,
-    /// falling back to the parent session model if unavailable.
+    /// falling back to the parent session model if unavailable unless
+    /// <see cref="ModelPolicy"/> is <see cref="AgentModelPolicy.Required"/>.
     /// </summary>
     [JsonPropertyName("model")]
     public string? Model { get; set; }
+
+    /// <summary>
+    /// Whether the authored model is a preference or a requirement.
+    /// Omitted means preferred; required disables fallback to the parent model.
+    /// </summary>
+    [JsonPropertyName("modelPolicy")]
+    public AgentModelPolicy? ModelPolicy { get; set; }
 
     /// <summary>
     /// Reasoning effort level for this agent's model.
@@ -3483,6 +3513,15 @@ public sealed class ImageGenerationConfig
     /// </summary>
     [JsonPropertyName("enabled")]
     public bool? Enabled { get; set; }
+
+    /// <summary>
+    /// Request a visible "Made with AI" label on generated and edited images.
+    /// Overrides the user's imageGenerationWatermark preference, which defaults
+    /// to false. Re-supply after cold resume. Does not enable image generation
+    /// or enforce enterprise policy.
+    /// </summary>
+    [JsonPropertyName("watermark")]
+    public bool? Watermark { get; set; }
 }
 
 /// <summary>
@@ -3817,7 +3856,6 @@ public abstract class SessionConfigBase
         EnableFileHooks = other.EnableFileHooks;
         EnableHostGitOperations = other.EnableHostGitOperations;
         EnableSessionStore = other.EnableSessionStore;
-        EnableGitHubCacheStore = other.EnableGitHubCacheStore;
         EnableSkills = other.EnableSkills;
         EnableMcpApps = other.EnableMcpApps;
         GitHubMcpToolConfig = other.GitHubMcpToolConfig is null
@@ -4021,14 +4059,6 @@ public abstract class SessionConfigBase
     /// not written to or read from the shared session store.
     /// </summary>
     public bool? EnableSessionStore { get; set; }
-
-    /// <summary>
-    /// When <see langword="true"/>, requests the read-only GitHub cache store
-    /// (the <c>github-cache-store</c> capability). The runtime registers the
-    /// <c>github_sql</c> tool only when its <c>GITHUB_CACHE_STORE</c> feature flag
-    /// is also on. Defaults to disabled.
-    /// </summary>
-    public bool? EnableGitHubCacheStore { get; set; }
 
     /// <summary>
     /// When <see langword="true"/>, enables skill loading, including built-in
@@ -4588,6 +4618,7 @@ public sealed class SessionConfig : SessionConfigBase
         SessionId = other.SessionId;
         Name = other.Name;
         Cloud = other.Cloud;
+        TrustWorkingDirectory = other.TrustWorkingDirectory;
         RefreshCustomInstructions = other.RefreshCustomInstructions;
     }
 
@@ -4608,6 +4639,12 @@ public sealed class SessionConfig : SessionConfigBase
     /// The optional repository is associated with the cloud session.
     /// </summary>
     public CloudSessionOptions? Cloud { get; set; }
+
+    /// <summary>
+    /// Trusts the working directory for this session ("session") or persistently
+    /// for the user ("user"). Omitted leaves existing folder trust unchanged.
+    /// </summary>
+    public WorkingDirectoryTrust? TrustWorkingDirectory { get; set; }
 
     /// <summary>
     /// When true, invalidates process-wide custom-instruction discovery caches before

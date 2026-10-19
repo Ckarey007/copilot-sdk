@@ -166,9 +166,19 @@ impl SessionFsSqliteProvider for FixedProvider {
     async fn sqlite_query(
         &self,
         _query_type: SessionFsSqliteQueryType,
-        _query: &str,
+        query: &str,
         _params: Option<&HashMap<String, Value>>,
     ) -> Result<Option<SessionFsSqliteQueryResult>, FsError> {
+        // `select nested N`: one cell of N nested arrays.
+        if let Some(levels) = query.strip_prefix("select nested ") {
+            let levels = levels.parse().expect("a nesting depth");
+            return Ok(Some(SessionFsSqliteQueryResult {
+                columns: vec!["cell".to_string()],
+                rows: vec![HashMap::from([("cell".to_string(), nested_arrays(levels))])],
+                rows_affected: 0,
+                last_insert_rowid: None,
+            }));
+        }
         // Keys inserted out of order: the reply must still write them sorted.
         let row = HashMap::from([
             ("zeta".to_string(), json!(1)),
@@ -285,6 +295,11 @@ async fn start(provider: Arc<dyn SessionFsProvider>) -> (Session, Server) {
     (session, server)
 }
 
+/// `levels` arrays, each holding the next: `[[...[]...]]`.
+fn nested_arrays(levels: usize) -> Value {
+    (1..levels).fold(json!([]), |inner, _| json!([inner]))
+}
+
 /// The body the published path wrote for a reply to `id` whose result is
 /// `result`: the response's fields in order, the result as a `Value` writes it.
 fn published_body(id: u64, result: &Value) -> String {
@@ -375,6 +390,42 @@ async fn a_sqlite_reply_writes_its_row_keys_sorted() {
     assert_eq!(
         result["rows"][0],
         json!({"alpha": "a", "beta": [true, 2.5], "mid": null, "zeta": 1})
+    );
+}
+
+/// A sqlite cell is whatever value the app's provider returns, so a reply can
+/// nest deeper than the CLI reads: 127 levels of arrays and objects, counting
+/// the response object. The response, `result`, `rows` and the row take 4, so
+/// a cell of 123 levels goes out as published, and a cell of 124 is answered
+/// with an error for its request: the CLI would refuse that frame with a
+/// null-id error, which fails every request pending on the connection.
+#[tokio::test(flavor = "multi_thread")]
+#[parallel]
+async fn a_sqlite_reply_deeper_than_the_cli_reads_is_answered_with_an_error() {
+    let (_session, mut server) = start(FixedProvider::with_file("/file.txt", String::new())).await;
+    let readable = reply_to(
+        &mut server,
+        14,
+        "sessionFs.sqliteQuery",
+        json!({"queryType": "query", "query": "select nested 123"}),
+    )
+    .await;
+    assert_eq!(readable["rows"][0]["cell"], nested_arrays(123));
+
+    server
+        .request(
+            15,
+            "sessionFs.sqliteQuery",
+            json!({"queryType": "query", "query": "select nested 124"}),
+        )
+        .await;
+    let body = timeout(DEADLINE, server.read_frame())
+        .await
+        .expect("the reply arrives in time");
+    assert_eq!(
+        String::from_utf8(body).expect("a UTF-8 body"),
+        r#"{"jsonrpc":"2.0","id":15,"error":{"code":-32603,"message":"the response nests deeper than 127 levels of arrays and objects, which the CLI cannot read"}}"#,
+        "a reply the CLI cannot read goes out as an error for its request"
     );
 }
 

@@ -548,6 +548,20 @@ async def test_skill_provider_task_is_cancelled_by_runtime_cancel_request(
     session._register_skill_provider(BlockingProvider())
     sdk_client._sessions["session-1"] = session
     params = {"sessionId": "session-1", "name": "demo"}
+    dispatched = asyncio.get_running_loop().create_future()
+    original_dispatch = rpc_client._dispatch_request
+
+    async def dispatch(*args, **kwargs):
+        try:
+            await original_dispatch(*args, **kwargs)
+        except BaseException as error:
+            if not dispatched.done():
+                dispatched.set_exception(error)
+        else:
+            if not dispatched.done():
+                dispatched.set_result(None)
+
+    rpc_client._dispatch_request = dispatch
 
     with caplog.at_level("WARNING", logger="copilot.session"):
         rpc_client._handle_request(
@@ -556,10 +570,7 @@ async def test_skill_provider_task_is_cancelled_by_runtime_cancel_request(
         await asyncio.wait_for(entered.wait(), timeout=5)
         rpc_client._handle_cancel_request({"id": 7})
         await asyncio.wait_for(cancelled.wait(), timeout=5)
-        # The response is written before dispatch cleanup retires the cancellation entry.
-        async with asyncio.timeout(5):
-            while not process.stdin.getvalue() or 7 in rpc_client._incoming_request_cancellations:
-                await asyncio.sleep(0.01)
+        await asyncio.wait_for(dispatched, timeout=5)
 
     assert _decode_jsonrpc_output(process) == {
         "jsonrpc": "2.0",

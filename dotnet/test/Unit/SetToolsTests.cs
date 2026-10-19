@@ -15,14 +15,17 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
+using GitHub.Copilot.Test.Harness;
 using Xunit;
 
 namespace GitHub.Copilot.Test.Unit;
 
 public sealed class SetToolsTests
 {
-    [Fact]
-    public async Task SetToolsAsync_Sends_Complete_Payload_And_Empty_Descriptions()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Fruit lookups")]
+    public async Task SetToolsAsync_Sends_Complete_Payload_And_Empty_Descriptions(string? namespaceDescription)
     {
         await using var server = await SetToolsFakeServer.StartAsync();
         await using var client = new CopilotClient(new CopilotClientOptions { Connection = RuntimeConnection.ForUri(server.Url) });
@@ -39,6 +42,7 @@ public sealed class SetToolsTests
                     IsTerminal = true,
                     Defer = CopilotToolDefer.Never,
                     Metadata = new Dictionary<string, JsonNode?> { ["owner"] = "test" },
+                    Namespace = new ToolNamespace { Name = "fruit", Description = namespaceDescription },
                 },
                 new AIFunctionFactoryOptions
                 {
@@ -68,6 +72,12 @@ public sealed class SetToolsTests
                 Assert.True(fruit.GetProperty("isTerminal").GetBoolean());
                 Assert.Equal("never", fruit.GetProperty("defer").GetString());
                 Assert.Equal("test", fruit.GetProperty("metadata").GetProperty("owner").GetString());
+                Assert.Equal("fruit", fruit.GetProperty("namespace").GetProperty("name").GetString());
+                Assert.Equal(namespaceDescription is not null, fruit.GetProperty("namespace").TryGetProperty("description", out var actualDescription));
+                if (namespaceDescription is not null)
+                {
+                    Assert.Equal(namespaceDescription, actualDescription.GetString());
+                }
             },
             empty =>
             {
@@ -78,6 +88,7 @@ public sealed class SetToolsTests
                 Assert.False(empty.TryGetProperty("isTerminal", out _));
                 Assert.False(empty.TryGetProperty("defer", out _));
                 Assert.False(empty.TryGetProperty("metadata", out _));
+                Assert.False(empty.TryGetProperty("namespace", out _));
             });
     }
 
@@ -615,6 +626,7 @@ public sealed class SetToolsTests
         private readonly SemaphoreSlim _writeLock = new(1, 1);
         private readonly List<RpcRequestRecord> _requests = [];
         private readonly object _requestsLock = new();
+        private readonly AsyncTestSignal _requestsChanged = new();
         private readonly Task _serverTask;
         private readonly List<Task> _requestTasks = [];
         private NetworkStream? _stream;
@@ -682,24 +694,20 @@ public sealed class SetToolsTests
             string? requestId = null,
             CancellationToken cancellationToken = default)
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(5));
-            while (!timeout.IsCancellationRequested)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var request = Requests.FirstOrDefault(request =>
-                    request.Method == method &&
-                    (requestId is null || request.Params.GetProperty("requestId").GetString() == requestId));
-                if (request is not null)
+            RpcRequestRecord? request = null;
+            await _requestsChanged.WaitForAsync(
+                () =>
                 {
-                    return request;
-                }
-
-                await Task.Delay(20, cancellationToken);
-            }
-
-            cancellationToken.ThrowIfCancellationRequested();
-            throw new TimeoutException($"Timed out waiting for RPC method '{method}'.");
+                    cancellationToken.ThrowIfCancellationRequested();
+                    request = Requests.FirstOrDefault(candidate =>
+                        candidate.Method == method &&
+                        (requestId is null || candidate.Params.GetProperty("requestId").GetString() == requestId));
+                    return request is not null;
+                },
+                TimeSpan.FromSeconds(5),
+                timeoutMessage: $"Timed out waiting for RPC method '{method}' and request '{requestId ?? "<any>"}'.",
+                cancellationToken: cancellationToken);
+            return request!;
         }
 
         public async Task SendSessionEventAsync(
@@ -792,6 +800,7 @@ public sealed class SetToolsTests
             {
                 _requests.Add(requestRecord);
             }
+            _requestsChanged.Pulse();
 
             if (method == "session.tools.set")
             {

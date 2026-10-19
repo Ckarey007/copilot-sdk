@@ -95,25 +95,25 @@ rust_library(
         "@sdk_vendor__socket2-0.6.5//:socket2",
     ] + select({
         "@rules_rust//rust/platform:aarch64-apple-darwin": [
-            "@sdk_vendor__libc-0.2.190//:libc",  # aarch64-apple-darwin
+            "@sdk_vendor__libc-0.2.191//:libc",  # aarch64-apple-darwin
             "@sdk_vendor__signal-hook-registry-1.4.8//:signal_hook_registry",  # aarch64-apple-darwin
         ],
         "@rules_rust//rust/platform:aarch64-pc-windows-msvc": [
             "@sdk_vendor__windows-sys-0.61.2//:windows_sys",  # aarch64-pc-windows-msvc
         ],
         "@rules_rust//rust/platform:aarch64-unknown-linux-gnu": [
-            "@sdk_vendor__libc-0.2.190//:libc",  # aarch64-unknown-linux-gnu
+            "@sdk_vendor__libc-0.2.191//:libc",  # aarch64-unknown-linux-gnu
             "@sdk_vendor__signal-hook-registry-1.4.8//:signal_hook_registry",  # aarch64-unknown-linux-gnu
         ],
         "@rules_rust//rust/platform:x86_64-apple-darwin": [
-            "@sdk_vendor__libc-0.2.190//:libc",  # x86_64-apple-darwin
+            "@sdk_vendor__libc-0.2.191//:libc",  # x86_64-apple-darwin
             "@sdk_vendor__signal-hook-registry-1.4.8//:signal_hook_registry",  # x86_64-apple-darwin
         ],
         "@rules_rust//rust/platform:x86_64-pc-windows-msvc": [
             "@sdk_vendor__windows-sys-0.61.2//:windows_sys",  # x86_64-pc-windows-msvc
         ],
         "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [
-            "@sdk_vendor__libc-0.2.190//:libc",  # x86_64-unknown-linux-gnu
+            "@sdk_vendor__libc-0.2.191//:libc",  # x86_64-unknown-linux-gnu
             "@sdk_vendor__signal-hook-registry-1.4.8//:signal_hook_registry",  # x86_64-unknown-linux-gnu
         ],
         "//conditions:default": [],

@@ -12,6 +12,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.util.Optional;
+import com.github.copilot.generated.AgentModelPolicy;
 
 /**
  * Configuration for a custom agent in a Copilot session.
@@ -86,6 +87,9 @@ public class CustomAgentConfig {
 
     @JsonProperty("model")
     private String model;
+
+    @JsonProperty("modelPolicy")
+    private AgentModelPolicy modelPolicy;
 
     @JsonProperty("reasoningEffort")
     private String reasoningEffort;
@@ -307,6 +311,27 @@ public class CustomAgentConfig {
      */
     public CustomAgentConfig setModel(String model) {
         this.model = model;
+        return this;
+    }
+
+    /**
+     * Gets whether the authored model is preferred or required.
+     *
+     * @return the model policy, or {@code null} for the default preferred policy
+     */
+    public AgentModelPolicy getModelPolicy() {
+        return modelPolicy;
+    }
+
+    /**
+     * Sets whether the authored model is preferred or required without fallback.
+     *
+     * @param modelPolicy
+     *            the model policy, or {@code null} to use the default
+     * @return this config for method chaining
+     */
+    public CustomAgentConfig setModelPolicy(AgentModelPolicy modelPolicy) {
+        this.modelPolicy = modelPolicy;
         return this;
     }
 

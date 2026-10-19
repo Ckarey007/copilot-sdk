@@ -310,6 +310,7 @@ func TestSession_SetToolsSendsPayloadAndInstallsHandlers(t *testing.T) {
 			IsTerminal:           true,
 			Defer:                ToolDeferNever,
 			Metadata:             map[string]any{"x-test": "metadata"},
+			Namespace:            &ToolNamespace{Name: "fruit", Description: "Fruit lookups"},
 			Handler:              handler,
 		},
 		{
@@ -354,6 +355,17 @@ func TestSession_SetToolsSendsPayloadAndInstallsHandlers(t *testing.T) {
 	}
 	if _, ok := first["metadata"].(map[string]any); !ok {
 		t.Fatalf("metadata = %#v, want object", first["metadata"])
+	}
+	namespace, ok := first["namespace"].(map[string]any)
+	if !ok || namespace["name"] != "fruit" || namespace["description"] != "Fruit lookups" {
+		t.Fatalf("namespace = %#v, want fruit namespace with description", first["namespace"])
+	}
+	second, ok := wireTools[1].(map[string]any)
+	if !ok {
+		t.Fatalf("second tool = %#v, want object", wireTools[1])
+	}
+	if _, ok := second["namespace"]; ok {
+		t.Fatalf("namespace = %#v, want omitted", second["namespace"])
 	}
 
 	server.respond(t, request.ID, map[string]any{})

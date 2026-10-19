@@ -23,6 +23,9 @@ public class ImageGenerationConfig {
     @JsonProperty("enabled")
     private Boolean enabled;
 
+    @JsonProperty("watermark")
+    private Boolean watermark;
+
     /**
      * Gets the image generation opt-in.
      *
@@ -41,6 +44,30 @@ public class ImageGenerationConfig {
      */
     public ImageGenerationConfig setEnabled(Boolean enabled) {
         this.enabled = enabled;
+        return this;
+    }
+
+    /**
+     * Gets the visible image label preference.
+     *
+     * @return true to request the label, false to opt out, or null to use the
+     *         user's imageGenerationWatermark preference (default false)
+     */
+    public Boolean getWatermark() {
+        return watermark;
+    }
+
+    /**
+     * Requests a visible "Made with AI" label on generated and edited images.
+     * Re-supply after cold resume. Does not enable image generation or enforce
+     * enterprise policy.
+     *
+     * @param watermark
+     *            the preference, or null to use the user's setting
+     * @return this config for method chaining
+     */
+    public ImageGenerationConfig setWatermark(Boolean watermark) {
+        this.watermark = watermark;
         return this;
     }
 }

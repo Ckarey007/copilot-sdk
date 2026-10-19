@@ -1305,7 +1305,6 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
                 config.EnableFileHooks,
                 config.EnableHostGitOperations,
                 config.EnableSessionStore,
-                config.EnableGitHubCacheStore,
                 config.EnableSkills,
                 config.SkillDirectories,
                 config.DisabledSkills,
@@ -1321,6 +1320,13 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
                 GitHubTokenProviderRegistrationId: registrationId,
                 RemoteSession: config.RemoteSession,
                 Cloud: config.Cloud,
+                TrustWorkingDirectory: config.TrustWorkingDirectory switch
+                {
+                    WorkingDirectoryTrust.Session => "session",
+                    WorkingDirectoryTrust.User => "user",
+                    null => null,
+                    _ => throw new ArgumentOutOfRangeException(nameof(config), config.TrustWorkingDirectory, "Unsupported working-directory trust scope.")
+                },
                 RefreshCustomInstructions: config.RefreshCustomInstructions,
                 InstructionDirectories: config.InstructionDirectories,
                 AgentDirectories: config.AgentDirectories,
@@ -1572,7 +1578,6 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
                 config.EnableFileHooks,
                 config.EnableHostGitOperations,
                 config.EnableSessionStore,
-                config.EnableGitHubCacheStore,
                 config.EnableSkills,
                 config.SuppressResumeEvent is true ? true : null,
                 config.Streaming is true ? true : null,
@@ -3276,7 +3281,6 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
         bool? EnableFileHooks,
         bool? EnableHostGitOperations,
         bool? EnableSessionStore,
-        [property: JsonPropertyName("enableGitHubCacheStore")] bool? EnableGitHubCacheStore,
         bool? EnableSkills,
         IList<string>? SkillDirectories,
         IList<string>? DisabledSkills,
@@ -3292,6 +3296,7 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
         [property: JsonPropertyName("gitHubTokenProviderRegistrationId")] string? GitHubTokenProviderRegistrationId = null,
         RemoteSessionMode? RemoteSession = null,
         CloudSessionOptions? Cloud = null,
+        string? TrustWorkingDirectory = null,
         bool? RefreshCustomInstructions = null,
         IList<string>? InstructionDirectories = null,
         IList<string>? AgentDirectories = null,
@@ -3332,7 +3337,8 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
         bool? SkipPermission = null,
         CopilotToolDefer? Defer = null,
         IDictionary<string, JsonNode?>? Metadata = null,
-        bool? IsTerminal = null)
+        bool? IsTerminal = null,
+        ProtocolExternalToolNamespace? Namespace = null)
     {
         public static ToolDefinition FromAIFunction(AIFunctionDeclaration function)
         {
@@ -3341,12 +3347,16 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
             var defer = function.AdditionalProperties.TryGetValue(CopilotTool.DeferKey, out var deferVal) && deferVal is CopilotToolDefer d ? d : (CopilotToolDefer?)null;
             var metadata = function.AdditionalProperties.TryGetValue(CopilotTool.MetadataKey, out var metaVal) && metaVal is IDictionary<string, JsonNode?> m ? m : null;
             var isTerminal = function.AdditionalProperties.TryGetValue(CopilotTool.IsTerminalKey, out var terminalVal) && terminalVal is true;
+            var toolNamespace = function.AdditionalProperties.TryGetValue(CopilotTool.NamespaceKey, out var namespaceVal) && namespaceVal is ToolNamespace ns
+                ? new ProtocolExternalToolNamespace { Name = ns.Name, Description = ns.Description }
+                : null;
             return new ToolDefinition(function.Name, function.Description, function.JsonSchema,
                 overrides ? true : null,
                 skipPerm ? true : null,
                 defer,
                 metadata,
-                isTerminal ? true : null);
+                isTerminal ? true : null,
+                toolNamespace);
         }
     }
 
@@ -3393,7 +3403,6 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
         bool? EnableFileHooks,
         bool? EnableHostGitOperations,
         bool? EnableSessionStore,
-        [property: JsonPropertyName("enableGitHubCacheStore")] bool? EnableGitHubCacheStore,
         bool? EnableSkills,
         [property: JsonPropertyName("disableResume")] bool? SuppressResumeEvent,
         bool? Streaming,

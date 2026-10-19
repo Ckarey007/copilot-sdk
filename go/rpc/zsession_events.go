@@ -646,7 +646,7 @@ type SessionCompactionStartData struct {
 	CurrentTokens *int64 `json:"currentTokens,omitempty"`
 	// Model identifier used for compaction, when known
 	Model *string `json:"model,omitempty"`
-	// Destination model for a model-switch compaction when it differs from the compacting model
+	// Destination model for a model-switch compaction when it differs from the compacting model; for a HydraFusion turn, the routed root model
 	SwitchTargetModel *string `json:"switchTargetModel,omitempty"`
 	// Token count from system message(s) at compaction start
 	SystemTokens *int64 `json:"systemTokens,omitempty"`
@@ -729,7 +729,7 @@ type SessionCompactionCompleteData struct {
 	Success bool `json:"success"`
 	// LLM-generated summary of the compacted conversation history
 	SummaryContent *string `json:"summaryContent,omitempty"`
-	// Destination model for a model-switch compaction when it differs from the compacting model
+	// Destination model for a model-switch compaction when it differs from the compacting model; for a HydraFusion turn, the routed root model
 	SwitchTargetModel *string `json:"switchTargetModel,omitempty"`
 	// Token count from system message(s) after compaction
 	SystemTokens *int64 `json:"systemTokens,omitempty"`
@@ -1474,11 +1474,11 @@ type ModelCallFailureData struct {
 	ByokKind *string `json:"byokKind,omitempty"`
 	// Duration of the failed API call in milliseconds
 	DurationMs *int64 `json:"durationMs,omitempty"`
-	// For HTTP 400 failures only: the `code` from the CAPI error envelope (e.g. 'model_max_prompt_tokens_exceeded') identifying which deterministic validation failure occurred. Raw server-controlled string, emitted only through restricted telemetry. Absent for bodyless or non-400 failures.
+	// The `code` from the CAPI error envelope of an HTTP failure of any status (e.g. 'model_max_prompt_tokens_exceeded' on a 400, 'model_overloaded' on a 5xx) identifying which upstream failure occurred. Raw server-controlled string, emitted only through restricted telemetry. Absent when the response carried no error envelope.
 	ErrorCode *string `json:"errorCode,omitempty"`
 	// Raw provider/runtime error message for restricted telemetry
 	ErrorMessage *string `json:"errorMessage,omitempty"`
-	// For HTTP 400 failures only: the `type` from the CAPI error envelope (e.g. 'websocket_error'), a coarser companion to errorCode for envelopes that carry no code. Raw server-controlled string, emitted only through restricted telemetry. Absent for bodyless or non-400 failures.
+	// The `type` from the CAPI error envelope of an HTTP failure of any status (e.g. 'websocket_error'), a coarser companion to errorCode for envelopes that carry no code. Raw server-controlled string, emitted only through restricted telemetry. Absent when the response carried no error envelope.
 	ErrorType *string `json:"errorType,omitempty"`
 	// Whether the failure originated from an API response or the request transport
 	FailureKind *ModelCallFailureKind `json:"failureKind,omitempty"`
@@ -1859,6 +1859,9 @@ type AssistantUsageData struct {
 	// Model multiplier cost for billing purposes
 	// Experimental: Cost is part of an experimental API and may change or be removed.
 	Cost *float64 `json:"cost,omitempty"`
+	// Free-form custom tool calls in the request history before request shaping, counted apart from named function calls
+	// Internal: CustomToolCallCount is part of the SDK's internal API surface and is not intended for external use.
+	CustomToolCallCount *int64 `json:"customToolCallCount,omitempty"`
 	// Duration of the API call in milliseconds
 	Duration *int64 `json:"duration,omitempty"`
 	// Finish reason reported by the model for this API call (e.g. "stop", "length", "tool_calls", "content_filter"). Normalized to OpenAI vocabulary; for Anthropic models a "refusal" stop reason maps to "content_filter".
@@ -1894,6 +1897,9 @@ type AssistantUsageData struct {
 	// Number of tool calls returned by the model
 	// Internal: NumToolCalls is part of the SDK's internal API surface and is not intended for external use.
 	NumToolCalls *int64 `json:"numToolCalls,omitempty"`
+	// Tool calls in the request history before request shaping that no later tool result answers
+	// Internal: OrphanToolCallCount is part of the SDK's internal API surface and is not intended for external use.
+	OrphanToolCallCount *int64 `json:"orphanToolCallCount,omitempty"`
 	// Number of output tokens produced
 	OutputTokens *int64 `json:"outputTokens,omitempty"`
 	// Time to first observable model output in milliseconds. Includes text, reasoning, and tool-call output; only available for streaming requests that produce observable output.
@@ -1951,6 +1957,9 @@ type AssistantUsageData struct {
 	ToolTokenCount *int64 `json:"toolTokenCount,omitempty"`
 	// Transport used for this model call (http or websocket)
 	Transport *AssistantUsageTransport `json:"transport,omitempty"`
+	// Tool results in the request history before request shaping that answer no earlier unanswered tool call
+	// Internal: UnmatchedToolResultCount is part of the SDK's internal API surface and is not intended for external use.
+	UnmatchedToolResultCount *int64 `json:"unmatchedToolResultCount,omitempty"`
 	// Milliseconds spent on the WebSocket attempt before falling back to HTTP
 	WebsocketFallbackAfterMs *int64 `json:"websocketFallbackAfterMs,omitempty"`
 	// WebSocket close code received before the HTTP fallback
@@ -4319,6 +4328,8 @@ type MCPServersLoadedServer struct {
 
 // Content-free structural summary of the failing request for diagnosing malformed 4xx calls
 type ModelCallFailureRequestFingerprint struct {
+	// Free-form custom tool calls in the request history before request shaping, counted apart from named function calls (rejected by strict providers)
+	CustomToolCallCount *int64 `json:"customToolCallCount,omitempty"`
 	// Summed byte length of opaque or encrypted reasoning payloads
 	EncryptedContentBytes *int64 `json:"encryptedContentBytes,omitempty"`
 	// Summed byte length of inline image payloads (data URLs and base64 sources)
@@ -4333,12 +4344,16 @@ type ModelCallFailureRequestFingerprint struct {
 	MessageCount int64 `json:"messageCount"`
 	// Tool calls whose name is missing or empty (rejected by strict providers)
 	NamelessToolCallCount int64 `json:"namelessToolCallCount"`
+	// Tool calls in the request history before request shaping that no later tool result message answers
+	OrphanToolCallCount *int64 `json:"orphanToolCallCount,omitempty"`
 	// Number of messages carrying opaque or encrypted reasoning
 	ReasoningItemCount *int64 `json:"reasoningItemCount,omitempty"`
 	// Total number of tool calls across assistant messages
 	ToolCallCount int64 `json:"toolCallCount"`
 	// Number of "tool" result messages in the request
 	ToolResultMessageCount int64 `json:"toolResultMessageCount"`
+	// Tool result messages in the request history before request shaping that answer no earlier unanswered tool call
+	UnmatchedToolResultCount *int64 `json:"unmatchedToolResultCount,omitempty"`
 }
 
 // Bounded runtime attribution, independent of free-text rationale. Telemetry revalidates this vocabulary before standard collection.
@@ -6266,7 +6281,7 @@ const (
 	CompactionTriggerManual CompactionTrigger = "manual"
 	// Emergency compaction triggered by high process memory usage.
 	CompactionTriggerMemoryPressure CompactionTrigger = "memory_pressure"
-	// Compaction requested while switching to a model with a smaller context window.
+	// Compaction requested while switching to a model with a smaller context window, including a HydraFusion turn's routed root model.
 	CompactionTriggerModelSwitch CompactionTrigger = "model_switch"
 	// Background compaction started automatically because context utilization crossed the background threshold.
 	CompactionTriggerThreshold CompactionTrigger = "threshold"

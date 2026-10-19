@@ -244,6 +244,7 @@ def _tool_to_wire_definition(tool: Tool) -> ProtocolExternalToolDefinition:
         defer=defer,
         metadata=tool.metadata,
         is_terminal=True if tool.is_terminal else None,
+        namespace=tool.namespace,
     )
 
 
@@ -1462,8 +1463,11 @@ class CustomAgentConfig(TypedDict, total=False):
     infer: NotRequired[bool]  # Whether agent is available for model inference
     # Skill names to preload into this agent's context at startup (opt-in; omit for none)
     skills: NotRequired[list[str]]
-    # Model identifier (e.g. "claude-haiku-4.5"); runtime falls back to parent model if unavailable
+    # Model identifier (e.g. "claude-haiku-4.5"); falls back to the parent if unavailable,
+    # unless model_policy is "required".
     model: NotRequired[str]
+    # Whether the authored model is preferred (default) or required without fallback.
+    model_policy: NotRequired[Literal["preferred", "required"]]
     # Reasoning effort for this agent's model. When omitted, the runtime resolves
     # model configuration, then inherits the parent effort only for the same model.
     reasoning_effort: NotRequired[ReasoningEffort]
@@ -1538,6 +1542,14 @@ class ImageGenerationConfig(TypedDict, total=False):
 
     enabled: bool
     """True opts in; False disables image generation."""
+
+    watermark: bool
+    """Request a visible "Made with AI" label on generated and edited images.
+
+    Overrides the user's imageGenerationWatermark preference, which defaults to
+    False. Re-supply after cold resume. Does not enable image generation or
+    enforce enterprise policy.
+    """
 
 
 class ToolSearchConfig(TypedDict, total=False):
@@ -1668,6 +1680,9 @@ class ProviderConfig(TypedDict, total=False):
     model_provider: ProviderConfigModelProvider
     base_url: str
     api_key: str
+    # Command run by the runtime before each provider request to obtain a fresh
+    # API key. Command failures fail the turn before sending a model request.
+    api_key_command: str
     # Bearer token for authentication. Sets the Authorization header directly.
     # Use this for services requiring bearer token auth instead of API key.
     # Takes precedence over api_key when both are set.
@@ -1696,9 +1711,9 @@ class ProviderConfig(TypedDict, total=False):
     # provider (for example via Azure Managed Identity). Never serialized — the
     # SDK sends hasBearerTokenProvider: true on the wire and answers the
     # runtime's providerToken.getToken requests with this callback's result.
-    # When set alongside api_key/bearer_token, this callback takes precedence: the
-    # runtime applies the token it returns as the Authorization: Bearer header for
-    # each request and does not send the static credential.
+    # When set alongside api_key, api_key_command, or bearer_token, this callback
+    # takes precedence: the runtime applies its token as the Authorization: Bearer header for
+    # each request without sending the static credential or running the command.
     bearer_token_provider: BearerTokenProvider
 
 

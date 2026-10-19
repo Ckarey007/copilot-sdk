@@ -409,7 +409,7 @@ async fn send_error(client: &Weak<ClientInner>, request_id: u64, code: i32, mess
             id: request_id,
             result: None,
             error: Some(JsonRpcError {
-                code,
+                code: code.into(),
                 message: message.to_string(),
                 data: None,
             }),

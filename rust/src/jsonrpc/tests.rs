@@ -62,6 +62,67 @@ fn deserialize_error_response() {
 }
 
 #[test]
+fn null_id_error_decodes_as_an_uncorrelated_error() {
+    let json = r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"recursion limit exceeded at line 1 column 513"}}"#;
+    match serde_json::from_str::<JsonRpcMessage>(json).unwrap() {
+        JsonRpcMessage::UncorrelatedError(error) => {
+            assert_eq!(error.code, -32700);
+            assert_eq!(
+                error.message,
+                "recursion limit exceeded at line 1 column 513"
+            );
+        }
+        other => panic!("expected UncorrelatedError, got {other:?}"),
+    }
+    // A numeric id is still a response, and a null id must carry an error.
+    let json = r#"{"jsonrpc":"2.0","id":3,"error":{"code":-32700,"message":"m"}}"#;
+    assert!(matches!(
+        serde_json::from_str::<JsonRpcMessage>(json).unwrap(),
+        JsonRpcMessage::Response(response) if response.id == 3
+    ));
+    let json = r#"{"jsonrpc":"2.0","id":null,"result":{}}"#;
+    assert!(serde_json::from_str::<JsonRpcMessage>(json).is_err());
+}
+
+#[test]
+fn an_error_code_wider_than_i32_is_kept() {
+    let json = r#"{"jsonrpc":"2.0","id":3,"error":{"code":4294967296,"message":"wide"}}"#;
+    let JsonRpcMessage::Response(response) = serde_json::from_str::<JsonRpcMessage>(json).unwrap()
+    else {
+        panic!("expected a response");
+    };
+    let error = response.error.unwrap();
+    assert_eq!(error.code, 4_294_967_296);
+    // The public code is an `i32`: a wider one saturates, and the message keeps it.
+    let error = Error::from_rpc(error.code, error.message, None);
+    assert_eq!(error.rpc_code(), Some(i32::MAX));
+    assert!(
+        error
+            .message()
+            .is_some_and(|message| message.contains("4294967296")),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_peer_message_is_repeated_without_its_quoted_values() {
+    let message = r#"invalid type: string "ghp_secret\"token", expected u64 at line 1 column 40"#;
+    assert_eq!(
+        sanitized_peer_message(message),
+        "invalid type: string \"…\", expected u64 at line 1 column 40"
+    );
+    assert_eq!(
+        sanitized_peer_message("unknown variant `ghp_secret`, expected one of `a`"),
+        "unknown variant `…`, expected one of `…`"
+    );
+    let long = "x".repeat(500);
+    assert_eq!(
+        sanitized_peer_message(&long).chars().count(),
+        PEER_MESSAGE_MAX_CHARS + 1
+    );
+}
+
+#[test]
 fn deserialize_rejects_non_object() {
     let result = serde_json::from_str::<JsonRpcMessage>(r#""not an object""#);
     assert!(result.is_err());
@@ -96,6 +157,9 @@ fn deserialize_preserves_optional_payloads() {
                 JsonRpcMessage::Request(request) => request.params,
                 JsonRpcMessage::Response(response) => response.result,
                 JsonRpcMessage::Notification(notification) => notification.params,
+                JsonRpcMessage::UncorrelatedError(error) => {
+                    panic!("no envelope here has a null id: {error:?}")
+                }
             };
             assert_eq!(actual, payload.clone().filter(|value| !value.is_null()));
         }
@@ -108,6 +172,7 @@ fn deserialize_rejects_invalid_metadata() {
         r#"{"jsonrpc":null,"method":"notify","params":{"nested":[1]}}"#,
         r#"{"jsonrpc":"2.0","method":42,"params":{"nested":[1]}}"#,
         r#"{"jsonrpc":"2.0","id":null,"result":{}}"#,
+        r#"{"jsonrpc":null,"id":null,"error":{"code":-32700,"message":"m"}}"#,
         r#"{"jsonrpc":"2.0","id":"1","result":{}}"#,
         r#"{"jsonrpc":"2.0","id":-1,"result":{}}"#,
         r#"{"jsonrpc":"2.0","id":1,"method":null,"params":{}}"#,
@@ -209,6 +274,102 @@ fn notification_without_params_omits_field() {
     };
     let json = serde_json::to_string(&n).unwrap();
     assert!(!json.contains("params"));
+}
+
+/// `Value::Null` inside `levels` nested arrays.
+fn nested(levels: usize) -> Value {
+    let mut value = Value::Null;
+    for _ in 0..levels {
+        value = Value::Array(vec![value]);
+    }
+    value
+}
+
+/// `PEER_MAX_NESTING` is what the CLI's parser, `serde_json::from_slice` with
+/// its default recursion limit, reads: a response that deep decodes, one level
+/// deeper does not, and the guard agrees on both, for a result and for an
+/// error's data. A serde_json change to the limit fails this test.
+#[test]
+fn peer_max_nesting_is_what_serde_json_reads() {
+    fn decodes(response: &JsonRpcResponse) -> bool {
+        serde_json::from_slice::<Value>(&serde_json::to_vec(response).unwrap()).is_ok()
+    }
+    let with_result = |levels| JsonRpcResponse {
+        jsonrpc: "2.0".into(),
+        id: 1,
+        result: Some(nested(levels)),
+        error: None,
+    };
+    let with_data = |levels| JsonRpcResponse {
+        jsonrpc: "2.0".into(),
+        id: 1,
+        result: None,
+        error: Some(JsonRpcError {
+            code: -1,
+            message: "m".into(),
+            data: Some(nested(levels)),
+        }),
+    };
+    // The response object is one level, and an error object another.
+    for (case, at_limit, too_deep) in [
+        (
+            "result",
+            with_result(PEER_MAX_NESTING - 1),
+            with_result(PEER_MAX_NESTING),
+        ),
+        (
+            "error data",
+            with_data(PEER_MAX_NESTING - 2),
+            with_data(PEER_MAX_NESTING - 1),
+        ),
+    ] {
+        assert!(
+            decodes(&at_limit),
+            "{case}: serde_json reads {PEER_MAX_NESTING} levels"
+        );
+        assert!(
+            !decodes(&too_deep),
+            "{case}: serde_json refuses one level more"
+        );
+        assert!(
+            !at_limit.nests_too_deep_for_peer(),
+            "{case}: the guard passes the readable response"
+        );
+        assert!(
+            too_deep.nests_too_deep_for_peer(),
+            "{case}: the guard stops the unreadable one"
+        );
+    }
+}
+
+/// A request is held to the same limit as a response: params that make the
+/// frame `PEER_MAX_NESTING` deep decode and pass the guard, and one level
+/// deeper does neither, so the SDK fails that request instead of sending a
+/// frame the CLI cannot identify.
+#[test]
+fn a_request_passes_the_guard_exactly_when_serde_json_reads_it() {
+    fn decodes(request: &JsonRpcRequest) -> bool {
+        serde_json::from_slice::<Value>(&serde_json::to_vec(request).unwrap()).is_ok()
+    }
+    // The request object is one level.
+    let at_limit = JsonRpcRequest::new(1, "m", Some(nested(PEER_MAX_NESTING - 1)));
+    let too_deep = JsonRpcRequest::new(1, "m", Some(nested(PEER_MAX_NESTING)));
+    assert!(
+        decodes(&at_limit),
+        "serde_json reads a request {PEER_MAX_NESTING} levels deep"
+    );
+    assert!(
+        !decodes(&too_deep),
+        "serde_json refuses a request one level deeper"
+    );
+    assert!(
+        !at_limit.nests_too_deep_for_peer(),
+        "the request guard passes the readable request"
+    );
+    assert!(
+        too_deep.nests_too_deep_for_peer(),
+        "the request guard stops the unreadable request"
+    );
 }
 
 #[test]

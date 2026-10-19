@@ -2275,6 +2275,11 @@ class CopilotClient:
         - Clears all sessions immediately without destroying them
         - Force closes the connection (closes the underlying transport)
         - Kills the CLI process (if spawned by this client)
+        - Waits for the spawned CLI process to exit
+
+        Raises:
+            OSError: If the spawned CLI process cannot be terminated.
+            subprocess.TimeoutExpired: If the spawned CLI process does not exit.
 
         Example:
             >>> # If normal stop hangs, force stop
@@ -2299,9 +2304,10 @@ class CopilotClient:
         with self._github_token_providers_lock:
             self._github_token_providers.clear()
 
+        process_error: OSError | subprocess.TimeoutExpired | None = None
+
         # Close the transport first to signal the server immediately.
         # For external servers (TCP), this closes the socket.
-        # For spawned processes (stdio), this kills the process.
         # The FFI adapter is disposed off-thread below.
         if self._ffi_host is None and (self._process is not None or self._cli_process is not None):
             try:
@@ -2313,12 +2319,22 @@ class CopilotClient:
                 else:
                     if self._process is not None and self._process is not self._cli_process:
                         self._process.terminate()
-                    if self._cli_process is not None:
-                        self._cli_process.kill()
-                    self._process = None
-                    self._cli_process = None
+                        self._process = None
             except Exception:
-                logger.debug("Error while force-stopping Copilot CLI process", exc_info=True)
+                logger.debug("Error while force-closing Copilot runtime transport", exc_info=True)
+
+            if not self._is_external_server and self._cli_process is not None:
+                process = self._cli_process
+                try:
+                    process.kill()
+                    await asyncio.to_thread(process.wait, timeout=_CLI_PROCESS_EXIT_TIMEOUT_SECONDS)
+                except (OSError, subprocess.TimeoutExpired) as error:
+                    process_error = error
+                else:
+                    if self._process is process:
+                        self._process = None
+                    if self._cli_process is process:
+                        self._cli_process = None
 
         # Force-dispose the in-process FFI host before tearing down JSON-RPC.
         if self._ffi_host is not None:
@@ -2348,6 +2364,9 @@ class CopilotClient:
         self._state = "disconnected"
         if not self._is_external_server:
             self._runtime_port = None
+
+        if process_error is not None:
+            raise process_error
 
     async def create_session(
         self,
@@ -2383,6 +2402,7 @@ class CopilotClient:
         session_limits: SessionLimitsConfig | None = None,
         skip_custom_instructions: bool | None = None,
         refresh_custom_instructions: bool | None = None,
+        trust_working_directory: Literal["session", "user"] | None = None,
         custom_agents_local_only: bool | None = None,
         coauthor_enabled: bool | None = None,
         manage_schedule_enabled: bool | None = None,
@@ -2405,7 +2425,6 @@ class CopilotClient:
         enable_file_hooks: bool | None = None,
         enable_host_git_operations: bool | None = None,
         enable_session_store: bool | None = None,
-        enable_github_cache_store: bool | None = None,
         enable_skills: bool | None = None,
         included_builtin_skills: list[str] | None = None,
         skill_directories: list[str] | None = None,
@@ -2534,6 +2553,9 @@ class CopilotClient:
                 session. Omitted or False retains the cache. Other sessions in this
                 runtime may observe updated instructions on later turns or discovery.
                 This does not watch files or enable disabled instruction loading.
+            trust_working_directory: Trust the canonical working directory for this session
+                ("session") or persistently for the user ("user"). Omitted leaves
+                existing folder trust unchanged.
             model_capabilities: Override individual model capabilities resolved by the runtime.
             streaming: Whether to enable streaming responses.
             include_sub_agent_streaming_events: Whether to include sub-agent streaming
@@ -2570,10 +2592,6 @@ class CopilotClient:
                 or callback hooks.
             enable_host_git_operations: Enables git operations on the host filesystem.
             enable_session_store: Enables the cross-session store.
-            enable_github_cache_store: Requests the read-only GitHub cache store
-                (``github-cache-store`` capability). The runtime registers the
-                ``github_sql`` tool only when its ``GITHUB_CACHE_STORE`` feature flag
-                is also on. Defaults to disabled.
             enable_skills: Enables skill loading.
             skill_directories: Explicit discovery-only skill roots. No general filesystem
                 grant. Available without enable_config_discovery, subject to skill/managed
@@ -2874,6 +2892,8 @@ class CopilotClient:
             payload["sessionLimits"] = _session_limits_to_wire(session_limits)
         if refresh_custom_instructions is not None:
             payload["refreshCustomInstructions"] = refresh_custom_instructions
+        if trust_working_directory is not None:
+            payload["trustWorkingDirectory"] = trust_working_directory
 
         # Add model capabilities override if provided
         if model_capabilities:
@@ -2930,8 +2950,6 @@ class CopilotClient:
             payload["enableHostGitOperations"] = enable_host_git_operations
         if enable_session_store is not None:
             payload["enableSessionStore"] = enable_session_store
-        if enable_github_cache_store is not None:
-            payload["enableGitHubCacheStore"] = enable_github_cache_store
         if enable_skills is not None:
             payload["enableSkills"] = enable_skills
         if skill_provider is not None:
@@ -3332,7 +3350,6 @@ class CopilotClient:
         enable_file_hooks: bool | None = None,
         enable_host_git_operations: bool | None = None,
         enable_session_store: bool | None = None,
-        enable_github_cache_store: bool | None = None,
         enable_skills: bool | None = None,
         included_builtin_skills: list[str] | None = None,
         skill_directories: list[str] | None = None,
@@ -3489,10 +3506,6 @@ class CopilotClient:
                 or callback hooks.
             enable_host_git_operations: Enables git operations on the host filesystem.
             enable_session_store: Enables the cross-session store.
-            enable_github_cache_store: Requests the read-only GitHub cache store
-                (``github-cache-store`` capability). The runtime registers the
-                ``github_sql`` tool only when its ``GITHUB_CACHE_STORE`` feature flag
-                is also on. Defaults to disabled.
             enable_skills: Enables skill loading.
             skill_directories: Explicit discovery-only skill roots. No general filesystem
                 grant. Available without enable_config_discovery, subject to skill/managed
@@ -3789,8 +3802,6 @@ class CopilotClient:
             payload["enableHostGitOperations"] = enable_host_git_operations
         if enable_session_store is not None:
             payload["enableSessionStore"] = enable_session_store
-        if enable_github_cache_store is not None:
-            payload["enableGitHubCacheStore"] = enable_github_cache_store
         if enable_skills is not None:
             payload["enableSkills"] = enable_skills
         if skill_provider is not None:
@@ -4543,6 +4554,8 @@ class CopilotClient:
             wire_provider["baseUrl"] = provider["base_url"]
         if "api_key" in provider:
             wire_provider["apiKey"] = provider["api_key"]
+        if "api_key_command" in provider:
+            wire_provider["apiKeyCommand"] = provider["api_key_command"]
         if "wire_api" in provider:
             wire_provider["wireApi"] = provider["wire_api"]
         if "transport" in provider:
@@ -4658,6 +4671,8 @@ class CopilotClient:
             wire_agent["skills"] = agent["skills"]
         if "model" in agent:
             wire_agent["model"] = agent["model"]
+        if "model_policy" in agent:
+            wire_agent["modelPolicy"] = agent["model_policy"]
         if "reasoning_effort" in agent:
             wire_agent["reasoningEffort"] = agent["reasoning_effort"]
         return wire_agent

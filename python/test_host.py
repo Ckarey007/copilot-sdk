@@ -108,7 +108,8 @@ async def test_local_compute_identity_is_forwarded_without_sdk_defaults(compute_
 
 async def test_handle_uses_original_transport_and_forwards_every_disposal():
     client, rpc = client_fixture()
-    exited = Mock()
+    exit_received = asyncio.Event()
+    exited = Mock(side_effect=lambda _: exit_received.set())
     host = await client.start_ahp_host(
         AhpHostOptions(
             local_server=HostLocalServerOptions(port=0, require_connection_token=False),
@@ -140,7 +141,7 @@ async def test_handle_uses_original_transport_and_forwards_every_disposal():
             "host.exited", {"hostId": host.host_id, "reason": "disposed"}
         )
     client._ahp_hosts.disconnect()
-    await asyncio.sleep(0)
+    await asyncio.wait_for(exit_received.wait(), timeout=1)
     exited.assert_called_once()
     assert exited.call_args.args[0].reason.value == "disposed"
 
@@ -172,7 +173,8 @@ async def test_unpublication_forwards_results_and_errors_over_original_transport
 @pytest.mark.parametrize("resume", [False, True])
 async def test_factories_preserve_configuration_and_release_exact_original_once(resume):
     client, _ = client_fixture()
-    released = Mock()
+    release_received = asyncio.Event()
+    released = Mock(side_effect=lambda _: release_received.set())
     originals = []
     cancellations = []
 
@@ -225,7 +227,7 @@ async def test_factories_preserve_configuration_and_release_exact_original_once(
     release(client, host)
     release(client, host)
     client._ahp_hosts.disconnect()
-    await asyncio.sleep(0)
+    await asyncio.wait_for(release_received.wait(), timeout=1)
     assert cancellations[0].is_set()
     released.assert_called_once_with(originals[0])
     assert client._get_session("session") is originals[0]
@@ -249,7 +251,8 @@ async def test_resume_can_return_a_retained_original_without_reconfiguration():
 async def test_invalid_factory_result_is_rejected_and_released_without_destruction(wrong):
     client, rpc = client_fixture()
     other, _ = client_fixture()
-    released = Mock()
+    release_received = asyncio.Event()
+    released = Mock(side_effect=lambda _: release_received.set())
     originals = []
 
     async def create(request):
@@ -271,7 +274,7 @@ async def test_invalid_factory_result_is_rejected_and_released_without_destructi
     )
     with pytest.raises(ValueError, match="AHP callback must"):
         await client._ahp_hosts.materialize(handoff(host))
-    await asyncio.sleep(0)
+    await asyncio.wait_for(release_received.wait(), timeout=1)
     released.assert_called_once_with(originals[0])
     assert not any(
         call.args[0] in ("session.destroy", "session.detach") for call in rpc.request.call_args_list
@@ -467,7 +470,10 @@ async def test_factory_error_propagates_and_release_callback_errors_are_logged(c
     with pytest.raises(ValueError, match="factory failed"):
         await client._ahp_hosts.materialize(handoff(host))
 
+    release_called = asyncio.Event()
+
     def fail_release(_):
+        release_called.set()
         raise ValueError("release failed")
 
     async def create(request):
@@ -482,5 +488,5 @@ async def test_factory_error_propagates_and_release_callback_errors_are_logged(c
     )
     await client._ahp_hosts.materialize(handoff(host))
     release(client, host)
-    await asyncio.sleep(0)
+    await asyncio.wait_for(release_called.wait(), timeout=1)
     assert "AHP session release callback failed" in caplog.text

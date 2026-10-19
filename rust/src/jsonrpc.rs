@@ -42,8 +42,13 @@ fn remote_error_log_message<'a>(method: &str, message: &'a str) -> &'a str {
 
 /// Internal pairing of the response delivery channel with an optional
 /// inline callback that the read loop runs synchronously before delivery.
+///
+/// The channel carries the response, or the error that ends the request
+/// without one (see [`JsonRpcMessage::UncorrelatedError`]). An uncorrelated
+/// rejection takes the channel but leaves a request with an inline callback
+/// registered, so a later successful response still runs the callback.
 struct PendingRequest {
-    sender: oneshot::Sender<JsonRpcResponse>,
+    sender: Option<oneshot::Sender<Result<JsonRpcResponse, Error>>>,
     inline_callback: Option<InlineResponseCallback>,
 }
 
@@ -81,8 +86,8 @@ pub struct JsonRpcResponse {
 /// A JSON-RPC 2.0 error object.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonRpcError {
-    /// Numeric error code.
-    pub code: i32,
+    /// Numeric error code. The CLI's codes are 64-bit, so the wire type is too.
+    pub code: i64,
     /// Human-readable error description.
     pub message: String,
     /// Optional structured error data.
@@ -116,7 +121,8 @@ pub struct JsonRpcNotification {
     pub params: Option<Value>,
 }
 
-/// A parsed JSON-RPC 2.0 message — request, response, or notification.
+/// A parsed JSON-RPC 2.0 message — request, response, notification, or an
+/// error the peer could not correlate with a request.
 #[derive(Debug, Clone, Serialize)]
 pub enum JsonRpcMessage {
     /// An incoming or outgoing request.
@@ -125,6 +131,10 @@ pub enum JsonRpcMessage {
     Response(JsonRpcResponse),
     /// A fire-and-forget notification.
     Notification(JsonRpcNotification),
+    /// An error response whose `id` is `null`: the CLI rejected a frame it
+    /// could not identify (for example, one its parser could not read), so the
+    /// error names no request.
+    UncorrelatedError(JsonRpcError),
 }
 
 /// Custom deserializer that dispatches based on field presence instead of
@@ -133,6 +143,7 @@ pub enum JsonRpcMessage {
 ///
 /// Dispatch logic:
 /// - has `id` + has `method` → Request
+/// - `id` is `null`, no `method` → UncorrelatedError (it must carry an `error`)
 /// - has `id` + no `method` → Response
 /// - no `id`                → Notification
 impl<'de> Deserialize<'de> for JsonRpcMessage {
@@ -164,6 +175,18 @@ impl<'de> Deserialize<'de> for JsonRpcMessage {
                     JsonRpcMessage::Request(request)
                 })
                 .map_err(serde::de::Error::custom)
+        } else if obj.get("id").is_some_and(Value::is_null) {
+            if !obj.get("jsonrpc").is_some_and(Value::is_string) {
+                return Err(serde::de::Error::custom(
+                    "a response with a null id must name its jsonrpc version",
+                ));
+            }
+            let error = obj.remove("error").ok_or_else(|| {
+                serde::de::Error::custom("a response with a null id must carry an error")
+            })?;
+            JsonRpcError::deserialize(error)
+                .map(JsonRpcMessage::UncorrelatedError)
+                .map_err(serde::de::Error::custom)
         } else if has_id {
             JsonRpcResponse::deserialize(value)
                 .map(|mut response| {
@@ -192,6 +215,16 @@ impl JsonRpcRequest {
             params,
         }
     }
+
+    /// Whether this request nests arrays and objects deeper than the CLI
+    /// reads: a frame deeper than [`PEER_MAX_NESTING`], counting the request
+    /// object itself. The CLI could not identify such a frame, so it would
+    /// answer with an error whose `id` is `null`.
+    pub(crate) fn nests_too_deep_for_peer(&self) -> bool {
+        self.params
+            .as_ref()
+            .is_some_and(|params| nests_deeper_than(params, PEER_MAX_NESTING - 1))
+    }
 }
 
 impl JsonRpcResponse {
@@ -200,9 +233,109 @@ impl JsonRpcResponse {
     pub fn is_error(&self) -> bool {
         self.error.is_some()
     }
+
+    /// Whether this response nests arrays and objects deeper than the CLI
+    /// reads: a frame deeper than [`PEER_MAX_NESTING`], counting the response
+    /// object itself, which the CLI would refuse with an error whose `id` is
+    /// `null`, leaving its own request unanswered.
+    pub(crate) fn nests_too_deep_for_peer(&self) -> bool {
+        self.result
+            .as_ref()
+            .is_some_and(|result| nests_deeper_than(result, PEER_MAX_NESTING - 1))
+            || self
+                .error
+                .as_ref()
+                .and_then(|error| error.data.as_ref())
+                .is_some_and(|data| nests_deeper_than(data, PEER_MAX_NESTING - 2))
+    }
+
+    /// The error response this client sends for the same request instead of a
+    /// response [`nests_too_deep_for_peer`](Self::nests_too_deep_for_peer), so
+    /// the CLI's request completes and the connection stays open.
+    pub(crate) fn nesting_error(&self) -> Self {
+        warn!(
+            request_id = self.id,
+            limit = PEER_MAX_NESTING,
+            "a response nests deeper than the CLI reads; answering its request with an error"
+        );
+        Self {
+            jsonrpc: self.jsonrpc.clone(),
+            id: self.id,
+            result: None,
+            error: Some(JsonRpcError {
+                code: error_codes::INTERNAL_ERROR.into(),
+                message: format!(
+                    "the response nests deeper than {PEER_MAX_NESTING} levels of arrays and objects, which the CLI cannot read"
+                ),
+                data: None,
+            }),
+        }
+    }
+}
+
+/// The deepest nesting of arrays and objects a frame can carry for the CLI to
+/// read it. The CLI parses every frame with `serde_json::from_slice`
+/// (`IncomingMessage::from_slice`), whose default recursion limit of 128 fails
+/// on entering the 128th nested array or object, so 127 levels read and 128
+/// do not. The tests pin this to serde_json's behaviour.
+pub(crate) const PEER_MAX_NESTING: usize = 127;
+
+/// Whether `value` nests arrays and objects more than `levels` deep (a scalar
+/// is 0 levels, an array or object one more than its deepest member). Stops at
+/// the first branch past the limit, and allocates nothing.
+pub(crate) fn nests_deeper_than(value: &Value, levels: usize) -> bool {
+    match value {
+        Value::Array(items) => {
+            levels == 0 || items.iter().any(|item| nests_deeper_than(item, levels - 1))
+        }
+        Value::Object(members) => {
+            levels == 0
+                || members
+                    .values()
+                    .any(|member| nests_deeper_than(member, levels - 1))
+        }
+        _ => false,
+    }
 }
 
 const CONTENT_LENGTH_HEADER: &str = "Content-Length: ";
+
+/// The most characters of a peer's error message the SDK repeats in a log or
+/// an error.
+const PEER_MESSAGE_MAX_CHARS: usize = 200;
+
+/// A peer's error message, safe to repeat: every span in double quotes or
+/// backticks, where a decoder may quote the value it refused, becomes `"…"` or
+/// `` `…` ``, and the result is cut to [`PEER_MESSAGE_MAX_CHARS`] characters,
+/// followed by an ellipsis.
+fn sanitized_peer_message(message: &str) -> String {
+    let mut out = String::new();
+    let mut quote = None;
+    let mut escaped = false;
+    for c in message.chars() {
+        if let Some(open) = quote {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == open {
+                quote = None;
+            }
+        } else if c == '"' || c == '`' {
+            quote = Some(c);
+            out.push(c);
+            out.push('…');
+            out.push(c);
+        } else {
+            out.push(c);
+        }
+    }
+    if let Some((cut, _)) = out.char_indices().nth(PEER_MESSAGE_MAX_CHARS) {
+        out.truncate(cut);
+        out.push('…');
+    }
+    out
+}
 
 /// Rewrites unpaired UTF-16 surrogate escapes to `\uFFFD`.
 ///
@@ -667,12 +800,25 @@ impl JsonRpcClient {
                                     }
                                 }
                             }
-                            if sender.send(response).is_err() {
-                                warn!(request_id = %id, "failed to send response for request");
+                            match sender {
+                                Some(sender) => {
+                                    if sender.send(Ok(response)).is_err() {
+                                        warn!(request_id = %id, "failed to send response for request");
+                                    }
+                                }
+                                // An uncorrelated rejection already failed the
+                                // caller; the callback above still applied an
+                                // accepted request.
+                                None => {
+                                    debug!(request_id = %id, "late response to a request already failed by an uncorrelated rejection");
+                                }
                             }
                         } else {
                             warn!(request_id = %id, "received response for unknown request id");
                         }
+                    }
+                    JsonRpcMessage::UncorrelatedError(error) => {
+                        Self::fail_pending_requests(&pending_requests, &error);
                     }
                     JsonRpcMessage::Notification(notification) => {
                         if notification.method == "$/cancelRequest" {
@@ -721,18 +867,21 @@ impl JsonRpcClient {
                                     Err(error) => (
                                         None,
                                         Some(JsonRpcError {
-                                            code: error_codes::INTERNAL_ERROR,
+                                            code: error_codes::INTERNAL_ERROR.into(),
                                             message: error.to_string(),
                                             data: None,
                                         }),
                                     ),
                                 };
-                                let response = JsonRpcResponse {
+                                let mut response = JsonRpcResponse {
                                     jsonrpc: "2.0".into(),
                                     id: request.id,
                                     result,
                                     error,
                                 };
+                                if response.nests_too_deep_for_peer() {
+                                    response = response.nesting_error();
+                                }
                                 if let Err(error) = Self::write_message(&write_tx, &response).await
                                 {
                                     warn!(%error, "failed to send connection request response");
@@ -768,6 +917,53 @@ impl JsonRpcClient {
                 "draining pending requests after read loop exit"
             );
             pending.clear();
+        }
+    }
+
+    /// Ends every pending request with the CLI's rejection of a frame it could
+    /// not identify, and keeps the connection.
+    ///
+    /// A `null`-id error names no request, and nothing else in it says which
+    /// pending request, if any, the CLI rejected: the rejected frame may also
+    /// have been a notification or a response. Leaving the pending requests in
+    /// place would keep the rejected one's caller waiting forever, because this
+    /// layer has no timeout. So every pending request fails with
+    /// [`ProtocolErrorKind::UncorrelatedRejection`], which carries the CLI's
+    /// code and its sanitized message. The cost is that a request the CLI is
+    /// still handling fails too. The connection stays open for the requests
+    /// that follow.
+    ///
+    /// A request with an inline callback stays registered without its caller:
+    /// the callback keeps this client's state in step with the CLI's
+    /// (`Session::set_tools` installs the handlers the CLI accepted), so a
+    /// later successful response still runs it. Any other request is removed,
+    /// and its later response is dropped as answering an unknown request id.
+    fn fail_pending_requests(
+        pending_requests: &RwLock<HashMap<u64, PendingRequest>>,
+        error: &JsonRpcError,
+    ) {
+        let message = sanitized_peer_message(&error.message);
+        let senders: Vec<oneshot::Sender<Result<JsonRpcResponse, Error>>> = {
+            let mut pending = pending_requests.write();
+            let senders = pending
+                .values_mut()
+                .filter_map(|request| request.sender.take())
+                .collect();
+            pending.retain(|_, request| request.inline_callback.is_some());
+            senders
+        };
+        warn!(
+            code = error.code,
+            peer_message = %message,
+            failed_requests = senders.len(),
+            "the CLI rejected a frame it could not identify; failing every pending request"
+        );
+        for sender in senders {
+            let rejection = ProtocolErrorKind::UncorrelatedRejection {
+                code: error.code,
+                message: message.clone(),
+            };
+            let _ = sender.send(Err(rejection.into()));
         }
     }
 
@@ -888,11 +1084,29 @@ impl JsonRpcClient {
         let request_start = Instant::now();
         let id = request.id;
         let method = request.method.as_str();
+        // A frame the CLI cannot read draws a null-id rejection, which fails
+        // every pending request on the connection, so fail only this one.
+        if request.nests_too_deep_for_peer() {
+            let error = ErrorKind::Protocol(ProtocolErrorKind::RequestTooDeep {
+                method: method.to_string(),
+                limit: PEER_MAX_NESTING,
+            })
+            .into();
+            warn!(
+                elapsed_ms = request_start.elapsed().as_millis(),
+                method = %method,
+                request_id = id,
+                status = "failed",
+                error = %error,
+                "JsonRpcClient::send_request JSON-RPC request finished"
+            );
+            return Err(error);
+        }
         let (tx, rx) = oneshot::channel();
         pending_requests.write().insert(
             id,
             PendingRequest {
-                sender: tx,
+                sender: Some(tx),
                 inline_callback,
             },
         );
@@ -923,7 +1137,18 @@ impl JsonRpcClient {
         }
 
         let response = match rx.await {
-            Ok(response) => response,
+            Ok(Ok(response)) => response,
+            Ok(Err(error)) => {
+                warn!(
+                    elapsed_ms = request_start.elapsed().as_millis(),
+                    method = %method,
+                    request_id = id,
+                    status = "failed",
+                    error = %error,
+                    "JsonRpcClient::send_request JSON-RPC request finished"
+                );
+                return Err(error);
+            }
             Err(_) => {
                 let error = ErrorKind::Protocol(ProtocolErrorKind::RequestCancelled).into();
                 warn!(
@@ -1060,7 +1285,15 @@ impl PendingGuard<'_> {
 impl Drop for PendingGuard<'_> {
     fn drop(&mut self) {
         if self.armed {
-            self.map.write().remove(&self.id);
+            let mut map = self.map.write();
+            // An entry an uncorrelated rejection kept for its inline callback
+            // (no caller left) stays until its response or the connection's end.
+            if map
+                .get(&self.id)
+                .is_some_and(|request| request.sender.is_some())
+            {
+                map.remove(&self.id);
+            }
         }
     }
 }

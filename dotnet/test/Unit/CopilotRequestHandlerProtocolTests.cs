@@ -8,6 +8,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
+using GitHub.Copilot.Test.Harness;
 using Xunit;
 
 namespace GitHub.Copilot.Test.Unit;
@@ -15,6 +16,33 @@ namespace GitHub.Copilot.Test.Unit;
 public sealed class CopilotRequestHandlerProtocolTests
 {
     private static readonly TimeSpan s_timeout = TimeSpan.FromSeconds(5);
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("first-invocation")]
+    [InlineData("second-invocation")]
+    public async Task RequestContext_PreservesInvocationIdentity(string? agentInvocationId)
+    {
+        var source = new ControlledResponseStream();
+        var handler = new StreamRequestHandler(source);
+        await using var peer = await ProtocolPeer.StartAsync(handler);
+
+        await source.CompleteAsync();
+        await peer.BeginRequestAsync(invocationId: agentInvocationId);
+        var context = await handler.ReceivedContext.Task.WaitAsync(s_timeout);
+        Assert.Equal("test", context.RequestId);
+        Assert.Equal("session", context.SessionId);
+        Assert.Equal("trajectory", context.AgentId);
+        Assert.Equal("parent", context.ParentAgentId);
+        Assert.Equal(agentInvocationId, context.AgentInvocationId);
+        Assert.Equal(agentInvocationId, new CopilotRequestContext(context).AgentInvocationId);
+
+        await peer.AcknowledgeAsync(await peer.NextMethodAsync());
+        var end = await peer.NextMethodAsync();
+        Assert.True(end.GetProperty("params").GetProperty("end").GetBoolean());
+        await peer.AcknowledgeAsync(end);
+        await source.Disposed.WaitAsync(s_timeout);
+    }
 
     [Theory]
     [InlineData("logical-invocation")]
@@ -266,8 +294,14 @@ public sealed class CopilotRequestHandlerProtocolTests
 
     private sealed class StreamRequestHandler(Stream source) : CopilotRequestHandler
     {
-        protected override Task<HttpResponseMessage> SendRequestAsync(HttpRequestMessage request, CopilotRequestContext ctx) =>
-            Task.FromResult(CreateResponse(source));
+        internal TaskCompletionSource<CopilotRequestContext> ReceivedContext { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override Task<HttpResponseMessage> SendRequestAsync(HttpRequestMessage request, CopilotRequestContext ctx)
+        {
+            ReceivedContext.TrySetResult(ctx);
+            return Task.FromResult(CreateResponse(source));
+        }
 
         private static HttpResponseMessage CreateResponse(Stream source) =>
             new(HttpStatusCode.OK)
@@ -316,6 +350,7 @@ public sealed class CopilotRequestHandlerProtocolTests
             });
         private readonly TaskCompletionSource _disposed = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _readStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly AsyncTestSignal _progress = new();
         private int _readCount;
         private int _bytesRead;
         private int _isDisposed;
@@ -353,23 +388,11 @@ public sealed class CopilotRequestHandlerProtocolTests
         internal ValueTask CompleteAsync() =>
             _items.Writer.WriteAsync(new ReadItem(Data: null, Error: null, End: true));
 
-        internal async Task WaitForReadsAsync(int expected)
-        {
-            using var cts = new CancellationTokenSource(s_timeout);
-            while (ReadCount < expected)
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(10), cts.Token);
-            }
-        }
+        internal Task WaitForReadsAsync(int expected) =>
+            _progress.WaitForAsync(() => ReadCount >= expected, s_timeout);
 
-        internal async Task WaitForBytesAsync(int expected)
-        {
-            using var cts = new CancellationTokenSource(s_timeout);
-            while (BytesRead < expected)
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(10), cts.Token);
-            }
-        }
+        internal Task WaitForBytesAsync(int expected) =>
+            _progress.WaitForAsync(() => BytesRead >= expected, s_timeout);
 
         public override int Read(byte[] buffer, int offset, int count) =>
             throw new NotSupportedException();
@@ -414,6 +437,7 @@ public sealed class CopilotRequestHandlerProtocolTests
             _readStarted.TrySetResult();
             var item = await _items.Reader.ReadAsync(cancellationToken);
             Interlocked.Increment(ref _readCount);
+            _progress.Pulse();
             if (item.Error is not null)
             {
                 throw item.Error;
@@ -443,6 +467,7 @@ public sealed class CopilotRequestHandlerProtocolTests
             }
 
             Interlocked.Add(ref _bytesRead, count);
+            _progress.Pulse();
             return count;
         }
 

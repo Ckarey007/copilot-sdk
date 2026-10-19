@@ -56,6 +56,9 @@ public class ProviderConfig {
     @JsonProperty("apiKey")
     private String apiKey;
 
+    @JsonProperty("apiKeyCommand")
+    private String apiKeyCommand;
+
     @JsonProperty("bearerToken")
     private String bearerToken;
 
@@ -221,6 +224,29 @@ public class ProviderConfig {
      */
     public ProviderConfig setApiKey(String apiKey) {
         this.apiKey = apiKey;
+        return this;
+    }
+
+    /**
+     * Gets the command used to obtain a fresh API key.
+     *
+     * @return the API key command, or {@code null} if not set
+     */
+    public String getApiKeyCommand() {
+        return apiKeyCommand;
+    }
+
+    /**
+     * Sets a command run by the runtime before each provider request to obtain a
+     * fresh API key. Command failures fail the turn before sending a model request.
+     * Bearer authentication takes precedence over this command.
+     *
+     * @param apiKeyCommand
+     *            the API key command
+     * @return this config for method chaining
+     */
+    public ProviderConfig setApiKeyCommand(String apiKeyCommand) {
+        this.apiKeyCommand = apiKeyCommand;
         return this;
     }
 

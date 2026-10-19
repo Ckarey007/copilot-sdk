@@ -102,10 +102,10 @@ public class SessionConfig {
     private String organizationCustomInstructions;
     private Boolean enableOnDemandInstructionDiscovery;
     private Boolean refreshCustomInstructions;
+    private WorkingDirectoryTrust trustWorkingDirectory;
     private Boolean enableFileHooks;
     private Boolean enableHostGitOperations;
     private Boolean enableSessionStore;
-    private Boolean enableGitHubCacheStore;
     private Boolean enableSkills;
     private SkillProvider skillProvider;
     private String embeddingCacheStorage;
@@ -1714,6 +1714,53 @@ public class SessionConfig {
     }
 
     /**
+     * Gets the working-directory trust scope.
+     *
+     * @return {@code "session"}, {@code "user"}, or {@code null} to leave trust
+     *         unchanged
+     */
+    public String getTrustWorkingDirectory() {
+        return trustWorkingDirectory != null ? trustWorkingDirectory.getValue() : null;
+    }
+
+    /**
+     * Trusts the working directory for this session or persistently for the user.
+     *
+     * @param trustWorkingDirectory
+     *            {@code "session"}, {@code "user"}, or {@code null} to leave trust
+     *            unchanged
+     * @return this config for method chaining
+     */
+    public SessionConfig setTrustWorkingDirectory(String trustWorkingDirectory) {
+        this.trustWorkingDirectory = trustWorkingDirectory != null
+                ? WorkingDirectoryTrust.fromValue(trustWorkingDirectory)
+                : null;
+        return this;
+    }
+
+    /**
+     * Gets the typed working-directory trust scope.
+     *
+     * @return the trust scope, or null if not specified
+     */
+    @JsonIgnore
+    public WorkingDirectoryTrust getWorkingDirectoryTrust() {
+        return trustWorkingDirectory;
+    }
+
+    /**
+     * Sets the typed working-directory trust scope.
+     *
+     * @param trustWorkingDirectory
+     *            the trust scope, or null to clear it
+     * @return this config for method chaining
+     */
+    public SessionConfig setWorkingDirectoryTrust(WorkingDirectoryTrust trustWorkingDirectory) {
+        this.trustWorkingDirectory = trustWorkingDirectory;
+        return this;
+    }
+
+    /**
      * Sets whether to invalidate process-wide instruction discovery caches before
      * constructing the new session. Defaults to {@code false}, reusing cached
      * discovery. Other sessions in this runtime may observe updated instructions on
@@ -1846,45 +1893,6 @@ public class SessionConfig {
      */
     public SessionConfig clearEnableSessionStore() {
         this.enableSessionStore = null;
-        return this;
-    }
-
-    /**
-     * Gets whether the read-only GitHub cache store is requested.
-     *
-     * @return an {@link java.util.Optional} containing {@code true} to request the
-     *         {@code github-cache-store} capability or {@code false} to decline it,
-     *         or {@link java.util.Optional#empty()} to use the default behavior
-     *         (disabled)
-     */
-    @JsonIgnore
-    public Optional<Boolean> getEnableGitHubCacheStore() {
-        return Optional.ofNullable(enableGitHubCacheStore);
-    }
-
-    /**
-     * Sets whether the read-only GitHub cache store is requested.
-     * <p>
-     * The runtime registers the {@code github_sql} tool only when its
-     * {@code GITHUB_CACHE_STORE} feature flag is also on.
-     *
-     * @param enableGitHubCacheStore
-     *            {@code true} to request the {@code github-cache-store} capability,
-     *            {@code false} to decline it
-     * @return this config instance for method chaining
-     */
-    public SessionConfig setEnableGitHubCacheStore(boolean enableGitHubCacheStore) {
-        this.enableGitHubCacheStore = enableGitHubCacheStore;
-        return this;
-    }
-
-    /**
-     * Clears the enableGitHubCacheStore setting, reverting to the default behavior.
-     *
-     * @return this instance for method chaining
-     */
-    public SessionConfig clearEnableGitHubCacheStore() {
-        this.enableGitHubCacheStore = null;
         return this;
     }
 
@@ -2606,10 +2614,10 @@ public class SessionConfig {
         copy.organizationCustomInstructions = this.organizationCustomInstructions;
         copy.enableOnDemandInstructionDiscovery = this.enableOnDemandInstructionDiscovery;
         copy.refreshCustomInstructions = this.refreshCustomInstructions;
+        copy.trustWorkingDirectory = this.trustWorkingDirectory;
         copy.enableFileHooks = this.enableFileHooks;
         copy.enableHostGitOperations = this.enableHostGitOperations;
         copy.enableSessionStore = this.enableSessionStore;
-        copy.enableGitHubCacheStore = this.enableGitHubCacheStore;
         copy.enableSkills = this.enableSkills;
         copy.skillProvider = this.skillProvider;
         copy.embeddingCacheStorage = this.embeddingCacheStorage;

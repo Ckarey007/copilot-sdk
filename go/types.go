@@ -1397,8 +1397,12 @@ type CustomAgentConfig struct {
 	Skills []string `json:"skills,omitempty"`
 	// Model is the model identifier for this agent (e.g. "claude-haiku-4.5").
 	// When set, the runtime will attempt to use this model for the agent,
-	// falling back to the parent session model if unavailable.
+	// falling back to the parent session model if unavailable unless ModelPolicy
+	// requires the authored model.
 	Model string `json:"model,omitempty"`
+	// ModelPolicy controls whether the authored model is preferred or required.
+	// When omitted, the model is preferred and may fall back to the parent.
+	ModelPolicy AgentModelPolicy `json:"modelPolicy,omitempty"`
 	// ReasoningEffort is the reasoning effort level for this agent's model.
 	// When empty, the runtime resolves model configuration, then inherits the
 	// parent effort only for the same model.
@@ -1457,6 +1461,11 @@ type LargeToolOutputConfig struct {
 type ImageGenerationConfig struct {
 	// Enabled opts in when true and disables image generation when false.
 	Enabled *bool `json:"enabled,omitempty"`
+	// Watermark requests a visible "Made with AI" label on generated and edited
+	// images. Overrides the user's imageGenerationWatermark preference (default
+	// false). Re-supply after cold resume. Does not enable image generation or
+	// enforce enterprise policy.
+	Watermark *bool `json:"watermark,omitempty"`
 }
 
 // ToolSearchConfig allows to configure tool search behavior.
@@ -1585,6 +1594,16 @@ const (
 // is no longer available. It can be wrapped; the SDK checks it with [errors.Is].
 var ErrSkillNotFound = errors.New("skill not found")
 
+// WorkingDirectoryTrust selects the scope of a working-directory trust grant.
+type WorkingDirectoryTrust string
+
+const (
+	// WorkingDirectoryTrustSession trusts the directory for this session only.
+	WorkingDirectoryTrustSession WorkingDirectoryTrust = "session"
+	// WorkingDirectoryTrustUser persists trust in the user's profile.
+	WorkingDirectoryTrustUser WorkingDirectoryTrust = "user"
+)
+
 // SkillProvider supplies session-scoped skills from the SDK host.
 //
 // Experimental: this API may change or be removed in future SDK or CLI
@@ -1632,6 +1651,9 @@ type SessionConfig struct {
 	// Explicitly supplied configuration takes precedence over discovered values.
 	// Nil leaves the runtime default unchanged; use Bool(false) to explicitly disable discovery.
 	EnableConfigDiscovery *bool
+	// TrustWorkingDirectory trusts the working directory for this session
+	// ("session") or persistently for the user ("user"). Empty leaves trust unchanged.
+	TrustWorkingDirectory WorkingDirectoryTrust
 	// SkipEmbeddingRetrieval, when non-nil, controls embedding-based retrieval
 	// for this session. Use in multitenant deployments to prevent cross-session
 	// information leakage through the shared embedding cache.
@@ -1660,11 +1682,6 @@ type SessionConfig struct {
 	// and retrieval. When false, session content is not written to or read from the
 	// shared session store.
 	EnableSessionStore *bool
-	// EnableGitHubCacheStore, when true, requests the read-only GitHub cache store
-	// (the github-cache-store capability). The runtime registers the github_sql
-	// tool only when its GITHUB_CACHE_STORE feature flag is also on. Defaults to
-	// disabled.
-	EnableGitHubCacheStore *bool
 	// EnableSkills, when non-nil, controls skill loading (including builtin skills
 	// and discovered skill directories). When false, no skills are loaded regardless
 	// of SkillDirectories or EnableConfigDiscovery settings.
@@ -2077,9 +2094,29 @@ type Tool struct {
 	// values are not interpreted and may be recognized to inform host-specific
 	// behavior. Unknown keys are preserved and round-tripped untouched.
 	Metadata map[string]any `json:"metadata,omitempty"`
+	// Namespace optionally groups this tool with related tools for model tool
+	// discovery. Where the model provider supports native tool namespaces,
+	// deferred tools sharing a namespace are presented to the model as one
+	// group; elsewhere the tool stays flat. Name remains the tool's unique
+	// invocation name either way.
+	//
+	// Experimental: this field may change or be removed.
+	Namespace *ToolNamespace `json:"namespace,omitempty"`
 	// Handler is optional. When nil, the SDK exposes the tool declaration but does
 	// not automatically invoke it.
 	Handler ToolHandler `json:"-"`
+}
+
+// ToolNamespace groups related tools for model tool discovery.
+//
+// Experimental: this type may change or be removed.
+type ToolNamespace struct {
+	// Name is the namespace name: 1-64 ASCII letters, digits, underscores, or
+	// hyphens.
+	Name string `json:"name"`
+	// Description is an optional model-visible explanation of the tools in
+	// this namespace.
+	Description string `json:"description,omitempty"`
 }
 
 // ToolInvocation describes a tool call initiated by Copilot
@@ -2411,11 +2448,6 @@ type ResumeSessionConfig struct {
 	// EnableSessionStore, when non-nil, controls the cross-session store for search
 	// and retrieval across sessions.
 	EnableSessionStore *bool
-	// EnableGitHubCacheStore, when true, requests the read-only GitHub cache store
-	// (the github-cache-store capability). The runtime registers the github_sql
-	// tool only when its GITHUB_CACHE_STORE feature flag is also on. Defaults to
-	// disabled.
-	EnableGitHubCacheStore *bool
 	// EnableSkills, when non-nil, controls skill loading.
 	EnableSkills *bool
 	// Streaming enables streaming of assistant message and reasoning chunks.
@@ -2661,6 +2693,9 @@ type ProviderConfig struct {
 	BaseURL string `json:"baseUrl"`
 	// APIKey is the API key. Optional for local providers like Ollama.
 	APIKey string `json:"apiKey,omitempty"`
+	// APIKeyCommand is run by the runtime before each provider request to obtain
+	// a fresh API key. Command failures fail the turn before sending a model request.
+	APIKeyCommand string `json:"apiKeyCommand,omitempty"`
 	// BearerToken for authentication. Sets the Authorization header directly.
 	// Use this for services requiring bearer token auth instead of API key.
 	// Takes precedence over APIKey when both are set.
@@ -2695,9 +2730,10 @@ type ProviderConfig struct {
 	// before each outbound model request and applies the returned token as the
 	// Authorization header. Never serialized.
 	//
-	// When set alongside APIKey/BearerToken, this callback takes precedence: the
+	// When set alongside APIKey, APIKeyCommand, or BearerToken, this callback
+	// takes precedence: the
 	// runtime applies the token it returns as the Authorization: Bearer header for
-	// each request and does not send the static credential.
+	// each request without sending the static credential or running the command.
 	//
 	// Experimental: part of the experimental managed-identity / bearer-token-provider
 	// surface and may change or be removed in future SDK or CLI releases.
@@ -3099,6 +3135,7 @@ type createSessionRequest struct {
 	Agent                              string                                 `json:"agent,omitempty"`
 	ConfigDir                          string                                 `json:"configDir,omitempty"`
 	EnableConfigDiscovery              *bool                                  `json:"enableConfigDiscovery,omitempty"`
+	TrustWorkingDirectory              string                                 `json:"trustWorkingDirectory,omitempty"`
 	SkipEmbeddingRetrieval             *bool                                  `json:"skipEmbeddingRetrieval,omitempty"`
 	EmbeddingCacheStorage              *string                                `json:"embeddingCacheStorage,omitempty"`
 	OrganizationCustomInstructions     *string                                `json:"organizationCustomInstructions,omitempty"`
@@ -3106,7 +3143,6 @@ type createSessionRequest struct {
 	EnableFileHooks                    *bool                                  `json:"enableFileHooks,omitempty"`
 	EnableHostGitOperations            *bool                                  `json:"enableHostGitOperations,omitempty"`
 	EnableSessionStore                 *bool                                  `json:"enableSessionStore,omitempty"`
-	EnableGitHubCacheStore             *bool                                  `json:"enableGitHubCacheStore,omitempty"`
 	EnableSkills                       *bool                                  `json:"enableSkills,omitempty"`
 	HasSkillProvider                   *bool                                  `json:"hasSkillProvider,omitempty"`
 	SkillDirectories                   []string                               `json:"skillDirectories,omitzero"`
@@ -3203,7 +3239,6 @@ type resumeSessionRequest struct {
 	EnableFileHooks                    *bool                                  `json:"enableFileHooks,omitempty"`
 	EnableHostGitOperations            *bool                                  `json:"enableHostGitOperations,omitempty"`
 	EnableSessionStore                 *bool                                  `json:"enableSessionStore,omitempty"`
-	EnableGitHubCacheStore             *bool                                  `json:"enableGitHubCacheStore,omitempty"`
 	EnableSkills                       *bool                                  `json:"enableSkills,omitempty"`
 	HasSkillProvider                   *bool                                  `json:"hasSkillProvider,omitempty"`
 	DisableResume                      *bool                                  `json:"disableResume,omitempty"`

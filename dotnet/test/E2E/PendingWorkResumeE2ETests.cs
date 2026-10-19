@@ -23,8 +23,11 @@ public class PendingWorkResumeE2ETests(E2ETestFixture fixture, ITestOutputHelper
     public async Task Should_Continue_Pending_Permission_Request_After_Resume()
         => await WithSdkDiagnosticsAsync(async () =>
     {
+        await Ctx.ConfigureForTestAsync("pending_work_resume", replayOnly: true);
         var originalPermissionRequest = new TaskCompletionSource<PermissionRequest>(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseOriginalPermission = new TaskCompletionSource<PermissionDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var originalToolInvocations = 0;
+        var resumedToolInvocations = 0;
 
         await using var server = Ctx.CreateClient(options: new CopilotClientOptions { Connection = RuntimeConnection.ForTcp(connectionToken: SharedToken) });
         await server.StartAsync();
@@ -66,17 +69,42 @@ public class PendingWorkResumeE2ETests(E2ETestFixture fixture, ITestOutputHelper
                 [
                     AIFunctionFactory.Create(
                         ([Description("Value to transform")] string value) =>
-                            $"PERMISSION_RESUMED_{value.ToUpperInvariant()}",
+                        {
+                            Interlocked.Increment(ref resumedToolInvocations);
+                            return $"PERMISSION_RESUMED_{value.ToUpperInvariant()}";
+                        },
                         "resume_permission_tool")
                 ],
             });
             var resumeEvent = await GetSingleResumeEventAsync(session2);
             Assert.False(resumeEvent.Data.SessionWasActive);
 
+            var finalReplyObserved = false;
+            var finalResponse = TestHelper.GetNextEventOfTypeAsync<AssistantMessageEvent>(
+                session2,
+                message =>
+                {
+                    if (message.Data.Content != "Result: PERMISSION_RESUMED_ALPHA")
+                    {
+                        return false;
+                    }
+                    finalReplyObserved = true;
+                    return true;
+                },
+                PendingWorkTimeout);
+            // Observe the reply synchronously; the async waiter can complete after idle.
+            var resumedTurnIdle = TestHelper.GetNextEventOfTypeAsync<SessionIdleEvent>(
+                session2,
+                _ => finalReplyObserved,
+                PendingWorkTimeout);
             var permissionResult = await session2.Rpc.Permissions.HandlePendingPermissionRequestAsync(
                 permissionEvent.Data.RequestId,
                 new RpcPermissionDecisionApproveOnce());
             Assert.True(permissionResult.Success);
+            Assert.Equal("Result: PERMISSION_RESUMED_ALPHA", (await finalResponse).Data.Content);
+            await resumedTurnIdle;
+            Assert.Equal(1, resumedToolInvocations);
+            Assert.Equal(0, originalToolInvocations);
 
             await session2.DisposeAsync();
             await resumedTcpClient.ForceStopAsync();
@@ -87,8 +115,11 @@ public class PendingWorkResumeE2ETests(E2ETestFixture fixture, ITestOutputHelper
         }
 
         [Description("Transforms a value after permission is granted")]
-        static string ResumePermissionTool([Description("Value to transform")] string value) =>
-            $"ORIGINAL_SHOULD_NOT_RUN_{value}";
+        string ResumePermissionTool([Description("Value to transform")] string value)
+        {
+            Interlocked.Increment(ref originalToolInvocations);
+            return $"ORIGINAL_SHOULD_NOT_RUN_{value}";
+        }
     });
 
     [Fact]

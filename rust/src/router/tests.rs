@@ -193,7 +193,7 @@ fn assert_error(response: JsonRpcResponse, id: u64, kind: Unroutable) {
         Unroutable::UnknownSession => (error_codes::INTERNAL_ERROR, "Session not found: gone"),
         Unroutable::ClosedReceiver => (error_codes::INTERNAL_ERROR, "Session not found: closed"),
     };
-    assert_eq!(error.code, code);
+    assert_eq!(error.code, i64::from(code));
     assert_eq!(error.message, message);
 }
 

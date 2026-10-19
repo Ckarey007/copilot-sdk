@@ -186,6 +186,42 @@ func TestProviderConfig_JSONOmitsUnsetTokenFields(t *testing.T) {
 	}
 }
 
+func TestProviderConfig_APIKeyCommandRoundTrips(t *testing.T) {
+	cfg := ProviderConfig{
+		BaseURL:       "https://models.example.test",
+		APIKeyCommand: "credential-helper --profile sdk",
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("failed to marshal provider config: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("failed to decode provider config: %v", err)
+	}
+	if decoded["apiKeyCommand"] != cfg.APIKeyCommand {
+		t.Errorf("expected command wire value %q, got %v", cfg.APIKeyCommand, decoded["apiKeyCommand"])
+	}
+	var roundTripped ProviderConfig
+	if err := json.Unmarshal(data, &roundTripped); err != nil {
+		t.Fatalf("failed to round-trip provider config: %v", err)
+	}
+	if roundTripped.APIKeyCommand != cfg.APIKeyCommand {
+		t.Errorf("expected command %q, got %q", cfg.APIKeyCommand, roundTripped.APIKeyCommand)
+	}
+	data, err = json.Marshal(ProviderConfig{BaseURL: cfg.BaseURL})
+	if err != nil {
+		t.Fatalf("failed to marshal default provider config: %v", err)
+	}
+	var omitted map[string]any
+	if err := json.Unmarshal(data, &omitted); err != nil {
+		t.Fatalf("failed to decode default provider config: %v", err)
+	}
+	if _, present := omitted["apiKeyCommand"]; present {
+		t.Errorf("expected unset apiKeyCommand to be omitted, got %s", data)
+	}
+}
+
 func TestNamedProviderConfig_JSONIncludesModelProvider(t *testing.T) {
 	cfg := NamedProviderConfig{
 		Name:          "local",

@@ -163,24 +163,54 @@ public sealed partial class ReplayProxy : IAsyncDisposable
 
     public async Task StopAsync(bool skipWritingCache = false)
     {
+        Exception? shutdownFailure = null;
+        string? url = null;
         if (_startupTask != null)
         {
             try
             {
-                var url = await _startupTask;
+                url = await _startupTask;
+            }
+            catch { /* Startup failure is reported by StartAsync; cleanup still owns the process. */ }
+        }
+
+        if (url != null)
+        {
+            try
+            {
                 var stopUrl = skipWritingCache ? $"{url}/stop?skipWritingCache=true" : $"{url}/stop";
                 using var client = new HttpClient();
-                await client.PostAsync(stopUrl, null);
+                using var response = await client.PostAsync(stopUrl, null);
+                if (!response.IsSuccessStatusCode)
+                {
+                    shutdownFailure = new HttpRequestException(
+                        $"Proxy shutdown failed: HTTP {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+                }
             }
-            catch { /* Best effort */ }
+            catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException)
+            {
+                shutdownFailure = ex;
+            }
         }
 
         try
         {
             if (_process is { HasExited: false })
             {
-                try { _process.Kill(entireProcessTree: true); await _process.WaitForExitAsync(); }
-                catch { /* Ignore */ }
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                try
+                {
+                    await _process.WaitForExitAsync(timeout.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    _process.Kill(entireProcessTree: true);
+                    await _process.WaitForExitAsync();
+                }
+            }
+            if (url != null && _process is { HasExited: true, ExitCode: not 0 })
+            {
+                shutdownFailure ??= new InvalidOperationException($"Proxy exited with code {_process.ExitCode}");
             }
         }
         catch (InvalidOperationException)
@@ -188,9 +218,16 @@ public sealed partial class ReplayProxy : IAsyncDisposable
             // Process.Start failed before this object was associated with a child.
         }
 
-        _process?.Dispose();
-        _process = null;
-        _startupTask = null;
+        finally
+        {
+            _process?.Dispose();
+            _process = null;
+            _startupTask = null;
+        }
+        if (shutdownFailure != null)
+        {
+            throw shutdownFailure;
+        }
     }
 
     public async Task ConfigureAsync(string filePath, string workDir, string backend, bool replayOnly = false)

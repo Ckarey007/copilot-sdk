@@ -590,7 +590,7 @@ impl E2eContext {
             "copilot_plan": "individual_pro",
             "endpoints": {
                 "api": self.proxy_url(),
-                "telemetry": "https://localhost:1/telemetry"
+                "telemetry": "https://sdk-hydro-collector.example.com"
             },
             "analytics_tracking_id": "rust-e2e-tracking-id"
         });
@@ -1047,7 +1047,7 @@ pub fn assert_uuid_like(session_id: &SessionId) {
     );
 }
 
-fn default_event_timeout() -> Duration {
+pub(super) fn default_event_timeout() -> Duration {
     if cfg!(windows) {
         Duration::from_secs(120)
     } else {

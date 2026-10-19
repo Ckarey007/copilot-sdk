@@ -202,7 +202,7 @@ impl InstallationConfirmationDispatcher {
                     (
                         None,
                         Some(JsonRpcError {
-                            code: error_codes::INTERNAL_ERROR,
+                            code: error_codes::INTERNAL_ERROR.into(),
                             message: "Installation confirmation serialisation failed".to_string(),
                             data: None,
                         }),
@@ -212,7 +212,7 @@ impl InstallationConfirmationDispatcher {
             Err((code, message)) => (
                 None,
                 Some(JsonRpcError {
-                    code,
+                    code: code.into(),
                     message: message.to_string(),
                     data: None,
                 }),

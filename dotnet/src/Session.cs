@@ -735,6 +735,7 @@ public sealed partial class CopilotSession : IAsyncDisposable
             },
             Metadata = definition.Metadata is { } metadata ? ToJsonElementDictionary(metadata) : null,
             IsTerminal = definition.IsTerminal,
+            Namespace = definition.Namespace,
         };
     }
 

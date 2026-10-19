@@ -1321,7 +1321,7 @@ impl CopilotRequestDispatcher {
                 id,
                 result: None,
                 error: Some(crate::JsonRpcError {
-                    code: error_codes::INTERNAL_ERROR,
+                    code: error_codes::INTERNAL_ERROR.into(),
                     message: message.to_string(),
                     data: None,
                 }),

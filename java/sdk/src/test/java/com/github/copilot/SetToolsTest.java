@@ -12,8 +12,9 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -26,6 +27,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.copilot.generated.ExternalToolRequestedEvent;
 import com.github.copilot.rpc.ToolDefinition;
 import com.github.copilot.rpc.ToolDefer;
+import com.github.copilot.rpc.ToolNamespace;
 
 @AllowCopilotExperimental
 class SetToolsTest {
@@ -43,12 +45,13 @@ class SetToolsTest {
     void sendsCompleteReplacementPayloadAndInstallsOnlyHandlersAfterAcceptance() throws Exception {
         var accepted = new CompletableFuture<Void>();
         List<ObjectNode> requests = captureSetToolsRequests(accepted);
-        var originalCalls = new CopyOnWriteArrayList<String>();
-        var replacementCalls = new CopyOnWriteArrayList<String>();
+        var originalCalls = new LinkedBlockingQueue<String>();
+        var replacementCalls = new LinkedBlockingQueue<String>();
         session.registerTools(List.of(tool("original_tool", "Original", "old", originalCalls)));
 
         ToolDefinition declarationOnly = new ToolDefinition("declaration_only", null, Map.of("type", "object"), null,
-                true, true, ToolDefer.NEVER, Map.of("owner", "test"), true);
+                true, true, ToolDefer.NEVER, Map.of("owner", "test"), true)
+                .namespace(new ToolNamespace("word", "Edit Word documents"));
         var pending = session
                 .setTools(List.of(tool("replacement_tool", null, "new", replacementCalls), declarationOnly));
 
@@ -66,6 +69,9 @@ class SetToolsTest {
         assertEquals("never", payload.at("/tools/1/defer").asText());
         assertTrue(payload.at("/tools/1/isTerminal").asBoolean());
         assertEquals("test", payload.at("/tools/1/metadata/owner").asText());
+        assertEquals("word", payload.at("/tools/1/namespace/name").asText());
+        assertEquals("Edit Word documents", payload.at("/tools/1/namespace/description").asText());
+        assertFalse(payload.at("/tools/0").has("namespace"));
 
         dispatchToolRequest("request-old", "original_tool");
         waitForCalls(originalCalls, List.of("original_tool"));
@@ -83,8 +89,8 @@ class SetToolsTest {
     void rejectionLeavesExistingHandlersUnchanged() throws Exception {
         var rejected = new CompletableFuture<Void>();
         captureSetToolsRequests(rejected);
-        var originalCalls = new CopyOnWriteArrayList<String>();
-        var replacementCalls = new CopyOnWriteArrayList<String>();
+        var originalCalls = new LinkedBlockingQueue<String>();
+        var replacementCalls = new LinkedBlockingQueue<String>();
         session.registerTools(List.of(tool("lookup", "Original", "old", originalCalls)));
 
         var pending = session.setTools(List.of(tool("lookup", "Replacement", "new", replacementCalls)));
@@ -101,7 +107,7 @@ class SetToolsTest {
     void emptyListRemovesHandlersAfterAcceptance() throws Exception {
         var accepted = new CompletableFuture<Void>();
         List<ObjectNode> requests = captureSetToolsRequests(accepted);
-        session.registerTools(List.of(tool("lookup", "Original", "old", new CopyOnWriteArrayList<>())));
+        session.registerTools(List.of(tool("lookup", "Original", "old", new LinkedBlockingQueue<>())));
 
         var pending = session.setTools(List.of());
         assertTrue(requests.get(0).path("tools").isArray());
@@ -122,8 +128,8 @@ class SetToolsTest {
             return rpcResults.get(nextResult.getAndIncrement());
         });
 
-        var first = session.setTools(List.of(tool("first", "First", "first", new CopyOnWriteArrayList<>())));
-        var second = session.setTools(List.of(tool("second", "Second", "second", new CopyOnWriteArrayList<>())));
+        var first = session.setTools(List.of(tool("first", "First", "first", new LinkedBlockingQueue<>())));
+        var second = session.setTools(List.of(tool("second", "Second", "second", new LinkedBlockingQueue<>())));
 
         assertEquals(1, requests.size(), "second replacement must wait for the first RPC to finish");
         assertEquals("first", requests.get(0).at("/tools/0/name").asText());
@@ -145,8 +151,7 @@ class SetToolsTest {
         var accepted = new CompletableFuture<Void>();
         captureSetToolsRequests(accepted);
 
-        var pending = session
-                .setTools(List.of(tool("replacement", "Replacement", "new", new CopyOnWriteArrayList<>())));
+        var pending = session.setTools(List.of(tool("replacement", "Replacement", "new", new LinkedBlockingQueue<>())));
         assertTrue(pending.cancel(true));
 
         accepted.complete(null);
@@ -160,8 +165,8 @@ class SetToolsTest {
         var firstResult = new CompletableFuture<Void>();
         var requests = captureSetToolsRequests(firstResult);
 
-        var first = session.setTools(List.of(tool("first", "First", "first", new CopyOnWriteArrayList<>())));
-        var queued = session.setTools(List.of(tool("queued", "Queued", "queued", new CopyOnWriteArrayList<>())));
+        var first = session.setTools(List.of(tool("first", "First", "first", new LinkedBlockingQueue<>())));
+        var queued = session.setTools(List.of(tool("queued", "Queued", "queued", new LinkedBlockingQueue<>())));
         assertTrue(queued.cancel(true));
 
         firstResult.complete(null);
@@ -180,8 +185,8 @@ class SetToolsTest {
         when(rpc.invoke(eq("session.detach"), any(), eq(CopilotSession.SessionDetachResponse.class)))
                 .thenReturn(CompletableFuture.completedFuture(new CopilotSession.SessionDetachResponse(true, null)));
 
-        var pending = session.setTools(List.of(tool("pending", "Pending", "first", new CopyOnWriteArrayList<>())));
-        var queued = session.setTools(List.of(tool("queued", "Queued", "second", new CopyOnWriteArrayList<>())));
+        var pending = session.setTools(List.of(tool("pending", "Pending", "first", new LinkedBlockingQueue<>())));
+        var queued = session.setTools(List.of(tool("queued", "Queued", "second", new LinkedBlockingQueue<>())));
         assertEquals(1, requests.size(), "Only the admitted replacement may reach the RPC boundary");
         assertFalse(pending.isDone());
         assertFalse(queued.isDone());
@@ -208,7 +213,7 @@ class SetToolsTest {
         return requests;
     }
 
-    private static ToolDefinition tool(String name, String description, String result, List<String> calls) {
+    private static ToolDefinition tool(String name, String description, String result, BlockingQueue<String> calls) {
         return ToolDefinition.create(name, description, Map.of("type", "object"), invocation -> {
             calls.add(name);
             return CompletableFuture.completedFuture(result);
@@ -229,14 +234,15 @@ class SetToolsTest {
         }
     }
 
-    private static void waitForCalls(List<String> calls, List<String> expected) throws Exception {
+    private static void waitForCalls(BlockingQueue<String> calls, List<String> expected) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
-        while (System.nanoTime() < deadline) {
-            if (calls.equals(expected)) {
-                return;
-            }
-            Thread.onSpinWait();
+        var observed = new ArrayList<String>();
+        for (int i = 0; i < expected.size(); i++) {
+            var call = calls.poll(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+            assertNotNull(call, "Timed out waiting for tool calls: " + observed);
+            observed.add(call);
         }
-        assertEquals(expected, calls);
+        calls.drainTo(observed);
+        assertEquals(expected, observed);
     }
 }

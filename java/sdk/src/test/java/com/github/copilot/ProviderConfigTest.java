@@ -45,6 +45,7 @@ public class ProviderConfigTest {
         assertNull(provider.getModelProvider());
         assertNull(provider.getBaseUrl());
         assertNull(provider.getApiKey());
+        assertNull(provider.getApiKeyCommand());
         assertNull(provider.getBearerToken());
         assertNull(provider.getAzure());
     }
@@ -135,6 +136,18 @@ public class ProviderConfigTest {
         assertNull(provider.getWireApi());
         assertNull(provider.getBearerToken());
         assertNull(provider.getAzure());
+    }
+
+    @Test
+    void testApiKeyCommandRoundTripsAndOmitsWhenAbsent() throws Exception {
+        var provider = new ProviderConfig().setBaseUrl("https://models.example.test");
+        assertEquals(provider, provider.setApiKeyCommand("credential-helper --profile sdk"));
+        JsonNode json = MAPPER.valueToTree(provider);
+        assertEquals("credential-helper --profile sdk", json.get("apiKeyCommand").asText());
+        var roundTrip = MAPPER.readValue(MAPPER.writeValueAsString(provider), ProviderConfig.class);
+        assertEquals(provider.getApiKeyCommand(), roundTrip.getApiKeyCommand());
+        provider.setApiKeyCommand(null);
+        assertTrue(MAPPER.valueToTree(provider).path("apiKeyCommand").isMissingNode());
     }
 
     // =========================================================================

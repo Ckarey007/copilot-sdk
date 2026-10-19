@@ -652,7 +652,7 @@ export type CompactionTrigger =
   | "manual"
   /** Emergency compaction triggered by high process memory usage. */
   | "memory_pressure"
-  /** Compaction requested while switching to a model with a smaller context window. */
+  /** Compaction requested while switching to a model with a smaller context window, including a HydraFusion turn's routed root model. */
   | "model_switch";
 /**
  * Category of structured task blocker
@@ -4256,7 +4256,7 @@ export interface CompactionStartData {
    */
   model?: string;
   /**
-   * Destination model for a model-switch compaction when it differs from the compacting model
+   * Destination model for a model-switch compaction when it differs from the compacting model; for a HydraFusion turn, the routed root model
    */
   switchTargetModel?: string;
   /**
@@ -4404,7 +4404,7 @@ export interface CompactionCompleteData {
    */
   summaryContent?: string;
   /**
-   * Destination model for a model-switch compaction when it differs from the compacting model
+   * Destination model for a model-switch compaction when it differs from the compacting model; for a HydraFusion turn, the routed root model
    */
   switchTargetModel?: string;
   /**
@@ -7098,6 +7098,12 @@ export interface AssistantUsageData {
    */
   cost?: number;
   /**
+   * Free-form custom tool calls in the request history before request shaping, counted apart from named function calls
+   *
+   * @internal
+   */
+  customToolCallCount?: number;
+  /**
    * Duration of the API call in milliseconds
    */
   duration?: number;
@@ -7167,6 +7173,12 @@ export interface AssistantUsageData {
    * @internal
    */
   numToolCalls?: number;
+  /**
+   * Tool calls in the request history before request shaping that no later tool result answers
+   *
+   * @internal
+   */
+  orphanToolCallCount?: number;
   /**
    * Number of output tokens produced
    */
@@ -7266,6 +7278,12 @@ export interface AssistantUsageData {
    */
   toolTokenCount?: number;
   transport?: AssistantUsageTransport;
+  /**
+   * Tool results in the request history before request shaping that answer no earlier unanswered tool call
+   *
+   * @internal
+   */
+  unmatchedToolResultCount?: number;
   /**
    * Milliseconds spent on the WebSocket attempt before falling back to HTTP
    */
@@ -7471,7 +7489,7 @@ export interface ModelCallFailureData {
    */
   durationMs?: number;
   /**
-   * For HTTP 400 failures only: the `code` from the CAPI error envelope (e.g. 'model_max_prompt_tokens_exceeded') identifying which deterministic validation failure occurred. Raw server-controlled string, emitted only through restricted telemetry. Absent for bodyless or non-400 failures.
+   * The `code` from the CAPI error envelope of an HTTP failure of any status (e.g. 'model_max_prompt_tokens_exceeded' on a 400, 'model_overloaded' on a 5xx) identifying which upstream failure occurred. Raw server-controlled string, emitted only through restricted telemetry. Absent when the response carried no error envelope.
    */
   errorCode?: string;
   /**
@@ -7479,7 +7497,7 @@ export interface ModelCallFailureData {
    */
   errorMessage?: string;
   /**
-   * For HTTP 400 failures only: the `type` from the CAPI error envelope (e.g. 'websocket_error'), a coarser companion to errorCode for envelopes that carry no code. Raw server-controlled string, emitted only through restricted telemetry. Absent for bodyless or non-400 failures.
+   * The `type` from the CAPI error envelope of an HTTP failure of any status (e.g. 'websocket_error'), a coarser companion to errorCode for envelopes that carry no code. Raw server-controlled string, emitted only through restricted telemetry. Absent when the response carried no error envelope.
    */
   errorType?: string;
   failureKind?: ModelCallFailureKind;
@@ -7609,6 +7627,10 @@ export interface ModelCallFailureData {
  */
 export interface ModelCallFailureRequestFingerprint {
   /**
+   * Free-form custom tool calls in the request history before request shaping, counted apart from named function calls (rejected by strict providers)
+   */
+  customToolCallCount?: number;
+  /**
    * Summed byte length of opaque or encrypted reasoning payloads
    */
   encryptedContentBytes?: number;
@@ -7637,6 +7659,10 @@ export interface ModelCallFailureRequestFingerprint {
    */
   namelessToolCallCount: number;
   /**
+   * Tool calls in the request history before request shaping that no later tool result message answers
+   */
+  orphanToolCallCount?: number;
+  /**
    * Number of messages carrying opaque or encrypted reasoning
    */
   reasoningItemCount?: number;
@@ -7648,6 +7674,10 @@ export interface ModelCallFailureRequestFingerprint {
    * Number of "tool" result messages in the request
    */
   toolResultMessageCount: number;
+  /**
+   * Tool result messages in the request history before request shaping that answer no earlier unanswered tool call
+   */
+  unmatchedToolResultCount?: number;
 }
 /**
  * Session event "model.call_finished". Final lifecycle outcome for one logical model dispatch. A logical dispatch may include internal reconnect or fallback work, so event count is not provider HTTP-request count.

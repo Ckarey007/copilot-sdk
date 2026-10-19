@@ -219,7 +219,6 @@ public class ScenarioTestingJsExtensionBridgeE2ETests(E2ETestFixture fixture, IT
                 Mode = mode,
                 BaseDirectory = mode == CopilotClientMode.Empty ? Ctx.HomeDir : null,
                 Connection = RuntimeConnection.ForStdio(
-                    path: Ctx.GetLegacyCliPath(),
                     args: ["--yolo"]),
             },
             environment: environment);

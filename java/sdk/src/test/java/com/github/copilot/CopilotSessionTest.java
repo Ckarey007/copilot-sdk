@@ -641,11 +641,16 @@ public class CopilotSessionTest {
                     .createSession(new SessionConfig().setOnPermissionRequest(PermissionHandler.APPROVE_ALL)).get();
             session2.sendAndWait(new MessageOptions().setPrompt("Say goodbye")).get(60, TimeUnit.SECONDS);
 
-            // Small delay to ensure session files are written to disk
-            Thread.sleep(200);
-
             // List all sessions
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
             var sessions = client.listSessions().get(30, TimeUnit.SECONDS);
+            while (sessions == null || !sessions.stream().map(s -> s.getSessionId()).toList()
+                    .containsAll(java.util.List.of(session1.getSessionId(), session2.getSessionId()))) {
+                assertTrue(System.nanoTime() < deadline, "Sessions did not persist; last list: " + sessions);
+                TimeUnit.NANOSECONDS
+                        .sleep(Math.min(TimeUnit.MILLISECONDS.toNanos(50), Math.max(0, deadline - System.nanoTime())));
+                sessions = client.listSessions().get(Math.max(1, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+            }
 
             // Should have at least the sessions we created
             assertNotNull(sessions);

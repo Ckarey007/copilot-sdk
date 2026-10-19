@@ -3,8 +3,10 @@
 package e2e
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -89,6 +91,48 @@ func randomHex(t *testing.T) string {
 
 func rpcPtr[T any](value T) *T {
 	return &value
+}
+
+func waitForListedSessions(t *testing.T, client *copilot.Client, ids ...string) []copilot.SessionMetadata {
+	t.Helper()
+	return waitForPersistedValue(t, "persisted sessions to appear in list", func(ctx context.Context) ([]copilot.SessionMetadata, error) {
+		return client.ListSessions(ctx, nil)
+	}, func(sessions []copilot.SessionMetadata) bool {
+		for _, id := range ids {
+			found := false
+			for _, session := range sessions {
+				found = found || session.SessionID == id
+			}
+			if !found {
+				return false
+			}
+		}
+		return true
+	})
+}
+
+func waitForPersistedValue[T any](t *testing.T, description string, load func(context.Context) (T, error), ready func(T) bool) T {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		value, err := load(ctx)
+		if err != nil {
+			observed, _ := json.Marshal(value)
+			t.Fatalf("Failed waiting for %s: %v; last value: %s", description, err, observed)
+		}
+		if ready(value) {
+			return value
+		}
+		select {
+		case <-ctx.Done():
+			observed, _ := json.Marshal(value)
+			t.Fatalf("Timed out waiting for %s; last value: %s", description, observed)
+		case <-ticker.C:
+		}
+	}
 }
 
 func waitForRPCCondition(t *testing.T, timeout time.Duration, description string, condition func() (bool, error)) {

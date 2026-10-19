@@ -74,6 +74,7 @@ impl CapturedTraceEvent {
 #[derive(Clone, Default)]
 struct TraceCapture {
     events: Arc<std::sync::Mutex<Vec<CapturedTraceEvent>>>,
+    changed: Arc<Notify>,
 }
 
 impl TraceCapture {
@@ -100,7 +101,7 @@ impl TraceCapture {
                 if let Some(event) = self.permission_outcome(request_id) {
                     return event;
                 }
-                tokio::task::yield_now().await;
+                self.changed.notified().await;
             }
         })
         .await
@@ -177,6 +178,7 @@ impl Subscriber for CaptureSubscriber {
             .push(CapturedTraceEvent {
                 fields: visitor.fields,
             });
+        self.capture.changed.notify_one();
     }
 
     fn enter(&self, _span: &Id) {}
@@ -323,6 +325,11 @@ async fn write_framed(writer: &mut (impl AsyncWrite + Unpin), body: &[u8]) {
 }
 
 async fn read_framed(reader: &mut (impl tokio::io::AsyncRead + Unpin)) -> Value {
+    serde_json::from_slice(&read_framed_bytes(reader).await).unwrap()
+}
+
+/// One frame's body, undecoded.
+async fn read_framed_bytes(reader: &mut (impl tokio::io::AsyncRead + Unpin)) -> Vec<u8> {
     let mut header = String::new();
     loop {
         let mut byte = [0u8; 1];
@@ -344,7 +351,7 @@ async fn read_framed(reader: &mut (impl tokio::io::AsyncRead + Unpin)) -> Value 
     tokio::io::AsyncReadExt::read_exact(reader, &mut buf)
         .await
         .unwrap();
-    serde_json::from_slice(&buf).unwrap()
+    buf
 }
 
 fn make_client() -> (Client, tokio::io::DuplexStream, tokio::io::DuplexStream) {
@@ -1338,10 +1345,12 @@ async fn session_subscribe_yields_events_observe_only() {
     let last_type = Arc::new(parking_lot::Mutex::new(String::new()));
     let count_clone = count.clone();
     let last_type_clone = last_type.clone();
+    let (observed_tx, mut observed_rx) = tokio::sync::mpsc::unbounded_channel();
     let consumer = tokio::spawn(async move {
         while let Ok(event) = events.recv().await {
             count_clone.fetch_add(1, Ordering::Relaxed);
             *last_type_clone.lock() = event.event_type.clone();
+            let _ = observed_tx.send(());
         }
     });
 
@@ -1350,12 +1359,13 @@ async fn session_subscribe_yields_events_observe_only() {
         .send_event("another.event", serde_json::json!({"k": "v"}))
         .await;
 
-    for _ in 0..50 {
-        if count.load(Ordering::Relaxed) >= 2 {
-            break;
+    timeout(Duration::from_secs(1), async {
+        for _ in 0..2 {
+            observed_rx.recv().await.expect("event observed");
         }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    })
+    .await
+    .expect("two events observed");
     assert_eq!(count.load(Ordering::Relaxed), 2);
     assert_eq!(last_type.lock().as_str(), "another.event");
     consumer.abort();
@@ -1368,25 +1378,25 @@ async fn session_subscribe_drop_stops_delivery() {
     let mut events = session.subscribe();
     let count = Arc::new(AtomicUsize::new(0));
     let count_clone = count.clone();
+    let (observed_tx, mut observed_rx) = tokio::sync::mpsc::unbounded_channel();
     let consumer = tokio::spawn(async move {
         while let Ok(_event) = events.recv().await {
             count_clone.fetch_add(1, Ordering::Relaxed);
+            let _ = observed_tx.send(());
         }
     });
 
     server.send_event("first", serde_json::json!({})).await;
-    for _ in 0..50 {
-        if count.load(Ordering::Relaxed) >= 1 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    timeout(Duration::from_secs(1), observed_rx.recv())
+        .await
+        .expect("first event observed")
+        .expect("event consumer");
     assert_eq!(count.load(Ordering::Relaxed), 1);
 
     // Aborting the consumer drops its receiver; further events have no
     // effect on the (now-zero) subscriber count.
     consumer.abort();
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert!(consumer.await.unwrap_err().is_cancelled());
 
     server.send_event("second", serde_json::json!({})).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -3329,10 +3339,13 @@ async fn lifecycle_subscribe_yields_events_with_filter() {
 
     let w_count = wildcard_count.clone();
     let w_last = last_session.clone();
+    let (observed_tx, mut observed_rx) = tokio::sync::mpsc::unbounded_channel();
+    let w_observed = observed_tx.clone();
     let w_consumer = tokio::spawn(async move {
         while let Ok(event) = all_events.recv().await {
             w_count.fetch_add(1, Ordering::Relaxed);
             *w_last.lock() = Some(event.session_id.clone());
+            let _ = w_observed.send(());
         }
     });
     let f_count = foreground_count.clone();
@@ -3340,6 +3353,7 @@ async fn lifecycle_subscribe_yields_events_with_filter() {
         while let Ok(event) = foreground_events.recv().await {
             if event.event_type == Type::Foreground {
                 f_count.fetch_add(1, Ordering::Relaxed);
+                let _ = observed_tx.send(());
             }
         }
     });
@@ -3376,12 +3390,13 @@ async fn lifecycle_subscribe_yields_events_with_filter() {
     write_framed(&mut server_write, &body2).await;
     write_framed(&mut server_write, &body3).await;
 
-    for _ in 0..50 {
-        if wildcard_count.load(Ordering::Relaxed) >= 2 {
-            break;
+    timeout(Duration::from_secs(1), async {
+        for _ in 0..3 {
+            observed_rx.recv().await.expect("lifecycle event observed");
         }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    })
+    .await
+    .expect("wildcard and foreground events observed");
     assert_eq!(wildcard_count.load(Ordering::Relaxed), 2);
     assert_eq!(foreground_count.load(Ordering::Relaxed), 1);
     assert_eq!(last_session.lock().as_deref(), Some("s2"));
@@ -3403,9 +3418,11 @@ async fn lifecycle_subscribe_drop_stops_delivery() {
     let mut events = client.subscribe_lifecycle();
     let count = Arc::new(AtomicUsize::new(0));
     let count_clone = count.clone();
+    let (observed_tx, mut observed_rx) = tokio::sync::mpsc::unbounded_channel();
     let consumer = tokio::spawn(async move {
         while let Ok(_event) = events.recv().await {
             count_clone.fetch_add(1, Ordering::Relaxed);
+            let _ = observed_tx.send(());
         }
     });
 
@@ -3417,16 +3434,14 @@ async fn lifecycle_subscribe_drop_stops_delivery() {
     .unwrap();
 
     write_framed(&mut server_write, &lifecycle_body).await;
-    for _ in 0..50 {
-        if count.load(Ordering::Relaxed) >= 1 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    timeout(Duration::from_secs(1), observed_rx.recv())
+        .await
+        .expect("first lifecycle event observed")
+        .expect("lifecycle consumer");
     assert_eq!(count.load(Ordering::Relaxed), 1);
 
     consumer.abort();
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert!(consumer.await.unwrap_err().is_cancelled());
 
     write_framed(&mut server_write, &lifecycle_body).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -5291,9 +5306,6 @@ async fn send_and_wait_drop_clears_waiter() {
     handle.abort();
     let _ = handle.await;
 
-    // Give the runtime a moment to run the drop.
-    tokio::task::yield_now().await;
-
     // Next `send` must succeed — no SendWhileWaiting.
     let send_handle = tokio::spawn({
         let session = session.clone();
@@ -5323,7 +5335,10 @@ async fn send_and_wait_drop_clears_waiter() {
 /// Closes RFD-400 review finding #3.
 #[tokio::test]
 async fn stop_event_loop_completes_in_flight_handler() {
-    struct SlowHandler;
+    struct SlowHandler {
+        entered: Arc<Notify>,
+        release: Arc<Notify>,
+    }
     #[async_trait]
     impl UserInputHandler for SlowHandler {
         async fn handle(
@@ -5333,6 +5348,8 @@ async fn stop_event_loop_completes_in_flight_handler() {
             _choices: Option<Vec<String>>,
             _allow_freeform: Option<bool>,
         ) -> Option<UserInputResponse> {
+            self.entered.notify_one();
+            self.release.notified().await;
             tokio::time::sleep(Duration::from_millis(150)).await;
             Some(UserInputResponse {
                 answer: "completed".to_string(),
@@ -5341,9 +5358,14 @@ async fn stop_event_loop_completes_in_flight_handler() {
         }
     }
 
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let handler = Arc::new(SlowHandler {
+        entered: entered.clone(),
+        release: release.clone(),
+    });
     let (session, mut server) =
-        create_session_pair_with_config(|cfg| cfg.with_user_input_handler(Arc::new(SlowHandler)))
-            .await;
+        create_session_pair_with_config(|cfg| cfg.with_user_input_handler(handler)).await;
     let session = Arc::new(session);
 
     server
@@ -5359,14 +5381,20 @@ async fn stop_event_loop_completes_in_flight_handler() {
         )
         .await;
 
-    // Give the loop a moment to dispatch into the handler.
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    timeout(TIMEOUT, entered.notified())
+        .await
+        .expect("slow handler entered");
 
-    // Now request shutdown while the spawned handler is still sleeping.
+    // Keep the handler in flight until the event loop has stopped.
     let stop_handle = tokio::spawn({
         let session = session.clone();
         async move { session.stop_event_loop().await }
     });
+    timeout(Duration::from_secs(2), stop_handle)
+        .await
+        .unwrap()
+        .unwrap();
+    release.notify_one();
 
     // The handler task is independent of the loop, so its response still
     // lands on the wire instead of being lost to an aborted task.
@@ -5375,11 +5403,6 @@ async fn stop_event_loop_completes_in_flight_handler() {
         .unwrap();
     assert_eq!(response["id"], 900);
     assert_eq!(response["result"]["answer"], "completed");
-
-    timeout(Duration::from_secs(2), stop_handle)
-        .await
-        .unwrap()
-        .unwrap();
 }
 
 /// A panicking request handler must still answer its request id. Tokio
@@ -5454,6 +5477,8 @@ async fn drop_session_does_not_abort_handler() {
 
     struct CompletionHandler {
         completed: Arc<AtomicBool>,
+        entered: Arc<Notify>,
+        release: Arc<Notify>,
     }
     #[async_trait]
     impl UserInputHandler for CompletionHandler {
@@ -5464,6 +5489,8 @@ async fn drop_session_does_not_abort_handler() {
             _choices: Option<Vec<String>>,
             _allow_freeform: Option<bool>,
         ) -> Option<UserInputResponse> {
+            self.entered.notify_one();
+            self.release.notified().await;
             tokio::time::sleep(Duration::from_millis(100)).await;
             self.completed.store(true, Ordering::SeqCst);
             Some(UserInputResponse {
@@ -5473,8 +5500,12 @@ async fn drop_session_does_not_abort_handler() {
         }
     }
 
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
     let handler = Arc::new(CompletionHandler {
         completed: handler_completed.clone(),
+        entered: entered.clone(),
+        release: release.clone(),
     });
     let (session, mut server) =
         create_session_pair_with_config(move |cfg| cfg.with_user_input_handler(handler)).await;
@@ -5492,8 +5523,11 @@ async fn drop_session_does_not_abort_handler() {
         )
         .await;
 
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    timeout(TIMEOUT, entered.notified())
+        .await
+        .expect("completion handler entered");
     drop(session);
+    release.notify_one();
 
     let response = timeout(Duration::from_secs(2), server.read_response())
         .await
@@ -6558,6 +6592,168 @@ async fn set_tools_completes_the_replacement_when_the_caller_stops_waiting() {
     assert_no_request(&mut server).await;
 }
 
+/// A null-id error from the runtime fails a pending replacement's caller, but
+/// the runtime may still accept that replacement: its handlers must follow the
+/// runtime's answer, or a replaced tool keeps running its old handler.
+#[tokio::test]
+async fn set_tools_applies_a_replacement_the_runtime_accepts_after_a_null_id_error() {
+    let (session, mut server) = create_session_pair_with_config(|cfg| {
+        cfg.with_tools(vec![label_tool("swap", "old handler")])
+    })
+    .await;
+    let session = Arc::new(session);
+
+    let replace = tokio::spawn({
+        let session = session.clone();
+        async move { session.set_tools([label_tool("swap", "new handler")]).await }
+    });
+    let request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+    assert_eq!(request["method"], "session.tools.set");
+
+    // The runtime refuses some other frame it cannot identify.
+    write_framed(
+        &mut server.write,
+        br#"{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"recursion limit exceeded"}}"#,
+    )
+    .await;
+    let rejected = timeout(TIMEOUT, replace).await.unwrap().unwrap();
+    assert!(rejected.is_err(), "the caller sees the null-id error");
+
+    // The runtime then accepts the replacement.
+    server.respond(&request, serde_json::json!({})).await;
+    request_external_tool(&mut server, "req-swap", "swap").await;
+    assert_eq!(
+        read_tool_result(&mut server, "req-swap").await,
+        "new handler",
+        "a replacement the runtime accepts installs its handler after a null-id error"
+    );
+}
+
+/// A null-id error fails a replacement's caller before the runtime answers it,
+/// so the next replacement can reach the runtime, and be accepted, first. The
+/// runtime's later acceptance of the earlier replacement leaves the later one
+/// installed.
+#[tokio::test]
+async fn set_tools_keeps_a_later_replacement_when_the_runtime_accepts_an_earlier_one_last() {
+    let (session, mut server) = create_session_pair_with_config(|cfg| {
+        cfg.with_tools(vec![label_tool("swap", "original handler")])
+    })
+    .await;
+    let session = Arc::new(session);
+
+    let earlier = tokio::spawn({
+        let session = session.clone();
+        async move {
+            session
+                .set_tools([label_tool("swap", "earlier handler")])
+                .await
+        }
+    });
+    let earlier_request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+    assert_eq!(earlier_request["method"], "session.tools.set");
+    write_framed(
+        &mut server.write,
+        br#"{"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":"recursion limit exceeded"}}"#,
+    )
+    .await;
+    let rejected = timeout(TIMEOUT, earlier).await.unwrap().unwrap();
+    assert!(rejected.is_err(), "the caller sees the null-id error");
+
+    let later = tokio::spawn({
+        let session = session.clone();
+        async move {
+            session
+                .set_tools([label_tool("swap", "later handler")])
+                .await
+        }
+    });
+    let later_request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+    assert_eq!(later_request["method"], "session.tools.set");
+    server.respond(&later_request, serde_json::json!({})).await;
+    timeout(TIMEOUT, later).await.unwrap().unwrap().unwrap();
+
+    // The runtime accepts the earlier replacement only now.
+    server
+        .respond(&earlier_request, serde_json::json!({}))
+        .await;
+    request_external_tool(&mut server, "req-swap", "swap").await;
+    assert_eq!(
+        read_tool_result(&mut server, "req-swap").await,
+        "later handler",
+        "the runtime's late acceptance of an earlier replacement leaves the later one installed"
+    );
+}
+
+/// A tool whose parameters schema nests deeper than the runtime reads makes
+/// `set_tools` fail before anything is sent: the runtime could not identify
+/// that frame, and its null-id rejection would fail every request pending on
+/// the connection, other sessions' included. The session keeps its tools, and
+/// the next request on the connection goes through.
+#[tokio::test]
+async fn set_tools_fails_locally_for_a_schema_the_runtime_cannot_read() {
+    let (session, mut server) = create_session_pair_with_config(|cfg| {
+        cfg.with_tools(vec![label_tool("old", "old handler")])
+    })
+    .await;
+    let session = Arc::new(session);
+
+    // Each wrap nests two objects, so the schema alone is 129 levels deep.
+    let mut schema = serde_json::json!({"type": "object"});
+    for _ in 0..64 {
+        schema = serde_json::json!({"type": "object", "properties": {"inner": schema}});
+    }
+    let deep = Tool::new("deep")
+        .with_description("deep tool")
+        .with_parameters(schema)
+        .with_handler(Arc::new(LabelTool("deep handler")));
+    let set = tokio::spawn({
+        let session = session.clone();
+        async move { session.set_tools([deep]).await }
+    });
+    // Whichever comes first: the call's answer, or a frame on the wire.
+    let outcome = timeout(TIMEOUT, async {
+        tokio::select! {
+            result = set => Ok(result.unwrap()),
+            frame = read_framed_bytes(&mut server.read) => Err(frame.len()),
+        }
+    })
+    .await
+    .unwrap();
+    let error = match outcome {
+        Ok(Err(error)) => error,
+        Ok(Ok(())) => {
+            panic!("set_tools fails before sending a schema the runtime cannot read: it succeeded")
+        }
+        Err(bytes) => panic!(
+            "set_tools fails before sending a schema the runtime cannot read: a {bytes}-byte frame was sent"
+        ),
+    };
+    assert!(
+        matches!(
+            error.kind(),
+            ErrorKind::Protocol(ProtocolErrorKind::RequestTooDeep { method, .. })
+                if method == "session.tools.set"
+        ),
+        "{error}"
+    );
+
+    // The next request on the wire is this probe, so nothing was sent before it.
+    let probe = tokio::spawn({
+        let session = session.clone();
+        async move { session.abort().await }
+    });
+    let request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+    assert_eq!(request["method"], "session.abort");
+    server.respond(&request, serde_json::json!({})).await;
+    timeout(TIMEOUT, probe).await.unwrap().unwrap().unwrap();
+
+    request_external_tool(&mut server, "req-old", "old").await;
+    assert_eq!(
+        read_tool_result(&mut server, "req-old").await,
+        "old handler"
+    );
+}
+
 #[tokio::test]
 async fn set_tools_rejects_duplicate_handlers_without_contacting_the_runtime() {
     let (session, mut server) = create_session_pair_with_config(|cfg| {
@@ -6829,6 +7025,7 @@ async fn capabilities_captured_from_create_response() {
 #[tokio::test]
 async fn capabilities_changed_event_updates_session() {
     let (session, mut server) = create_session_pair().await;
+    let mut events = session.subscribe();
 
     // Initially no capabilities (create_session_pair doesn't send them)
     assert!(session.capabilities().ui.is_none());
@@ -6843,19 +7040,12 @@ async fn capabilities_changed_event_updates_session() {
         )
         .await;
 
-    // Poll until the event loop processes the notification
-    let caps = timeout(TIMEOUT, async {
-        loop {
-            let caps = session.capabilities();
-            if caps.ui.is_some() {
-                return caps;
-            }
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-    })
-    .await
-    .expect("capabilities should update within timeout");
+    timeout(TIMEOUT, events.recv())
+        .await
+        .expect("capabilities should update within timeout")
+        .expect("capabilities changed event");
 
+    let caps = session.capabilities();
     assert_eq!(caps.ui.as_ref().unwrap().elicitation, Some(true));
 }
 
@@ -7076,6 +7266,7 @@ async fn resume_session_sends_canvas_fields_and_captures_open_canvases() {
 #[tokio::test]
 async fn session_canvas_opened_updates_open_canvas_snapshots() {
     let (session, mut server) = create_session_pair().await;
+    let mut events = session.subscribe();
     assert!(session.open_canvases().is_empty());
 
     server
@@ -7113,14 +7304,17 @@ async fn session_canvas_opened_updates_open_canvas_snapshots() {
         )
         .await;
 
-    let mut open = Vec::new();
-    for _ in 0..50 {
-        open = session.open_canvases();
-        if open.len() == 2 {
-            break;
+    timeout(Duration::from_secs(1), async {
+        loop {
+            let event = events.recv().await.expect("canvas opened event");
+            if event.event_type == "session.canvas.opened" && event.data["instanceId"] == "logs-1" {
+                break;
+            }
         }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    })
+    .await
+    .expect("two canvas snapshots");
+    let mut open = session.open_canvases();
     assert_eq!(open.len(), 2);
     assert_eq!(open[0].instance_id, "counter-1");
     assert_eq!(open[0].title.as_deref(), Some("Counter"));
@@ -7142,13 +7336,20 @@ async fn session_canvas_opened_updates_open_canvas_snapshots() {
         )
         .await;
 
-    for _ in 0..50 {
-        open = session.open_canvases();
-        if open.len() == 2 && open[0].title.as_deref() == Some("Counter Updated") {
-            break;
+    timeout(Duration::from_secs(1), async {
+        loop {
+            let event = events.recv().await.expect("canvas updated event");
+            if event.event_type == "session.canvas.opened"
+                && event.data["instanceId"] == "counter-1"
+                && event.data["title"] == "Counter Updated"
+            {
+                break;
+            }
         }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    })
+    .await
+    .expect("updated canvas snapshot");
+    open = session.open_canvases();
     assert_eq!(open.len(), 2);
     assert_eq!(open[0].instance_id, "counter-1");
     assert_eq!(open[0].title.as_deref(), Some("Counter Updated"));
@@ -7164,6 +7365,7 @@ async fn session_canvas_opened_updates_open_canvas_snapshots() {
 #[tokio::test]
 async fn session_canvas_closed_removes_open_canvas_snapshot() {
     let (session, mut server) = create_session_pair().await;
+    let mut events = session.subscribe();
     assert!(session.open_canvases().is_empty());
 
     server
@@ -7189,14 +7391,17 @@ async fn session_canvas_closed_removes_open_canvas_snapshot() {
         )
         .await;
 
-    let mut open = Vec::new();
-    for _ in 0..50 {
-        open = session.open_canvases();
-        if open.len() == 2 {
-            break;
+    timeout(Duration::from_secs(1), async {
+        loop {
+            let event = events.recv().await.expect("canvas opened event");
+            if event.event_type == "session.canvas.opened" && event.data["instanceId"] == "logs-1" {
+                break;
+            }
         }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    })
+    .await
+    .expect("two canvas snapshots");
+    let mut open = session.open_canvases();
     assert_eq!(open.len(), 2);
 
     // Closing one instance removes it while the other remains.
@@ -7211,13 +7416,11 @@ async fn session_canvas_closed_removes_open_canvas_snapshot() {
         )
         .await;
 
-    for _ in 0..50 {
-        open = session.open_canvases();
-        if open.len() == 1 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    timeout(Duration::from_secs(1), events.recv())
+        .await
+        .expect("closed canvas snapshot")
+        .expect("canvas closed event");
+    open = session.open_canvases();
     assert_eq!(open.len(), 1);
     assert_eq!(open[0].instance_id, "logs-1");
 
@@ -7234,6 +7437,10 @@ async fn session_canvas_closed_removes_open_canvas_snapshot() {
         .await;
 
     // Give the event loop time to process; the snapshot must stay unchanged.
+    timeout(Duration::from_secs(1), events.recv())
+        .await
+        .expect("idempotent close processed")
+        .expect("idempotent canvas closed event");
     for _ in 0..10 {
         tokio::time::sleep(Duration::from_millis(20)).await;
         open = session.open_canvases();
@@ -7252,6 +7459,10 @@ async fn session_canvas_closed_removes_open_canvas_snapshot() {
             }),
         )
         .await;
+    timeout(Duration::from_secs(1), events.recv())
+        .await
+        .expect("invalid close processed")
+        .expect("invalid canvas closed event");
     for _ in 0..10 {
         tokio::time::sleep(Duration::from_millis(20)).await;
         open = session.open_canvases();
@@ -7410,6 +7621,67 @@ async fn hooks_invoke_returns_empty_for_unregistered_hook() {
 
     let response = timeout(TIMEOUT, server.read_response()).await.unwrap();
     assert_eq!(response["id"], 301);
+    assert_eq!(response["result"]["output"], serde_json::json!({}));
+}
+
+/// A hook output nested deeper than the runtime's parser reads goes out as an
+/// error response for the same request: the runtime's `hooks.invoke` completes
+/// instead of waiting on a frame it refused, and the connection stays open.
+#[tokio::test]
+async fn hooks_invoke_answers_an_unreadably_deep_output_with_an_error_for_its_request() {
+    use github_copilot_sdk::hooks::{HookEvent, HookOutput, PreToolUseOutput, SessionHooks};
+
+    struct DeepHooks;
+    #[async_trait]
+    impl SessionHooks for DeepHooks {
+        async fn on_hook(&self, event: HookEvent) -> HookOutput {
+            match event {
+                HookEvent::PreToolUse { input, .. } if input.tool_name == "deep" => {
+                    let mut args = Value::Null;
+                    for _ in 0..200 {
+                        args = Value::Array(vec![args]);
+                    }
+                    HookOutput::PreToolUse(PreToolUseOutput {
+                        modified_args: Some(args),
+                        ..Default::default()
+                    })
+                }
+                _ => HookOutput::None,
+            }
+        }
+    }
+
+    let (_session, mut server) = create_session_pair_with_hooks(Arc::new(DeepHooks)).await;
+    let session_id = server.session_id.clone();
+    let pre_tool_use = |tool_name: &str| {
+        serde_json::json!({
+            "sessionId": session_id,
+            "hookType": "preToolUse",
+            "input": {
+                "sessionId": "test-session",
+                "timestamp": 1234567890,
+                "cwd": "/tmp",
+                "toolName": tool_name,
+                "toolArgs": {}
+            }
+        })
+    };
+
+    let deep = pre_tool_use("deep");
+    server.send_request(302, "hooks.invoke", deep).await;
+    // The runtime decodes every frame with `serde_json::from_slice`.
+    let body = timeout(TIMEOUT, read_framed_bytes(&mut server.read))
+        .await
+        .unwrap();
+    let response: Value =
+        serde_json::from_slice(&body).expect("the runtime's parser reads the hook's response");
+    assert_eq!(response["id"], 302);
+    assert_eq!(response["error"]["code"], -32603);
+
+    let shallow = pre_tool_use("shallow");
+    server.send_request(303, "hooks.invoke", shallow).await;
+    let response = timeout(TIMEOUT, server.read_response()).await.unwrap();
+    assert_eq!(response["id"], 303);
     assert_eq!(response["result"]["output"], serde_json::json!({}));
 }
 

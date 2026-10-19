@@ -33,6 +33,8 @@ flowchart LR
 
 All hooks are **optional**—register only the ones you need. Returning `null` (or the language equivalent) from any hook tells the SDK to continue with default behavior.
 
+File-based repository hooks and repository hook settings are loaded only after the workspace is trusted. User hooks remain available before workspace trust is granted.
+
 ## Repository hooks from additional directories
 
 Repository filesystem hooks are separate from the SDK callbacks described in

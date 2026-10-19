@@ -221,13 +221,7 @@ fn unused_port() -> u16 {
 async fn same_catalog_and_other_owner_rejected_disconnect_cleans_up_without_stopping_sdk() {
     run(|ctx| {
         Box::pin(async move {
-            let port = unused_port();
-            let owner = Client::start(options(ctx).with_transport(Transport::Tcp {
-                port,
-                connection_token: Some(RUNTIME_TOKEN.into()),
-            }))
-            .await
-            .unwrap();
+            let (owner, port) = tcp_owner(ctx).await;
             let sdk = owner
                 .create_session(ctx.approve_all_session_config())
                 .await
@@ -292,7 +286,7 @@ async fn same_catalog_and_other_owner_rejected_disconnect_cleans_up_without_stop
                 .create_session(ctx.approve_all_session_config())
                 .await
                 .unwrap();
-            assert_eq!(exits.lock().unwrap().len(), 1);
+            assert_eq!(exits.borrow().len(), 1);
             owner.stop().await.unwrap();
         })
     })
@@ -347,7 +341,7 @@ async fn listener_startup_failure_recovers_and_preserves_owner_session() {
             host.dispose().await.unwrap();
             ahp.client.shutdown().await;
             owner.stop().await.unwrap();
-            assert_eq!(exits.lock().unwrap().len(), 1);
+            assert_eq!(exits.borrow().len(), 1);
         })
     })
     .await;
@@ -391,7 +385,7 @@ async fn direct_rpc_concurrent_repeated_dispose_closes_listener_and_notifies_onc
                 .unwrap();
             ahp.client.shutdown().await;
             owner.stop().await.unwrap();
-            assert_eq!(exits.lock().unwrap().len(), 1);
+            assert_eq!(exits.borrow().len(), 1);
         })
     })
     .await;
@@ -575,7 +569,7 @@ async fn graceful_runtime_shutdown_closes_attached_ahp_session_and_reaps_runtime
             owner.stop().await.unwrap();
             reaped(runtime_pid).await;
             tokio::time::sleep(Duration::from_millis(50)).await;
-            assert_eq!(exits.lock().unwrap().len(), 1);
+            assert_eq!(exits.borrow().len(), 1);
         })
     })
     .await;

@@ -22,7 +22,7 @@ from copilot.session_events import (
     SessionIdleData,
     SessionMode,
 )
-from copilot.tools import Tool, ToolResult
+from copilot.tools import Tool, ToolNamespace, ToolResult
 
 MESSAGE_SOURCE_CASES = [
     pytest.param(None, None, id="omitted"),
@@ -72,15 +72,16 @@ def _external_tool_request(tool_name: str, request_id: str = "request-1") -> Ses
     )
 
 
-async def _wait_for_tool_result(client: Mock, request_id: str) -> dict:
-    for _ in range(20):
-        for call in client.request.await_args_list:
-            if (
-                call.args[0] == "session.tools.handlePendingToolCall"
-                and call.args[1]["requestId"] == request_id
-            ):
-                return call.args[1]
-        await asyncio.sleep(0)
+async def _wait_for_tool_result(session: CopilotSession, client: Mock, request_id: str) -> dict:
+    pending = session._pending_external_tools.get(request_id)
+    if pending is not None:
+        await asyncio.wait_for(pending, timeout=1)
+    for call in client.request.await_args_list:
+        if (
+            call.args[0] == "session.tools.handlePendingToolCall"
+            and call.args[1]["requestId"] == request_id
+        ):
+            return call.args[1]
     raise AssertionError(f"tool result was not sent for {request_id}")
 
 
@@ -439,11 +440,17 @@ async def test_send_and_wait_source_preserves_errors(source, wire, rpc_error):
 @pytest.mark.asyncio
 async def test_send_and_wait_skips_autopilot_continuation_idle():
     client = Mock()
-    client.request = AsyncMock(return_value={"messageId": "message-1"})
+    request_sent = asyncio.Event()
+
+    async def request(*_args, **_kwargs):
+        request_sent.set()
+        return {"messageId": "message-1"}
+
+    client.request = AsyncMock(side_effect=request)
     session = CopilotSession("session-1", client)
 
     pending = asyncio.create_task(session.send_and_wait("keep going"))
-    await asyncio.sleep(0)
+    await asyncio.wait_for(request_sent.wait(), timeout=1)
     client.request.assert_awaited_once()
 
     session._dispatch_event(
@@ -543,6 +550,7 @@ async def test_set_tools_sends_complete_wire_payload_and_installs_handlers_on_su
                 defer="never",
                 metadata={"owner": "test"},
                 is_terminal=True,
+                namespace=ToolNamespace(name="word", description="Edit Word documents"),
             ),
             Tool(name="declaration_only", description=None),  # type: ignore[arg-type]
         ]
@@ -559,6 +567,7 @@ async def test_set_tools_sends_complete_wire_payload_and_installs_handlers_on_su
                     "defer": "never",
                     "isTerminal": True,
                     "metadata": {"owner": "test"},
+                    "namespace": {"name": "word", "description": "Edit Word documents"},
                     "overridesBuiltInTool": True,
                     "parameters": {"type": "object"},
                     "skipPermission": True,
@@ -602,7 +611,7 @@ async def test_set_tools_keeps_previous_handlers_while_rpc_is_pending_then_swaps
     try:
         await asyncio.wait_for(rpc_started.wait(), timeout=1)
         session._dispatch_event(_external_tool_request("old_tool", "old-request"))
-        await _wait_for_tool_result(client, "old-request")
+        await _wait_for_tool_result(session, client, "old-request")
         assert calls == ["old"]
         assert session._get_tool_handler("new_tool") is None
 
@@ -612,7 +621,7 @@ async def test_set_tools_keeps_previous_handlers_while_rpc_is_pending_then_swaps
         assert session._get_tool_handler("new_tool") is new_handler
 
         session._dispatch_event(_external_tool_request("new_tool", "new-request"))
-        await _wait_for_tool_result(client, "new-request")
+        await _wait_for_tool_result(session, client, "new-request")
         assert calls == ["old", "new"]
     finally:
         release_rpc.set()
@@ -767,12 +776,14 @@ async def test_set_tools_empty_list_removes_handlers_after_success():
 async def test_set_tools_serializes_concurrent_calls_and_allows_later_after_failure():
     set_requests: list[dict] = []
     releases = [asyncio.Event(), asyncio.Event()]
+    entered = [asyncio.Event(), asyncio.Event()]
     client = Mock()
 
     async def request(method, params):
         assert method == "session.tools.set"
         index = len(set_requests)
         set_requests.append(params)
+        entered[index].set()
         await releases[index].wait()
         if index == 0:
             raise JsonRpcError(-32602, "invalid params")
@@ -790,20 +801,14 @@ async def test_set_tools_serializes_concurrent_calls_and_allows_later_after_fail
     first = asyncio.create_task(session.set_tools([Tool("first_tool", "First", first_handler)]))
     second = asyncio.create_task(session.set_tools([Tool("second_tool", "Second", second_handler)]))
     try:
-        for _ in range(20):
-            if len(set_requests) == 1:
-                break
-            await asyncio.sleep(0)
+        await asyncio.wait_for(entered[0].wait(), timeout=1)
         assert [request["tools"][0]["name"] for request in set_requests] == ["first_tool"]
 
         releases[0].set()
         with pytest.raises(JsonRpcError):
             await asyncio.wait_for(first, timeout=1)
 
-        for _ in range(20):
-            if len(set_requests) == 2:
-                break
-            await asyncio.sleep(0)
+        await asyncio.wait_for(entered[1].wait(), timeout=1)
         assert [request["tools"][0]["name"] for request in set_requests] == [
             "first_tool",
             "second_tool",
@@ -826,9 +831,12 @@ async def test_set_tools_caller_cancellation_after_request_still_installs_accept
     rpc_started = asyncio.Event()
     release_rpc = asyncio.Event()
     client = Mock()
+    replacement_task = None
 
     async def request(method, params):
+        nonlocal replacement_task
         assert method == "session.tools.set"
+        replacement_task = asyncio.current_task()
         rpc_started.set()
         await release_rpc.wait()
         return {}
@@ -847,10 +855,8 @@ async def test_set_tools_caller_cancellation_after_request_still_installs_accept
             await replace
 
         release_rpc.set()
-        for _ in range(20):
-            if session._get_tool_handler("new_tool") is new_handler:
-                break
-            await asyncio.sleep(0)
+        assert replacement_task is not None
+        await asyncio.wait_for(replacement_task, timeout=1)
         assert session._get_tool_handler("new_tool") is new_handler
     finally:
         release_rpc.set()
@@ -860,11 +866,13 @@ async def test_set_tools_caller_cancellation_after_request_still_installs_accept
 async def test_set_tools_cancelled_while_queued_sends_nothing():
     set_requests: list[dict] = []
     release_first = asyncio.Event()
+    first_entered = asyncio.Event()
     client = Mock()
 
     async def request(method, params):
         assert method == "session.tools.set"
         set_requests.append(params)
+        first_entered.set()
         await release_first.wait()
         return {}
 
@@ -880,10 +888,7 @@ async def test_set_tools_cancelled_while_queued_sends_nothing():
     first = asyncio.create_task(session.set_tools([Tool("first_tool", "First", first_handler)]))
     queued = asyncio.create_task(session.set_tools([Tool("queued_tool", "Queued", queued_handler)]))
     try:
-        for _ in range(20):
-            if set_requests:
-                break
-            await asyncio.sleep(0)
+        await asyncio.wait_for(first_entered.wait(), timeout=1)
         assert len(set_requests) == 1
 
         queued.cancel()
@@ -975,9 +980,9 @@ async def test_tool_invocation_names_the_sub_agent_and_request_behind_the_call()
     blank_agent_request = _external_tool_request("calc", "req-blank-agent")
     blank_agent_request.agent_id = ""
     session._dispatch_event(blank_agent_request)
-    await _wait_for_tool_result(client, "req-sub-agent")
-    await _wait_for_tool_result(client, "req-root")
-    await _wait_for_tool_result(client, "req-blank-agent")
+    await _wait_for_tool_result(session, client, "req-sub-agent")
+    await _wait_for_tool_result(session, client, "req-root")
+    await _wait_for_tool_result(session, client, "req-blank-agent")
 
     identities = sorted(
         (invocation.tool_call_id, invocation.agent_id, invocation.request_id)

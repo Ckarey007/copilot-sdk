@@ -62,7 +62,7 @@ rust_library(
         "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [],
         "//conditions:default": ["@platforms//:incompatible"],
     }),
-    version = "9.0.3",
+    version = "9.0.5",
     deps = [
         "@sdk_vendor__crc32fast-1.5.2//:crc32fast",
         "@sdk_vendor__flate2-1.1.10//:flate2",

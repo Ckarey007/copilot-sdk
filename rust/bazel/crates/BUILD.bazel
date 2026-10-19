@@ -470,13 +470,13 @@ alias(
 )
 
 alias(
-    name = "zip-9.0.3",
-    actual = "@sdk_vendor__zip-9.0.3//:zip",
+    name = "zip-9.0.5",
+    actual = "@sdk_vendor__zip-9.0.5//:zip",
     tags = ["manual"],
 )
 
 alias(
     name = "zip",
-    actual = "@sdk_vendor__zip-9.0.3//:zip",
+    actual = "@sdk_vendor__zip-9.0.5//:zip",
     tags = ["manual"],
 )

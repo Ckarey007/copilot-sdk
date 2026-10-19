@@ -50,7 +50,7 @@ public final class SessionCompactionStartEvent extends SessionEvent {
         @JsonProperty("tokenLimit") Long tokenLimit,
         /** Destination prompt-token budget when it differs from the effective compaction token limit */
         @JsonProperty("targetPromptTokenLimit") Long targetPromptTokenLimit,
-        /** Destination model for a model-switch compaction when it differs from the compacting model */
+        /** Destination model for a model-switch compaction when it differs from the compacting model; for a HydraFusion turn, the routed root model */
         @JsonProperty("switchTargetModel") String switchTargetModel,
         /** What initiated this compaction, when known */
         @JsonProperty("trigger") CompactionTrigger trigger

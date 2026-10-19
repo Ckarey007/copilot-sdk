@@ -36,6 +36,8 @@ public record ProviderConfig(
     @JsonProperty("baseUrl") String baseUrl,
     /** API key. Optional for local providers like Ollama. */
     @JsonProperty("apiKey") String apiKey,
+    /** Command run by the runtime before each provider request to obtain a fresh API key. Credential-command failures fail the turn without sending a model request. Bearer authentication takes precedence. */
+    @JsonProperty("apiKeyCommand") String apiKeyCommand,
     /** Bearer token for authentication. Sets the Authorization header directly. Takes precedence over apiKey when both are set. */
     @JsonProperty("bearerToken") String bearerToken,
     /** Azure-specific provider options. */

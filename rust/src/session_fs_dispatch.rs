@@ -45,6 +45,10 @@ struct TypedResponse<'a, T: Serialize> {
 /// copy of it, and dropped before the frame is written. A large reply, such as
 /// a `readFile` of a long session's `events.jsonl` on resume, is then held
 /// once, escaped, while the frame is written.
+///
+/// The frame skips [`Client::send_response`]'s depth check: each typed result
+/// has a fixed, shallow shape. A result holding values the app supplies goes
+/// through [`respond_sorted`].
 async fn respond<T: Serialize>(client: &Client, request_id: u64, result: T) {
     let frame = match crate::jsonrpc::encode_frame(&TypedResponse {
         jsonrpc: "2.0",
@@ -65,8 +69,24 @@ async fn respond<T: Serialize>(client: &Client, request_id: u64, result: T) {
 /// [`respond`] for a result holding `HashMap` rows (the sqlite replies). It
 /// goes through a `serde_json::Value` first, so each row's keys keep the
 /// sorted order a `Value` writes; typed, they would go out in hash order.
+///
+/// A row's cells are values the app's provider returns, so a reply can nest
+/// deeper than the CLI reads; [`Client::send_response`] answers that request
+/// with an error instead.
 async fn respond_sorted<T: Serialize>(client: &Client, request_id: u64, result: T) {
     match serde_json::to_value(&result) {
+        Ok(value)
+            if crate::jsonrpc::nests_deeper_than(&value, crate::jsonrpc::PEER_MAX_NESTING - 1) =>
+        {
+            let _ = client
+                .send_response(&JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id: request_id,
+                    result: Some(value),
+                    error: None,
+                })
+                .await;
+        }
         Ok(value) => respond(client, request_id, value).await,
         Err(e) => {
             warn!(error = %e, "failed to serialize sessionFs response");
@@ -82,7 +102,7 @@ async fn send_error(client: &Client, request_id: u64, message: &str) {
             id: request_id,
             result: None,
             error: Some(crate::JsonRpcError {
-                code: error_codes::INTERNAL_ERROR,
+                code: error_codes::INTERNAL_ERROR.into(),
                 message: message.to_string(),
                 data: None,
             }),

@@ -273,11 +273,11 @@ class TestMcpOAuth:
     async def test_should_cancel_pending_mcp_oauth_request(self, ctx: E2ETestContext):
         url, process = await _start_oauth_mcp_server()
         server_name = "oauth-cancelled-mcp"
-        observed_request = None
+        observed_request = asyncio.get_running_loop().create_future()
 
         def on_mcp_auth_request(request, _invocation):
-            nonlocal observed_request
-            observed_request = request
+            if not observed_request.done():
+                observed_request.set_result(request)
             return {"kind": "cancelled"}
 
         try:
@@ -299,19 +299,14 @@ class TestMcpOAuth:
                 # The MCP connection is kicked off by session.create, but the SDK only registers
                 # its `mcp.oauth_required` event interest once create returns. If the server's
                 # initial 401 wins that race, the runtime records `needs-auth` WITHOUT invoking
-                # the host callback, so `observed_request` is briefly None even after `needs-auth`
+                # the host callback, so the request may not have arrived even after `needs-auth`
                 # is observed. A later auth retry (now that interest is registered) invokes the
                 # callback with the same `initial` reason. Wait for the callback rather than
                 # sampling it the instant `needs-auth` first appears, which made this test flaky.
-                await wait_for_condition(
-                    lambda: observed_request is not None,
-                    timeout=60.0,
-                    poll_interval=0.2,
-                    timeout_message=f"{server_name} OAuth request did not reach the host callback",
-                )
+                request = await asyncio.wait_for(observed_request, timeout=60.0)
 
-            assert observed_request is not None
-            assert observed_request["serverName"] == server_name
-            assert observed_request["reason"] == "initial"
+            assert request is not None
+            assert request["serverName"] == server_name
+            assert request["reason"] == "initial"
         finally:
             await _stop_process(process)

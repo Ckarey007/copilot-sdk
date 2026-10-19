@@ -102,11 +102,17 @@ public sealed partial class ClientSessionLifetimeTests
     [InlineData(true, true)]
     [InlineData(true, false)]
     [InlineData(true, null)]
-    public async Task ImageGeneration_ForwardsCreateAndResumeOptIn(bool resume, bool? enabled)
+    [InlineData(false, null, true)]
+    [InlineData(false, null, false)]
+    [InlineData(true, null, true)]
+    [InlineData(true, null, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, true, false)]
+    public async Task ImageGeneration_ForwardsCreateAndResumeOptIn(bool resume, bool? enabled, bool? watermark = null)
     {
         await using var server = await FakeCopilotServer.StartAsync();
         await using var client = new CopilotClient(new CopilotClientOptions { Connection = RuntimeConnection.ForUri(server.Url) });
-        var imageGeneration = enabled is null ? null : new ImageGenerationConfig { Enabled = enabled };
+        var imageGeneration = enabled is null && watermark is null ? null : new ImageGenerationConfig { Enabled = enabled, Watermark = watermark };
         await using var session = resume
             ? await client.ResumeSessionAsync("image-test", new ResumeSessionConfig
             {
@@ -119,13 +125,29 @@ public sealed partial class ClientSessionLifetimeTests
                 ImageGeneration = imageGeneration
             }.Clone());
         var request = Assert.Single(server.Requests, r => r.Method == (resume ? "session.resume" : "session.create")).Params;
-        if (enabled is null)
+        if (enabled is null && watermark is null)
         {
             Assert.False(request.TryGetProperty("imageGeneration", out _), request.ToString());
         }
         else
         {
-            Assert.Equal(enabled.Value, request.GetProperty("imageGeneration").GetProperty("enabled").GetBoolean());
+            var options = request.GetProperty("imageGeneration");
+            if (enabled is null)
+            {
+                Assert.False(options.TryGetProperty("enabled", out _));
+            }
+            else
+            {
+                Assert.Equal(enabled.Value, options.GetProperty("enabled").GetBoolean());
+            }
+            if (watermark is null)
+            {
+                Assert.False(options.TryGetProperty("watermark", out _));
+            }
+            else
+            {
+                Assert.Equal(watermark.Value, options.GetProperty("watermark").GetBoolean());
+            }
         }
     }
 
@@ -795,6 +817,44 @@ public sealed partial class ClientSessionLifetimeTests
         Assert.Equal("high", agent.GetProperty("reasoningEffort").GetString());
     }
 
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData(WorkingDirectoryTrust.Session, "preferred")]
+    [InlineData(WorkingDirectoryTrust.User, "required")]
+    public async Task CreateSessionAsync_Forwards_Trust_And_CustomAgent_ModelPolicy(WorkingDirectoryTrust? trust, string? modelPolicy)
+    {
+        await using var server = await FakeCopilotServer.StartAsync();
+        await using var client = new CopilotClient(new CopilotClientOptions { Connection = RuntimeConnection.ForUri(server.Url) });
+        var config = new SessionConfig
+        {
+            TrustWorkingDirectory = trust,
+            CustomAgents =
+            [
+                new CustomAgentConfig
+                {
+                    Name = "policy-agent",
+                    Prompt = "Use the authored model.",
+                    Model = "claude-haiku-4.5",
+                    ModelPolicy = modelPolicy is null ? null : new AgentModelPolicy(modelPolicy)
+                }
+            ],
+            OnPermissionRequest = PermissionHandler.ApproveAll
+        };
+        await using var session = await client.CreateSessionAsync(config.Clone());
+        var request = Assert.Single(server.Requests, request => request.Method == "session.create");
+        var agent = Assert.Single(request.Params.GetProperty("customAgents").EnumerateArray());
+        if (trust is null)
+        {
+            Assert.False(request.Params.TryGetProperty("trustWorkingDirectory", out _));
+            Assert.False(agent.TryGetProperty("modelPolicy", out _));
+        }
+        else
+        {
+            Assert.Equal(trust == WorkingDirectoryTrust.Session ? "session" : "user", request.Params.GetProperty("trustWorkingDirectory").GetString());
+            Assert.Equal(modelPolicy, agent.GetProperty("modelPolicy").GetString());
+        }
+    }
+
     [Fact]
     public async Task CreateSessionAsync_Omits_CustomAgent_ReasoningEffort_When_Unset()
     {
@@ -1179,6 +1239,50 @@ public sealed partial class ClientSessionLifetimeTests
 
         var resumeRequest = Assert.Single(server.Requests, request => request.Method == "session.resume");
         Assert.True(resumeRequest.Params.GetProperty("tools")[0].GetProperty("isTerminal").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Edit Word documents")]
+    public async Task SessionRequests_Serialize_Tool_Namespaces(string? description)
+    {
+        await using var server = await FakeCopilotServer.StartAsync();
+        await using var client = new CopilotClient(new CopilotClientOptions { Connection = RuntimeConnection.ForUri(server.Url) });
+        var namespacedTool = CopilotTool.DefineTool(
+            (Func<string>)(() => "created"),
+            new CopilotToolOptions { Namespace = new ToolNamespace { Name = "word", Description = description } },
+            new AIFunctionFactoryOptions { Name = "word_create" });
+        var plainTool = CopilotTool.DefineTool((Func<string>)(() => "plain"));
+
+        await using var created = await client.CreateSessionAsync(new SessionConfig
+        {
+            Tools = [namespacedTool, plainTool],
+            OnPermissionRequest = PermissionHandler.ApproveAll
+        });
+
+        var createRequest = Assert.Single(server.Requests, request => request.Method == "session.create");
+        var createTools = createRequest.Params.GetProperty("tools");
+        Assert.False(createTools[1].TryGetProperty("namespace", out _));
+
+        server.ClearRequests();
+
+        await using var resumed = await client.ResumeSessionAsync("resume-with-namespaced-tool", new ResumeSessionConfig
+        {
+            Tools = [namespacedTool],
+            OnPermissionRequest = PermissionHandler.ApproveAll
+        });
+
+        var resumeRequest = Assert.Single(server.Requests, request => request.Method == "session.resume");
+        foreach (var tool in new[] { createTools[0], resumeRequest.Params.GetProperty("tools")[0] })
+        {
+            var toolNamespace = tool.GetProperty("namespace");
+            Assert.Equal("word", toolNamespace.GetProperty("name").GetString());
+            Assert.Equal(description is not null, toolNamespace.TryGetProperty("description", out var actualDescription));
+            if (description is not null)
+            {
+                Assert.Equal(description, actualDescription.GetString());
+            }
+        }
     }
 
     [Fact]
@@ -3994,19 +4098,16 @@ public sealed partial class ClientSessionLifetimeTests
 
     private static async Task<RpcRequestRecord> WaitForRequestAsync(FakeCopilotServer server, string method)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        while (!timeout.IsCancellationRequested)
-        {
-            var request = server.Requests.FirstOrDefault(request => request.Method == method);
-            if (request is not null)
+        RpcRequestRecord? request = null;
+        await server.RequestsChanged.WaitForAsync(
+            () =>
             {
-                return request;
-            }
-
-            await Task.Delay(20, CancellationToken.None);
-        }
-
-        throw new TimeoutException($"Timed out waiting for RPC method '{method}'.");
+                request = server.Requests.FirstOrDefault(candidate => candidate.Method == method);
+                return request is not null;
+            },
+            TimeSpan.FromSeconds(5),
+            timeoutMessage: $"Timed out waiting for RPC method '{method}'.");
+        return request!;
     }
 
     private static async Task ReplaceConnectionResourcesAsync(CopilotClient client, Process? process = null, IDisposable? ffiHost = null)
@@ -4051,6 +4152,7 @@ public sealed partial class ClientSessionLifetimeTests
         private readonly List<RpcRequestRecord> _requests = [];
         private readonly ConcurrentQueue<object?> _sessionEvents = new();
         private readonly object _requestsLock = new();
+        public AsyncTestSignal RequestsChanged { get; } = new();
         private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonElement>> _pendingRequests = new();
         private NetworkStream? _stream;
         private int _nextRequestId;
@@ -4326,6 +4428,7 @@ public sealed partial class ClientSessionLifetimeTests
             {
                 _requests.Add(new RpcRequestRecord(method!, paramsElement));
             }
+            RequestsChanged.Pulse();
             if (method == "session.create" && _failSessionCreate)
             {
                 _failSessionCreate = false;

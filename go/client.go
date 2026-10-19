@@ -913,6 +913,9 @@ func (c *Client) createSession(ctx context.Context, config *SessionConfig, runti
 	if err := validateAskUserVariant(config.AskUserVariant); err != nil {
 		return nil, err
 	}
+	if trust := config.TrustWorkingDirectory; trust != "" && trust != WorkingDirectoryTrustSession && trust != WorkingDirectoryTrustUser {
+		return nil, fmt.Errorf("invalid TrustWorkingDirectory %q: expected %q, %q, or unset", trust, WorkingDirectoryTrustSession, WorkingDirectoryTrustUser)
+	}
 
 	if err := c.ensureConnected(ctx); err != nil {
 		return nil, err
@@ -936,6 +939,7 @@ func (c *Client) createSession(ctx context.Context, config *SessionConfig, runti
 	req.ContextTier = config.ContextTier
 	req.ConfigDir = config.ConfigDirectory
 	req.EnableConfigDiscovery = config.EnableConfigDiscovery
+	req.TrustWorkingDirectory = string(config.TrustWorkingDirectory)
 	req.SkipEmbeddingRetrieval = config.SkipEmbeddingRetrieval
 	req.EmbeddingCacheStorage = config.EmbeddingCacheStorage
 	req.OrganizationCustomInstructions = config.OrganizationCustomInstructions
@@ -943,7 +947,6 @@ func (c *Client) createSession(ctx context.Context, config *SessionConfig, runti
 	req.EnableFileHooks = config.EnableFileHooks
 	req.EnableHostGitOperations = config.EnableHostGitOperations
 	req.EnableSessionStore = config.EnableSessionStore
-	req.EnableGitHubCacheStore = config.EnableGitHubCacheStore
 	req.EnableSkills = config.EnableSkills
 	if config.SkillProvider != nil {
 		req.HasSkillProvider = Bool(true)
@@ -1466,7 +1469,6 @@ func (c *Client) resumeSession(ctx context.Context, sessionID string, config *Re
 	req.EnableFileHooks = config.EnableFileHooks
 	req.EnableHostGitOperations = config.EnableHostGitOperations
 	req.EnableSessionStore = config.EnableSessionStore
-	req.EnableGitHubCacheStore = config.EnableGitHubCacheStore
 	req.EnableSkills = config.EnableSkills
 	if config.SkillProvider != nil {
 		req.HasSkillProvider = Bool(true)

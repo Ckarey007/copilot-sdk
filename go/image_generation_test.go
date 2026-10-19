@@ -13,6 +13,7 @@ func TestImageGenerationSerialization(t *testing.T) {
 		if enabled != nil {
 			config = &ImageGenerationConfig{Enabled: enabled}
 		}
+
 		for _, request := range []any{
 			createSessionRequest{ImageGeneration: config},
 			resumeSessionRequest{SessionID: "image-test", ImageGeneration: config},
@@ -44,5 +45,30 @@ func TestImageGenerationSerialization(t *testing.T) {
 	data, err := json.Marshal(ImageGenerationConfig{})
 	if err != nil || string(data) != "{}" {
 		t.Fatalf("unset enabled = %s, err = %v", data, err)
+	}
+}
+
+func TestImageWatermarkSerialization(t *testing.T) {
+	for _, watermark := range []bool{true, false} {
+		config := &ImageGenerationConfig{Watermark: Bool(watermark)}
+		for _, request := range []any{
+			createSessionRequest{ImageGeneration: config},
+			resumeSessionRequest{SessionID: "image-test", ImageGeneration: config},
+		} {
+			data, err := json.Marshal(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload struct {
+				ImageGeneration map[string]bool `json:"imageGeneration"`
+			}
+			if err := json.Unmarshal(data, &payload); err != nil {
+				t.Fatal(err)
+			}
+			value, present := payload.ImageGeneration["watermark"]
+			if !present || value != watermark || len(payload.ImageGeneration) != 1 {
+				t.Fatalf("watermark %v must serialize without enabling images: %s", watermark, data)
+			}
+		}
 	}
 }

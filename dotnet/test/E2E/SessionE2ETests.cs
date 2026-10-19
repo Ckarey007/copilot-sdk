@@ -740,11 +740,19 @@ public class SessionE2ETests(E2ETestFixture fixture, ITestOutputHelper output) :
         var session = await CreateSessionAsync();
         var events = new List<SessionEvent>();
         var eventsLock = new object();
-        session.On<SessionEvent>(evt =>
+        var notificationsReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var subscription = session.On<SessionEvent>(evt =>
         {
             lock (eventsLock)
             {
                 events.Add(evt);
+                if (events.Count(e =>
+                    e is SessionInfoEvent info && info.Data.InfoType == "notification" ||
+                    e is SessionWarningEvent warn && warn.Data.WarningType == "notification" ||
+                    e is SessionErrorEvent err && err.Data.ErrorType == "notification") >= 4)
+                {
+                    notificationsReceived.TrySetResult();
+                }
             }
         });
 
@@ -753,25 +761,7 @@ public class SessionE2ETests(E2ETestFixture fixture, ITestOutputHelper output) :
         await session.LogAsync("Error message", level: SessionLogLevel.Error);
         await session.LogAsync("Ephemeral message", ephemeral: true);
 
-        // Poll until all 4 notification events arrive
-        await TestHelper.WaitForConditionAsync(
-            () =>
-            {
-                List<SessionEvent> snapshot;
-                lock (eventsLock)
-                {
-                    snapshot = [.. events];
-                }
-
-                var notifications = snapshot.Where(e =>
-                    e is SessionInfoEvent info && info.Data.InfoType == "notification" ||
-                    e is SessionWarningEvent warn && warn.Data.WarningType == "notification" ||
-                    e is SessionErrorEvent err && err.Data.ErrorType == "notification"
-                ).ToList();
-                return notifications.Count >= 4;
-            },
-            timeout: TimeSpan.FromSeconds(10),
-            timeoutMessage: "Timed out waiting for all four notification log events to be observed.");
+        await notificationsReceived.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
         List<SessionEvent> observedEvents;
         lock (eventsLock)

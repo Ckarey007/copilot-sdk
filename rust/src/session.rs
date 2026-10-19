@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use futures_util::FutureExt;
@@ -560,8 +561,14 @@ pub struct Session {
     tool_handlers: Arc<parking_lot::RwLock<ToolHandlerMap>>,
     /// Held for each [`Session::set_tools`] request until the runtime answers,
     /// so replacements reach the runtime, and replace the handlers, one at a
-    /// time.
-    set_tools_lock: Arc<tokio::sync::Mutex<()>>,
+    /// time. It counts the replacements sent, each taking the next generation:
+    /// a null-id error releases it before the runtime answers, so the runtime
+    /// can accept a replacement after a later one.
+    set_tools_lock: Arc<tokio::sync::Mutex<u64>>,
+    /// The generation of the replacement whose handlers are installed, 0 for
+    /// the session's own tools. Read and written only under `tool_handlers`'
+    /// write lock.
+    installed_tools_generation: Arc<AtomicU64>,
     /// Only populated while a `send_and_wait` call is in flight.
     ///
     /// Sync `parking_lot::Mutex` because the lock is never held across an
@@ -1221,6 +1228,10 @@ impl Session {
     /// Calls already running finish on the handlers that started them. If the
     /// runtime rejects the replacement, nothing changes. Concurrent calls on
     /// the same session are applied one at a time, in the order they start.
+    /// A call that a null-id error fails
+    /// ([`UncorrelatedRejection`](crate::ProtocolErrorKind::UncorrelatedRejection))
+    /// may still be accepted later: its handlers then take effect unless the
+    /// runtime has already accepted a later call's.
     ///
     /// The runtime offers the new tools from the agent's next model request,
     /// which can fall within a turn in progress. A model request already in
@@ -1273,11 +1284,14 @@ impl Session {
         let mut params = serde_json::json!({ "sessionId": self.id });
         params["tools"] = serde_json::to_value(&tools)?;
 
-        let set_tools_lock = self.set_tools_lock.clone().lock_owned().await;
+        let mut set_tools_lock = self.set_tools_lock.clone().lock_owned().await;
         if self.shutdown.is_cancelled() || self.external_tools_shutdown.is_cancelled() {
             return Err(ErrorKind::Session(SessionErrorKind::EventLoopClosed).into());
         }
+        *set_tools_lock += 1;
+        let generation = *set_tools_lock;
         let installed = self.tool_handlers.clone();
+        let installed_generation = self.installed_tools_generation.clone();
         let shutdown = self.shutdown.clone();
         let connection_closed = self.external_tools_shutdown.clone();
         let replaced = Arc::new(ParkingLotMutex::new(None));
@@ -1293,6 +1307,14 @@ impl Session {
                         *replaced.lock() = Some(handlers);
                         return Err(ErrorKind::Session(SessionErrorKind::EventLoopClosed).into());
                     }
+                    if installed_generation.load(Ordering::Relaxed) > generation {
+                        // A null-id error failed this replacement's caller, and
+                        // the runtime accepted a later replacement first, which
+                        // stays installed.
+                        *replaced.lock() = Some(handlers);
+                        return Ok(());
+                    }
+                    installed_generation.store(generation, Ordering::Relaxed);
                     std::mem::replace(&mut *installed, handlers)
                 };
                 *replaced.lock() = Some(previous);
@@ -2064,6 +2086,7 @@ impl Client {
             external_tools_shutdown,
             tool_handlers,
             set_tools_lock: Arc::default(),
+            installed_tools_generation: Arc::default(),
             idle_waiter,
             capabilities,
             open_canvases,
@@ -2381,6 +2404,7 @@ impl Client {
             external_tools_shutdown,
             tool_handlers,
             set_tools_lock: Arc::default(),
+            installed_tools_generation: Arc::default(),
             idle_waiter,
             capabilities,
             open_canvases,
@@ -3842,7 +3866,7 @@ async fn handle_request(
                     id: request.id,
                     result: None,
                     error: Some(crate::JsonRpcError {
-                        code: error_codes::INVALID_PARAMS,
+                        code: error_codes::INVALID_PARAMS.into(),
                         message: "missing required field: question".to_string(),
                         data: None,
                     }),
@@ -4044,7 +4068,7 @@ async fn send_error_response(
         id,
         result: None,
         error: Some(crate::JsonRpcError {
-            code,
+            code: code.into(),
             message: message.to_string(),
             data: None,
         }),

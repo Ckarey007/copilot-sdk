@@ -149,6 +149,12 @@ public final class AssistantUsageEvent extends SessionEvent {
         @JsonProperty("availableToolCount") Long availableToolCount,
         /** Number of tokens used by tool definitions for this call */
         @JsonProperty("toolTokenCount") Long toolTokenCount,
+        /** Free-form custom tool calls in the request history before request shaping, counted apart from named function calls */
+        @JsonProperty("customToolCallCount") Long customToolCallCount,
+        /** Tool results in the request history before request shaping that answer no earlier unanswered tool call */
+        @JsonProperty("unmatchedToolResultCount") Long unmatchedToolResultCount,
+        /** Tool calls in the request history before request shaping that no later tool result answers */
+        @JsonProperty("orphanToolCallCount") Long orphanToolCallCount,
         /** How the prompt-cache frontier was determined for this call */
         @JsonProperty("frontierSource") String frontierSource,
         /** Effective prompt-cache lifetime in seconds for this call */

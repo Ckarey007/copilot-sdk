@@ -201,6 +201,9 @@ public final class CreateSessionRequest {
     @JsonProperty("refreshCustomInstructions")
     private Boolean refreshCustomInstructions;
 
+    @JsonProperty("trustWorkingDirectory")
+    private String trustWorkingDirectory;
+
     @JsonProperty("enableFileHooks")
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Boolean enableFileHooks;
@@ -212,10 +215,6 @@ public final class CreateSessionRequest {
     @JsonProperty("enableSessionStore")
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Boolean enableSessionStore;
-
-    @JsonProperty("enableGitHubCacheStore")
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    private Boolean enableGitHubCacheStore;
 
     @JsonProperty("enableSkills")
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -952,6 +951,21 @@ public final class CreateSessionRequest {
     }
 
     /**
+     * Gets the working-directory trust scope. @return the scope, or {@code null}
+     */
+    public String getTrustWorkingDirectory() {
+        return trustWorkingDirectory;
+    }
+
+    /**
+     * Sets the working-directory trust scope. @param trustWorkingDirectory the
+     * scope
+     */
+    public void setTrustWorkingDirectory(String trustWorkingDirectory) {
+        this.trustWorkingDirectory = trustWorkingDirectory;
+    }
+
+    /**
      * Sets the instruction discovery cache invalidation flag.
      *
      * @param refreshCustomInstructions
@@ -1015,25 +1029,6 @@ public final class CreateSessionRequest {
     /** Clears the enableSessionStore setting, reverting to the default behavior. */
     public void clearEnableSessionStore() {
         this.enableSessionStore = null;
-    }
-
-    /** Gets enable GitHub cache store flag. @return the flag */
-    public Boolean getEnableGitHubCacheStore() {
-        return enableGitHubCacheStore;
-    }
-
-    /**
-     * Sets enable GitHub cache store flag. @param enableGitHubCacheStore the flag
-     */
-    public void setEnableGitHubCacheStore(boolean enableGitHubCacheStore) {
-        this.enableGitHubCacheStore = enableGitHubCacheStore;
-    }
-
-    /**
-     * Clears the enableGitHubCacheStore setting, reverting to the default behavior.
-     */
-    public void clearEnableGitHubCacheStore() {
-        this.enableGitHubCacheStore = null;
     }
 
     /** Gets enable skills flag. @return the flag */

@@ -113,6 +113,46 @@ fn custom_agent_config_omits_model_when_none() {
     let agent = CustomAgentConfig::new("no-model-agent", "prompt");
     let wire = serde_json::to_value(&agent).unwrap();
     assert!(wire.get("model").is_none());
+    assert!(wire.get("modelPolicy").is_none());
+}
+
+#[test]
+fn create_session_serializes_trust_and_custom_agent_model_policy() {
+    for (trust, expected_trust, policy, expected) in [
+        (
+            super::WorkingDirectoryTrust::Session,
+            "session",
+            super::AgentModelPolicy::Preferred,
+            "preferred",
+        ),
+        (
+            super::WorkingDirectoryTrust::User,
+            "user",
+            super::AgentModelPolicy::Required,
+            "required",
+        ),
+    ] {
+        let agent = CustomAgentConfig::new("policy-agent", "Use the authored model.")
+            .with_model("claude-haiku-4.5")
+            .with_model_policy(policy);
+        let (wire, _) = SessionConfig::default()
+            .with_trust_working_directory(trust)
+            .with_custom_agents(vec![agent])
+            .into_wire(Some(SessionId::from("trust-policy")))
+            .unwrap();
+        let json = serde_json::to_value(wire).unwrap();
+        assert_eq!(json["trustWorkingDirectory"], expected_trust);
+        assert_eq!(json["customAgents"][0]["modelPolicy"], expected);
+    }
+    let (wire, _) = SessionConfig::default()
+        .into_wire(Some(SessionId::from("unset-trust")))
+        .unwrap();
+    assert!(
+        serde_json::to_value(wire)
+            .unwrap()
+            .get("trustWorkingDirectory")
+            .is_none()
+    );
 }
 
 #[test]
@@ -1452,6 +1492,19 @@ fn provider_config_builder_composes() {
 }
 
 #[test]
+fn provider_config_api_key_command_round_trips_and_is_optional() {
+    let command = "credential-helper --profile sdk";
+    let provider = ProviderConfig::new("https://models.example.test").with_api_key_command(command);
+    let wire = serde_json::to_value(&provider).unwrap();
+    assert_eq!(wire["apiKeyCommand"], command);
+    let round_trip: ProviderConfig = serde_json::from_value(wire).unwrap();
+    assert_eq!(round_trip.api_key_command.as_deref(), Some(command));
+    assert!(!format!("{provider:?}").contains(command));
+    let omitted = serde_json::to_value(ProviderConfig::new("https://models.example.test")).unwrap();
+    assert!(omitted.get("apiKeyCommand").is_none());
+}
+
+#[test]
 fn capi_session_options_builder_composes_and_serializes() {
     let cfg = CapiSessionOptions::new().with_enable_web_socket_responses(false);
 
@@ -2032,4 +2085,25 @@ fn image_generation_create_and_resume_wire_options() {
         serde_json::to_value(ImageGenerationConfig::new()).unwrap(),
         serde_json::json!({})
     );
+}
+
+#[test]
+fn image_watermark_create_and_resume_does_not_enable_images() {
+    for watermark in [true, false] {
+        let config = ImageGenerationConfig::new().with_watermark(watermark);
+        let (create, _) = SessionConfig::default()
+            .with_image_generation(config.clone())
+            .into_wire(Some(SessionId::from("image-test")))
+            .unwrap();
+        let (resume, _) = ResumeSessionConfig::new(SessionId::from("image-test"))
+            .with_image_generation(config)
+            .into_wire()
+            .unwrap();
+        for wire in [
+            serde_json::to_value(create).unwrap(),
+            serde_json::to_value(resume).unwrap(),
+        ] {
+            assert_eq!(wire["imageGeneration"], json!({ "watermark": watermark }));
+        }
+    }
 }

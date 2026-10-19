@@ -24,11 +24,38 @@ import com.github.copilot.rpc.AutoTier;
 import com.github.copilot.rpc.CapiSessionOptions;
 import com.github.copilot.rpc.ResumeSessionConfig;
 import com.github.copilot.rpc.SessionConfig;
+import com.github.copilot.rpc.WorkingDirectoryTrust;
 
 /**
  * Tests for CAPI provider-scoped session options.
  */
 class CapiSessionOptionsTest {
+
+    @Test
+    void workingDirectoryTrustRetainsTheStringApiAndAnUnambiguousNullSetter() throws Exception {
+        var config = new SessionConfig();
+        assertEquals(String.class, SessionConfig.class.getMethod("getTrustWorkingDirectory").getReturnType());
+        assertEquals(SessionConfig.class,
+                SessionConfig.class.getMethod("setTrustWorkingDirectory", String.class).getReturnType());
+        assertSame(config, config.setTrustWorkingDirectory("session"));
+        assertEquals("session", config.getTrustWorkingDirectory());
+        assertEquals(WorkingDirectoryTrust.SESSION, config.getWorkingDirectoryTrust());
+        assertEquals("session", SessionRequestBuilder.buildCreateRequest(config, "test").getTrustWorkingDirectory());
+        assertSame(config, config.setTrustWorkingDirectory(null));
+        assertNull(config.getTrustWorkingDirectory());
+        assertNull(config.getWorkingDirectoryTrust());
+        assertNull(SessionRequestBuilder.buildCreateRequest(config, "test").getTrustWorkingDirectory());
+        assertSame(config, config.setWorkingDirectoryTrust(WorkingDirectoryTrust.USER));
+        assertEquals("user", config.getTrustWorkingDirectory());
+        assertEquals("user", SessionRequestBuilder.buildCreateRequest(config, "test").getTrustWorkingDirectory());
+        var copy = config.clone();
+        assertEquals(WorkingDirectoryTrust.USER, copy.getWorkingDirectoryTrust());
+        var mapper = JsonRpcClient.getObjectMapper();
+        JsonNode serialized = mapper.valueToTree(config);
+        assertEquals("user", serialized.get("trustWorkingDirectory").asText());
+        assertTrue(serialized.path("workingDirectoryTrust").isMissingNode());
+        assertEquals("user", mapper.treeToValue(serialized, SessionConfig.class).getTrustWorkingDirectory());
+    }
 
     @Test
     void defaultsAreNull() {

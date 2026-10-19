@@ -1140,7 +1140,7 @@ class GeneratedRpcRecordsCoverageTest {
         var fusion = result.auto().tiers().get(1);
         assertEquals("High", fusion.displayName());
         assertEquals("fusion", fusion.type());
-        assertEquals(new AutoTierStatus(false, "policy", "Contact admin"), fusion.status());
+        assertEquals(new AutoTierStatus(false, null, "policy", "Contact admin"), fusion.status());
     }
 
     @Test

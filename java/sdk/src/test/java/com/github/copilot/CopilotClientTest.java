@@ -487,6 +487,9 @@ public class CopilotClientTest {
             Process process = invocation.getArgument(0);
             var reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
             assertEquals("started", reader.readLine());
+            // Closing the Java writer deterministically fails the startup write on every
+            // OS.
+            process.getOutputStream().close();
             return invocation.callRealMethod();
         }).when(manager).connectToServer(any(Process.class), isNull(), isNull());
         doAnswer(invocation -> {

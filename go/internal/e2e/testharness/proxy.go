@@ -133,24 +133,34 @@ func (p *CapiProxy) StopWithOptions(skipWritingCache bool) error {
 	releaseSignalGuard := ProtectProcessWait()
 	defer releaseSignalGuard()
 
+	var shutdownErr error
 	// Send stop request to the server
 	if p.proxyURL != "" {
 		stopURL := p.proxyURL + "/stop"
 		if skipWritingCache {
 			stopURL += "?skipWritingCache=true"
 		}
-		// Best effort - ignore errors
 		client := http.Client{Timeout: proxyShutdownTimeout}
 		resp, err := client.Post(stopURL, "application/json", nil)
-		if err == nil {
+		if err != nil {
+			shutdownErr = err
+		} else {
+			if resp.StatusCode != http.StatusOK {
+				body, readErr := io.ReadAll(resp.Body)
+				shutdownErr = errors.Join(
+					fmt.Errorf("proxy shutdown failed: HTTP %d: %s", resp.StatusCode, body),
+					readErr,
+				)
+			}
 			resp.Body.Close()
 		}
 	}
 
 	exited := make(chan struct{}, 1)
+	var waitErr error
 	go func() {
 		PrepareForProcessWait()
-		_ = cmd.Wait()
+		waitErr = cmd.Wait()
 		exited <- struct{}{}
 	}()
 	if !waitForProcessExit(exited, proxyShutdownTimeout) {
@@ -164,7 +174,7 @@ func (p *CapiProxy) StopWithOptions(skipWritingCache bool) error {
 			return fmt.Errorf("proxy process did not exit after being killed")
 		}
 	}
-	return nil
+	return errors.Join(shutdownErr, waitErr)
 }
 
 func killProcessTree(cmd *exec.Cmd) error {

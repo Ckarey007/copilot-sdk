@@ -28,6 +28,7 @@ from .generated.rpc import (
     ExternalToolTextResultForLlm,
     ExternalToolTextResultForLlmBinaryResultsForLlm,
     ExternalToolTextResultForLlmBinaryResultsForLlmType,
+    ProtocolExternalToolNamespace,
 )
 
 ToolResultType = Literal["success", "failure", "rejected", "denied", "timeout"]
@@ -90,6 +91,15 @@ class ToolInvocation:
 ToolHandler = Callable[[ToolInvocation], ToolResult | Awaitable[ToolResult]]
 
 
+ToolNamespace = ProtocolExternalToolNamespace
+"""**Experimental.** Namespace grouping related tools for model tool discovery.
+
+Where the model provider supports native tool namespaces, deferred tools that
+share a namespace are presented to the model as one group; elsewhere the tools
+stay flat. Tool names must still be unique across the session.
+"""
+
+
 @dataclass
 class Tool:
     name: str
@@ -105,6 +115,9 @@ class Tool:
     #: another round. A failed call leaves the loop running so the model can
     #: read the error and retry.
     is_terminal: bool = False
+    #: **Experimental.** Optional namespace grouping this tool with related
+    #: tools for model tool discovery. The tool keeps its unique ``name``.
+    namespace: ToolNamespace | None = None
 
 
 T = TypeVar("T", bound=BaseModel)
@@ -121,6 +134,7 @@ def define_tool(
     defer: Literal["auto", "never"] | None = None,
     metadata: dict[str, Any] | None = None,
     is_terminal: bool = False,
+    namespace: ToolNamespace | None = None,
 ) -> Callable[[Callable[..., Any]], Tool]:
     pass
 
@@ -137,6 +151,7 @@ def define_tool(
     defer: Literal["auto", "never"] | None = None,
     metadata: dict[str, Any] | None = None,
     is_terminal: bool = False,
+    namespace: ToolNamespace | None = None,
 ) -> Tool:
     pass
 
@@ -153,6 +168,7 @@ def define_tool(
     defer: Literal["auto", "never"] | None = None,
     metadata: dict[str, Any] | None = None,
     is_terminal: bool = False,
+    namespace: ToolNamespace | None = None,
 ) -> Tool:
     pass
 
@@ -168,6 +184,7 @@ def define_tool(
     defer: Literal["auto", "never"] | None = None,
     metadata: dict[str, Any] | None = None,
     is_terminal: bool = False,
+    namespace: ToolNamespace | None = None,
 ) -> Tool | Callable[[Callable[[Any, ToolInvocation], Any]], Tool]:
     """
     Define a tool with automatic JSON schema generation from Pydantic models.
@@ -224,6 +241,10 @@ def define_tool(
                     the runtime halts instead of feeding the result back to the model
                     for another round. A failed call leaves the loop running so the
                     model can read the error and retry.
+        namespace: **Experimental.** Optional namespace grouping this tool with related
+                    tools. Where the model provider supports native tool namespaces,
+                    deferred tools sharing a namespace are presented as one group;
+                    elsewhere the tool stays flat. The tool keeps its unique name.
 
     Returns:
         A Tool instance
@@ -320,6 +341,7 @@ def define_tool(
             defer=defer,
             metadata=metadata,
             is_terminal=is_terminal,
+            namespace=namespace,
         )
 
     # If handler is provided, call decorator immediately
@@ -341,6 +363,7 @@ def define_tool(
             defer=defer,
             metadata=metadata,
             is_terminal=is_terminal,
+            namespace=namespace,
         )
 
     # Otherwise return decorator for @define_tool(...) usage

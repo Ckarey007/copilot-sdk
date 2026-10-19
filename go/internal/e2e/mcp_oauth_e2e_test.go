@@ -242,17 +242,15 @@ func TestMCPOAuthE2E(t *testing.T) {
 	t.Run("cancel pending MCP OAuth request", func(t *testing.T) {
 		baseURL := startOAuthMCPServer(t)
 		serverName := "oauth-cancelled-mcp"
-		var mu sync.Mutex
-		var observedRequest copilot.MCPAuthRequest
-		var observed bool
+		requestSeen := make(chan copilot.MCPAuthRequest, 1)
 
 		session, err := client.CreateSession(t.Context(), &copilot.SessionConfig{
 			OnPermissionRequest: copilot.PermissionHandler.ApproveAll,
 			OnMCPAuthRequest: func(request copilot.MCPAuthRequest, _ copilot.MCPAuthInvocation) (*copilot.MCPAuthResult, error) {
-				mu.Lock()
-				observedRequest = request
-				observed = true
-				mu.Unlock()
+				select {
+				case requestSeen <- request:
+				default:
+				}
 				return copilot.MCPAuthResultCancelled(), nil
 			},
 			MCPServers: map[string]copilot.MCPServerConfig{
@@ -272,24 +270,15 @@ func TestMCPOAuthE2E(t *testing.T) {
 		// The MCP connection is kicked off by session.create, but the SDK only registers its
 		// `mcp.oauth_required` event interest once create returns. If the server's initial 401
 		// wins that race, the runtime records `needs-auth` WITHOUT invoking the host callback,
-		// so `observedRequest` is briefly unset even after `needs-auth` is observed. A later
+		// so the callback may not have run even after `needs-auth` is observed. A later
 		// auth retry (now that interest is registered) invokes the callback with the same
 		// `Initial` reason. Wait for the callback rather than sampling it the instant
 		// `needs-auth` first appears, which is what made this test flaky.
 		var request copilot.MCPAuthRequest
-		deadline := time.Now().Add(60 * time.Second)
-		for {
-			mu.Lock()
-			got := observed
-			request = observedRequest
-			mu.Unlock()
-			if got {
-				break
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("%s OAuth request did not reach the host callback", serverName)
-			}
-			time.Sleep(200 * time.Millisecond)
+		select {
+		case request = <-requestSeen:
+		case <-time.After(60 * time.Second):
+			t.Fatalf("%s OAuth request did not reach the host callback", serverName)
 		}
 
 		if request.ServerName != serverName {

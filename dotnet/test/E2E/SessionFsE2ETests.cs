@@ -419,15 +419,6 @@ public class SessionFsE2ETests(E2ETestFixture fixture, ITestOutputHelper output)
                 CreateSessionFsProvider = s => new TestSessionFsHandler(s.SessionId, providerRoot),
             });
 
-            SessionCompactionCompleteEvent? compactionEvent = null;
-            using var _ = session.On<SessionEvent>(evt =>
-            {
-                if (evt is SessionCompactionCompleteEvent complete)
-                {
-                    compactionEvent = complete;
-                }
-            });
-
             await session.SendAndWaitAsync(new MessageOptions { Prompt = "What is 2+2?" });
 
             var eventsPath = GetStoredPath(providerRoot, session.SessionId, $"{SessionFsConfig.SessionStatePath}/events.jsonl");
@@ -435,9 +426,10 @@ public class SessionFsE2ETests(E2ETestFixture fixture, ITestOutputHelper output)
             var contentBefore = await ReadAllTextSharedAsync(eventsPath);
             Assert.DoesNotContain("checkpointNumber", contentBefore);
 
+            var compaction = TestHelper.GetNextEventOfTypeAsync<SessionCompactionCompleteEvent>(
+                session, TimeSpan.FromSeconds(30));
             await session.Rpc.History.CompactAsync();
-            await WaitForConditionAsync(() => compactionEvent != null, TimeSpan.FromSeconds(30));
-            Assert.NotNull(compactionEvent);
+            Assert.NotNull(await compaction);
         }
         finally
         {

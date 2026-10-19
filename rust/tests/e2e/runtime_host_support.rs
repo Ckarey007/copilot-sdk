@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::LazyLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ahp::{Client as AhpClient, ClientConfig, SessionSubscription, SubscriptionEvent};
@@ -141,6 +141,19 @@ pub async fn start(ctx: &E2eContext) -> Client {
         .expect("start local runtime")
 }
 
+pub async fn tcp_owner(ctx: &E2eContext) -> (Client, u16) {
+    let owner = Client::start(options(ctx).with_transport(Transport::Tcp {
+        port: 0,
+        connection_token: Some(RUNTIME_TOKEN.into()),
+    }))
+    .await
+    .expect("start owned TCP runtime");
+    let ports = owned_listening_ports(&owner);
+    assert_eq!(ports.len(), 1, "fresh TCP runtime listeners: {ports:?}");
+    let port = *ports.first().expect("owned runtime listener");
+    (owner, port)
+}
+
 pub fn options_with_base_directory(ctx: &E2eContext, base: &Path) -> ClientOptions {
     let mut options = options(ctx).with_base_directory(base);
     // The shared harness sets COPILOT_HOME explicitly; Rust's explicit env
@@ -162,23 +175,25 @@ pub fn local_options() -> AhpHostOptions {
     AhpHostOptions::new().with_local_server(Default::default())
 }
 
-pub fn exit_observer() -> (AhpHostOptions, Arc<Mutex<Vec<AhpHostExit>>>) {
-    let exits = Arc::new(Mutex::new(Vec::new()));
-    let seen = exits.clone();
+pub fn exit_observer() -> (
+    AhpHostOptions,
+    tokio::sync::watch::Receiver<Vec<AhpHostExit>>,
+) {
+    let (seen, exits) = tokio::sync::watch::channel(Vec::new());
     let options = local_options().with_on_exit(move |exit| {
-        seen.lock().unwrap().push(exit);
+        seen.send_modify(|exits| exits.push(exit));
     });
     (options, exits)
 }
 
-pub async fn exit(exits: &Arc<Mutex<Vec<AhpHostExit>>>) -> AhpHostExit {
+pub async fn exit(exits: &tokio::sync::watch::Receiver<Vec<AhpHostExit>>) -> AhpHostExit {
+    let mut exits = exits.clone();
     deadline(async {
-        loop {
-            if let Some(exit) = exits.lock().unwrap().first().cloned() {
-                return exit;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+        exits
+            .wait_for(|events| !events.is_empty())
+            .await
+            .expect("host exit observer remains registered")[0]
+            .clone()
     })
     .await
 }
@@ -687,36 +702,12 @@ pub fn topology(host: &AhpHost, owner: &Client, home: &Path) {
             descendants.push(child.parse::<u32>().unwrap());
         }
     }
-    let sockets: std::collections::BTreeSet<_> = std::fs::read_dir(format!("/proc/{runtime}/fd"))
-        .unwrap()
-        .filter_map(|entry| match std::fs::read_link(entry.unwrap().path()) {
-            Ok(target) => Some(target.to_string_lossy().into_owned()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(error) => panic!("read runtime socket: {error}"),
-        })
-        .collect();
     let port = reqwest::Url::parse(host.url.as_deref().expect("local listener URL"))
         .unwrap()
         .port()
         .unwrap();
     assert!(
-        ["tcp", "tcp6"].iter().any(|table| {
-            std::fs::read_to_string(format!("/proc/{runtime}/net/{table}"))
-                .unwrap()
-                .lines()
-                .skip(1)
-                .any(|line| {
-                    let fields: Vec<_> = line.split_whitespace().collect();
-                    fields.len() > 9
-                        && fields[3] == "0A"
-                        && fields[1]
-                            .rsplit(':')
-                            .next()
-                            .and_then(|value| u16::from_str_radix(value, 16).ok())
-                            == Some(port)
-                        && sockets.contains(&format!("socket:[{}]", fields[9]))
-                })
-        }),
+        owned_listening_ports(owner).contains(&port),
         "runtime must own the listening TCP socket"
     );
     if ARTIFACTS.bundled {
@@ -727,6 +718,36 @@ pub fn topology(host: &AhpHost, owner: &Client, home: &Path) {
             "candidate must use adjacent assets"
         );
     }
+}
+
+fn owned_listening_ports(owner: &Client) -> BTreeSet<u16> {
+    let runtime = owner.pid().expect("owned out-of-process runtime");
+    let sockets: BTreeSet<_> = std::fs::read_dir(format!("/proc/{runtime}/fd"))
+        .unwrap()
+        .filter_map(|entry| match std::fs::read_link(entry.unwrap().path()) {
+            Ok(target) => Some(target.to_string_lossy().into_owned()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => panic!("read runtime socket: {error}"),
+        })
+        .collect();
+    let mut ports = BTreeSet::new();
+    for table in ["tcp", "tcp6"] {
+        let contents = std::fs::read_to_string(format!("/proc/{runtime}/net/{table}")).unwrap();
+        for line in contents.lines().skip(1) {
+            let fields: Vec<_> = line.split_whitespace().collect();
+            if fields.len() > 9
+                && fields[3] == "0A"
+                && sockets.contains(&format!("socket:[{}]", fields[9]))
+                && let Some(port) = fields[1]
+                    .rsplit(':')
+                    .next()
+                    .and_then(|value| u16::from_str_radix(value, 16).ok())
+            {
+                ports.insert(port);
+            }
+        }
+    }
+    ports
 }
 
 pub async fn reaped(pid: u32) {

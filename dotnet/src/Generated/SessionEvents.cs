@@ -3857,7 +3857,7 @@ public sealed partial class SessionCompactionStartData
     [JsonPropertyName("model")]
     public string? Model { get; set; }
 
-    /// <summary>Destination model for a model-switch compaction when it differs from the compacting model.</summary>
+    /// <summary>Destination model for a model-switch compaction when it differs from the compacting model; for a HydraFusion turn, the routed root model.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("switchTargetModel")]
     public string? SwitchTargetModel { get; set; }
@@ -4011,7 +4011,7 @@ public sealed partial class SessionCompactionCompleteData
     [JsonPropertyName("summaryContent")]
     public string? SummaryContent { get; set; }
 
-    /// <summary>Destination model for a model-switch compaction when it differs from the compacting model.</summary>
+    /// <summary>Destination model for a model-switch compaction when it differs from the compacting model; for a HydraFusion turn, the routed root model.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("switchTargetModel")]
     public string? SwitchTargetModel { get; set; }
@@ -5200,6 +5200,12 @@ public sealed partial class AssistantUsageData
     [JsonPropertyName("cost")]
     public double? Cost { get; set; }
 
+    /// <summary>Free-form custom tool calls in the request history before request shaping, counted apart from named function calls.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonInclude]
+    [JsonPropertyName("customToolCallCount")]
+    internal long? CustomToolCallCount { get; set; }
+
     /// <summary>Duration of the API call in milliseconds.</summary>
     [JsonConverter(typeof(MillisecondsTimeSpanConverter))]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -5283,6 +5289,12 @@ public sealed partial class AssistantUsageData
     [JsonInclude]
     [JsonPropertyName("numToolCalls")]
     internal long? NumToolCalls { get; set; }
+
+    /// <summary>Tool calls in the request history before request shaping that no later tool result answers.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonInclude]
+    [JsonPropertyName("orphanToolCallCount")]
+    internal long? OrphanToolCallCount { get; set; }
 
     /// <summary>Number of output tokens produced.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -5422,6 +5434,12 @@ public sealed partial class AssistantUsageData
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("transport")]
     public AssistantUsageTransport? Transport { get; set; }
+
+    /// <summary>Tool results in the request history before request shaping that answer no earlier unanswered tool call.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonInclude]
+    [JsonPropertyName("unmatchedToolResultCount")]
+    internal long? UnmatchedToolResultCount { get; set; }
 
     /// <summary>Milliseconds spent on the WebSocket attempt before falling back to HTTP.</summary>
     [JsonConverter(typeof(MillisecondsTimeSpanConverter))]
@@ -5625,7 +5643,7 @@ public sealed partial class ModelCallFailureData
     [JsonPropertyName("durationMs")]
     public TimeSpan? Duration { get; set; }
 
-    /// <summary>For HTTP 400 failures only: the `code` from the CAPI error envelope (e.g. 'model_max_prompt_tokens_exceeded') identifying which deterministic validation failure occurred. Raw server-controlled string, emitted only through restricted telemetry. Absent for bodyless or non-400 failures.</summary>
+    /// <summary>The `code` from the CAPI error envelope of an HTTP failure of any status (e.g. 'model_max_prompt_tokens_exceeded' on a 400, 'model_overloaded' on a 5xx) identifying which upstream failure occurred. Raw server-controlled string, emitted only through restricted telemetry. Absent when the response carried no error envelope.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("errorCode")]
     public string? ErrorCode { get; set; }
@@ -5635,7 +5653,7 @@ public sealed partial class ModelCallFailureData
     [JsonPropertyName("errorMessage")]
     public string? ErrorMessage { get; set; }
 
-    /// <summary>For HTTP 400 failures only: the `type` from the CAPI error envelope (e.g. 'websocket_error'), a coarser companion to errorCode for envelopes that carry no code. Raw server-controlled string, emitted only through restricted telemetry. Absent for bodyless or non-400 failures.</summary>
+    /// <summary>The `type` from the CAPI error envelope of an HTTP failure of any status (e.g. 'websocket_error'), a coarser companion to errorCode for envelopes that carry no code. Raw server-controlled string, emitted only through restricted telemetry. Absent when the response carried no error envelope.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("errorType")]
     public string? ErrorType { get; set; }
@@ -10332,6 +10350,11 @@ internal sealed partial class AssistantUsageQuotaSnapshot
 /// <remarks>Nested data type for <c>ModelCallFailureRequestFingerprint</c>.</remarks>
 public sealed partial class ModelCallFailureRequestFingerprint
 {
+    /// <summary>Free-form custom tool calls in the request history before request shaping, counted apart from named function calls (rejected by strict providers).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("customToolCallCount")]
+    public long? CustomToolCallCount { get; set; }
+
     /// <summary>Summed byte length of opaque or encrypted reasoning payloads.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("encryptedContentBytes")]
@@ -10363,6 +10386,11 @@ public sealed partial class ModelCallFailureRequestFingerprint
     [JsonPropertyName("namelessToolCallCount")]
     public required long NamelessToolCallCount { get; set; }
 
+    /// <summary>Tool calls in the request history before request shaping that no later tool result message answers.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("orphanToolCallCount")]
+    public long? OrphanToolCallCount { get; set; }
+
     /// <summary>Number of messages carrying opaque or encrypted reasoning.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("reasoningItemCount")]
@@ -10375,6 +10403,11 @@ public sealed partial class ModelCallFailureRequestFingerprint
     /// <summary>Number of "tool" result messages in the request.</summary>
     [JsonPropertyName("toolResultMessageCount")]
     public required long ToolResultMessageCount { get; set; }
+
+    /// <summary>Tool result messages in the request history before request shaping that answer no earlier unanswered tool call.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("unmatchedToolResultCount")]
+    public long? UnmatchedToolResultCount { get; set; }
 }
 
 /// <summary>Shell-aware path hints for a shell tool's command, captured at start time so consumers can snapshot a file's pre-image before the tool runs.</summary>
@@ -16680,7 +16713,7 @@ public readonly struct CompactionTrigger : IEquatable<CompactionTrigger>
     /// <summary>Emergency compaction triggered by high process memory usage.</summary>
     public static CompactionTrigger MemoryPressure { get; } = new("memory_pressure");
 
-    /// <summary>Compaction requested while switching to a model with a smaller context window.</summary>
+    /// <summary>Compaction requested while switching to a model with a smaller context window, including a HydraFusion turn's routed root model.</summary>
     public static CompactionTrigger ModelSwitch { get; } = new("model_switch");
 
     /// <summary>Returns a value indicating whether two <see cref="CompactionTrigger"/> instances are equivalent.</summary>

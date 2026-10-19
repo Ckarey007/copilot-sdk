@@ -11,7 +11,7 @@ load(
     "cargo_build_script",
     "cargo_toml_env_vars",
 )
-load("@rules_rust//rust:defs.bzl", "rust_proc_macro")
+load("@rules_rust//rust:defs.bzl", "rust_library")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -20,8 +20,8 @@ cargo_toml_env_vars(
     src = "Cargo.toml",
 )
 
-rust_proc_macro(
-    name = "defmt_macros",
+rust_library(
+    name = "libc",
     srcs = glob(
         include = ["**/*.rs"],
         allow_empty = True,
@@ -38,6 +38,18 @@ rust_proc_macro(
             "WORKSPACE.bazel",
         ],
     ),
+    crate_features = [
+        "default",
+        "std",
+    ] + select({
+        "@rules_rust//rust/platform:aarch64-apple-darwin": [
+            "extra_traits",  # aarch64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-darwin": [
+            "extra_traits",  # x86_64-apple-darwin
+        ],
+        "//conditions:default": [],
+    }),
     crate_root = "src/lib.rs",
     edition = "2021",
     rustc_env_files = [
@@ -48,7 +60,7 @@ rust_proc_macro(
     ],
     tags = [
         "cargo-bazel",
-        "crate-name=defmt-macros",
+        "crate-name=libc",
         "manual",
         "noclippy",
         "norustfmt",
@@ -62,13 +74,9 @@ rust_proc_macro(
         "@rules_rust//rust/platform:x86_64-unknown-linux-gnu": [],
         "//conditions:default": ["@platforms//:incompatible"],
     }),
-    version = "1.1.1",
+    version = "0.2.191",
     deps = [
         ":build_script_build",
-        "@sdk_vendor__defmt-parser-1.0.0//:defmt_parser",
-        "@sdk_vendor__proc-macro2-1.0.107//:proc_macro2",
-        "@sdk_vendor__quote-1.0.47//:quote",
-        "@sdk_vendor__syn-2.0.119//:syn",
     ],
 )
 
@@ -94,6 +102,18 @@ cargo_build_script(
             "WORKSPACE.bazel",
         ],
     ),
+    crate_features = [
+        "default",
+        "std",
+    ] + select({
+        "@rules_rust//rust/platform:aarch64-apple-darwin": [
+            "extra_traits",  # aarch64-apple-darwin
+        ],
+        "@rules_rust//rust/platform:x86_64-apple-darwin": [
+            "extra_traits",  # x86_64-apple-darwin
+        ],
+        "//conditions:default": [],
+    }),
     crate_name = "build_script_build",
     crate_root = "build.rs",
     data = glob(
@@ -110,7 +130,7 @@ cargo_build_script(
     ),
     edition = "2021",
     emit_warnings = False,
-    pkg_name = "defmt-macros",
+    pkg_name = "libc",
     rustc_env_files = [
         ":cargo_toml_env_vars",
     ],
@@ -119,12 +139,12 @@ cargo_build_script(
     ],
     tags = [
         "cargo-bazel",
-        "crate-name=defmt-macros",
+        "crate-name=libc",
         "manual",
         "noclippy",
         "norustfmt",
     ],
-    version = "1.1.1",
+    version = "0.2.191",
     visibility = ["//visibility:private"],
 )
 

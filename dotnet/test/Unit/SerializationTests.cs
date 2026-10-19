@@ -137,6 +137,25 @@ public class SerializationTests
     }
 
     [Fact]
+    public void ProviderConfig_ApiKeyCommand_RoundTrips_AndOmitsWhenAbsent()
+    {
+        var options = GetSerializerOptions();
+        var original = new ProviderConfig
+        {
+            BaseUrl = "https://models.example.test",
+            ApiKeyCommand = "credential-helper --profile sdk"
+        };
+        var json = JsonSerializer.Serialize(original, options);
+        using var document = JsonDocument.Parse(json);
+        Assert.Equal(original.ApiKeyCommand, document.RootElement.GetProperty("apiKeyCommand").GetString());
+        Assert.Equal(original.ApiKeyCommand, JsonSerializer.Deserialize<ProviderConfig>(json, options)!.ApiKeyCommand);
+
+        var omitted = JsonSerializer.Serialize(new ProviderConfig { BaseUrl = original.BaseUrl }, options);
+        using var omittedDocument = JsonDocument.Parse(omitted);
+        Assert.False(omittedDocument.RootElement.TryGetProperty("apiKeyCommand", out _));
+    }
+
+    [Fact]
     public void NamedProviderConfig_CanSerializeModelProvider_WithSdkOptions()
     {
         var options = GetSerializerOptions();

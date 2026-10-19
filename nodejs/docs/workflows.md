@@ -102,7 +102,13 @@ if (!finding) return { finding: null };
 
 Cancellation and hard runtime failures — a reached limit, a durable-state failure — reject instead, aborting the run. When filtering results, prefer `v => v !== null` over `Boolean`, which also discards a valid `false`, `0`, or `""`.
 
-**`schema` is a structural subset of JSON Schema, not a validator.** Honored: `type`, `required`, `enum`, `const`, recursive `properties`/`items`, and `anyOf`/`oneOf`/`allOf` — where `oneOf` is treated as `anyOf`, meaning at least one branch matches rather than exactly one. Ignored and *not* enforced: `additionalProperties`, `pattern`, `minLength`/`maxLength`, `format`, numeric ranges, and boolean schemas. Do not rely on an ignored keyword to constrain a result. A schema call retries once on a parse or match failure, so it may spawn twice, and both spawns count toward `maxTotalSubagents`.
+**`schema` is a structural subset of JSON Schema, not a validator.** Honored: `type`, `required`, `enum`, `const`, recursive `properties`/`items`, and `anyOf`/`oneOf`/`allOf` — where `oneOf` is treated as `anyOf`, meaning at least one branch matches rather than exactly one. Ignored and *not* enforced: `additionalProperties`, `pattern`, `minLength`/`maxLength`, `format`, numeric ranges, and boolean schemas. Do not rely on an ignored keyword to constrain a result.
+
+The runtime always parses and validates the returned JSON against that workflow subset. On a parse or match failure, it sends up to two correction turns to the same subagent; it does not spawn replacement subagents or repeat the original task.
+
+Eligible local first-party model routes also use provider-native structured output to strengthen generation. Native selection fails closed: the selected CAPI model must explicitly report structured-output support, the wire route must support native formats, and the schema must fit a conservative provider subset. That subset requires an object root, typed nodes, non-empty object properties, every property listed in `required`, `additionalProperties: false` on every object, object-shaped array items, and bounded depth, property count, enum size, and serialized size. It accepts nested `anyOf`, descriptions, and enums, but rejects root `anyOf`, references, boolean schemas, `allOf`, `oneOf`, `const`, and other unsupported keywords.
+
+AHP subagents, HydraFusion-selected children, BYOK providers, models without the capability, unknown routes, and schemas outside the native subset keep prompt-based JSON coercion. They retain the same parsing, validation, and same-agent correction behavior, so workflow authors use one `ctx.agent(..., { schema })` API regardless of the selected path.
 
 ### Choosing between pipeline and parallel
 

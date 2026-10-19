@@ -2632,7 +2632,14 @@ impl Client {
     }
 
     /// Send a JSON-RPC response back to the CLI (e.g. for permission or tool call requests).
+    ///
+    /// A response that nests deeper than the CLI reads goes out as an error
+    /// response for the same request instead: the CLI could not tell which of
+    /// its requests the refused frame answered.
     pub(crate) async fn send_response(&self, response: &JsonRpcResponse) -> Result<()> {
+        if response.nests_too_deep_for_peer() {
+            return self.inner.rpc.write(&response.nesting_error()).await;
+        }
         self.inner.rpc.write(response).await
     }
 
@@ -2968,7 +2975,7 @@ impl Client {
         self.registered_session_ids()
     }
 
-    #[cfg(feature = "test-support")]
+    #[cfg(any(test, feature = "test-support"))]
     #[doc(hidden)]
     /// Count the sessions currently registered on this client's notification
     /// router. Deliberately never materialises the session IDs themselves so

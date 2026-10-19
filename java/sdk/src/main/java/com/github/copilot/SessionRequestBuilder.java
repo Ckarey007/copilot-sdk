@@ -26,8 +26,10 @@ import com.github.copilot.rpc.SessionConfig;
 import com.github.copilot.rpc.SystemMessageConfig;
 import com.github.copilot.rpc.ToolDefinition;
 import com.github.copilot.rpc.ToolDefer;
+import com.github.copilot.rpc.ToolNamespace;
 import com.github.copilot.generated.rpc.ProtocolExternalToolDefer;
 import com.github.copilot.generated.rpc.ProtocolExternalToolDefinition;
+import com.github.copilot.generated.rpc.ProtocolExternalToolNamespace;
 
 /**
  * Builds JSON-RPC request objects from session configuration.
@@ -113,7 +115,11 @@ final class SessionRequestBuilder {
         }
         return new ProtocolExternalToolDefinition(tool.name(), tool.description() != null ? tool.description() : "",
                 null, parameters, tool.overridesBuiltInTool(), tool.skipPermission(), toProtocolDefer(tool.defer()),
-                tool.isTerminal(), tool.metadata());
+                tool.isTerminal(), tool.metadata(), toProtocolNamespace(tool.namespace()));
+    }
+
+    private static ProtocolExternalToolNamespace toProtocolNamespace(ToolNamespace namespace) {
+        return namespace == null ? null : new ProtocolExternalToolNamespace(namespace.name(), namespace.description());
     }
 
     private static ProtocolExternalToolDefer toProtocolDefer(ToolDefer defer) {
@@ -215,10 +221,10 @@ final class SessionRequestBuilder {
         }
         config.getEnableOnDemandInstructionDiscovery().ifPresent(request::setEnableOnDemandInstructionDiscovery);
         config.getRefreshCustomInstructions().ifPresent(request::setRefreshCustomInstructions);
+        request.setTrustWorkingDirectory(config.getTrustWorkingDirectory());
         config.getEnableFileHooks().ifPresent(request::setEnableFileHooks);
         config.getEnableHostGitOperations().ifPresent(request::setEnableHostGitOperations);
         config.getEnableSessionStore().ifPresent(request::setEnableSessionStore);
-        config.getEnableGitHubCacheStore().ifPresent(request::setEnableGitHubCacheStore);
         config.getEnableSkills().ifPresent(request::setEnableSkills);
         if (config.getSkillProvider() != null) {
             request.setHasSkillProvider(true);
@@ -344,7 +350,6 @@ final class SessionRequestBuilder {
         config.getEnableFileHooks().ifPresent(request::setEnableFileHooks);
         config.getEnableHostGitOperations().ifPresent(request::setEnableHostGitOperations);
         config.getEnableSessionStore().ifPresent(request::setEnableSessionStore);
-        config.getEnableGitHubCacheStore().ifPresent(request::setEnableGitHubCacheStore);
         config.getEnableSkills().ifPresent(request::setEnableSkills);
         if (config.getSkillProvider() != null) {
             request.setHasSkillProvider(true);

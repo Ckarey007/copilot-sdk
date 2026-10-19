@@ -56,6 +56,7 @@ import type {
     ModelCapabilitiesOverride,
     SectionTransformFn,
     SessionCapabilities,
+    SessionConfig,
     SessionEvent,
     SessionEventHandler,
     SessionEventPayload,
@@ -132,6 +133,7 @@ function toToolDefinition(tool: Tool): ProtocolExternalToolDefinition {
         defer: tool.defer,
         metadata: tool.metadata as ProtocolExternalToolDefinition["metadata"],
         isTerminal: tool.isTerminal,
+        namespace: tool.namespace,
     };
 }
 
@@ -1615,7 +1617,7 @@ export class CopilotSession {
      * @param tools - An array of tool definitions with their handlers, or undefined to clear all tools
      * @internal This method is typically called internally when creating a session with tools.
      */
-    registerTools(tools?: Tool[]): void {
+    registerTools(tools?: SessionConfig["tools"]): void {
         this.assertConnected();
         this.toolHandlers.clear();
         if (!tools) {
@@ -2653,7 +2655,7 @@ export class CopilotSession {
      * ]);
      * ```
      */
-    async setTools(tools: Tool[]): Promise<void> {
+    async setTools(tools: NonNullable<SessionConfig["tools"]>): Promise<void> {
         this.assertConnected();
         const definitions = tools.map(toToolDefinition);
         const replacement = this.setToolsQueue.then(async () => {

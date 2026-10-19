@@ -13,6 +13,7 @@ import type { CopilotRequestHandler } from "./copilotRequestHandler.js";
 import type { InstallationConfirmationHandler } from "./installationConfirmation.js";
 export type { InstallationConfirmationHandler } from "./installationConfirmation.js";
 import type {
+    AgentModelPolicy,
     AttachmentExtensionContext as GeneratedExtensionContextAttachment,
     AutoTier,
     PermissionRequest as GeneratedPermissionRequest,
@@ -32,6 +33,7 @@ import type {
     ModelBillingTokenPrices,
     DiagnosticsConfiguration,
     OpenCanvasInstance,
+    ProtocolExternalToolNamespace,
     RemoteSessionMode,
     CurrentToolMetadata,
 } from "./generated/rpc.js";
@@ -841,7 +843,30 @@ export interface Tool<TArgs = unknown> {
      * continue from.
      */
     isTerminal?: boolean;
+    /**
+     * Groups this tool with related tools for model tool discovery.
+     *
+     * On models and providers that support native tool namespaces, deferred
+     * tools sharing a namespace are presented to the model as one group with
+     * this name and description, like the tools of an MCP server. Elsewhere,
+     * and for tools that are always loaded, the tool stays a flat function.
+     * The tool keeps its own name, so calls still reach this tool's handler
+     * by name.
+     *
+     * @experimental
+     */
+    namespace?: ToolNamespace;
 }
+
+/**
+ * A namespace that groups related {@link Tool}s for model tool discovery.
+ * Tools sharing a name share a namespace. An invalid namespace is reported as a
+ * session warning and the tool is presented without it; a missing description
+ * defaults to a generic description of the namespace.
+ *
+ * @experimental
+ */
+export type ToolNamespace = ProtocolExternalToolNamespace;
 
 /**
  * Helper to define a tool with Zod schema and get type inference for the handler.
@@ -858,6 +883,7 @@ export function defineTool<T = unknown>(
         defer?: "auto" | "never";
         metadata?: Record<string, unknown>;
         isTerminal?: boolean;
+        namespace?: ToolNamespace;
     }
 ): Tool<T> {
     return { name, ...config };
@@ -876,6 +902,13 @@ export interface ImageGenerationConfig {
      * apply. BYOK image generation is not supported.
      */
     enabled?: boolean;
+    /**
+     * Request a visible "Made with AI" label on generated and edited images.
+     * Overrides the user's imageGenerationWatermark preference, which defaults
+     * to false. Re-supply after cold resume. Does not enable image generation
+     * or enforce enterprise policy.
+     */
+    watermark?: boolean;
 }
 
 /**
@@ -2100,9 +2133,15 @@ export interface CustomAgentConfig {
     /**
      * Model identifier for this agent (e.g. "claude-haiku-4.5").
      * When set, the runtime will attempt to use this model for the agent,
-     * falling back to the parent session model if unavailable.
+     * falling back to the parent session model if unavailable unless
+     * `modelPolicy` is `"required"`.
      */
     model?: string;
+    /**
+     * Whether the authored model is a preference or a requirement for this agent.
+     * Defaults to `"preferred"` when omitted.
+     */
+    modelPolicy?: AgentModelPolicy;
     /**
      * Reasoning effort level for this agent's model.
      * When omitted, the runtime resolves the effort from model configuration,
@@ -2200,6 +2239,11 @@ export type ReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
  * long-context tier when the selected model supports it.
  */
 export type ContextTier = "default" | "long_context";
+
+/**
+ * Scope of a working-directory trust grant made during session creation.
+ */
+export type WorkingDirectoryTrust = "session" | "user";
 
 /** Parsed parameters from an MCP server's WWW-Authenticate response. */
 export interface McpAuthWwwAuthenticateParams {
@@ -3214,14 +3258,6 @@ export interface SessionConfigBase {
     enableSessionStore?: boolean;
 
     /**
-     * When true, requests the read-only GitHub cache store for this session
-     * (the `github-cache-store` capability). The runtime registers the
-     * `github_sql` tool only when its `GITHUB_CACHE_STORE` feature flag is
-     * also on. Defaults to disabled.
-     */
-    enableGitHubCacheStore?: boolean;
-
-    /**
      * When true, enables skill loading (including builtin skills and discovered
      * skill directories). When false, no skills are loaded regardless of
      * `skillDirectories` or `enableConfigDiscovery` settings.
@@ -3291,6 +3327,13 @@ export interface SessionConfig extends SessionConfigBase {
      * Local sessions only: cloud creation rejects it.
      */
     name?: string;
+
+    /**
+     * Grants trust to the canonical working directory during session creation.
+     * "session" applies only to this session; "user" persists the grant for later
+     * sessions. Omit to leave directory trust unchanged. Not available on resume.
+     */
+    trustWorkingDirectory?: WorkingDirectoryTrust;
 
     /**
      * Invalidates the process-wide custom-instruction discovery cache before
@@ -3466,6 +3509,13 @@ export interface ProviderConfig {
     apiKey?: string;
 
     /**
+     * Command run by the runtime before each provider request to obtain a fresh API key.
+     * Command failures fail the turn before sending a model request.
+     * Bearer authentication takes precedence; use {@link apiKey} for a static key.
+     */
+    apiKeyCommand?: string;
+
+    /**
      * Bearer token for authentication. Sets the Authorization header directly.
      * Use this for services requiring bearer token auth instead of API key.
      * Takes precedence over apiKey when both are set.
@@ -3477,10 +3527,10 @@ export interface ProviderConfig {
      * When set, the SDK keeps this function client-side (it is never serialized)
      * and the runtime calls back into this client to acquire a token before each
      * outbound request. The runtime does no caching of its own, so the callback
-     * owns token caching and refresh. When set alongside {@link apiKey} /
-     * {@link bearerToken}, this callback takes precedence: the runtime applies
-     * the token it returns as the `Authorization: Bearer` header for each
-     * request and does not send the static credential.
+     * owns token caching and refresh. When set alongside {@link apiKey},
+     * {@link apiKeyCommand}, or {@link bearerToken}, this callback takes precedence:
+     * the runtime applies its token as the `Authorization: Bearer` header for each
+     * request, without sending the static credential or running the command.
      *
      * @experimental
      */

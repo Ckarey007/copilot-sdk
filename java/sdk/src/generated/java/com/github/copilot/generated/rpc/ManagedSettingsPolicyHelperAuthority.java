@@ -19,7 +19,9 @@ enum ManagedSettingsPolicyHelperAuthority {
     /** The {@code device} variant. */
     DEVICE("device"),
     /** The {@code server} variant. */
-    SERVER("server");
+    SERVER("server"),
+    /** The {@code environment} variant. */
+    ENVIRONMENT("environment");
 
     private final String value;
     ManagedSettingsPolicyHelperAuthority(String value) { this.value = value; }

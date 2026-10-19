@@ -31,6 +31,7 @@ pub use crate::generated::api_types::{
 };
 /// Acknowledgement and Auto preference snapshot returned by an Auto tier switch.
 pub use crate::generated::api_types::{ModelSwitchAutoTierResult, ModelSwitchAutoTierStatus};
+pub use crate::generated::session_events::AgentModelPolicy;
 /// Routing tier for the `auto` model with Auto mode V2.
 ///
 /// [`AutoTier::Fast`] is an integrator-only latency preset, not a first-party
@@ -382,6 +383,14 @@ pub struct Tool {
     /// Unknown keys are preserved and round-tripped untouched.
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub metadata: IndexMap<String, Value>,
+    /// **Experimental.** Optional namespace grouping this tool with related
+    /// tools for model tool discovery. Where the model provider supports
+    /// native tool namespaces, deferred tools sharing a namespace are
+    /// presented to the model as one group; elsewhere the tool stays flat.
+    /// [`name`](Self::name) remains the tool's unique invocation name either
+    /// way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<ToolNamespace>,
     /// Optional runtime implementation. When `Some`, the SDK dispatches
     /// matching `external_tool.requested` broadcasts to this handler.
     /// When `None`, the tool is declaration-only.
@@ -400,6 +409,36 @@ pub struct Tool {
 #[inline]
 fn is_false(b: &bool) -> bool {
     !*b
+}
+
+/// **Experimental.** Namespace grouping related [`Tool`]s for model tool
+/// discovery. See [`Tool::namespace`].
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+pub struct ToolNamespace {
+    /// Namespace name: 1-64 ASCII letters, digits, underscores, or hyphens.
+    pub name: String,
+    /// Optional model-visible explanation of the tools in this namespace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+impl ToolNamespace {
+    /// Construct a namespace with the given name and no description.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: None,
+        }
+    }
+
+    /// Set the model-visible explanation of the tools in this namespace.
+    #[must_use]
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
 }
 
 /// Controls whether a [`Tool`] may be deferred (loaded lazily via tool search)
@@ -520,6 +559,14 @@ impl Tool {
         self
     }
 
+    /// **Experimental.** Group this tool with related tools under a namespace
+    /// for model tool discovery. See [`Tool::namespace`].
+    #[must_use]
+    pub fn with_namespace(mut self, namespace: ToolNamespace) -> Self {
+        self.namespace = Some(namespace);
+        self
+    }
+
     /// Attach a runtime implementation. The SDK will dispatch matching
     /// `external_tool.requested` broadcasts to `handler` for this tool's
     /// name. Without a handler the tool is declaration-only.
@@ -573,6 +620,7 @@ impl std::fmt::Debug for Tool {
             .field("is_terminal", &self.is_terminal)
             .field("defer", &self.defer)
             .field("metadata", &self.metadata)
+            .field("namespace", &self.namespace)
             .field(
                 "handler",
                 &self.handler.as_ref().map(|_| "<set>").unwrap_or("None"),
@@ -699,9 +747,13 @@ pub struct CustomAgentConfig {
     /// Model identifier for this agent (e.g. `"claude-haiku-4.5"`).
     ///
     /// When set, the runtime will attempt to use this model for the agent,
-    /// falling back to the parent session model if unavailable.
+    /// falling back to the parent session model if unavailable unless
+    /// [`model_policy`](Self::model_policy) is [`AgentModelPolicy::Required`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Whether the authored model is preferred (default) or required without fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_policy: Option<AgentModelPolicy>,
     /// Reasoning effort level for this agent's model.
     ///
     /// When unset, the runtime resolves model configuration, then inherits the
@@ -779,6 +831,12 @@ impl CustomAgentConfig {
     /// Set the model identifier for this agent.
     pub fn with_model(mut self, model: impl Into<String>) -> Self {
         self.model = Some(model.into());
+        self
+    }
+
+    /// Set whether the authored model is preferred or required.
+    pub fn with_model_policy(mut self, model_policy: AgentModelPolicy) -> Self {
+        self.model_policy = Some(model_policy);
         self
     }
 
@@ -865,6 +923,12 @@ pub struct ImageGenerationConfig {
     /// True opts in; false disables image generation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    /// Request a visible "Made with AI" label on generated and edited images.
+    /// Overrides the user's imageGenerationWatermark preference (default false).
+    /// Re-supply after cold resume. Does not enable image generation or enforce
+    /// enterprise policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watermark: Option<bool>,
 }
 
 impl ImageGenerationConfig {
@@ -876,6 +940,12 @@ impl ImageGenerationConfig {
     /// Enable or disable image generation.
     pub fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = Some(enabled);
+        self
+    }
+
+    /// Request or opt out of the visible image label for this session.
+    pub fn with_watermark(mut self, watermark: bool) -> Self {
+        self.watermark = Some(watermark);
         self
     }
 }
@@ -1322,6 +1392,10 @@ pub struct ProviderConfig {
     /// API key. Optional for local providers like Ollama.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    /// Command run by the runtime before each provider request to obtain a fresh
+    /// API key. Command failures fail the turn before sending a model request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key_command: Option<String>,
     /// Bearer token for authentication. Sets the `Authorization` header
     /// directly. Use for services requiring bearer-token auth instead of
     /// API key. Takes precedence over `api_key` when both are set.
@@ -1373,6 +1447,10 @@ impl std::fmt::Debug for ProviderConfig {
             .field("model_provider", &self.model_provider)
             .field("base_url", &self.base_url)
             .field("api_key", &self.api_key)
+            .field(
+                "api_key_command",
+                &self.api_key_command.as_ref().map(|_| "<set>"),
+            )
             .field("bearer_token", &self.bearer_token)
             .field(
                 "bearer_token_provider",
@@ -1429,6 +1507,13 @@ impl ProviderConfig {
     /// Set the API key. Optional for local providers like Ollama.
     pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
         self.api_key = Some(api_key.into());
+        self
+    }
+
+    /// Set the command used to obtain a fresh API key before each provider
+    /// request. Bearer authentication takes precedence over this command.
+    pub fn with_api_key_command(mut self, command: impl Into<String>) -> Self {
+        self.api_key_command = Some(command.into());
         self
     }
 
@@ -2010,6 +2095,16 @@ pub enum AskUserVariant {
     Elicitation,
 }
 
+/// Scope of a working-directory trust grant made during session creation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WorkingDirectoryTrust {
+    /// Trust the directory for this session only.
+    Session,
+    /// Persist trust in the user's profile.
+    User,
+}
+
 /// Configuration for creating a new session via the `session.create` RPC.
 ///
 /// All fields are optional — the CLI applies sensible defaults.
@@ -2162,6 +2257,9 @@ pub struct SessionConfig {
     /// Enables runtime discovery of supported configuration. Explicitly supplied
     /// configuration takes precedence over discovered values.
     pub enable_config_discovery: Option<bool>,
+    /// Trust the working directory for this session (`"session"`) or persistently
+    /// for the user (`"user"`). `None` leaves existing folder trust unchanged.
+    pub trust_working_directory: Option<WorkingDirectoryTrust>,
     /// When true, skips embedding retrieval for this session.
     pub skip_embedding_retrieval: Option<bool>,
     /// Controls how the embedding cache is stored for this session.
@@ -2185,11 +2283,6 @@ pub struct SessionConfig {
     pub enable_host_git_operations: Option<bool>,
     /// When true, enables the session store for this session.
     pub enable_session_store: Option<bool>,
-    /// When true, requests the read-only GitHub cache store for this session.
-    ///
-    /// The runtime registers `github_sql` only when its `GITHUB_CACHE_STORE`
-    /// feature flag is enabled. Defaults to disabled.
-    pub enable_github_cache_store: Option<bool>,
     /// When true, enables skills for this session.
     pub enable_skills: Option<bool>,
     /// **Experimental.** Supplies session-scoped skills from the SDK host.
@@ -2529,6 +2622,7 @@ impl std::fmt::Debug for SessionConfig {
             )
             .field("embedding_cache_storage", &self.embedding_cache_storage)
             .field("enable_config_discovery", &self.enable_config_discovery)
+            .field("trust_working_directory", &self.trust_working_directory)
             .field("skip_embedding_retrieval", &self.skip_embedding_retrieval)
             .field(
                 "organization_custom_instructions",
@@ -2551,7 +2645,6 @@ impl std::fmt::Debug for SessionConfig {
                 &self.enable_host_git_operations,
             )
             .field("enable_session_store", &self.enable_session_store)
-            .field("enable_github_cache_store", &self.enable_github_cache_store)
             .field("enable_skills", &self.enable_skills)
             .field(
                 "skill_provider",
@@ -2689,6 +2782,7 @@ impl Default for SessionConfig {
             mcp_oauth_token_storage: None,
             auth_client_id_metadata_url: None,
             enable_config_discovery: None,
+            trust_working_directory: None,
             skip_embedding_retrieval: None,
             organization_custom_instructions: None,
             refresh_custom_instructions: None,
@@ -2696,7 +2790,6 @@ impl Default for SessionConfig {
             enable_file_hooks: None,
             enable_host_git_operations: None,
             enable_session_store: None,
-            enable_github_cache_store: None,
             enable_skills: None,
             skill_provider: None,
             embedding_cache_storage: None,
@@ -2862,6 +2955,7 @@ impl SessionConfig {
             embedding_cache_storage: self.embedding_cache_storage,
             env_value_mode: "direct",
             enable_config_discovery: self.enable_config_discovery,
+            trust_working_directory: self.trust_working_directory,
             skip_embedding_retrieval: self.skip_embedding_retrieval,
             organization_custom_instructions: self.organization_custom_instructions,
             refresh_custom_instructions: self.refresh_custom_instructions,
@@ -2869,7 +2963,6 @@ impl SessionConfig {
             enable_file_hooks: self.enable_file_hooks,
             enable_host_git_operations: self.enable_host_git_operations,
             enable_session_store: self.enable_session_store,
-            enable_github_cache_store: self.enable_github_cache_store,
             enable_skills: self.enable_skills,
             has_skill_provider: has_skill_provider.then_some(true),
             request_user_input,
@@ -3259,6 +3352,12 @@ impl SessionConfig {
         self
     }
 
+    /// Trust the working directory for this session (`"session"`) or user (`"user"`).
+    pub fn with_trust_working_directory(mut self, trust: WorkingDirectoryTrust) -> Self {
+        self.trust_working_directory = Some(trust);
+        self
+    }
+
     /// Set [`Self::skip_embedding_retrieval`].
     pub fn with_skip_embedding_retrieval(mut self, value: bool) -> Self {
         self.skip_embedding_retrieval = Some(value);
@@ -3301,12 +3400,6 @@ impl SessionConfig {
     /// Set [`Self::enable_session_store`].
     pub fn with_enable_session_store(mut self, value: bool) -> Self {
         self.enable_session_store = Some(value);
-        self
-    }
-
-    /// Set [`Self::enable_github_cache_store`].
-    pub fn with_enable_github_cache_store(mut self, value: bool) -> Self {
-        self.enable_github_cache_store = Some(value);
         self
     }
 
@@ -3809,11 +3902,6 @@ pub struct ResumeSessionConfig {
     pub enable_host_git_operations: Option<bool>,
     /// When true, enables the session store on resume.
     pub enable_session_store: Option<bool>,
-    /// When true, requests the read-only GitHub cache store on resume.
-    ///
-    /// The runtime registers `github_sql` only when its `GITHUB_CACHE_STORE`
-    /// feature flag is enabled. Defaults to disabled.
-    pub enable_github_cache_store: Option<bool>,
     /// When true, enables skills on resume.
     pub enable_skills: Option<bool>,
     /// **Experimental.** Supplies session-scoped skills from the SDK host.
@@ -4091,7 +4179,6 @@ impl std::fmt::Debug for ResumeSessionConfig {
                 &self.enable_host_git_operations,
             )
             .field("enable_session_store", &self.enable_session_store)
-            .field("enable_github_cache_store", &self.enable_github_cache_store)
             .field("enable_skills", &self.enable_skills)
             .field(
                 "skill_provider",
@@ -4267,7 +4354,6 @@ impl ResumeSessionConfig {
             enable_file_hooks: self.enable_file_hooks,
             enable_host_git_operations: self.enable_host_git_operations,
             enable_session_store: self.enable_session_store,
-            enable_github_cache_store: self.enable_github_cache_store,
             enable_skills: self.enable_skills,
             has_skill_provider: has_skill_provider.then_some(true),
             request_user_input,
@@ -4386,7 +4472,6 @@ impl ResumeSessionConfig {
             enable_file_hooks: None,
             enable_host_git_operations: None,
             enable_session_store: None,
-            enable_github_cache_store: None,
             enable_skills: None,
             skill_provider: None,
             embedding_cache_storage: None,
@@ -4785,12 +4870,6 @@ impl ResumeSessionConfig {
     /// Set [`Self::enable_session_store`].
     pub fn with_enable_session_store(mut self, value: bool) -> Self {
         self.enable_session_store = Some(value);
-        self
-    }
-
-    /// Set [`Self::enable_github_cache_store`].
-    pub fn with_enable_github_cache_store(mut self, value: bool) -> Self {
-        self.enable_github_cache_store = Some(value);
         self
     }
 
@@ -6790,6 +6869,9 @@ mod permission_builder_tests;
 
 #[cfg(test)]
 mod is_terminal_tests;
+
+#[cfg(test)]
+mod tool_namespace_tests;
 
 #[cfg(test)]
 mod refresh_custom_instructions_tests;
