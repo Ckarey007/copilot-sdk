@@ -90,7 +90,7 @@ describe("Policy Helper failure contracts", () => {
         expect(result.policyHelperFailure).toEqual(policyHelperFailure);
     });
 
-    it("preserves Policy Helper context on policy-dependent activation errors", async () => {
+    it("preserves Policy Helper context on managed-settings resolve errors", async () => {
         const errorData = {
             code: "plugin_activation_failed",
             policyHelperFailure,
@@ -102,7 +102,6 @@ describe("Policy Helper failure contracts", () => {
         const error = await rpc.managedSettings
             .resolve({
                 workingDirectory: "/workspace",
-                policyHelperReason: "pluginActivation",
             })
             .then(
                 () => undefined,
@@ -111,7 +110,6 @@ describe("Policy Helper failure contracts", () => {
 
         expect(sendRequest).toHaveBeenCalledWith("managedSettings.resolve", {
             workingDirectory: "/workspace",
-            policyHelperReason: "pluginActivation",
         });
         expect(error).toBe(responseError);
         expect(responseError.code).toBe(-32001);

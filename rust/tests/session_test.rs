@@ -24,8 +24,8 @@ use github_copilot_sdk::rpc::{
     ConnectorConnectResult, ConnectorContinueRequest, ConnectorDisconnectResult,
     ConnectorMcpStatus, ConnectorReconcileOptions, ConnectorReconcileRequest,
     ConnectorSessionAccount, ConnectorStatus, ManagedSettingsResolveRequest,
-    ManagedSettingsResolveRequestPolicyHelperReason, ModelSetAllowedModelsRequest,
-    OpenCanvasInstance, SendAgentMode, SendMode, SendRequest, SessionRpcConnectors,
+    ModelSetAllowedModelsRequest, OpenCanvasInstance, SendAgentMode, SendMode, SendRequest,
+    SessionRpcConnectors,
 };
 use github_copilot_sdk::session_events::{
     ManagedSettingsResolvedSource, McpOauthRequiredData, PolicyHelperCapabilities,
@@ -2115,7 +2115,7 @@ async fn managed_settings_recheck_policy_helper_binds_session_and_round_trips_fa
 }
 
 #[tokio::test]
-async fn managed_settings_resolve_preserves_policy_helper_activation_error_data() {
+async fn managed_settings_resolve_preserves_policy_helper_error_data() {
     let (client, server_read, server_write) = make_client();
     let mut server = FakeServer {
         read: server_read,
@@ -2129,9 +2129,6 @@ async fn managed_settings_resolve_preserves_policy_helper_activation_error_data(
                 .rpc()
                 .managed_settings()
                 .resolve_with_params(ManagedSettingsResolveRequest {
-                    policy_helper_reason: Some(
-                        ManagedSettingsResolveRequestPolicyHelperReason::PluginActivation,
-                    ),
                     working_directory: Some("/workspace".to_string()),
                     ..Default::default()
                 })
@@ -2142,7 +2139,7 @@ async fn managed_settings_resolve_preserves_policy_helper_activation_error_data(
     let request = server.read_request().await;
     assert_eq!(request["method"], "managedSettings.resolve");
     assert_eq!(request["params"]["workingDirectory"], "/workspace");
-    assert_eq!(request["params"]["policyHelperReason"], "pluginActivation");
+    assert!(request["params"].get("policyHelperReason").is_none());
     let data = serde_json::json!({
         "code": "plugin_activation_failed",
         "policyHelperFailure": policy_helper_failure_json(),
