@@ -66,7 +66,7 @@ public final class SessionModelSwitchToRequest {
     @JsonProperty("compactionDecision")
     private String compactionDecision;
 
-    /** When true, evaluate context-window compaction policy before applying the switch. */
+    /** When true, evaluate context-window compaction policy before applying the switch, including effort-only and unchanged selections while idle. An effort-only change applies immediately without compaction when a turn is active, including when the turn starts during preflight; an explicit `compactionDecision: "cancel"` still cancels the change. Other switches retain preflight and may be deferred until the active turn ends. */
     @JsonProperty("runCompactionPreflight")
     private Boolean runCompactionPreflight;
 
@@ -192,7 +192,7 @@ public final class SessionModelSwitchToRequest {
     /**
      * Returns the {@code runCompactionPreflight} property.
      *
-     * @return When true, evaluate context-window compaction policy before applying the switch.
+     * @return When true, evaluate context-window compaction policy before applying the switch, including effort-only and unchanged selections while idle. An effort-only change applies immediately without compaction when a turn is active, including when the turn starts during preflight; an explicit `compactionDecision: "cancel"` still cancels the change. Other switches retain preflight and may be deferred until the active turn ends.
      */
     public Boolean getRunCompactionPreflight() {
         return runCompactionPreflight;
@@ -345,7 +345,7 @@ public final class SessionModelSwitchToRequest {
     /**
      * Sets the {@code runCompactionPreflight} property.
      *
-     * @param value When true, evaluate context-window compaction policy before applying the switch.
+     * @param value When true, evaluate context-window compaction policy before applying the switch, including effort-only and unchanged selections while idle. An effort-only change applies immediately without compaction when a turn is active, including when the turn starts during preflight; an explicit `compactionDecision: "cancel"` still cancels the change. Other switches retain preflight and may be deferred until the active turn ends.
      * @return this request
      */
     public SessionModelSwitchToRequest setRunCompactionPreflight(Boolean value) {

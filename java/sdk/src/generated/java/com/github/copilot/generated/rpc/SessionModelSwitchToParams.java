@@ -46,7 +46,7 @@ public record SessionModelSwitchToParams(
     @JsonProperty("deferIfModelChangeQueued") Boolean deferIfModelChangeQueued,
     /** Explicit response to a model-switch compaction preflight. Omit to request a confirmation projection when compaction is necessary. */
     @JsonProperty("compactionDecision") String compactionDecision,
-    /** When true, evaluate context-window compaction policy before applying the switch. */
+    /** When true, evaluate context-window compaction policy before applying the switch, including effort-only and unchanged selections while idle. An effort-only change applies immediately without compaction when a turn is active, including when the turn starts during preflight; an explicit `compactionDecision: "cancel"` still cancels the change. Other switches retain preflight and may be deferred until the active turn ends. */
     @JsonProperty("runCompactionPreflight") Boolean runCompactionPreflight,
     /** Optional repository settings scope to persist after the switch commits. */
     @JsonProperty("repoScope") String repoScope,

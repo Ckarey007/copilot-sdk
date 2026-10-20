@@ -24,7 +24,7 @@ pub use crate::copilot_request_handler::{
 pub use crate::copilot_request_handler::{
     CopilotWebSocketForwarder, CopilotWebSocketForwarderBuilder, forward_http,
 };
-use crate::generated::api_types::{CurrentToolMetadata, OpenCanvasInstance};
+use crate::generated::api_types::{CurrentToolMetadata, OpenCanvasInstance, SandboxConfig};
 pub use crate::generated::api_types::{
     DiagnosticLogLevel, DiagnosticSourcesConfiguration, DiagnosticsConfiguration,
     McpDiagnosticSourceConfiguration,
@@ -2366,6 +2366,10 @@ pub struct SessionConfig {
     /// not started or authenticated on create or cold resume; a resident resume
     /// cannot stop servers that are already running.
     pub disabled_mcp_servers: Option<Vec<String>>,
+    /// Sandbox configuration applied when the session is constructed, before MCP servers start.
+    /// Same shape as the `sandboxConfig` option of session options update;
+    /// an identical later update is a no-op.
+    pub sandbox_config: Option<SandboxConfig>,
     /// Enable session hooks. When `true`, the CLI sends `hooks.invoke`
     /// RPC requests at key lifecycle points (pre/post tool use, prompt
     /// submission, session start/end, errors).
@@ -2661,6 +2665,10 @@ impl std::fmt::Debug for SessionConfig {
             .field("image_generation", &self.image_generation)
             .field("disabled_skills", &self.disabled_skills)
             .field("disabled_mcp_servers", &self.disabled_mcp_servers)
+            .field(
+                "sandbox_config",
+                &self.sandbox_config.as_ref().map(|_| "<redacted>"),
+            )
             .field("hooks", &self.hooks)
             .field("custom_agents", &self.custom_agents)
             .field("default_agent", &self.default_agent)
@@ -2805,6 +2813,7 @@ impl Default for SessionConfig {
             image_generation: None,
             disabled_skills: None,
             disabled_mcp_servers: None,
+            sandbox_config: None,
             hooks: None,
             custom_agents: None,
             default_agent: None,
@@ -2983,6 +2992,7 @@ impl SessionConfig {
             image_generation: self.image_generation,
             disabled_skills: self.disabled_skills,
             disabled_mcp_servers: self.disabled_mcp_servers,
+            sandbox_config: self.sandbox_config,
             custom_agents: self.custom_agents,
             custom_agents_local_only: self.custom_agents_local_only,
             default_agent: self.default_agent,
@@ -3534,6 +3544,12 @@ impl SessionConfig {
         self
     }
 
+    /// Set the sandbox configuration applied during session construction, before MCP servers start.
+    pub fn with_sandbox_config(mut self, config: SandboxConfig) -> Self {
+        self.sandbox_config = Some(config);
+        self
+    }
+
     /// Set the custom agents (sub-agents) configured for this session.
     pub fn with_custom_agents<I: IntoIterator<Item = CustomAgentConfig>>(
         mut self,
@@ -3959,6 +3975,10 @@ pub struct ResumeSessionConfig {
     /// Exact MCP server names to disable on resume. This prevents startup and
     /// authentication during a cold resume, but cannot stop resident servers.
     pub disabled_mcp_servers: Option<Vec<String>>,
+    /// Sandbox configuration applied when the session is constructed, before MCP servers start.
+    /// Same shape as the `sandboxConfig` option of session options update;
+    /// an identical later update is a no-op.
+    pub sandbox_config: Option<SandboxConfig>,
     /// Enable session hooks on resume.
     pub hooks: Option<bool>,
     /// Custom agents to re-supply on resume.
@@ -4195,6 +4215,10 @@ impl std::fmt::Debug for ResumeSessionConfig {
             .field("image_generation", &self.image_generation)
             .field("disabled_skills", &self.disabled_skills)
             .field("disabled_mcp_servers", &self.disabled_mcp_servers)
+            .field(
+                "sandbox_config",
+                &self.sandbox_config.as_ref().map(|_| "<redacted>"),
+            )
             .field("hooks", &self.hooks)
             .field("custom_agents", &self.custom_agents)
             .field("default_agent", &self.default_agent)
@@ -4374,6 +4398,7 @@ impl ResumeSessionConfig {
             image_generation: self.image_generation,
             disabled_skills: self.disabled_skills,
             disabled_mcp_servers: self.disabled_mcp_servers,
+            sandbox_config: self.sandbox_config,
             custom_agents: self.custom_agents,
             custom_agents_local_only: self.custom_agents_local_only,
             default_agent: self.default_agent,
@@ -4487,6 +4512,7 @@ impl ResumeSessionConfig {
             image_generation: None,
             disabled_skills: None,
             disabled_mcp_servers: None,
+            sandbox_config: None,
             hooks: None,
             custom_agents: None,
             default_agent: None,
@@ -4993,6 +5019,12 @@ impl ResumeSessionConfig {
         S: Into<String>,
     {
         self.disabled_mcp_servers = Some(names.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Set the sandbox configuration applied during session construction, before MCP servers start.
+    pub fn with_sandbox_config(mut self, config: SandboxConfig) -> Self {
+        self.sandbox_config = Some(config);
         self
     }
 

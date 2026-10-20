@@ -36,11 +36,12 @@ import type {
     ProtocolExternalToolNamespace,
     RemoteSessionMode,
     CurrentToolMetadata,
+    SandboxConfig,
 } from "./generated/rpc.js";
 import type { ToolSet } from "./toolSet.js";
 export type { RemoteSessionMode } from "./generated/rpc.js";
 export type { CurrentToolMetadata } from "./generated/rpc.js";
-export type { SandboxConfigSource } from "./generated/rpc.js";
+export type { SandboxConfig, SandboxConfigSource } from "./generated/rpc.js";
 export type {
     AuthIdentityMetadata,
     AuthInfoType,
@@ -3126,6 +3127,15 @@ export interface SessionConfigBase {
      * this on a resident resume cannot stop servers that are already running.
      */
     disabledMcpServers?: string[];
+
+    /**
+     * Sandbox configuration applied before MCP servers or session tools start.
+     * Uses the same direct-host semantics and managed-policy validation as
+     * `session.rpc.options.update({ sandboxConfig })`. A policy conflict fails
+     * create or resume; an identical later update does not restart MCP servers.
+     * Re-supply on cold resume. Requires runtime-version support.
+     */
+    sandboxConfig?: SandboxConfig;
 
     /**
      * Infinite session configuration for persistent workspaces and automatic compaction.

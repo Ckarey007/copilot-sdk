@@ -4317,6 +4317,12 @@ public sealed partial class SessionFusionResolvedData
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public sealed partial class SessionFusionCompletedData
 {
+    /// <summary>True when the committed first pass ended with background work outstanding, so that work's completion notifications continue the conversation; absent otherwise.</summary>
+    [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("awaitingBackgroundWork")]
+    public bool? AwaitingBackgroundWork { get; set; }
+
     /// <summary>Total cached input tokens reported across all phases.</summary>
     [JsonPropertyName("cachedTokens")]
     public required long CachedTokens { get; set; }
@@ -4721,6 +4727,12 @@ public sealed partial class AssistantFusionPhaseCompletedData
     /// <summary>Elapsed execution time for the phase in milliseconds.</summary>
     [JsonPropertyName("durationMs")]
     public required double DurationMs { get; set; }
+
+    /// <summary>True when a first pass (Cascade primary or Critique draft) ended with background work outstanding, whether or not the turn then committed it without review; absent otherwise.</summary>
+    [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("endedWithBackgroundWork")]
+    public bool? EndedWithBackgroundWork { get; set; }
 
     /// <summary>Identifier of the HydraFusion turn containing the phase.</summary>
     [JsonPropertyName("fusionId")]
@@ -12600,6 +12612,11 @@ public sealed partial class PermissionAssistedApproval
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("evaluation")]
     public PermissionApprovalEvaluation? Evaluation { get; set; }
+
+    /// <summary>Runtime-generated correlation ID for the original judge invocation. Cached recommendations retain it. Absent when review was skipped or the event predates correlation support; never part of the judge prompt.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("evaluationId")]
+    public string? EvaluationId { get; set; }
 
     /// <summary>Classified cause of an `error` recommendation. Absent for every other recommendation.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -21746,6 +21763,9 @@ public readonly struct PermissionApprovalEvaluationReasonCode : IEquatable<Permi
 
     /// <summary>Managed policy required a human decision.</summary>
     public static PermissionApprovalEvaluationReasonCode ManagedApprovalRequired { get; } = new("managed-approval-required");
+
+    /// <summary>An extension capability grant required explicit user consent.</summary>
+    public static PermissionApprovalEvaluationReasonCode ExtensionPermissionAccess { get; } = new("extension-permission-access");
 
     /// <summary>The request asked to bypass sandbox restrictions.</summary>
     public static PermissionApprovalEvaluationReasonCode SandboxBypass { get; } = new("sandbox-bypass");

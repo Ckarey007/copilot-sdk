@@ -21,7 +21,7 @@ use serde::Serialize;
 
 use crate::canvas::CanvasDeclaration;
 use crate::generated::api_types::{
-    ModelCapabilitiesOverride, OpenCanvasInstance, RemoteSessionMode,
+    ModelCapabilitiesOverride, OpenCanvasInstance, RemoteSessionMode, SandboxConfig,
 };
 use crate::generated::session_events::ReasoningSummary;
 use crate::types::{
@@ -158,6 +158,8 @@ pub(crate) struct SessionCreateWire {
     pub disabled_skills: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disabled_mcp_servers: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_config: Option<SandboxConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_agents: Option<Vec<CustomAgentConfig>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -338,6 +340,8 @@ pub(crate) struct SessionResumeWire {
     pub disabled_skills: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disabled_mcp_servers: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_config: Option<SandboxConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_agents: Option<Vec<CustomAgentConfig>>,
     #[serde(skip_serializing_if = "Option::is_none")]

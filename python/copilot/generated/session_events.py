@@ -530,6 +530,8 @@ class AssistantFusionPhaseCompletedData:
     status: FusionPhaseStatus
     usage: FusionPhaseUsage
     verdict: str | None
+    # Experimental: this field is part of an experimental API and may change or be removed.
+    ended_with_background_work: bool | None = None
     # Internal: this field is an internal SDK API and is not part of the public surface.
     _projection_message: Any = None
     # Internal: this field is an internal SDK API and is not part of the public surface.
@@ -553,6 +555,7 @@ class AssistantFusionPhaseCompletedData:
         status = parse_enum(FusionPhaseStatus, obj.get("status"))
         usage = FusionPhaseUsage.from_dict(obj.get("usage"))
         verdict = from_union([from_none, from_str], obj.get("verdict"))
+        ended_with_background_work = from_union([from_none, from_bool], obj.get("endedWithBackgroundWork"))
         _projection_message = obj.get("projectionMessage")
         _projection_mode = from_union([from_none, lambda x: parse_enum(_FusionProjectionMode, x)], obj.get("projectionMode"))
         reasoning_effort = from_union([from_none, from_str], obj.get("reasoningEffort"))
@@ -569,6 +572,7 @@ class AssistantFusionPhaseCompletedData:
             status=status,
             usage=usage,
             verdict=verdict,
+            ended_with_background_work=ended_with_background_work,
             _projection_message=_projection_message,
             _projection_mode=_projection_mode,
             reasoning_effort=reasoning_effort,
@@ -588,6 +592,8 @@ class AssistantFusionPhaseCompletedData:
         result["status"] = to_enum(FusionPhaseStatus, self.status)
         result["usage"] = to_class(FusionPhaseUsage, self.usage)
         result["verdict"] = from_union([from_none, from_str], self.verdict)
+        if self.ended_with_background_work is not None:
+            result["endedWithBackgroundWork"] = from_union([from_none, from_bool], self.ended_with_background_work)
         if self._projection_message is not None:
             result["projectionMessage"] = self._projection_message
         if self._projection_mode is not None:
@@ -1528,6 +1534,7 @@ class PermissionAssistedApproval:
     "Assisted-approval judge information attached to a permission request. Present only in assisted mode; its absence means the judge did not evaluate the request. The `recommendation` conveys the judge's disposition for this request."
     recommendation: AssistedApprovalRecommendation
     evaluation: PermissionApprovalEvaluation | None = None
+    evaluation_id: str | None = None
     failure_reason: AssistedApprovalJudgeFailureReason | None = None
     model: str | None = None
     reason: str | None = None
@@ -1537,12 +1544,14 @@ class PermissionAssistedApproval:
         assert isinstance(obj, dict)
         recommendation = parse_enum(AssistedApprovalRecommendation, obj.get("recommendation"))
         evaluation = from_union([from_none, PermissionApprovalEvaluation.from_dict], obj.get("evaluation"))
+        evaluation_id = from_union([from_none, from_str], obj.get("evaluationId"))
         failure_reason = from_union([from_none, lambda x: parse_enum(AssistedApprovalJudgeFailureReason, x)], obj.get("failureReason"))
         model = from_union([from_none, from_str], obj.get("model"))
         reason = from_union([from_none, from_str], obj.get("reason"))
         return PermissionAssistedApproval(
             recommendation=recommendation,
             evaluation=evaluation,
+            evaluation_id=evaluation_id,
             failure_reason=failure_reason,
             model=model,
             reason=reason,
@@ -1553,6 +1562,8 @@ class PermissionAssistedApproval:
         result["recommendation"] = to_enum(AssistedApprovalRecommendation, self.recommendation)
         if self.evaluation is not None:
             result["evaluation"] = from_union([from_none, lambda x: to_class(PermissionApprovalEvaluation, x)], self.evaluation)
+        if self.evaluation_id is not None:
+            result["evaluationId"] = from_union([from_none, from_str], self.evaluation_id)
         if self.failure_reason is not None:
             result["failureReason"] = from_union([from_none, lambda x: to_enum(AssistedApprovalJudgeFailureReason, x)], self.failure_reason)
         if self.model is not None:
@@ -2334,6 +2345,8 @@ class SessionFusionCompletedData:
     synthetic_model: str
     total_nano_aiu: float
     turn_id: str
+    # Experimental: this field is part of an experimental API and may change or be removed.
+    awaiting_background_work: bool | None = None
     cache_write_tokens: int | None = None
 
     @staticmethod
@@ -2356,6 +2369,7 @@ class SessionFusionCompletedData:
         synthetic_model = from_str(obj.get("syntheticModel"))
         total_nano_aiu = from_float(obj.get("totalNanoAiu"))
         turn_id = from_str(obj.get("turnId"))
+        awaiting_background_work = from_union([from_none, from_bool], obj.get("awaitingBackgroundWork"))
         cache_write_tokens = from_union([from_none, from_int], obj.get("cacheWriteTokens"))
         return SessionFusionCompletedData(
             cached_tokens=cached_tokens,
@@ -2375,6 +2389,7 @@ class SessionFusionCompletedData:
             synthetic_model=synthetic_model,
             total_nano_aiu=total_nano_aiu,
             turn_id=turn_id,
+            awaiting_background_work=awaiting_background_work,
             cache_write_tokens=cache_write_tokens,
         )
 
@@ -2397,6 +2412,8 @@ class SessionFusionCompletedData:
         result["syntheticModel"] = from_str(self.synthetic_model)
         result["totalNanoAiu"] = to_float(self.total_nano_aiu)
         result["turnId"] = from_str(self.turn_id)
+        if self.awaiting_background_work is not None:
+            result["awaitingBackgroundWork"] = from_union([from_none, from_bool], self.awaiting_background_work)
         if self.cache_write_tokens is not None:
             result["cacheWriteTokens"] = from_union([from_none, to_int], self.cache_write_tokens)
         return result
@@ -15892,6 +15909,8 @@ class PermissionApprovalEvaluationReasonCode(Enum):
     AUTHORIZATION_HISTORY_INCOMPLETE = "authorization-history-incomplete"
     # Managed policy required a human decision.
     MANAGED_APPROVAL_REQUIRED = "managed-approval-required"
+    # An extension capability grant required explicit user consent.
+    EXTENSION_PERMISSION_ACCESS = "extension-permission-access"
     # The request asked to bypass sandbox restrictions.
     SANDBOX_BYPASS = "sandbox-bypass"
     # An action field exceeded the judge input limit.

@@ -4,6 +4,7 @@
 
 using Xunit;
 using InstallationDecision = GitHub.Copilot.Rpc.InstallationDecision;
+using SandboxConfig = GitHub.Copilot.Rpc.SandboxConfig;
 
 namespace GitHub.Copilot.Test.Unit;
 
@@ -141,6 +142,7 @@ public class CloneTests
             InstructionDirectories = ["/instructions"],
             DisabledSkills = ["skill1"],
             DisabledMcpServers = ["server1"],
+            SandboxConfig = new SandboxConfig { Enabled = true, SandboxMcpServers = false },
             PluginDirectories = ["/plugins"],
             LargeOutput = new LargeToolOutputConfig { Enabled = true, MaxSizeBytes = 2048, OutputDirectory = "/tmp/out" },
             Memory = new MemoryConfiguration { Enabled = true },
@@ -184,6 +186,7 @@ public class CloneTests
         Assert.Equal(original.InstructionDirectories, clone.InstructionDirectories);
         Assert.Equal(original.DisabledSkills, clone.DisabledSkills);
         Assert.Equal(original.DisabledMcpServers, clone.DisabledMcpServers);
+        Assert.Same(original.SandboxConfig, clone.SandboxConfig);
         Assert.Equal(original.PluginDirectories, clone.PluginDirectories);
         Assert.Same(original.LargeOutput, clone.LargeOutput);
         Assert.Same(original.Memory, clone.Memory);
@@ -415,6 +418,7 @@ public class CloneTests
         Assert.Null(clone.InstructionDirectories);
         Assert.Null(clone.DisabledSkills);
         Assert.Null(clone.DisabledMcpServers);
+        Assert.Null(clone.SandboxConfig);
         Assert.Null(clone.Tools);
         Assert.Null(clone.DefaultAgent);
         Assert.True(clone.IncludeSubAgentStreamingEvents);
@@ -689,6 +693,20 @@ public class CloneTests
         var clone = original.Clone();
 
         Assert.Equal(McpOAuthTokenStorageMode.Persistent, clone.McpOAuthTokenStorage);
+    }
+
+    [Fact]
+    public void ResumeSessionConfig_Clone_CopiesSandboxConfig()
+    {
+        var original = new ResumeSessionConfig
+        {
+            SandboxConfig = new SandboxConfig { Enabled = false, AddCurrentWorkingDirectory = false },
+        };
+
+        var clone = original.Clone();
+
+        Assert.Same(original.SandboxConfig, clone.SandboxConfig);
+        Assert.Null(new ResumeSessionConfig().Clone().SandboxConfig);
     }
 
     [Fact]

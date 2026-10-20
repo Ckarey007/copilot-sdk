@@ -272,6 +272,7 @@ impl PermissionHandler for ContextualApproveHandler {
             response_capability: None,
             source: PermissionDecisionSource::HumanResponse,
             surface: PermissionDecisionSurface::CopilotApp,
+            user_feedback: None,
         })
     }
 }

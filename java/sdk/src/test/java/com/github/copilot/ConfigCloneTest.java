@@ -20,6 +20,7 @@ import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import com.github.copilot.generated.SessionEvent;
+import com.github.copilot.generated.rpc.SandboxConfig;
 import com.github.copilot.generated.rpc.SessionLimitsConfig;
 import com.github.copilot.rpc.AutoModeSwitchResponse;
 import com.github.copilot.rpc.AskUserVariant;
@@ -127,6 +128,7 @@ class ConfigCloneTest {
         original.setAskUserVariant(AskUserVariant.ELICITATION);
         original.setPluginDirectories(List.of("/plugins/a", "/plugins/b"));
         original.setDisabledMcpServers(List.of("local-files", "remote-github"));
+        original.setSandboxConfig(new SandboxConfig(true, null, false, true, null, null, null, null, null, null, null));
         original.setLargeOutput(
                 new LargeToolOutputConfig().setEnabled(true).setMaxSizeBytes(1024L).setOutputDirectory("/tmp/out"));
         original.setMemory(new MemoryConfiguration().setEnabled(true));
@@ -142,9 +144,24 @@ class ConfigCloneTest {
         assertEquals(original.getAskUserVariant(), cloned.getAskUserVariant());
         assertEquals(original.getPluginDirectories(), cloned.getPluginDirectories());
         assertEquals(original.getDisabledMcpServers(), cloned.getDisabledMcpServers());
+        assertSame(original.getSandboxConfig(), cloned.getSandboxConfig());
         assertEquals(original.getLargeOutput(), cloned.getLargeOutput());
         assertEquals(original.getMemory(), cloned.getMemory());
         assertEquals(original.isStreaming(), cloned.isStreaming());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void sandboxConfigCloned(boolean enabled) {
+        var sandbox = new SandboxConfig(enabled, null, false, true, null, null, null, null, null, null, null);
+        var create = new SessionConfig();
+        assertSame(create, create.setSandboxConfig(sandbox));
+        assertSame(sandbox, create.clone().getSandboxConfig());
+        var resume = new ResumeSessionConfig();
+        assertSame(resume, resume.setSandboxConfig(sandbox));
+        assertSame(sandbox, resume.clone().getSandboxConfig());
+        assertNull(new SessionConfig().clone().getSandboxConfig());
+        assertNull(new ResumeSessionConfig().clone().getSandboxConfig());
     }
 
     @ParameterizedTest

@@ -118,6 +118,7 @@ impl PermissionResult {
     ///     response_capability: None,
     ///     source: PermissionDecisionSource::HostPolicy,
     ///     surface: PermissionDecisionSurface::Sdk,
+    ///     user_feedback: None,
     /// });
     /// ```
     pub fn with_context(self, context: PermissionDecisionContext) -> Self {

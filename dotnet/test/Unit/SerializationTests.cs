@@ -569,6 +569,40 @@ public class SerializationTests
     }
 
     [Fact]
+    public void SessionRequests_CanSerializeSandboxConfig_WithSdkOptions()
+    {
+        var options = GetSerializerOptions();
+        foreach (var requestName in new[] { "CreateSessionRequest", "ResumeSessionRequest" })
+        {
+            var requestType = GetNestedType(typeof(CopilotClient), requestName);
+            foreach (var enabled in new[] { true, false })
+            {
+                var request = CreateInternalRequest(
+                    requestType,
+                    ("SessionId", "session-id"),
+                    ("SandboxConfig", new SandboxConfig
+                    {
+                        Enabled = enabled,
+                        AddCurrentWorkingDirectory = false,
+                        SandboxMcpServers = true,
+                    }));
+
+                var json = JsonSerializer.Serialize(request, requestType, options);
+                using var document = JsonDocument.Parse(json);
+                var sandbox = document.RootElement.GetProperty("sandboxConfig");
+                Assert.Equal(enabled, sandbox.GetProperty("enabled").GetBoolean());
+                Assert.False(sandbox.GetProperty("addCurrentWorkingDirectory").GetBoolean());
+                Assert.True(sandbox.GetProperty("sandboxMcpServers").GetBoolean());
+            }
+
+            var omitted = CreateInternalRequest(requestType, ("SessionId", "session-id"));
+            var omittedJson = JsonSerializer.Serialize(omitted, requestType, options);
+            using var omittedDocument = JsonDocument.Parse(omittedJson);
+            Assert.False(omittedDocument.RootElement.TryGetProperty("sandboxConfig", out _));
+        }
+    }
+
+    [Fact]
     public void SessionRequests_CanSerializeMemory_WithSdkOptions()
     {
         var options = GetSerializerOptions();

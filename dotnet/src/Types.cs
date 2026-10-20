@@ -3846,6 +3846,7 @@ public abstract class SessionConfigBase
         DisabledSkills = other.DisabledSkills is not null ? [.. other.DisabledSkills] : null;
         IncludedBuiltinSkills = other.IncludedBuiltinSkills is not null ? [.. other.IncludedBuiltinSkills] : null;
         DisabledMcpServers = other.DisabledMcpServers is not null ? [.. other.DisabledMcpServers] : null;
+        SandboxConfig = other.SandboxConfig;
         EnableCitations = other.EnableCitations;
         EnableFileChangeTracking = other.EnableFileChangeTracking;
         EnableConfigDiscovery = other.EnableConfigDiscovery;
@@ -4388,6 +4389,14 @@ public abstract class SessionConfigBase
     /// stop servers that are already running.
     /// </summary>
     public IList<string>? DisabledMcpServers { get; set; }
+
+    /// <summary>
+    /// Sandbox configuration applied when the session is constructed, before MCP servers start.
+    /// Same shape as the sandboxConfig option of session options update;
+    /// an identical later update is a no-op.
+    /// </summary>
+    [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+    public SandboxConfig? SandboxConfig { get; set; }
 
     /// <summary>
     /// Infinite session configuration for persistent workspaces and automatic compaction.

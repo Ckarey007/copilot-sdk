@@ -13,6 +13,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import com.github.copilot.CopilotExperimental;
 import com.github.copilot.generated.rpc.DiagnosticsConfiguration;
+import com.github.copilot.generated.rpc.SandboxConfig;
 import com.github.copilot.generated.rpc.SessionLimitsConfig;
 
 /**
@@ -179,6 +180,9 @@ public final class CreateSessionRequest {
 
     @JsonProperty("disabledMcpServers")
     private List<String> disabledMcpServers;
+
+    @JsonProperty("sandboxConfig")
+    private SandboxConfig sandboxConfig;
 
     @JsonProperty("configDir")
     private String configDirectory;
@@ -859,6 +863,20 @@ public final class CreateSessionRequest {
      */
     public void setDisabledMcpServers(List<String> disabledMcpServers) {
         this.disabledMcpServers = disabledMcpServers;
+    }
+
+    /** Gets sandbox configuration. @return the sandbox configuration */
+    @CopilotExperimental
+    public SandboxConfig getSandboxConfig() {
+        return sandboxConfig;
+    }
+
+    /**
+     * Sets sandbox configuration. @param sandboxConfig the sandbox configuration
+     */
+    @CopilotExperimental
+    public void setSandboxConfig(SandboxConfig sandboxConfig) {
+        this.sandboxConfig = sandboxConfig;
     }
 
     /** Gets config directory. @return the config directory path */

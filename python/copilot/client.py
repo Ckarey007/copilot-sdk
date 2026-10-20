@@ -84,6 +84,7 @@ from .generated.rpc import (
     ModelBillingTokenPricesLongContext,  # noqa: F401
     OpenCanvasInstance,
     RemoteSessionMode,
+    SandboxConfig,
     ServerRpc,
     _ConnectResult,
     _HookInvokeRequest,
@@ -2435,6 +2436,7 @@ class CopilotClient:
         instruction_directories: list[str] | None = None,
         disabled_skills: list[str] | None = None,
         disabled_mcp_servers: list[str] | None = None,
+        sandbox_config: SandboxConfig | None = None,
         infinite_sessions: InfiniteSessionConfig | None = None,
         large_output: LargeToolOutputConfig | None = None,
         memory: MemoryConfiguration | None = None,
@@ -2618,6 +2620,9 @@ class CopilotClient:
                 session. Disabled servers are not started or authenticated on
                 create or cold resume; a resident resume cannot stop servers
                 already running. This does not change global MCP settings.
+            sandbox_config: Sandbox configuration applied when the session is constructed,
+                before MCP servers start. Same shape as the sandboxConfig option of session
+                options update; an identical later update is a no-op.
             infinite_sessions: Infinite session configuration.
             memory: Session memory configuration.
             image_generation: **Experimental.** Image generation opt-in. Not persisted; re-supply
@@ -2976,6 +2981,8 @@ class CopilotClient:
             payload["disabledSkills"] = disabled_skills
         if disabled_mcp_servers is not None:
             payload["disabledMcpServers"] = disabled_mcp_servers
+        if sandbox_config is not None:
+            payload["sandboxConfig"] = sandbox_config.to_dict()
 
         # Add infinite sessions configuration if provided
         if infinite_sessions:
@@ -3360,6 +3367,7 @@ class CopilotClient:
         instruction_directories: list[str] | None = None,
         disabled_skills: list[str] | None = None,
         disabled_mcp_servers: list[str] | None = None,
+        sandbox_config: SandboxConfig | None = None,
         infinite_sessions: InfiniteSessionConfig | None = None,
         large_output: LargeToolOutputConfig | None = None,
         memory: MemoryConfiguration | None = None,
@@ -3531,6 +3539,9 @@ class CopilotClient:
                 session. Disabled servers are not started or authenticated on
                 create or cold resume; a resident resume cannot stop servers
                 already running. This does not change global MCP settings.
+            sandbox_config: Sandbox configuration applied when the session is constructed,
+                before MCP servers start. Same shape as the sandboxConfig option of session
+                options update; an identical later update is a no-op.
             infinite_sessions: Infinite session configuration.
             memory: Session memory configuration.
             image_generation: **Experimental.** Image generation opt-in. Omission preserves a
@@ -3857,6 +3868,8 @@ class CopilotClient:
             payload["disabledSkills"] = disabled_skills
         if disabled_mcp_servers is not None:
             payload["disabledMcpServers"] = disabled_mcp_servers
+        if sandbox_config is not None:
+            payload["sandboxConfig"] = sandbox_config.to_dict()
 
         if infinite_sessions:
             wire_config: dict[str, Any] = {}

@@ -27,8 +27,10 @@ public record AutoTierDescriptor(
     @JsonProperty("displayName") String displayName,
     /** Description displayed beside the preference. */
     @JsonProperty("description") String description,
-    /** Execution kind; this client supports `auto` preferences on the Auto model. */
+    /** Execution kind; supported preferences use `auto` or the runtime's `fusion` modes. */
     @JsonProperty("type") String type,
+    /** Runtime-owned managed Fusion tier represented by this execution descriptor, if any. */
+    @JsonProperty("fusionTier") String fusionTier,
     /** Current account-specific availability. */
     @JsonProperty("status") AutoTierStatus status,
     /** Billing information for this preference, such as an announced or active promotion. */

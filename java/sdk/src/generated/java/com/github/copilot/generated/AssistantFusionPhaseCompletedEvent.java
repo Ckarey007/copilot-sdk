@@ -69,7 +69,10 @@ public final class AssistantFusionPhaseCompletedEvent extends SessionEvent {
         /** Projection action for the exact internal message. */
         @JsonProperty("projectionMode") FusionProjectionMode projectionMode,
         /** Terminal request held outside canonical state until selected by the final commit. */
-        @JsonProperty("stagedTerminal") FusionStagedTerminal stagedTerminal
+        @JsonProperty("stagedTerminal") FusionStagedTerminal stagedTerminal,
+        /** True when a first pass (Cascade primary or Critique draft) ended with background work outstanding, whether or not the turn then committed it without review; absent otherwise. */
+        @CopilotExperimental
+        @JsonProperty("endedWithBackgroundWork") Boolean endedWithBackgroundWork
     ) {
     }
 }

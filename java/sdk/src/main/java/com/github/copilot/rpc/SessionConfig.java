@@ -18,6 +18,7 @@ import com.github.copilot.CopilotExperimental;
 import com.github.copilot.SkillProvider;
 import com.github.copilot.generated.SessionEvent;
 import com.github.copilot.generated.rpc.DiagnosticsConfiguration;
+import com.github.copilot.generated.rpc.SandboxConfig;
 import com.github.copilot.generated.rpc.SessionLimitsConfig;
 
 /**
@@ -96,6 +97,7 @@ public class SessionConfig {
     private MemoryConfiguration memory;
     private List<String> disabledSkills;
     private List<String> disabledMcpServers;
+    private SandboxConfig sandboxConfig;
     private String configDirectory;
     private Boolean enableConfigDiscovery;
     private Boolean skipEmbeddingRetrieval;
@@ -1551,6 +1553,31 @@ public class SessionConfig {
     }
 
     /**
+     * Gets the sandbox configuration applied during session construction.
+     *
+     * @return the sandbox configuration, or {@code null} when omitted
+     */
+    @CopilotExperimental
+    public SandboxConfig getSandboxConfig() {
+        return sandboxConfig;
+    }
+
+    /**
+     * Sandbox configuration applied when the session is constructed, before MCP
+     * servers start. Same shape as the sandboxConfig option of session options
+     * update; an identical later update is a no-op.
+     *
+     * @param sandboxConfig
+     *            the sandbox configuration
+     * @return this config for method chaining
+     */
+    @CopilotExperimental
+    public SessionConfig setSandboxConfig(SandboxConfig sandboxConfig) {
+        this.sandboxConfig = sandboxConfig;
+        return this;
+    }
+
+    /**
      * Gets the custom configuration directory.
      *
      * @return the config directory path
@@ -2608,6 +2635,7 @@ public class SessionConfig {
         copy.memory = this.memory;
         copy.disabledSkills = this.disabledSkills != null ? new ArrayList<>(this.disabledSkills) : null;
         copy.disabledMcpServers = this.disabledMcpServers != null ? new ArrayList<>(this.disabledMcpServers) : null;
+        copy.sandboxConfig = this.sandboxConfig;
         copy.configDirectory = this.configDirectory;
         copy.enableConfigDiscovery = this.enableConfigDiscovery;
         copy.skipEmbeddingRetrieval = this.skipEmbeddingRetrieval;

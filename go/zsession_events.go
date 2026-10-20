@@ -813,6 +813,7 @@ const (
 	PermissionApprovalEvaluationReasonCodeDynamicSource                  = rpc.PermissionApprovalEvaluationReasonCodeDynamicSource
 	PermissionApprovalEvaluationReasonCodeExecutableTooLarge             = rpc.PermissionApprovalEvaluationReasonCodeExecutableTooLarge
 	PermissionApprovalEvaluationReasonCodeExecutableUnavailable          = rpc.PermissionApprovalEvaluationReasonCodeExecutableUnavailable
+	PermissionApprovalEvaluationReasonCodeExtensionPermissionAccess      = rpc.PermissionApprovalEvaluationReasonCodeExtensionPermissionAccess
 	PermissionApprovalEvaluationReasonCodeInactive                       = rpc.PermissionApprovalEvaluationReasonCodeInactive
 	PermissionApprovalEvaluationReasonCodeInherited                      = rpc.PermissionApprovalEvaluationReasonCodeInherited
 	PermissionApprovalEvaluationReasonCodeInterpreterTooLarge            = rpc.PermissionApprovalEvaluationReasonCodeInterpreterTooLarge

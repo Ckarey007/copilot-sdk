@@ -3163,18 +3163,18 @@ export type SessionLogLevel =
   /** Error message describing a failure. */
   | "error";
 /**
- * Administrator-configured Ensemble preference, independent of execution support.
+ * Administrator-configured Fusion preference, independent of execution support.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "ManagedEnsembleTier".
+ * via the `definition` "ManagedFusionTier".
  */
 /** @experimental */
-export type ManagedEnsembleTier =
-  /** Balance efficiency and intelligence. */
-  | "balance"
-  /** Prefer higher intelligence. */
+export type ManagedFusionTier =
+  /** Use Auto Balance to balance capability, speed, and cost. */
+  | "standard"
+  /** Use HydraFusion, falling back to Auto Intelligence when unavailable. */
   | "high"
-  /** Prefer maximum intelligence. */
+  /** Use HydraFusion Max to prioritize quality. */
   | "max"
   /** Leave tier selection unmanaged without falling back to legacy Auto policy. */
   | "unmanaged";
@@ -9219,9 +9219,13 @@ export interface AutoTierDescriptor {
    */
   description: string;
   /**
-   * Execution kind; this client supports `auto` preferences on the Auto model.
+   * Execution kind; supported preferences use `auto` or the runtime's `fusion` modes.
    */
   type: string;
+  /**
+   * Runtime-owned managed Fusion tier represented by this execution descriptor, if any.
+   */
+  fusionTier?: string;
   status: AutoTierStatus;
   billing?: AutoTierBilling;
 }
@@ -17492,7 +17496,7 @@ export interface ManagedSettingsValues {
    */
   model?: string;
   autoTier?: AutoTier;
-  ensembleTier?: ManagedEnsembleTier;
+  fusionTier?: ManagedFusionTier;
   /**
    * Managed reasoning-effort default for the managed concrete model. The runtime clamps it to an entitled effort when model availability is known.
    */
@@ -17509,7 +17513,7 @@ export interface ManagedSettingsValues {
 export interface ManagedSettingsMeta {
   model?: ManagedSettingMeta;
   autoTier?: ManagedSettingMeta;
-  ensembleTier?: ManagedSettingMeta;
+  fusionTier?: ManagedSettingMeta;
   effortLevel?: ManagedSettingMeta;
   contextTier?: ManagedSettingMeta;
 }
@@ -22631,7 +22635,7 @@ export interface ModelSwitchToRequest {
    */
   compactionDecision?: string;
   /**
-   * When true, evaluate context-window compaction policy before applying the switch.
+   * When true, evaluate context-window compaction policy before applying the switch, including effort-only and unchanged selections while idle. An effort-only change applies immediately without compaction when a turn is active, including when the turn starts during preflight; an explicit `compactionDecision: "cancel"` still cancels the change. Other switches retain preflight and may be deferred until the active turn ends.
    */
   runCompactionPreflight?: boolean;
   /**
@@ -23667,6 +23671,10 @@ export interface PermissionDecisionContext {
   source: PermissionDecisionSource;
   surface: PermissionDecisionSurface;
   responseCapability?: PermissionResponseCapability;
+  /**
+   * Optional user-authored explanation of this decision, independent of approval scope. Collected only in restricted telemetry for accepted human responses to Assisted Permissions prompts. Never persisted in session history, sent to the agent or judge, or used to create approval rules. Existing rejection feedback is separate.
+   */
+  userFeedback?: string;
 }
 /**
  * Pending permission request ID and the decision to apply (approve/reject and scope).

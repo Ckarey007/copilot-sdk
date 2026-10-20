@@ -18,6 +18,7 @@ import com.github.copilot.generated.rpc.DiagnosticLogLevel;
 import com.github.copilot.generated.rpc.DiagnosticSourcesConfiguration;
 import com.github.copilot.generated.rpc.DiagnosticsConfiguration;
 import com.github.copilot.generated.rpc.McpDiagnosticSourceConfiguration;
+import com.github.copilot.generated.rpc.SandboxConfig;
 import com.github.copilot.generated.rpc.SessionLimitsConfig;
 import com.github.copilot.rpc.AskUserVariant;
 import com.github.copilot.rpc.AutoModeSwitchResponse;
@@ -420,6 +421,33 @@ public class SessionRequestBuilderTest {
         assertEquals(largeOutput, request.getLargeOutput());
         assertTrue(JsonRpcClient.getObjectMapper().writeValueAsString(request)
                 .contains("\"disabledMcpServers\":[\"local-files\",\"remote-github\"]"));
+    }
+
+    @Test
+    void testBuildRequestsForwardSandboxConfig() throws Exception {
+        var mapper = JsonRpcClient.getObjectMapper();
+        for (boolean enabled : new boolean[]{true, false}) {
+            var sandbox = new SandboxConfig(enabled, null, false, true, null, null, null, null, null, null, null);
+            var create = SessionRequestBuilder.buildCreateRequest(new SessionConfig().setSandboxConfig(sandbox));
+            var resume = SessionRequestBuilder.buildResumeRequest("sid-sandbox",
+                    new ResumeSessionConfig().setSandboxConfig(sandbox));
+            assertSame(sandbox, create.getSandboxConfig());
+            assertSame(sandbox, resume.getSandboxConfig());
+            for (var request : List.of(create, resume)) {
+                var json = mapper.readTree(mapper.writeValueAsBytes(request));
+                var config = json.get("sandboxConfig");
+                assertEquals(enabled, config.get("enabled").asBoolean());
+                assertFalse(config.get("addCurrentWorkingDirectory").asBoolean());
+                assertTrue(config.get("sandboxMcpServers").asBoolean());
+            }
+        }
+        var create = SessionRequestBuilder.buildCreateRequest(new SessionConfig());
+        var resume = SessionRequestBuilder.buildResumeRequest("sid-sandbox", new ResumeSessionConfig());
+        assertNull(create.getSandboxConfig());
+        assertNull(resume.getSandboxConfig());
+        for (var request : List.of(create, resume)) {
+            assertFalse(mapper.readTree(mapper.writeValueAsBytes(request)).has("sandboxConfig"));
+        }
     }
 
     @Test

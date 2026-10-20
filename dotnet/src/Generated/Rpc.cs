@@ -2254,9 +2254,9 @@ public sealed class ManagedSettingsMeta
     [JsonPropertyName("effortLevel")]
     public ManagedSettingMeta? EffortLevel { get; set; }
 
-    /// <summary>Lock state and provenance of values.ensembleTier, including a legacy alias's original source. An unmanaged value imposes no tier lock.</summary>
-    [JsonPropertyName("ensembleTier")]
-    public ManagedSettingMeta? EnsembleTier { get; set; }
+    /// <summary>Lock state and provenance of values.fusionTier, including a legacy alias's original source. An unmanaged value imposes no tier lock.</summary>
+    [JsonPropertyName("fusionTier")]
+    public ManagedSettingMeta? FusionTier { get; set; }
 
     /// <summary>Lock state and provenance of `values.model`.</summary>
     [JsonPropertyName("model")]
@@ -2332,9 +2332,9 @@ public sealed class ManagedSettingsValues
     [JsonPropertyName("effortLevel")]
     public string? EffortLevel { get; set; }
 
-    /// <summary>Managed Ensemble preference. Takes precedence over autoTier even when unmanaged, which means no managed tier and forbids legacy fallback. Legacy Auto values are mapped only when no managed source supplies ensembleTier.</summary>
-    [JsonPropertyName("ensembleTier")]
-    public ManagedEnsembleTier? EnsembleTier { get; set; }
+    /// <summary>Managed Fusion preference. Takes precedence over autoTier even when unmanaged, which means no managed tier and forbids legacy fallback. Legacy Auto values are mapped only when no managed source supplies fusionTier.</summary>
+    [JsonPropertyName("fusionTier")]
+    public ManagedFusionTier? FusionTier { get; set; }
 
     /// <summary>Managed default model identifier. When model availability was resolved, aliases and family names are projected to a concrete available model ID; otherwise the configured value is returned.</summary>
     [JsonPropertyName("model")]
@@ -3157,6 +3157,10 @@ public sealed class AutoTierDescriptor
     [JsonPropertyName("displayName")]
     public string DisplayName { get; set; } = string.Empty;
 
+    /// <summary>Runtime-owned managed Fusion tier represented by this execution descriptor, if any.</summary>
+    [JsonPropertyName("fusionTier")]
+    public string? FusionTier { get; set; }
+
     /// <summary>Opaque routing identifier transmitted unchanged to the provider.</summary>
     [JsonPropertyName("id")]
     public string Id { get; set; } = string.Empty;
@@ -3165,7 +3169,7 @@ public sealed class AutoTierDescriptor
     [JsonPropertyName("status")]
     public AutoTierStatus Status { get => field ??= new(); set; }
 
-    /// <summary>Execution kind; this client supports `auto` preferences on the Auto model.</summary>
+    /// <summary>Execution kind; supported preferences use `auto` or the runtime's `fusion` modes.</summary>
     [JsonPropertyName("type")]
     public string Type { get; set; } = string.Empty;
 }
@@ -15815,6 +15819,10 @@ public sealed class PermissionDecisionContext
     /// <summary>Client surface that submitted the response.</summary>
     [JsonPropertyName("surface")]
     public PermissionDecisionSurface Surface { get; set; }
+
+    /// <summary>Optional user-authored explanation of this decision, independent of approval scope. Collected only in restricted telemetry for accepted human responses to Assisted Permissions prompts. Never persisted in session history, sent to the agent or judge, or used to create approval rules. Existing rejection feedback is separate.</summary>
+    [JsonPropertyName("userFeedback")]
+    public string? UserFeedback { get; set; }
 }
 
 /// <summary>Request to disable sandboxing for the current session while resolving an active sandbox-bypass permission prompt.</summary>
@@ -18610,7 +18618,7 @@ public sealed class ModelSwitchToRequest
     [JsonPropertyName("requireAvailable")]
     public bool? RequireAvailable { get; set; }
 
-    /// <summary>When true, evaluate context-window compaction policy before applying the switch.</summary>
+    /// <summary>When true, evaluate context-window compaction policy before applying the switch, including effort-only and unchanged selections while idle. An effort-only change applies immediately without compaction when a turn is active, including when the turn starts during preflight; an explicit `compactionDecision: "cancel"` still cancels the change. Other switches retain preflight and may be deferred until the active turn ends.</summary>
     [JsonPropertyName("runCompactionPreflight")]
     public bool? RunCompactionPreflight { get; set; }
 
@@ -18679,7 +18687,7 @@ internal sealed class ModelSwitchToRequestWithSession
     [JsonPropertyName("requireAvailable")]
     public bool? RequireAvailable { get; set; }
 
-    /// <summary>When true, evaluate context-window compaction policy before applying the switch.</summary>
+    /// <summary>When true, evaluate context-window compaction policy before applying the switch, including effort-only and unchanged selections while idle. An effort-only change applies immediately without compaction when a turn is active, including when the turn starts during preflight; an explicit `compactionDecision: "cancel"` still cancels the change. Other switches retain preflight and may be deferred until the active turn ends.</summary>
     [JsonPropertyName("runCompactionPreflight")]
     public bool? RunCompactionPreflight { get; set; }
 
@@ -34126,49 +34134,49 @@ public readonly struct ManagedSettingsDiagnosticSeverity : IEquatable<ManagedSet
 }
 
 
-/// <summary>Administrator-configured Ensemble preference, independent of execution support.</summary>
+/// <summary>Administrator-configured Fusion preference, independent of execution support.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 [JsonConverter(typeof(Converter))]
 [DebuggerDisplay("{Value,nq}")]
-public readonly struct ManagedEnsembleTier : IEquatable<ManagedEnsembleTier>
+public readonly struct ManagedFusionTier : IEquatable<ManagedFusionTier>
 {
     private readonly string? _value;
 
-    /// <summary>Initializes a new instance of the <see cref="ManagedEnsembleTier"/> struct.</summary>
-    /// <param name="value">The value to associate with this <see cref="ManagedEnsembleTier"/>.</param>
+    /// <summary>Initializes a new instance of the <see cref="ManagedFusionTier"/> struct.</summary>
+    /// <param name="value">The value to associate with this <see cref="ManagedFusionTier"/>.</param>
     [JsonConstructor]
-    public ManagedEnsembleTier(string value)
+    public ManagedFusionTier(string value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value);
         _value = value;
     }
 
-    /// <summary>Gets the value associated with this <see cref="ManagedEnsembleTier"/>.</summary>
+    /// <summary>Gets the value associated with this <see cref="ManagedFusionTier"/>.</summary>
     public string Value => _value ?? string.Empty;
 
-    /// <summary>Balance efficiency and intelligence.</summary>
-    public static ManagedEnsembleTier Balance { get; } = new("balance");
+    /// <summary>Use Auto Balance to balance capability, speed, and cost.</summary>
+    public static ManagedFusionTier Standard { get; } = new("standard");
 
-    /// <summary>Prefer higher intelligence.</summary>
-    public static ManagedEnsembleTier High { get; } = new("high");
+    /// <summary>Use HydraFusion, falling back to Auto Intelligence when unavailable.</summary>
+    public static ManagedFusionTier High { get; } = new("high");
 
-    /// <summary>Prefer maximum intelligence.</summary>
-    public static ManagedEnsembleTier Max { get; } = new("max");
+    /// <summary>Use HydraFusion Max to prioritize quality.</summary>
+    public static ManagedFusionTier Max { get; } = new("max");
 
     /// <summary>Leave tier selection unmanaged without falling back to legacy Auto policy.</summary>
-    public static ManagedEnsembleTier Unmanaged { get; } = new("unmanaged");
+    public static ManagedFusionTier Unmanaged { get; } = new("unmanaged");
 
-    /// <summary>Returns a value indicating whether two <see cref="ManagedEnsembleTier"/> instances are equivalent.</summary>
-    public static bool operator ==(ManagedEnsembleTier left, ManagedEnsembleTier right) => left.Equals(right);
+    /// <summary>Returns a value indicating whether two <see cref="ManagedFusionTier"/> instances are equivalent.</summary>
+    public static bool operator ==(ManagedFusionTier left, ManagedFusionTier right) => left.Equals(right);
 
-    /// <summary>Returns a value indicating whether two <see cref="ManagedEnsembleTier"/> instances are not equivalent.</summary>
-    public static bool operator !=(ManagedEnsembleTier left, ManagedEnsembleTier right) => !(left == right);
-
-    /// <inheritdoc />
-    public override bool Equals(object? obj) => obj is ManagedEnsembleTier other && Equals(other);
+    /// <summary>Returns a value indicating whether two <see cref="ManagedFusionTier"/> instances are not equivalent.</summary>
+    public static bool operator !=(ManagedFusionTier left, ManagedFusionTier right) => !(left == right);
 
     /// <inheritdoc />
-    public bool Equals(ManagedEnsembleTier other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
+    public override bool Equals(object? obj) => obj is ManagedFusionTier other && Equals(other);
+
+    /// <inheritdoc />
+    public bool Equals(ManagedFusionTier other) => string.Equals(Value, other.Value, StringComparison.OrdinalIgnoreCase);
 
     /// <inheritdoc />
     public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Value);
@@ -34176,20 +34184,20 @@ public readonly struct ManagedEnsembleTier : IEquatable<ManagedEnsembleTier>
     /// <inheritdoc />
     public override string ToString() => Value;
 
-    /// <summary>Provides a <see cref="JsonConverter{ManagedEnsembleTier}"/> for serializing <see cref="ManagedEnsembleTier"/> instances.</summary>
+    /// <summary>Provides a <see cref="JsonConverter{ManagedFusionTier}"/> for serializing <see cref="ManagedFusionTier"/> instances.</summary>
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public sealed class Converter : JsonConverter<ManagedEnsembleTier>
+    public sealed class Converter : JsonConverter<ManagedFusionTier>
     {
         /// <inheritdoc />
-        public override ManagedEnsembleTier Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        public override ManagedFusionTier Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
             return new(GeneratedStringEnumJson.ReadValue(ref reader, typeToConvert));
         }
 
         /// <inheritdoc />
-        public override void Write(Utf8JsonWriter writer, ManagedEnsembleTier value, JsonSerializerOptions options)
+        public override void Write(Utf8JsonWriter writer, ManagedFusionTier value, JsonSerializerOptions options)
         {
-            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(ManagedEnsembleTier));
+            GeneratedStringEnumJson.WriteValue(writer, value.Value, typeof(ManagedFusionTier));
         }
     }
 }
@@ -55953,7 +55961,7 @@ public sealed class ModelApi
     /// <param name="source">Origin to record on the effective `session.model_change` event for trusted in-process calls. Transport SDK calls are always recorded as `sdk`, regardless of this value.</param>
     /// <param name="deferIfModelChangeQueued">When true, defer this switch (enqueue it) if another model change is already queued, even when no turn is active — so it drains last (FIFO) and wins over the already-queued change. Intended for genuine user-initiated model selections; internal restore/reapply switches omit it and apply immediately when no turn is active. When no other model change is queued this has no effect (a switch still applies immediately unless a turn is active).</param>
     /// <param name="compactionDecision">Explicit response to a model-switch compaction preflight. Omit to request a confirmation projection when compaction is necessary.</param>
-    /// <param name="runCompactionPreflight">When true, evaluate context-window compaction policy before applying the switch.</param>
+    /// <param name="runCompactionPreflight">When true, evaluate context-window compaction policy before applying the switch, including effort-only and unchanged selections while idle. An effort-only change applies immediately without compaction when a turn is active, including when the turn starts during preflight; an explicit `compactionDecision: "cancel"` still cancels the change. Other switches retain preflight and may be deferred until the active turn ends.</param>
     /// <param name="repoScope">Optional repository settings scope to persist after the switch commits.</param>
     /// <param name="modelChangeScope">Settings scope used when persisting the selected model.</param>
     /// <param name="requireAvailable">Require the target to be currently available and enabled before applying the switch.</param>

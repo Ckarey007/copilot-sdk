@@ -1155,6 +1155,9 @@ type AssistantFusionPhaseCompletedData struct {
 	ConversationScope FusionConversationScope `json:"conversationScope"`
 	// Elapsed execution time for the phase in milliseconds.
 	DurationMs float64 `json:"durationMs"`
+	// True when a first pass (Cascade primary or Critique draft) ended with background work outstanding, whether or not the turn then committed it without review; absent otherwise.
+	// Experimental: EndedWithBackgroundWork is part of an experimental API and may change or be removed.
+	EndedWithBackgroundWork *bool `json:"endedWithBackgroundWork,omitempty"`
 	// Identifier of the HydraFusion turn containing the phase.
 	FusionID string `json:"fusionId"`
 	// Concrete model that executed the phase.
@@ -1217,6 +1220,9 @@ func (*SessionFusionRouteFailedData) Type() SessionEventType {
 // Experimental durable aggregate outcome of a HydraFusion turn.
 // Experimental: SessionFusionCompletedData is part of an experimental API and may change or be removed.
 type SessionFusionCompletedData struct {
+	// True when the committed first pass ended with background work outstanding, so that work's completion notifications continue the conversation; absent otherwise.
+	// Experimental: AwaitingBackgroundWork is part of an experimental API and may change or be removed.
+	AwaitingBackgroundWork *bool `json:"awaitingBackgroundWork,omitempty"`
 	// Total cached input tokens reported across all phases.
 	CachedTokens int64 `json:"cachedTokens"`
 	// Total tokens written to prompt cache across all phases.
@@ -4373,6 +4379,8 @@ type PermissionApprovalEvaluation struct {
 type PermissionAssistedApproval struct {
 	// Runtime reason and judge-call metadata. Absent on older events; missing metadata means unknown, not that the judge was skipped.
 	Evaluation *PermissionApprovalEvaluation `json:"evaluation,omitempty"`
+	// Runtime-generated correlation ID for the original judge invocation. Cached recommendations retain it. Absent when review was skipped or the event predates correlation support; never part of the judge prompt.
+	EvaluationID *string `json:"evaluationId,omitempty"`
 	// Classified cause of an `error` recommendation. Absent for every other recommendation.
 	FailureReason *AssistedApprovalJudgeFailureReason `json:"failureReason,omitempty"`
 	// Model id that produced the recommendation, when the judge was consulted and reported one. Absent for `excluded` (the judge was not consulted) and for failures that occurred before a model was selected.
@@ -6863,6 +6871,8 @@ const (
 	PermissionApprovalEvaluationReasonCodeExecutableTooLarge PermissionApprovalEvaluationReasonCode = "executable-too-large"
 	// A code-bearing executable could not be inspected.
 	PermissionApprovalEvaluationReasonCodeExecutableUnavailable PermissionApprovalEvaluationReasonCode = "executable-unavailable"
+	// An extension capability grant required explicit user consent.
+	PermissionApprovalEvaluationReasonCodeExtensionPermissionAccess PermissionApprovalEvaluationReasonCode = "extension-permission-access"
 	// Assisted approval was inactive for this request.
 	PermissionApprovalEvaluationReasonCodeInactive PermissionApprovalEvaluationReasonCode = "inactive"
 	// The request inherited an outcome from another decision.

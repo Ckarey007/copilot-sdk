@@ -74,7 +74,10 @@ public final class SessionFusionCompletedEvent extends SessionEvent {
         /** Total normalized AI-unit cost reported across all phases, in nano-AIU. */
         @JsonProperty("totalNanoAiu") Double totalNanoAiu,
         /** Total elapsed execution time for the HydraFusion turn in milliseconds. */
-        @JsonProperty("durationMs") Double durationMs
+        @JsonProperty("durationMs") Double durationMs,
+        /** True when the committed first pass ended with background work outstanding, so that work's completion notifications continue the conversation; absent otherwise. */
+        @CopilotExperimental
+        @JsonProperty("awaitingBackgroundWork") Boolean awaitingBackgroundWork
     ) {
     }
 }

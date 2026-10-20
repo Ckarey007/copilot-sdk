@@ -1323,11 +1323,16 @@ func TestClient_ForwardsNewSessionOptionsToSessionRequests(t *testing.T) {
 		EnableCitations:          Bool(true),
 		EnableFileChangeTracking: Bool(true),
 		SessionLimits:            &rpc.SessionLimitsConfig{MaxAiCredits: float64Ptr(30)},
+		SandboxConfig: &rpc.SandboxConfig{
+			Enabled:                    true,
+			AddCurrentWorkingDirectory: Bool(false),
+			SandboxMCPServers:          Bool(true),
+		},
 	})
 	if err != nil {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
-	assertNewSessionOptions(t, <-createParams, true, true, "explore", 30)
+	assertNewSessionOptions(t, <-createParams, true, true, "explore", 30, true)
 
 	resumeParams := make(chan json.RawMessage, 1)
 	server.SetRequestHandler("session.resume", func(params json.RawMessage) (json.RawMessage, *jsonrpc2.Error) {
@@ -1340,11 +1345,16 @@ func TestClient_ForwardsNewSessionOptionsToSessionRequests(t *testing.T) {
 		EnableCitations:          Bool(false),
 		EnableFileChangeTracking: Bool(false),
 		SessionLimits:            &rpc.SessionLimitsConfig{MaxAiCredits: float64Ptr(15)},
+		SandboxConfig: &rpc.SandboxConfig{
+			Enabled:                    false,
+			AddCurrentWorkingDirectory: Bool(false),
+			SandboxMCPServers:          Bool(true),
+		},
 	})
 	if err != nil {
 		t.Fatalf("ResumeSessionWithOptions failed: %v", err)
 	}
-	assertNewSessionOptions(t, <-resumeParams, false, false, "task", 15)
+	assertNewSessionOptions(t, <-resumeParams, false, false, "task", 15, false)
 }
 
 func assertCapiOptions(t *testing.T, params json.RawMessage, want map[string]any) {
@@ -1377,6 +1387,7 @@ func assertNewSessionOptions(
 	expectedFileChangeTracking bool,
 	expectedAgent string,
 	expectedCredits float64,
+	expectedSandboxEnabled bool,
 ) {
 	t.Helper()
 
@@ -1400,6 +1411,14 @@ func assertNewSessionOptions(
 	}
 	if limits["maxAiCredits"] != expectedCredits {
 		t.Fatalf("expected sessionLimits.maxAiCredits=%v, got %v", expectedCredits, limits["maxAiCredits"])
+	}
+	expectedSandbox := map[string]any{
+		"enabled":                    expectedSandboxEnabled,
+		"addCurrentWorkingDirectory": false,
+		"sandboxMcpServers":          true,
+	}
+	if !reflect.DeepEqual(decoded["sandboxConfig"], expectedSandbox) {
+		t.Fatalf("expected sandboxConfig=%v, got %v", expectedSandbox, decoded["sandboxConfig"])
 	}
 }
 
@@ -2744,6 +2763,58 @@ func TestSessionRequests_PluginDirectoriesAndLargeOutput(t *testing.T) {
 			t.Error("Expected disabledMcpServers to be omitted")
 		}
 	})
+}
+
+func TestSessionRequests_SandboxConfig(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		sandboxConfig := &rpc.SandboxConfig{
+			Enabled:                    enabled,
+			AddCurrentWorkingDirectory: Bool(false),
+			SandboxMCPServers:          Bool(true),
+		}
+		expected := map[string]any{
+			"enabled":                    enabled,
+			"addCurrentWorkingDirectory": false,
+			"sandboxMcpServers":          true,
+		}
+		requests := map[string]any{
+			"create": createSessionRequest{SandboxConfig: sandboxConfig},
+			"resume": resumeSessionRequest{SessionID: "s1", SandboxConfig: sandboxConfig},
+		}
+		for name, request := range requests {
+			t.Run(fmt.Sprintf("%s enabled=%t", name, enabled), func(t *testing.T) {
+				data, err := json.Marshal(request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var wire map[string]any
+				if err := json.Unmarshal(data, &wire); err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(wire["sandboxConfig"], expected) {
+					t.Errorf("Expected sandboxConfig %v, got %v", expected, wire["sandboxConfig"])
+				}
+			})
+		}
+	}
+	for name, request := range map[string]any{
+		"create": createSessionRequest{},
+		"resume": resumeSessionRequest{SessionID: "s1"},
+	} {
+		t.Run(name+" omits unset sandboxConfig", func(t *testing.T) {
+			data, err := json.Marshal(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var wire map[string]any
+			if err := json.Unmarshal(data, &wire); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := wire["sandboxConfig"]; ok {
+				t.Errorf("Expected sandboxConfig to be omitted, got %s", data)
+			}
+		})
+	}
 }
 
 func TestSessionRequests_Memory(t *testing.T) {

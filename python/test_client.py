@@ -51,6 +51,7 @@ from copilot.generated.rpc import (
     DiagnosticsConfiguration,
     DiagnosticSourcesConfiguration,
     MCPDiagnosticSourceConfiguration,
+    SandboxConfig,
     SessionFSReadFileBytesRequest,
     SessionFSSetProviderCapabilities,
     SessionFSWriteFileBytesRequest,
@@ -2020,6 +2021,14 @@ class TestCreateSessionConfig:
 
             plugin_dirs = ["/tmp/plugins/a", "/tmp/plugins/b"]
             disabled_mcp_servers = ["local-files", "remote-github"]
+            sandbox_config = SandboxConfig(
+                enabled=True, add_current_working_directory=False, sandbox_mcp_servers=True
+            )
+            expected_sandbox_config_wire = {
+                "enabled": True,
+                "addCurrentWorkingDirectory": False,
+                "sandboxMcpServers": True,
+            }
             large_output = {
                 "enabled": True,
                 "max_size_bytes": 1024,
@@ -2035,6 +2044,7 @@ class TestCreateSessionConfig:
                 on_permission_request=PermissionHandler.approve_all,
                 plugin_directories=plugin_dirs,
                 disabled_mcp_servers=disabled_mcp_servers,
+                sandbox_config=sandbox_config,
                 large_output=large_output,
             )
             await client.resume_session(
@@ -2042,27 +2052,34 @@ class TestCreateSessionConfig:
                 on_permission_request=PermissionHandler.approve_all,
                 plugin_directories=plugin_dirs,
                 disabled_mcp_servers=disabled_mcp_servers,
+                sandbox_config=sandbox_config,
                 large_output=large_output,
             )
 
             assert captured["session.create"]["pluginDirectories"] == plugin_dirs
             assert captured["session.create"]["disabledMcpServers"] == disabled_mcp_servers
+            assert captured["session.create"]["sandboxConfig"] == expected_sandbox_config_wire
             assert captured["session.create"]["largeOutput"] == expected_large_output_wire
             assert captured["session.resume"]["pluginDirectories"] == plugin_dirs
             assert captured["session.resume"]["disabledMcpServers"] == disabled_mcp_servers
+            assert captured["session.resume"]["sandboxConfig"] == expected_sandbox_config_wire
             assert captured["session.resume"]["largeOutput"] == expected_large_output_wire
 
             empty_session = await client.create_session(
                 on_permission_request=PermissionHandler.approve_all,
                 disabled_mcp_servers=[],
+                sandbox_config=SandboxConfig(enabled=False),
             )
             await client.resume_session(
                 empty_session.session_id,
                 on_permission_request=PermissionHandler.approve_all,
                 disabled_mcp_servers=[],
+                sandbox_config=SandboxConfig(enabled=False),
             )
             assert captured["session.create"]["disabledMcpServers"] == []
             assert captured["session.resume"]["disabledMcpServers"] == []
+            assert captured["session.create"]["sandboxConfig"] == {"enabled": False}
+            assert captured["session.resume"]["sandboxConfig"] == {"enabled": False}
 
             omitted_session = await client.create_session(
                 on_permission_request=PermissionHandler.approve_all,
@@ -2073,6 +2090,8 @@ class TestCreateSessionConfig:
             )
             assert "disabledMcpServers" not in captured["session.create"]
             assert "disabledMcpServers" not in captured["session.resume"]
+            assert "sandboxConfig" not in captured["session.create"]
+            assert "sandboxConfig" not in captured["session.resume"]
         finally:
             await client.force_stop()
 

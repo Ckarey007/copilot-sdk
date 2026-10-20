@@ -29,8 +29,8 @@ public record ManagedSettingsMeta(
     @JsonProperty("model") ManagedSettingMeta model,
     /** Lock state and provenance of `values.autoTier`. */
     @JsonProperty("autoTier") ManagedSettingMeta autoTier,
-    /** Lock state and provenance of values.ensembleTier, including a legacy alias's original source. An unmanaged value imposes no tier lock. */
-    @JsonProperty("ensembleTier") ManagedSettingMeta ensembleTier,
+    /** Lock state and provenance of values.fusionTier, including a legacy alias's original source. An unmanaged value imposes no tier lock. */
+    @JsonProperty("fusionTier") ManagedSettingMeta fusionTier,
     /** Lock state and provenance of `values.effortLevel`. */
     @JsonProperty("effortLevel") ManagedSettingMeta effortLevel,
     /** Lock state and provenance of `values.contextTier`. */

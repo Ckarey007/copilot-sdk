@@ -1879,11 +1879,13 @@ type AutoTierDescriptor struct {
 	Description string `json:"description"`
 	// Human-readable label, not a routing identifier.
 	DisplayName string `json:"displayName"`
+	// Runtime-owned managed Fusion tier represented by this execution descriptor, if any.
+	FusionTier *string `json:"fusionTier,omitempty"`
 	// Opaque routing identifier transmitted unchanged to the provider.
 	ID string `json:"id"`
 	// Current account-specific availability.
 	Status AutoTierStatus `json:"status"`
-	// Execution kind; this client supports `auto` preferences on the Auto model.
+	// Execution kind; supported preferences use `auto` or the runtime's `fusion` modes.
 	Type string `json:"type"`
 }
 
@@ -8598,9 +8600,9 @@ type ManagedSettingsMeta struct {
 	ContextTier *ManagedSettingMeta `json:"contextTier,omitempty"`
 	// Lock state and provenance of `values.effortLevel`.
 	EffortLevel *ManagedSettingMeta `json:"effortLevel,omitempty"`
-	// Lock state and provenance of values.ensembleTier, including a legacy alias's original
+	// Lock state and provenance of values.fusionTier, including a legacy alias's original
 	// source. An unmanaged value imposes no tier lock.
-	EnsembleTier *ManagedSettingMeta `json:"ensembleTier,omitempty"`
+	FusionTier *ManagedSettingMeta `json:"fusionTier,omitempty"`
 	// Lock state and provenance of `values.model`.
 	Model *ManagedSettingMeta `json:"model,omitempty"`
 }
@@ -9108,10 +9110,10 @@ type ManagedSettingsValues struct {
 	// Managed reasoning-effort default for the managed concrete model. The runtime clamps it to
 	// an entitled effort when model availability is known.
 	EffortLevel *string `json:"effortLevel,omitempty"`
-	// Managed Ensemble preference. Takes precedence over autoTier even when unmanaged, which
+	// Managed Fusion preference. Takes precedence over autoTier even when unmanaged, which
 	// means no managed tier and forbids legacy fallback. Legacy Auto values are mapped only
-	// when no managed source supplies ensembleTier.
-	EnsembleTier *ManagedEnsembleTier `json:"ensembleTier,omitempty"`
+	// when no managed source supplies fusionTier.
+	FusionTier *ManagedFusionTier `json:"fusionTier,omitempty"`
 	// Managed default model identifier. When model availability was resolved, aliases and
 	// family names are projected to a concrete available model ID; otherwise the configured
 	// value is returned.
@@ -13452,7 +13454,11 @@ type ModelSwitchToRequest struct {
 	RepoScope *string `json:"repoScope,omitempty"`
 	// Require the target to be currently available and enabled before applying the switch.
 	RequireAvailable *bool `json:"requireAvailable,omitempty"`
-	// When true, evaluate context-window compaction policy before applying the switch.
+	// When true, evaluate context-window compaction policy before applying the switch,
+	// including effort-only and unchanged selections while idle. An effort-only change applies
+	// immediately without compaction when a turn is active, including when the turn starts
+	// during preflight; an explicit `compactionDecision: "cancel"` still cancels the change.
+	// Other switches retain preflight and may be deferred until the active turn ends.
 	RunCompactionPreflight *bool `json:"runCompactionPreflight,omitempty"`
 	// Origin to record on the effective `session.model_change` event for trusted in-process
 	// calls. Transport SDK calls are always recorded as `sdk`, regardless of this value.
@@ -14387,6 +14393,11 @@ type PermissionDecisionContext struct {
 	Source PermissionDecisionSource `json:"source"`
 	// Client surface that submitted the response.
 	Surface PermissionDecisionSurface `json:"surface"`
+	// Optional user-authored explanation of this decision, independent of approval scope.
+	// Collected only in restricted telemetry for accepted human responses to Assisted
+	// Permissions prompts. Never persisted in session history, sent to the agent or judge, or
+	// used to create approval rules. Existing rejection feedback is separate.
+	UserFeedback *string `json:"userFeedback,omitempty"`
 }
 
 // Pending permission request ID and the decision to apply (approve/reject and scope).
@@ -29025,20 +29036,20 @@ const (
 	LoginProviderKindProxima LoginProviderKind = "proxima"
 )
 
-// Administrator-configured Ensemble preference, independent of execution support.
-// Experimental: ManagedEnsembleTier is part of an experimental API and may change or be
+// Administrator-configured Fusion preference, independent of execution support.
+// Experimental: ManagedFusionTier is part of an experimental API and may change or be
 // removed.
-type ManagedEnsembleTier string
+type ManagedFusionTier string
 
 const (
-	// Balance efficiency and intelligence.
-	ManagedEnsembleTierBalance ManagedEnsembleTier = "balance"
-	// Prefer higher intelligence.
-	ManagedEnsembleTierHigh ManagedEnsembleTier = "high"
-	// Prefer maximum intelligence.
-	ManagedEnsembleTierMax ManagedEnsembleTier = "max"
+	// Use HydraFusion, falling back to Auto Intelligence when unavailable.
+	ManagedFusionTierHigh ManagedFusionTier = "high"
+	// Use HydraFusion Max to prioritize quality.
+	ManagedFusionTierMax ManagedFusionTier = "max"
+	// Use Auto Balance to balance capability, speed, and cost.
+	ManagedFusionTierStandard ManagedFusionTier = "standard"
 	// Leave tier selection unmanaged without falling back to legacy Auto policy.
-	ManagedEnsembleTierUnmanaged ManagedEnsembleTier = "unmanaged"
+	ManagedFusionTierUnmanaged ManagedFusionTier = "unmanaged"
 )
 
 // Operation to evaluate. Currently only url is supported.

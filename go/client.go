@@ -998,6 +998,7 @@ func (c *Client) createSession(ctx context.Context, config *SessionConfig, runti
 	if config.DisabledMCPServers != nil {
 		req.DisabledMCPServers = &config.DisabledMCPServers
 	}
+	req.SandboxConfig = config.SandboxConfig
 	req.InfiniteSessions = config.InfiniteSessions
 	req.LargeOutput = config.LargeOutput
 	req.ToolSearch = config.ToolSearch
@@ -1495,6 +1496,7 @@ func (c *Client) resumeSession(ctx context.Context, sessionID string, config *Re
 	if config.DisabledMCPServers != nil {
 		req.DisabledMCPServers = &config.DisabledMCPServers
 	}
+	req.SandboxConfig = config.SandboxConfig
 	req.InfiniteSessions = config.InfiniteSessions
 	req.LargeOutput = config.LargeOutput
 	req.ToolSearch = config.ToolSearch

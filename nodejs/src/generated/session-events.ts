@@ -5115,6 +5115,12 @@ export interface FusionCompletedEvent {
 /** @experimental */
 export interface FusionCompletedData {
   /**
+   * True when the committed first pass ended with background work outstanding, so that work's completion notifications continue the conversation; absent otherwise.
+   *
+   * @experimental
+   */
+  awaitingBackgroundWork?: boolean;
+  /**
    * Total cached input tokens reported across all phases.
    */
   cachedTokens: number;
@@ -6026,6 +6032,12 @@ export interface FusionPhaseCompletedData {
    * Elapsed execution time for the phase in milliseconds.
    */
   durationMs: number;
+  /**
+   * True when a first pass (Cascade primary or Critique draft) ended with background work outstanding, whether or not the turn then committed it without review; absent otherwise.
+   *
+   * @experimental
+   */
+  endedWithBackgroundWork?: boolean;
   /**
    * Identifier of the HydraFusion turn containing the phase.
    */
@@ -10313,6 +10325,10 @@ export interface PermissionRequestMemory {
 /** @experimental */
 export interface PermissionAssistedApproval {
   evaluation?: PermissionApprovalEvaluation;
+  /**
+   * Runtime-generated correlation ID for the original judge invocation. Cached recommendations retain it. Absent when review was skipped or the event predates correlation support; never part of the judge prompt.
+   */
+  evaluationId?: string;
   failureReason?: AssistedApprovalJudgeFailureReason;
   /**
    * Model id that produced the recommendation, when the judge was consulted and reported one. Absent for `excluded` (the judge was not consulted) and for failures that occurred before a model was selected.
@@ -10373,6 +10389,8 @@ export interface PermissionApprovalEvaluation {
     | "authorization-history-incomplete"
     /** Managed policy required a human decision. */
     | "managed-approval-required"
+    /** An extension capability grant required explicit user consent. */
+    | "extension-permission-access"
     /** The request asked to bypass sandbox restrictions. */
     | "sandbox-bypass"
     /** An action field exceeded the judge input limit. */

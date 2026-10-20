@@ -14,6 +14,7 @@ export type {
     HostGitHubEnvironmentOptions,
     ModelGetReasoningSummariesRequest,
     ModelGetReasoningSummariesResult,
+    SandboxConfig,
 } from "./generated/rpc.js";
 export {
     AhpHost,

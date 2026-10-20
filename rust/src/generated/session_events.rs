@@ -3132,6 +3132,16 @@ pub struct SessionFusionResolvedData {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionFusionCompletedData {
+    /// True when the committed first pass ended with background work outstanding, so that work's completion notifications continue the conversation; absent otherwise.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This type is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases.
+    ///
+    /// </div>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub awaiting_background_work: Option<bool>,
     /// Total cached input tokens reported across all phases.
     pub cached_tokens: i64,
     /// Total tokens written to prompt cache across all phases.
@@ -3459,6 +3469,16 @@ pub struct AssistantFusionPhaseCompletedData {
     pub conversation_scope: FusionConversationScope,
     /// Elapsed execution time for the phase in milliseconds.
     pub duration_ms: f64,
+    /// True when a first pass (Cascade primary or Critique draft) ended with background work outstanding, whether or not the turn then committed it without review; absent otherwise.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This type is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases.
+    ///
+    /// </div>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ended_with_background_work: Option<bool>,
     /// Identifier of the HydraFusion turn containing the phase.
     pub fusion_id: String,
     /// Concrete model that executed the phase.
@@ -6512,6 +6532,9 @@ pub struct PermissionAssistedApproval {
     /// Runtime reason and judge-call metadata. Absent on older events; missing metadata means unknown, not that the judge was skipped.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub evaluation: Option<PermissionApprovalEvaluation>,
+    /// Runtime-generated correlation ID for the original judge invocation. Cached recommendations retain it. Absent when review was skipped or the event predates correlation support; never part of the judge prompt.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evaluation_id: Option<String>,
     /// Classified cause of an `error` recommendation. Absent for every other recommendation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure_reason: Option<AssistedApprovalJudgeFailureReason>,
@@ -11667,6 +11690,9 @@ pub enum PermissionApprovalEvaluationReasonCode {
     /// Managed policy required a human decision.
     #[serde(rename = "managed-approval-required")]
     ManagedApprovalRequired,
+    /// An extension capability grant required explicit user consent.
+    #[serde(rename = "extension-permission-access")]
+    ExtensionPermissionAccess,
     /// The request asked to bypass sandbox restrictions.
     #[serde(rename = "sandbox-bypass")]
     SandboxBypass,

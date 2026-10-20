@@ -21,6 +21,7 @@ use super::{
     ToolResultResponse, ensure_attachment_display_names,
 };
 use crate::generated::session_events::TypedSessionEvent;
+use crate::rpc::SandboxConfig;
 
 #[test]
 fn permission_response_capability_is_publicly_exported() {
@@ -1050,6 +1051,109 @@ fn session_config_clones_disabled_mcp_servers() {
     assert_eq!(
         resume.disabled_mcp_servers.as_deref(),
         Some(&["local-files".to_string()][..])
+    );
+}
+
+#[test]
+fn session_configs_into_wire_serialize_sandbox_config() {
+    for enabled in [true, false] {
+        let expected = json!({
+            "enabled": enabled,
+            "addCurrentWorkingDirectory": false,
+            "sandboxMcpServers": true,
+            "userPolicy": {
+                "filesystem": {
+                    "readonlyPaths": ["sandbox-readonly"]
+                }
+            }
+        });
+        let sandbox: SandboxConfig = serde_json::from_value(expected.clone()).unwrap();
+        let (create, _) = SessionConfig::default()
+            .with_sandbox_config(sandbox.clone())
+            .into_wire(Some(SessionId::from("create-sandbox")))
+            .expect("no duplicate handlers");
+        let (resume, _) = ResumeSessionConfig::new(SessionId::from("resume-sandbox"))
+            .with_sandbox_config(sandbox)
+            .into_wire()
+            .expect("no duplicate handlers");
+        assert_eq!(
+            serde_json::to_value(create).unwrap()["sandboxConfig"],
+            expected
+        );
+        assert_eq!(
+            serde_json::to_value(resume).unwrap()["sandboxConfig"],
+            expected
+        );
+    }
+    let (create, _) = SessionConfig::default()
+        .into_wire(Some(SessionId::from("create-default")))
+        .expect("no duplicate handlers");
+    let (resume, _) = ResumeSessionConfig::new(SessionId::from("resume-default"))
+        .into_wire()
+        .expect("no duplicate handlers");
+    assert!(
+        serde_json::to_value(create)
+            .unwrap()
+            .get("sandboxConfig")
+            .is_none()
+    );
+    assert!(
+        serde_json::to_value(resume)
+            .unwrap()
+            .get("sandboxConfig")
+            .is_none()
+    );
+}
+
+#[test]
+fn session_configs_clone_sandbox_config() {
+    let sandbox = SandboxConfig {
+        enabled: true,
+        sandbox_mcp_servers: Some(false),
+        ..Default::default()
+    };
+    let create = SessionConfig::default().with_sandbox_config(sandbox.clone());
+    let mut create_clone = create.clone();
+    create_clone
+        .sandbox_config
+        .as_mut()
+        .expect("configured sandbox")
+        .enabled = false;
+    assert!(create.sandbox_config.as_ref().unwrap().enabled);
+    assert!(!create_clone.sandbox_config.as_ref().unwrap().enabled);
+    assert_eq!(
+        create_clone
+            .sandbox_config
+            .as_ref()
+            .unwrap()
+            .sandbox_mcp_servers,
+        Some(false)
+    );
+
+    let resume =
+        ResumeSessionConfig::new(SessionId::from("resume-sandbox")).with_sandbox_config(sandbox);
+    let mut resume_clone = resume.clone();
+    resume_clone
+        .sandbox_config
+        .as_mut()
+        .expect("configured sandbox")
+        .enabled = false;
+    assert!(resume.sandbox_config.as_ref().unwrap().enabled);
+    assert!(!resume_clone.sandbox_config.as_ref().unwrap().enabled);
+    assert_eq!(
+        resume_clone
+            .sandbox_config
+            .as_ref()
+            .unwrap()
+            .sandbox_mcp_servers,
+        Some(false)
+    );
+    assert!(SessionConfig::default().clone().sandbox_config.is_none());
+    assert!(
+        ResumeSessionConfig::new(SessionId::from("default"))
+            .clone()
+            .sandbox_config
+            .is_none()
     );
 }
 
@@ -2105,5 +2209,28 @@ fn image_watermark_create_and_resume_does_not_enable_images() {
         ] {
             assert_eq!(wire["imageGeneration"], json!({ "watermark": watermark }));
         }
+    }
+}
+
+#[test]
+fn session_configs_redact_sandbox_config_in_debug() {
+    let sandbox: SandboxConfig = serde_json::from_value(json!({
+        "enabled": true,
+        "userPolicy": {
+            "network": {
+                "proxy": { "url": "http://proxy.example", "password": "proxy-secret" }
+            }
+        }
+    }))
+    .unwrap();
+    let create = SessionConfig::default().with_sandbox_config(sandbox.clone());
+    let resume =
+        ResumeSessionConfig::new(SessionId::from("resume-sandbox")).with_sandbox_config(sandbox);
+    for debug in [format!("{create:?}"), format!("{resume:?}")] {
+        assert!(
+            debug.contains("sandbox_config: Some(\"<redacted>\")"),
+            "{debug}"
+        );
+        assert!(!debug.contains("proxy-secret"), "{debug}");
     }
 }

@@ -4275,11 +4275,14 @@ pub struct AutoTierDescriptor {
     pub description: String,
     /// Human-readable label, not a routing identifier.
     pub display_name: String,
+    /// Runtime-owned managed Fusion tier represented by this execution descriptor, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fusion_tier: Option<String>,
     /// Opaque routing identifier transmitted unchanged to the provider.
     pub id: String,
     /// Current account-specific availability.
     pub status: AutoTierStatus,
-    /// Execution kind; this client supports `auto` preferences on the Auto model.
+    /// Execution kind; supported preferences use `auto` or the runtime's `fusion` modes.
     pub r#type: String,
 }
 
@@ -13606,9 +13609,9 @@ pub struct ManagedSettingsMeta {
     /// Lock state and provenance of `values.effortLevel`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort_level: Option<ManagedSettingMeta>,
-    /// Lock state and provenance of values.ensembleTier, including a legacy alias's original source. An unmanaged value imposes no tier lock.
+    /// Lock state and provenance of values.fusionTier, including a legacy alias's original source. An unmanaged value imposes no tier lock.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ensemble_tier: Option<ManagedSettingMeta>,
+    pub fusion_tier: Option<ManagedSettingMeta>,
     /// Lock state and provenance of `values.model`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<ManagedSettingMeta>,
@@ -13677,9 +13680,9 @@ pub struct ManagedSettingsValues {
     /// Managed reasoning-effort default for the managed concrete model. The runtime clamps it to an entitled effort when model availability is known.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort_level: Option<String>,
-    /// Managed Ensemble preference. Takes precedence over autoTier even when unmanaged, which means no managed tier and forbids legacy fallback. Legacy Auto values are mapped only when no managed source supplies ensembleTier.
+    /// Managed Fusion preference. Takes precedence over autoTier even when unmanaged, which means no managed tier and forbids legacy fallback. Legacy Auto values are mapped only when no managed source supplies fusionTier.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ensemble_tier: Option<ManagedEnsembleTier>,
+    pub fusion_tier: Option<ManagedFusionTier>,
     /// Managed default model identifier. When model availability was resolved, aliases and family names are projected to a concrete available model ID; otherwise the configured value is returned.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
@@ -19758,7 +19761,7 @@ pub struct ModelSwitchToRequest {
     /// Require the target to be currently available and enabled before applying the switch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub require_available: Option<bool>,
-    /// When true, evaluate context-window compaction policy before applying the switch.
+    /// When true, evaluate context-window compaction policy before applying the switch, including effort-only and unchanged selections while idle. An effort-only change applies immediately without compaction when a turn is active, including when the turn starts during preflight; an explicit `compactionDecision: "cancel"` still cancels the change. Other switches retain preflight and may be deferred until the active turn ends.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub run_compaction_preflight: Option<bool>,
     /// Origin to record on the effective `session.model_change` event for trusted in-process calls. Transport SDK calls are always recorded as `sdk`, regardless of this value.
@@ -19868,7 +19871,7 @@ impl ModelSwitchToOptions {
         self
     }
 
-    /// When true, evaluate context-window compaction policy before applying the switch.
+    /// When true, evaluate context-window compaction policy before applying the switch, including effort-only and unchanged selections while idle. An effort-only change applies immediately without compaction when a turn is active, including when the turn starts during preflight; an explicit `compactionDecision: "cancel"` still cancels the change. Other switches retain preflight and may be deferred until the active turn ends.
     pub fn run_compaction_preflight(mut self, value: bool) -> Self {
         self.legacy.run_compaction_preflight = Some(value);
         self
@@ -20963,6 +20966,9 @@ pub struct PermissionDecisionContext {
     pub source: PermissionDecisionSource,
     /// Client surface that submitted the response.
     pub surface: PermissionDecisionSurface,
+    /// Optional user-authored explanation of this decision, independent of approval scope. Collected only in restricted telemetry for accepted human responses to Assisted Permissions prompts. Never persisted in session history, sent to the agent or judge, or used to create approval rules. Existing rejection feedback is separate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_feedback: Option<String>,
 }
 
 /// Pending permission request ID and the decision to apply (approve/reject and scope).
@@ -49062,7 +49068,7 @@ pub enum SessionLogLevel {
     Unknown,
 }
 
-/// Administrator-configured Ensemble preference, independent of execution support.
+/// Administrator-configured Fusion preference, independent of execution support.
 ///
 /// <div class="warning">
 ///
@@ -49071,14 +49077,14 @@ pub enum SessionLogLevel {
 ///
 /// </div>
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ManagedEnsembleTier {
-    /// Balance efficiency and intelligence.
-    #[serde(rename = "balance")]
-    Balance,
-    /// Prefer higher intelligence.
+pub enum ManagedFusionTier {
+    /// Use Auto Balance to balance capability, speed, and cost.
+    #[serde(rename = "standard")]
+    Standard,
+    /// Use HydraFusion, falling back to Auto Intelligence when unavailable.
     #[serde(rename = "high")]
     High,
-    /// Prefer maximum intelligence.
+    /// Use HydraFusion Max to prioritize quality.
     #[serde(rename = "max")]
     Max,
     /// Leave tier selection unmanaged without falling back to legacy Auto policy.

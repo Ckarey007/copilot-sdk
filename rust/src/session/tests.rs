@@ -122,6 +122,7 @@ fn attribution_context() -> PermissionDecisionContext {
         response_capability: None,
         source: PermissionDecisionSource::AssistedApproval,
         surface: PermissionDecisionSurface::CopilotApp,
+        user_feedback: None,
     }
 }
 
@@ -161,10 +162,12 @@ fn response_params_omit_decision_context_without_attribution() {
 
 #[test]
 fn response_params_forward_decision_context_alongside_result() {
+    let mut context = attribution_context();
+    context.user_feedback = Some("This approval applies to the displayed request.".to_string());
     let params = permission_response_params(
         &SessionId::from("session-1"),
         &RequestId::from("permission-1"),
-        &PermissionResult::approve_once().with_context(attribution_context()),
+        &PermissionResult::approve_once().with_context(context),
     )
     .unwrap();
     assert_eq!(
@@ -177,6 +180,7 @@ fn response_params_forward_decision_context_alongside_result() {
                 "outcome": "auto_approved",
                 "source": "assisted_approval",
                 "surface": "copilot_app",
+                "userFeedback": "This approval applies to the displayed request.",
             },
         })
     );
@@ -211,6 +215,7 @@ fn with_context_replaces_rather_than_nests() {
             response_capability: None,
             source: PermissionDecisionSource::HumanResponse,
             surface: PermissionDecisionSurface::Sdk,
+            user_feedback: None,
         });
     let params = permission_response_params(
         &SessionId::from("session-1"),
