@@ -944,6 +944,16 @@ export class CopilotClient {
         handlers.gitHubToken = {
             getToken: (params) => this.acquireGitHubToken(params),
         };
+        handlers.uiThread = {
+            run: async ({ actionId }) => {
+                const connection = this.connectionConfig;
+                const host = this.ffiHost;
+                if (connection.kind !== "inprocess" || !connection.runOnUiThread || !host) {
+                    throw new Error("No in-process runOnUiThread handler is configured.");
+                }
+                await connection.runOnUiThread(() => host.runUiAction(actionId));
+            },
+        };
         this.clientGlobalHandlers = handlers;
     }
 
@@ -1849,6 +1859,7 @@ export class CopilotClient {
                 enableCitations: config.enableCitations,
                 enableFileChangeTracking: config.enableFileChangeTracking,
                 sessionLimits: config.sessionLimits,
+                autopilot: config.autopilot,
                 modelCapabilities: config.modelCapabilities,
                 largeOutput: toWireLargeOutput(config.largeOutput),
                 requestPermission: !!config.onPermissionRequest,
@@ -2133,6 +2144,7 @@ export class CopilotClient {
                 enableCitations: config.enableCitations,
                 enableFileChangeTracking: config.enableFileChangeTracking,
                 sessionLimits: config.sessionLimits,
+                autopilot: config.autopilot,
                 tools: config.tools?.map((tool) => ({
                     name: tool.name,
                     description: tool.description,
@@ -3367,6 +3379,10 @@ export class CopilotClient {
 
         this.attachConnectionHandlers();
         this.connection.listen();
+        this.ffiHost.configureUiThread(
+            this.connectionConfig.kind === "inprocess" &&
+                this.connectionConfig.runOnUiThread !== undefined
+        );
     }
 
     private static getNapiPrebuildsFolder(entrypoint: string): string {

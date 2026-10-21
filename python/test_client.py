@@ -85,9 +85,76 @@ def test_session_fs_capabilities_preserve_positional_sqlite():
 def test_inprocess_connection_has_no_child_process_options():
     connection = RuntimeConnection.for_inprocess()
 
-    assert list(inspect.signature(RuntimeConnection.for_inprocess).parameters) == []
+    assert list(inspect.signature(RuntimeConnection.for_inprocess).parameters) == [
+        "run_on_ui_thread"
+    ]
     assert not hasattr(connection, "path")
     assert not hasattr(connection, "args")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("awaitable", [False, True])
+@pytest.mark.parametrize("action_id", [0, 42, 0xFFFFFFFF])
+async def test_inprocess_ui_thread_rpc_waits_for_scheduler(
+    awaitable, action_id, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        "copilot._cli_download.ensure_runtime_wrapper",
+        lambda: str(tmp_path / "copilot-runtime"),
+    )
+    started = asyncio.Event()
+    completion = asyncio.get_running_loop().create_future()
+
+    def schedule(action):
+        action()
+        started.set()
+        return completion if awaitable else None
+
+    client = CopilotClient(connection=RuntimeConnection.for_inprocess(run_on_ui_thread=schedule))
+    host = Mock()
+    client._ffi_host = host
+    client._client = Mock(spec=JsonRpcClient)
+    handlers = {}
+    client._client.set_request_handler.side_effect = handlers.__setitem__
+    client._register_client_global_handlers()
+    host.configure_ui_thread.assert_called_once_with(True)
+
+    request = asyncio.create_task(handlers["uiThread.run"]({"actionId": action_id}))
+    try:
+        await started.wait()
+        host.run_ui_action.assert_called_once_with(action_id)
+        if awaitable:
+            assert not request.done(), "UI RPC completed before the scheduler"
+            completion.set_result(None)
+        assert await request is None
+    finally:
+        if not completion.done():
+            completion.set_result(None)
+        await request
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action_id", [-1, 0x100000000])
+async def test_inprocess_ui_thread_rpc_rejects_out_of_range_action_ids(
+    action_id, monkeypatch, tmp_path
+):
+    monkeypatch.setattr(
+        "copilot._cli_download.ensure_runtime_wrapper",
+        lambda: str(tmp_path / "copilot-runtime"),
+    )
+    schedule = Mock(side_effect=lambda action: action())
+    client = CopilotClient(connection=RuntimeConnection.for_inprocess(run_on_ui_thread=schedule))
+    host = Mock()
+    client._ffi_host = host
+    client._client = Mock(spec=JsonRpcClient)
+    handlers = {}
+    client._client.set_request_handler.side_effect = handlers.__setitem__
+    client._register_client_global_handlers()
+
+    with pytest.raises(ValueError, match="unsigned 32-bit integer"):
+        await handlers["uiThread.run"]({"actionId": action_id})
+    schedule.assert_not_called()
+    host.run_ui_action.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -1884,6 +1951,7 @@ class TestCreateSessionConfig:
                 enable_file_change_tracking=True,
                 excluded_builtin_agents=["explore"],
                 session_limits={"max_ai_credits": 30},
+                autopilot={"continuation_enabled": False, "max_continues": 0},
             )
             await client.resume_session(
                 session.session_id,
@@ -1892,16 +1960,22 @@ class TestCreateSessionConfig:
                 enable_file_change_tracking=False,
                 excluded_builtin_agents=["task"],
                 session_limits={"max_ai_credits": 15},
+                autopilot={"max_continues": 2},
             )
 
             assert captured["session.create"]["enableCitations"] is True
             assert captured["session.create"]["enableFileChangeTracking"] is True
             assert captured["session.create"]["excludedBuiltinAgents"] == ["explore"]
             assert captured["session.create"]["sessionLimits"] == {"maxAiCredits": 30}
+            assert captured["session.create"]["autopilot"] == {
+                "continuationEnabled": False,
+                "maxContinues": 0,
+            }
             assert captured["session.resume"]["enableCitations"] is False
             assert captured["session.resume"]["enableFileChangeTracking"] is False
             assert captured["session.resume"]["excludedBuiltinAgents"] == ["task"]
             assert captured["session.resume"]["sessionLimits"] == {"maxAiCredits": 15}
+            assert captured["session.resume"]["autopilot"] == {"maxContinues": 2}
         finally:
             await client.force_stop()
 

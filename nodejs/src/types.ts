@@ -27,6 +27,7 @@ import type { CopilotSession } from "./session.js";
 import type { JsonValue } from "./workflow.js";
 import type {
     ExtensionLaunchProviderHandler as GeneratedExtensionLaunchProvider,
+    AutopilotOptions,
     GitHubTokenAcquireRequest,
     GitHubTokenAcquireResult,
     GitHubTelemetryNotification,
@@ -40,6 +41,7 @@ import type {
 } from "./generated/rpc.js";
 import type { ToolSet } from "./toolSet.js";
 export type { RemoteSessionMode } from "./generated/rpc.js";
+export type { AutopilotOptions } from "./generated/rpc.js";
 export type { CurrentToolMetadata } from "./generated/rpc.js";
 export type { SandboxConfig, SandboxConfigSource } from "./generated/rpc.js";
 export type {
@@ -236,6 +238,19 @@ export interface StdioRuntimeConnection extends ChildProcessRuntimeConnection {
  */
 export interface InProcessRuntimeConnection {
     readonly kind: "inprocess";
+    /**
+     * Schedule the supplied native action exactly once on the host's UI thread
+     * (the process main thread on macOS), completing only after it returns.
+     * The action can block while native UI is open. No authentication data crosses
+     * this callback. Other in-process clients can share this process-wide capability.
+     *
+     * Required for OneAuth interactive authentication on macOS. This general-purpose
+     * scheduler may also be used for other runtime-owned native UI operations.
+     * Temporary OneAuth workaround; this API may be removed if no longer needed.
+     * See https://github.com/github/copilot-agent-runtime/issues/27032.
+     * @experimental
+     */
+    readonly runOnUiThread?: (action: () => void) => void | Promise<void>;
 }
 
 /**
@@ -319,8 +334,10 @@ export const RuntimeConnection = {
      * corresponding environment variables on the host process instead. See
      * https://github.com/github/copilot-sdk/issues/1934.
      */
-    forInProcess(): InProcessRuntimeConnection {
-        return { kind: "inprocess" };
+    forInProcess(
+        options: Pick<InProcessRuntimeConnection, "runOnUiThread"> = {}
+    ): InProcessRuntimeConnection {
+        return { kind: "inprocess", ...options };
     },
 } as const;
 
@@ -2841,6 +2858,15 @@ export interface SessionConfigBase {
      * @experimental
      */
     sessionLimits?: SessionLimitsConfig;
+
+    /**
+     * Autopilot policy. Omitted fields preserve resident values on warm resume;
+     * new sessions default to continuation enabled and at most five continuations.
+     * Does not change the session mode. Re-supply on cold resume.
+     *
+     * @experimental
+     */
+    autopilot?: AutopilotOptions;
 
     /**
      * When true, the runtime skips loading custom-instruction sources

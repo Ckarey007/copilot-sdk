@@ -417,6 +417,7 @@ Event types: `SessionLifecycleCreated`, `SessionLifecycleDeleted`, `SessionLifec
 - `Provider` (\*ProviderConfig): Custom API provider configuration (BYOK). See [Custom Providers](#custom-providers) section.
 - `Streaming` (*bool): Enable streaming delta events (nil = runtime default)
 - `InfiniteSessions` (\*InfiniteSessionConfig): Automatic context compaction configuration
+- `Autopilot` (\*rpc.AutopilotOptions, experimental): Autopilot policy, also accepted by `ResumeSessionConfig` and options update. `ContinuationEnabled` defaults to true and does not change session mode; `MaxContinues` limits continuations outside an active objective (non-negative integer, default five, zero allows none). Updates and warm resumes preserve omitted fields; an empty object changes nothing. Re-supply on cold resume.
 - `WorkingDirectory` (string): Working directory for the session (default: runtime process working directory)
 - `EnableSessionStore` (\*bool): Enables the cross-session store for search and retrieval across sessions. When unset in `ModeCopilotCli`, the runtime default applies (enabled). In `ModeEmpty`, defaults to disabled.
 - `GitHubTokenProvider` (GitHubTokenProvider): Acquires session-scoped GitHub tokens on demand. Return `GitHubTokenResult` with a positive `ExpiresIn` value (production GitHub tokens typically use `8 * 60 * 60` seconds), or `GitHubTokenCancelled`. Cannot be combined with `GitHubToken`.
@@ -493,7 +494,7 @@ whitespace, change case, or remove an existing prefix.
 
 Source is independent of delivery `Mode` and `AgentMode`; it does not replace the
 session's `SystemMessage` configuration. `SendAndWait` accepts the same options
-and still waits for session idle, returning `nil` if no assistant message arrives.
+and waits for response completion, returning `nil` if no assistant message arrives.
 Sub-agent events remain visible to listeners but do not complete the wait or
 supply its reply.
 
@@ -770,7 +771,13 @@ The generic helper rejects an explicit schema or immediate delivery.
 The schema lasts for one run, including tools, steering, and stop-hook corrections.
 Independent sends and subagents do not inherit it; streaming stays text.
 Structured waits select the last correlated root assistant message without tool
-requests at non-autopilot idle. Concurrent waits retain their own results, though
+requests at non-autopilot idle or the matching root `session.autopilot_stopped`.
+All `SendAndWait` variants accept this authoritative Autopilot terminal without
+waiting for or stopping attached shells. Its `RequestID` must match the original
+send ID; continuation messages do not change ownership. Missing, unrelated, or
+subagent terminals cannot complete the wait. `session.idle` remains whole-session
+quiescence; `assistant.idle` and `session.task_complete` alone are not completion.
+Concurrent waits retain their own results, though
 queued work can delay idle. Aborted runs, session errors after the run starts,
 and missing final output fail. Context cancellation stops waiting, not agent work.
 

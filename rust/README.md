@@ -765,6 +765,15 @@ The built-in `ApproveAllHandler` and `DenyAllHandler` implement `PermissionHandl
 
 ### SessionConfig
 
+`SessionConfig::with_autopilot(AutopilotOptions)` and the corresponding
+`ResumeSessionConfig` builder configure experimental Autopilot policy.
+`continuation_enabled` defaults to true and does not change session mode.
+`max_continues` limits continuations outside an active objective: a non-negative
+integer, default five, with zero allowing none. Options updates and warm resumes
+preserve omitted fields; an empty
+policy changes nothing. Re-supply on cold resume. Pause state, prompt overrides,
+and no-progress detection remain internal.
+
 ```rust,ignore
 let config = SessionConfig {
     model: Some("gpt-5".into()),
@@ -1390,7 +1399,7 @@ session.rpc().send(request).await?;
 # }
 ```
 
-Both paths use ordinary `session.send`. Source does not select a delivery mode or set billing flags; the runtime applies its existing source behavior. `send_and_wait` still completes on `session.idle` and may return `Ok(None)` when no assistant message was emitted. Genuine errors still propagate.
+Both paths use ordinary `session.send`. Source does not select a delivery mode or set billing flags; the runtime applies its existing source behavior. `send_and_wait` completes on non-Autopilot `session.idle` or a correlated `session.autopilot_stopped`, and may return `Ok(None)` when no assistant message was emitted. Genuine errors still propagate.
 
 ### Progress Reporting (`send_and_wait`)
 
@@ -1400,7 +1409,7 @@ For fire-and-forget messaging where you need to block until the agent finishes:
 use std::time::Duration;
 use github_copilot_sdk::MessageOptions;
 
-// Sends a message and blocks until the root session.idle or session.error
+// Sends a message and blocks until its request completes
 session
     .send_and_wait(
         MessageOptions::new("Fix the bug").with_wait_timeout(Duration::from_secs(120)),
@@ -1408,10 +1417,17 @@ session
     .await?;
 ```
 
-Default timeout is 60 seconds. Only one unformatted `send_and_wait` can be active
-per session; it also prevents other sends until it completes. Events attributed
-to a sub-agent (with a non-empty `agentId`) are still delivered to subscribers,
-but cannot supply the reply or end the parent's wait.
+Default timeout is 60 seconds. Multiple unformatted `send_and_wait` calls can
+run concurrently; each wait is correlated with its originating message ID.
+Plain `send` calls can also run while waits are active. Events
+attributed to a sub-agent (with a non-empty `agentId`) are still delivered to
+subscribers, but cannot supply the reply or end the parent's wait.
+Errors with a different `originatingMessageId` do not fail the wait.
+Matching errors also fail before a user message is emitted, such as when a
+prompt-transformation hook fails. Errors without an ID retain legacy
+session-wide handling, so older hosts that omit error IDs cannot provide
+concurrent request-error isolation. Event order cannot reliably distinguish
+those errors from pre-message failures or errors after immediate steering.
 The terminal event is queued to existing subscriptions before the wait returns;
 subscribers consume their streams independently and do not delay completion.
 
@@ -1451,7 +1467,13 @@ For explicit schemas, `MessageOptions::with_response_schema` works with `send` o
 Schemas apply to one run, including tools, steering, and stop-hook corrections,
 not independent sends or subagents. Streaming remains text. Structured waits
 select the last correlated root message without tool requests at non-autopilot
-idle and support concurrent structured waits with independent results. Later
+idle or the matching root `session.autopilot_stopped` event.
+All `send_and_wait` variants accept this authoritative Autopilot terminal without
+waiting for or stopping attached shells. Its `requestId` must match the original
+send ID; continuation messages do not change ownership. Missing, unrelated, or
+subagent terminals cannot complete the wait. `session.idle` remains whole-session
+quiescence; `assistant.idle` and `session.task_complete` alone are not completion.
+Structured waits support independent concurrent results. Later
 queued work can delay idle. Aborts, session errors after the run starts, missing
 output, and event-stream lag fail the wait. Dropping the future or timing out
 unsubscribes without aborting the agent. Immediate steering cannot set a schema.

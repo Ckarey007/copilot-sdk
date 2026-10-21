@@ -323,6 +323,7 @@ type (
 	ScheduleOrigin                                                 = rpc.ScheduleOrigin
 	SessionAutoModeResolvedData                                    = rpc.SessionAutoModeResolvedData
 	SessionAutopilotObjectiveChangedData                           = rpc.SessionAutopilotObjectiveChangedData
+	SessionAutopilotStoppedData                                    = rpc.SessionAutopilotStoppedData
 	SessionAutoTierRecommendationData                              = rpc.SessionAutoTierRecommendationData
 	SessionAutoTierSwitchFailedData                                = rpc.SessionAutoTierSwitchFailedData
 	SessionBackgroundTasksChangedData                              = rpc.SessionBackgroundTasksChangedData
@@ -1038,6 +1039,7 @@ const (
 	SessionEventTypeSandboxDecision                                      = rpc.SessionEventTypeSandboxDecision
 	SessionEventTypeSessionAutoModeResolved                              = rpc.SessionEventTypeSessionAutoModeResolved
 	SessionEventTypeSessionAutopilotObjectiveChanged                     = rpc.SessionEventTypeSessionAutopilotObjectiveChanged
+	SessionEventTypeSessionAutopilotStopped                              = rpc.SessionEventTypeSessionAutopilotStopped
 	SessionEventTypeSessionAutoTierRecommendation                        = rpc.SessionEventTypeSessionAutoTierRecommendation
 	SessionEventTypeSessionAutoTierSwitchFailed                          = rpc.SessionEventTypeSessionAutoTierSwitchFailed
 	SessionEventTypeSessionBackgroundTasksChanged                        = rpc.SessionEventTypeSessionBackgroundTasksChanged

@@ -99,12 +99,14 @@ from .generated.session_events import (
     PermissionPromptRequest,
     PermissionRequest,
     PermissionRequestedData,
+    SessionAutopilotStoppedData,
     SessionCanvasClosedData,
     SessionCanvasOpenedData,
     SessionErrorData,
     SessionEvent,
     SessionIdleData,
     SessionMode,
+    SessionWarningData,
     UserMessageData,
     session_event_from_dict,
 )
@@ -133,6 +135,7 @@ if TYPE_CHECKING:
 
 # Re-export SessionEvent under an alias used internally
 SessionEventTypeAlias = SessionEvent
+
 
 # ============================================================================
 # Reasoning Effort
@@ -1506,6 +1509,18 @@ class InfiniteSessionConfig(TypedDict, total=False):
     buffer_exhaustion_threshold: float
 
 
+class AutopilotOptions(TypedDict, total=False):
+    """Experimental Autopilot policy, independent of the session mode.
+
+    Omitted fields preserve resident values on warm resume or update. New
+    sessions default to continuation enabled with at most five continuations.
+    Re-supply on cold resume.
+    """
+
+    continuation_enabled: bool
+    max_continues: int
+
+
 class SessionLimitsConfig(TypedDict, total=False):
     """Experimental limits for the session's current accounting window."""
 
@@ -2238,7 +2253,7 @@ class CopilotSession:
 
         Events are still delivered to handlers registered via :meth:`on` while waiting.
         Synchronous handlers registered before this call finish processing the
-        completing root session.idle event before it returns successfully.
+        completing root terminal event before it returns successfully.
         This does not wait for asynchronous work started by a handler.
         Sub-agent events with a non-empty ``agent_id`` do not complete the wait
         or supply its reply.
@@ -2295,13 +2310,32 @@ class CopilotSession:
         error_event: Exception | None = None
         last_assistant_message: SessionEvent | None = None
         first_assistant_message_logged = False
+        message_id: str | None = None
+        request_started = False
+        admitted = False
+        pending: list[SessionEvent | Exception] = []
 
-        def handler(event: SessionEventTypeAlias) -> None:
+        def process(event: SessionEventTypeAlias) -> None:
             nonlocal first_assistant_message_logged, last_assistant_message, error_event
-            if event.agent_id:
+            nonlocal request_started
+            if idle_event.is_set() or event.agent_id:
                 return
             match event.data:
-                case AssistantMessageData():
+                case UserMessageData() as data if message_id and data.message_id == message_id:
+                    request_started = True
+                case SessionWarningData() as data if (
+                    message_id
+                    and data.warning_type == "policy_blocked"
+                    and data.originating_message_id == message_id
+                ):
+                    request_started = True
+                case AssistantMessageData() as data if (
+                    not message_id
+                    or data.originating_message_id == message_id
+                    or (not data.originating_message_id and request_started)
+                ):
+                    if message_id and data.originating_message_id == message_id:
+                        request_started = True
                     last_assistant_message = event
                     if not first_assistant_message_logged:
                         first_assistant_message_logged = True
@@ -2312,7 +2346,9 @@ class CopilotSession:
                             total_start,
                             session_id=self.session_id,
                         )
-                case SessionIdleData() as data if data.mode != SessionMode.AUTOPILOT:
+                case SessionIdleData() as data if (
+                    request_started and data.mode != SessionMode.AUTOPILOT
+                ):
                     log_timing(
                         logger,
                         logging.DEBUG,
@@ -2320,21 +2356,58 @@ class CopilotSession:
                         total_start,
                         session_id=self.session_id,
                     )
+                    if data.aborted:
+                        error_event = RuntimeError("Session aborted before response completed")
                     idle_event.set()
-                case SessionErrorData() as data:
+                case SessionAutopilotStoppedData() as data if (
+                    message_id and data.request_id == message_id
+                ):
+                    if data.reason == "error":
+                        error_event = RuntimeError("Autopilot request failed")
+                    elif data.reason == "aborted":
+                        error_event = RuntimeError("Session aborted before response completed")
+                    idle_event.set()
+                case SessionErrorData() as data if (
+                    not data.originating_message_id or data.originating_message_id == message_id
+                ):
                     error_event = Exception(f"Session error: {data.message or str(data)}")
                     idle_event.set()
 
-        def fail_disconnected() -> None:
+        def handler(event: SessionEventTypeAlias) -> None:
+            if event.agent_id or not isinstance(
+                event.data,
+                (
+                    UserMessageData,
+                    SessionWarningData,
+                    AssistantMessageData,
+                    SessionIdleData,
+                    SessionAutopilotStoppedData,
+                    SessionErrorData,
+                ),
+            ):
+                return
+            if not admitted:
+                pending.append(event)
+            else:
+                process(event)
+
+        def fail(error: Exception) -> None:
             nonlocal error_event
             if not idle_event.is_set():
-                error_event = RuntimeError("Session closed before response completed")
+                error_event = error
                 idle_event.set()
+
+        def fail_disconnected() -> None:
+            error = RuntimeError("Session closed before response completed")
+            if not admitted:
+                pending.append(error)
+            else:
+                fail(error)
 
         unsubscribe = self.on(handler)
         self._response_waits.add(fail_disconnected)
         try:
-            await self.send(
+            message_id = await self.send(
                 prompt,
                 attachments=attachments,
                 source=source,
@@ -2343,6 +2416,13 @@ class CopilotSession:
                 request_headers=request_headers,
                 display_prompt=display_prompt,
             )
+            admitted = True
+            for event in pending:
+                if isinstance(event, Exception):
+                    fail(event)
+                else:
+                    process(event)
+            pending.clear()
             await asyncio.wait_for(idle_event.wait(), timeout=timeout)
             if error_event:
                 log_timing(
@@ -2373,8 +2453,9 @@ class CopilotSession:
                 session_id=self.session_id,
                 completed_by="timeout",
             )
-            raise TimeoutError(f"Timeout after {timeout}s waiting for session.idle")
+            raise TimeoutError(f"Timeout after {timeout}s waiting for response completion")
         finally:
+            pending.clear()
             unsubscribe()
             self._response_waits.discard(fail_disconnected)
 
@@ -2398,7 +2479,8 @@ class CopilotSession:
         closed objects). Validation uses the schema's alias names, including for
         nested models, regardless of model-level alias validation settings.
         Streaming events remain text. Timeout or cancellation
-        only stops waiting, not the agent. Errors remain session-scoped.
+        only stops waiting, not the agent. Request-correlated errors only fail
+        their own wait; errors without an ID retain legacy handling.
         """
         if not isinstance(response_type, type) or not issubclass(response_type, BaseModel):
             raise TypeError("response_type must be a Pydantic BaseModel subclass")
@@ -2444,8 +2526,20 @@ class CopilotSession:
                 case AssistantMessageData() as data if data.originating_message_id == message_id:
                     started = True
                     final_message = None if data.tool_requests else event
-                case SessionIdleData() as data if started and data.mode != SessionMode.AUTOPILOT:
-                    if data.aborted:
+                case (SessionIdleData() | SessionAutopilotStoppedData()) as data if (
+                    isinstance(data, SessionIdleData)
+                    and started
+                    and data.mode != SessionMode.AUTOPILOT
+                ) or (
+                    isinstance(data, SessionAutopilotStoppedData)
+                    and bool(message_id)
+                    and data.request_id == message_id
+                ):
+                    if isinstance(data, SessionAutopilotStoppedData) and data.reason == "error":
+                        completion.set_exception(RuntimeError("Autopilot request failed"))
+                    elif (isinstance(data, SessionIdleData) and data.aborted) or (
+                        isinstance(data, SessionAutopilotStoppedData) and data.reason == "aborted"
+                    ):
                         completion.set_exception(
                             RuntimeError("Session aborted before structured output completed")
                         )
@@ -2458,13 +2552,25 @@ class CopilotSession:
                         )
                     else:
                         completion.set_result(final_message)
-                case SessionErrorData() as data if started:
+                case SessionErrorData() as data if (
+                    data.originating_message_id == message_id
+                    if data.originating_message_id
+                    else started
+                ):
                     completion.set_exception(RuntimeError(f"Session error: {data.message}"))
 
         def handler(event: SessionEvent) -> None:
+            if event.agent_id:
+                return
             if not isinstance(
                 event.data,
-                (UserMessageData, AssistantMessageData, SessionIdleData, SessionErrorData),
+                (
+                    UserMessageData,
+                    AssistantMessageData,
+                    SessionIdleData,
+                    SessionAutopilotStoppedData,
+                    SessionErrorData,
+                ),
             ):
                 return
             if message_id is None:

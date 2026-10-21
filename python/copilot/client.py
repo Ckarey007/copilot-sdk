@@ -86,6 +86,7 @@ from .generated.rpc import (
     RemoteSessionMode,
     SandboxConfig,
     ServerRpc,
+    UIThreadRunRequest,
     _ConnectResult,
     _HookInvokeRequest,
     _HookInvokeResponse,
@@ -104,6 +105,7 @@ from .installation_confirmation import (
 )
 from .session import (
     AutoModeSwitchHandler,
+    AutopilotOptions,
     AutoTier,
     BearerTokenProvider,
     CommandDefinition,
@@ -493,6 +495,15 @@ def _memory_to_wire(config: Mapping[str, Any]) -> dict[str, Any]:
     return {"enabled": config["enabled"]}
 
 
+def _autopilot_to_wire(config: AutopilotOptions) -> dict[str, Any]:
+    wire: dict[str, Any] = {}
+    if "continuation_enabled" in config:
+        wire["continuationEnabled"] = config["continuation_enabled"]
+    if "max_continues" in config:
+        wire["maxContinues"] = config["max_continues"]
+    return wire
+
+
 def _session_limits_to_wire(config: Mapping[str, Any]) -> dict[str, Any]:
     """Convert a ``SessionLimitsConfig`` mapping to wire format."""
     wire: dict[str, Any] = {}
@@ -662,7 +673,10 @@ class RuntimeConnection:
         return UriRuntimeConnection(url=url, connection_token=connection_token)
 
     @staticmethod
-    def for_inprocess() -> InProcessRuntimeConnection:
+    def for_inprocess(
+        *,
+        run_on_ui_thread: Callable[[Callable[[], None]], None | Awaitable[None]] | None = None,
+    ) -> InProcessRuntimeConnection:
         """Host the runtime **in-process** via its native C ABI (FFI).
 
         **Experimental.** The in-process (FFI) transport is experimental and its
@@ -681,12 +695,18 @@ class RuntimeConnection:
         Set ``COPILOT_CLI_PATH`` only when using an externally provisioned
         compatible runtime package.
 
+        Args:
+            run_on_ui_thread: Native UI scheduler, required for OneAuth interactive
+                authentication on macOS. See
+                :attr:`InProcessRuntimeConnection.run_on_ui_thread` for its
+                main-thread execution contract and other uses.
+
         Note:
             Pre-provision the native runtime with
             ``python -m copilot download-runtime --in-process`` when automatic
             downloads are disabled.
         """
-        return InProcessRuntimeConnection()
+        return InProcessRuntimeConnection(run_on_ui_thread=run_on_ui_thread)
 
 
 @dataclass
@@ -757,6 +777,37 @@ class InProcessRuntimeConnection(RuntimeConnection):
     shared library is loaded into this process and JSON-RPC is driven over its
     C ABI.
     """
+
+    run_on_ui_thread: Callable[[Callable[[], None]], None | Awaitable[None]] | None = None
+    """Experimental: schedule the supplied native action exactly once on the UI
+    thread (the process main thread on macOS), completing only after it returns.
+    The action can block while native UI is open. No authentication data crosses
+    this callback. Other in-process clients may share this process-wide capability.
+
+    Required for OneAuth interactive authentication on macOS. This general-purpose
+    scheduler may also be used for other runtime-owned native UI operations.
+    Temporary OneAuth workaround; this API may be removed if no longer needed.
+    See https://github.com/github/copilot-agent-runtime/issues/27032."""
+
+
+class _UiThreadAdapter:
+    def __init__(self, client: CopilotClient) -> None:
+        self._client = client
+
+    async def run(self, params: UIThreadRunRequest) -> None:
+        connection = self._client._connection
+        host = self._client._ffi_host
+        if (
+            not isinstance(connection, InProcessRuntimeConnection)
+            or connection.run_on_ui_thread is None
+            or host is None
+        ):
+            raise RuntimeError("No in-process run_on_ui_thread handler is configured.")
+        if not 0 <= params.action_id <= 0xFFFFFFFF:
+            raise ValueError("UI action ID must be an unsigned 32-bit integer.")
+        result = connection.run_on_ui_thread(lambda: host.run_ui_action(params.action_id))
+        if inspect.isawaitable(result):
+            await result
 
 
 class _GitHubTelemetryAdapter:
@@ -2401,6 +2452,7 @@ class CopilotClient:
         enable_file_change_tracking: bool | None = None,
         excluded_builtin_agents: list[str] | None = None,
         session_limits: SessionLimitsConfig | None = None,
+        autopilot: AutopilotOptions | None = None,
         skip_custom_instructions: bool | None = None,
         refresh_custom_instructions: bool | None = None,
         trust_working_directory: Literal["session", "user"] | None = None,
@@ -2550,6 +2602,8 @@ class CopilotClient:
                 name is configured.
             session_limits: **Experimental.** Limits applied to this session's
                 current accounting window.
+            autopilot: **Experimental.** Autopilot policy, independent of session mode.
+                Omitted fields use runtime defaults.
             refresh_custom_instructions: When True, invalidates the process-wide
                 custom-instruction discovery cache before constructing this new
                 session. Omitted or False retains the cache. Other sessions in this
@@ -2895,6 +2949,8 @@ class CopilotClient:
             payload["excludedBuiltinAgents"] = excluded_builtin_agents
         if session_limits is not None:
             payload["sessionLimits"] = _session_limits_to_wire(session_limits)
+        if autopilot is not None:
+            payload["autopilot"] = _autopilot_to_wire(autopilot)
         if refresh_custom_instructions is not None:
             payload["refreshCustomInstructions"] = refresh_custom_instructions
         if trust_working_directory is not None:
@@ -3334,6 +3390,7 @@ class CopilotClient:
         enable_file_change_tracking: bool | None = None,
         excluded_builtin_agents: list[str] | None = None,
         session_limits: SessionLimitsConfig | None = None,
+        autopilot: AutopilotOptions | None = None,
         skip_custom_instructions: bool | None = None,
         custom_agents_local_only: bool | None = None,
         coauthor_enabled: bool | None = None,
@@ -3478,6 +3535,8 @@ class CopilotClient:
                 same name is configured.
             session_limits: **Experimental.** Limits applied to this session's
                 current accounting window.
+            autopilot: **Experimental.** Patch resident Autopilot policy on warm
+                resume without changing mode. Re-supply on cold resume.
             model_capabilities: Override individual model capabilities resolved by the runtime.
             streaming: Whether to enable streaming responses.
             include_sub_agent_streaming_events: Whether to include sub-agent streaming
@@ -3722,6 +3781,8 @@ class CopilotClient:
             payload["excludedBuiltinAgents"] = excluded_builtin_agents
         if session_limits is not None:
             payload["sessionLimits"] = _session_limits_to_wire(session_limits)
+        if autopilot is not None:
+            payload["autopilot"] = _autopilot_to_wire(autopilot)
         if model_capabilities:
             payload["modelCapabilities"] = _capabilities_to_dict(model_capabilities)
         if streaming is not None:
@@ -5251,8 +5312,14 @@ class CopilotClient:
                 llm_inference=self._llm_inference_adapter,
                 git_hub_telemetry=github_telemetry_adapter,
                 git_hub_token=self._github_token_provider_adapter,
+                ui_thread=_UiThreadAdapter(self),
             ),
         )
+        if self._ffi_host is not None:
+            self._ffi_host.configure_ui_thread(
+                isinstance(self._connection, InProcessRuntimeConnection)
+                and self._connection.run_on_ui_thread is not None
+            )
         self._installation_confirmation_adapter = _InstallationConfirmationAdapter(
             self._client,
             self._options.installation_confirmation_handler,

@@ -32,6 +32,48 @@ fn permission_response_capability_is_publicly_exported() {
 }
 
 #[test]
+fn autopilot_policy_serializes_for_create_and_resume_without_defaulting_omitted_fields() {
+    let (create, _) = SessionConfig::default()
+        .with_autopilot(super::AutopilotOptions {
+            continuation_enabled: Some(false),
+            max_continues: Some(0),
+        })
+        .into_wire(Some(SessionId::from("autopilot-create")))
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(create).unwrap()["autopilot"],
+        json!({ "continuationEnabled": false, "maxContinues": 0 })
+    );
+    let (resume, _) = ResumeSessionConfig::new(SessionId::from("autopilot-resume"))
+        .with_autopilot(super::AutopilotOptions {
+            max_continues: Some(2),
+            ..Default::default()
+        })
+        .into_wire()
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(resume).unwrap()["autopilot"],
+        json!({ "maxContinues": 2 })
+    );
+    let (create, _) = SessionConfig::default().into_wire(None).unwrap();
+    let (resume, _) = ResumeSessionConfig::new(SessionId::from("autopilot-defaults"))
+        .into_wire()
+        .unwrap();
+    assert!(
+        serde_json::to_value(create)
+            .unwrap()
+            .get("autopilot")
+            .is_none()
+    );
+    assert!(
+        serde_json::to_value(resume)
+            .unwrap()
+            .get("autopilot")
+            .is_none()
+    );
+}
+
+#[test]
 fn tool_builder_composes() {
     let tool = Tool::new("greet")
         .with_description("Say hello")

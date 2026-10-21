@@ -288,6 +288,18 @@ public sealed class StdioRuntimeConnection : ChildProcessRuntimeConnection
 public sealed class InProcessRuntimeConnection : RuntimeConnection
 {
     internal InProcessRuntimeConnection() { }
+
+    /// <summary>
+    /// Schedules the supplied native action exactly once on the UI thread (the
+    /// process main thread on macOS), completing only after it returns. The action
+    /// can block while native UI is open. No authentication data crosses this
+    /// callback. Other in-process clients may share this process-wide capability.
+    /// Required for OneAuth interactive authentication on macOS. This general-purpose
+    /// scheduler may also be used for other runtime-owned native UI operations.
+    /// Temporary OneAuth workaround; this API may be removed if no longer needed.
+    /// See https://github.com/github/copilot-agent-runtime/issues/27032.
+    /// </summary>
+    public Func<Action, Task>? RunOnUiThread { get; set; }
 }
 
 /// <summary>
@@ -3940,6 +3952,7 @@ public abstract class SessionConfigBase
         PluginDirectories = other.PluginDirectories is not null ? [.. other.PluginDirectories] : null;
         InstructionDirectories = other.InstructionDirectories is not null ? [.. other.InstructionDirectories] : null;
         SessionLimits = other.SessionLimits;
+        Autopilot = other.Autopilot;
         Streaming = other.Streaming;
         IncludeSubAgentStreamingEvents = other.IncludeSubAgentStreamingEvents;
         SystemMessage = other.SystemMessage;
@@ -4413,6 +4426,13 @@ public abstract class SessionConfigBase
     /// </remarks>
     [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
     public SessionLimitsConfig? SessionLimits { get; set; }
+
+    /// <summary>
+    /// Autopilot policy, independent of session mode. Omitted fields use defaults on
+    /// create and preserve resident values on warm resume. Re-supply on cold resume.
+    /// </summary>
+    [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+    public AutopilotOptions? Autopilot { get; set; }
 
     /// <summary>
     /// Configuration for handling large tool outputs. When a tool produces

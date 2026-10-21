@@ -185,7 +185,7 @@ func TestSession_SetToolsAcceptedAfterRetirementDoesNotRebind(t *testing.T) {
 }
 
 func TestSession_SendAndWaitPreservesTerminalResultBeforeRetirement(t *testing.T) {
-	for _, terminal := range []string{"idle", "error", "missing", "error-then-idle", "idle-then-error"} {
+	for _, terminal := range []string{"idle", "autopilot", "error", "missing", "error-then-idle", "idle-then-error"} {
 		for iteration := range 32 {
 			t.Run(fmt.Sprintf("%s-%d", terminal, iteration), func(t *testing.T) {
 				session, server := newSetToolsTestSession(t)
@@ -217,15 +217,20 @@ func TestSession_SendAndWaitPreservesTerminalResultBeforeRetirement(t *testing.T
 				terminalObserved := make(chan struct{}, 2)
 				unsubscribe := session.On(func(event SessionEvent) {
 					switch event.Data.(type) {
-					case *SessionIdleData, *SessionErrorData:
+					case *SessionIdleData, *SessionAutopilotStoppedData, *SessionErrorData:
 						terminalObserved <- struct{}{}
 					}
 				})
 				defer unsubscribe()
 				switch terminal {
-				case "idle", "idle-then-error":
+				case "idle", "idle-then-error", "autopilot":
+					session.dispatchEvent(SessionEvent{Data: &UserMessageData{MessageID: ptr("message-1")}})
 					session.dispatchEvent(SessionEvent{Data: &AssistantMessageData{Content: "finished"}})
-					session.dispatchEvent(SessionEvent{Data: &SessionIdleData{}})
+					if terminal == "autopilot" {
+						session.dispatchEvent(SessionEvent{Data: &SessionAutopilotStoppedData{Reason: "task_complete", RequestID: ptr("message-1")}})
+					} else {
+						session.dispatchEvent(SessionEvent{Data: &SessionIdleData{}})
+					}
 					if terminal == "idle-then-error" {
 						session.dispatchEvent(SessionEvent{Data: &SessionErrorData{Message: "later provider failure"}})
 					}
@@ -254,7 +259,7 @@ func TestSession_SendAndWaitPreservesTerminalResultBeforeRetirement(t *testing.T
 				select {
 				case response := <-result:
 					switch terminal {
-					case "idle", "idle-then-error":
+					case "idle", "idle-then-error", "autopilot":
 						if response.err != nil || response.event == nil {
 							t.Fatalf("completed response = %+v, %v; want assistant message", response.event, response.err)
 						}
@@ -280,7 +285,7 @@ func TestSession_SendAndWaitPreservesTerminalResultBeforeRetirement(t *testing.T
 }
 
 func TestSession_SendAndWaitPreservesTerminalResultWhenHandlerDisconnects(t *testing.T) {
-	for _, terminal := range []string{"idle", "error"} {
+	for _, terminal := range []string{"idle", "autopilot", "error"} {
 		t.Run(terminal, func(t *testing.T) {
 			t.Parallel()
 			session, server := newSetToolsTestSession(t)
@@ -303,14 +308,14 @@ func TestSession_SendAndWaitPreservesTerminalResultWhenHandlerDisconnects(t *tes
 			disconnected := make(chan error, 1)
 			session.On(func(event SessionEvent) {
 				switch event.Data.(type) {
-				case *SessionIdleData, *SessionErrorData:
+				case *SessionIdleData, *SessionAutopilotStoppedData, *SessionErrorData:
 					disconnected <- session.Disconnect()
 				}
 			})
 			lateCallback := make(chan struct{}, 1)
 			session.On(func(event SessionEvent) {
 				switch event.Data.(type) {
-				case *SessionIdleData, *SessionErrorData:
+				case *SessionIdleData, *SessionAutopilotStoppedData, *SessionErrorData:
 					lateCallback <- struct{}{}
 				}
 			})
@@ -326,10 +331,16 @@ func TestSession_SendAndWaitPreservesTerminalResultWhenHandlerDisconnects(t *tes
 				result <- response{event: event, err: err}
 			}()
 			send := server.expectRequest(t, "session.send")
-			session.dispatchEvent(SessionEvent{Data: &AssistantMessageData{Content: "finished"}})
 			if terminal == "idle" {
+				session.dispatchEvent(SessionEvent{Data: &UserMessageData{MessageID: ptr("message-1")}})
+			}
+			session.dispatchEvent(SessionEvent{Data: &AssistantMessageData{Content: "finished", OriginatingMessageID: ptr("message-1")}})
+			switch terminal {
+			case "idle":
 				session.dispatchEvent(SessionEvent{Data: &SessionIdleData{}})
-			} else {
+			case "autopilot":
+				session.dispatchEvent(SessionEvent{Data: &SessionAutopilotStoppedData{Reason: "task_complete", RequestID: ptr("message-1")}})
+			default:
 				session.dispatchEvent(SessionEvent{Data: &SessionErrorData{Message: "provider failed"}})
 			}
 			detach := server.expectRequest(t, "session.detach")

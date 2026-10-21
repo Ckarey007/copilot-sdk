@@ -209,7 +209,7 @@ class JsonRpcClient implements AutoCloseable {
         var response = new JsonRpcResponse();
         response.setJsonrpc("2.0");
         response.setId(id);
-        response.setResult(result);
+        response.setResult(result == null ? MAPPER.getNodeFactory().nullNode() : result);
         sendMessage(response);
     }
 

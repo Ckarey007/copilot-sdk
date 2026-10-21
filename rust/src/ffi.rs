@@ -40,6 +40,8 @@ type ConnectionOpenFn = unsafe extern "C" fn(
 ) -> u32;
 type ConnectionWriteFn = unsafe extern "C" fn(u32, *const u8, usize) -> bool;
 type ConnectionCloseFn = unsafe extern "C" fn(u32) -> bool;
+type ConnectionSetUiThreadHandlerFn = unsafe extern "C" fn(u32, bool) -> bool;
+type ConnectionRunUiActionFn = unsafe extern "C" fn(u32, u32) -> bool;
 
 /// State handed to the native side as `user_data` so the outbound callback can
 /// route inbound frames back to the reader.
@@ -69,6 +71,8 @@ pub(crate) struct FfiShared {
     owns_host: bool,
     connection_write: ConnectionWriteFn,
     connection_close: ConnectionCloseFn,
+    connection_set_ui_thread_handler: ConnectionSetUiThreadHandlerFn,
+    connection_run_ui_action: ConnectionRunUiActionFn,
     server_id: AtomicU32,
     connection_id: AtomicU32,
     callback_state: AtomicPtr<CallbackState>,
@@ -84,6 +88,36 @@ unsafe impl Send for FfiShared {}
 unsafe impl Sync for FfiShared {}
 
 impl FfiShared {
+    pub(crate) fn configure_ui_thread(&self, enabled: bool) -> Result<(), Error> {
+        let connection = self.connection_id.load(Ordering::SeqCst);
+        if !self.closed.load(Ordering::SeqCst)
+            && unsafe { (self.connection_set_ui_thread_handler)(connection, enabled) }
+        {
+            Ok(())
+        } else {
+            Err(Error::with_message(
+                ErrorKind::InvalidConfig,
+                "failed to configure the in-process UI dispatcher",
+            ))
+        }
+    }
+
+    pub(crate) fn run_ui_action(&self, action_id: u32) -> Result<(), Error> {
+        let connection = self.connection_id.load(Ordering::SeqCst);
+        // No operation lock across native UI: another thread must still be able
+        // to close the connection and request cancellation.
+        if !self.closed.load(Ordering::SeqCst)
+            && unsafe { (self.connection_run_ui_action)(connection, action_id) }
+        {
+            Ok(())
+        } else {
+            Err(Error::with_message(
+                ErrorKind::InvalidConfig,
+                "native UI action is retired, already executed, or not on the process main thread",
+            ))
+        }
+    }
+
     pub(crate) fn library_path(&self) -> &Path {
         &self.library_path
     }
@@ -269,6 +303,8 @@ pub(crate) struct FfiHost {
     connection_open: ConnectionOpenFn,
     connection_write: ConnectionWriteFn,
     connection_close: ConnectionCloseFn,
+    connection_set_ui_thread_handler: ConnectionSetUiThreadHandlerFn,
+    connection_run_ui_action: ConnectionRunUiActionFn,
 }
 
 // SAFETY: as for `FfiShared` — the bound exports are plain fn pointers, safe to
@@ -276,7 +312,7 @@ pub(crate) struct FfiHost {
 unsafe impl Send for FfiHost {}
 
 impl FfiHost {
-    /// Load the cdylib next to `runtime_entrypoint` and bind its exports.
+    /// Load the selected cdylib, defaulting to a sibling of `runtime_entrypoint`.
     pub(crate) fn create(
         runtime_entrypoint: &Path,
         cli_entrypoint: Option<&Path>,
@@ -284,7 +320,7 @@ impl FfiHost {
         environment: Vec<(String, String)>,
         args: Vec<String>,
         attached_server_id: Option<u32>,
-        attached_library_path: Option<&Path>,
+        runtime_library_path: Option<&Path>,
     ) -> Result<Self, Error> {
         let runtime_entrypoint = std::fs::canonicalize(runtime_entrypoint).map_err(|e| {
             Error::with_message(
@@ -305,18 +341,12 @@ impl FfiHost {
                 )
             })?
             .map(path_for_child_process);
-        let selected_library = match (attached_server_id, attached_library_path) {
-            (Some(_), Some(path)) => path.to_path_buf(),
+        let selected_library = match (attached_server_id, runtime_library_path) {
+            (_, Some(path)) => path.to_path_buf(),
             (Some(_), None) => {
                 return Err(Error::with_message(
                     ErrorKind::InvalidConfig,
                     "an attached server requires the runtime image already loaded by its host",
-                ));
-            }
-            (None, Some(_)) => {
-                return Err(Error::with_message(
-                    ErrorKind::InvalidConfig,
-                    "an explicit runtime image requires an attached server",
                 ));
             }
             (None, None) => resolve_library_path(&runtime_entrypoint)?,
@@ -338,6 +368,16 @@ impl FfiHost {
             *bind::<ConnectionWriteFn>(lib, b"copilot_runtime_connection_write\0", &library_path)?;
         let connection_close =
             *bind::<ConnectionCloseFn>(lib, b"copilot_runtime_connection_close\0", &library_path)?;
+        let connection_set_ui_thread_handler = *bind::<ConnectionSetUiThreadHandlerFn>(
+            lib,
+            b"copilot_runtime_connection_set_ui_thread_handler\0",
+            &library_path,
+        )?;
+        let connection_run_ui_action = *bind::<ConnectionRunUiActionFn>(
+            lib,
+            b"copilot_runtime_connection_run_ui_action\0",
+            &library_path,
+        )?;
 
         Ok(Self {
             library_path,
@@ -351,6 +391,8 @@ impl FfiHost {
             connection_open,
             connection_write,
             connection_close,
+            connection_set_ui_thread_handler,
+            connection_run_ui_action,
         })
     }
 
@@ -429,6 +471,8 @@ impl FfiHost {
             owns_host,
             connection_write: self.connection_write,
             connection_close: self.connection_close,
+            connection_set_ui_thread_handler: self.connection_set_ui_thread_handler,
+            connection_run_ui_action: self.connection_run_ui_action,
             server_id: AtomicU32::new(server_id),
             connection_id: AtomicU32::new(connection_id),
             callback_state: AtomicPtr::new(state_ptr),

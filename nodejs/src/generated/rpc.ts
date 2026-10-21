@@ -9155,6 +9155,18 @@ export interface AutopilotObjectiveState {
   creditCountNanoAiu: string;
   creditLimit?: AutopilotObjectiveCreditLimit;
 }
+
+/** @experimental */
+export interface AutopilotOptions {
+  /**
+   * Enable runtime-owned automatic continuation while in Autopilot mode. Defaults to true for SDK sessions; does not change the session mode.
+   */
+  continuationEnabled?: boolean;
+  /**
+   * Maximum automatic continuations outside an active objective. Zero allows none; defaults to five. Omitted values preserve the current limit on update or warm resume.
+   */
+  maxContinues?: number;
+}
 /**
  * Billing information for a server-advertised routing preference.
  *
@@ -29527,6 +29539,7 @@ export interface SessionOpenOptions {
   maxInlineBinaryBytes?: number;
   modelCapabilitiesOverrides?: ModelCapabilitiesOverride;
   sessionLimits?: SessionLimitsConfig;
+  autopilot?: AutopilotOptions;
   /**
    * Runtime context discriminator for agent filtering.
    */
@@ -31398,6 +31411,7 @@ export interface SessionUpdateOptionsParams {
    * Optional session limits. Pass null to clear the session limits.
    */
   sessionLimits?: SessionLimitsConfig | null;
+  autopilot?: AutopilotOptions;
 }
 /**
  * Indicates whether the session options patch was applied successfully.
@@ -32056,7 +32070,7 @@ export interface SlashCommandTimelineEntry {
   remediation?: RemediationAction;
 }
 /**
- * Slash-command invocation result that submits an agent prompt, with display prompt, optional mode, optional user-facing notice, and settings-change flag.
+ * Slash-command invocation result that submits an agent prompt, with display prompt, optional mode, optional user-facing notice, settings-change flag, and opaque reservation finalization token.
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
  * via the `definition` "SlashCommandAgentPromptResult".
@@ -32084,6 +32098,10 @@ export interface SlashCommandAgentPromptResult {
    * True when the invocation mutated user runtime settings; consumers caching settings should refresh
    */
   runtimeSettingsChanged?: boolean;
+  /**
+   * Opaque token used to finalize this invocation's objective prompt reservation
+   */
+  reservationToken?: string;
 }
 /**
  * Slash-command invocation result indicating completion, with optional message and settings-change flag.
@@ -33973,6 +33991,19 @@ export interface UIRegisterDirectAutoModeSwitchHandlerResult {
    * Opaque handle representing the registration. Pass this same handle to `unregisterDirectAutoModeSwitchHandler` when the in-process handler is no longer active. Multiple registrations are reference-counted; the server bridge will only dispatch auto-mode-switch requests when no handles are active.
    */
   handle: string;
+}
+/**
+ * Identifies one runtime-owned native action for an in-process SDK UI dispatcher.
+ *
+ * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
+ * via the `definition` "UiThreadRunRequest".
+ */
+/** @experimental */
+export interface UiThreadRunRequest {
+  /**
+   * Opaque, one-shot action identifier scoped to the receiving native connection. Execute only through the synchronous native UI-action entry point.
+   */
+  actionId: number;
 }
 /**
  * Opaque handle previously returned by `registerDirectAutoModeSwitchHandler` to release.
@@ -43063,6 +43094,17 @@ export interface GitHubTokenHandler {
     getToken(params: GitHubTokenAcquireRequest): Promise<GitHubTokenAcquireResult>;
 }
 
+/** Handler for `uiThread` client global API methods. */
+/** @experimental */
+export interface UiThreadHandler {
+    /**
+     * Schedules a runtime-owned native action through an in-process SDK host's runOnUiThread callback. The SDK supplies an action that enters the native C ABI synchronously; the host executes it exactly once on its UI thread (the process main thread on macOS) and completes only after it returns. Never sent to out-of-process clients.
+     *
+     * @param params Identifies one runtime-owned native action for an in-process SDK UI dispatcher.
+     */
+    run(params: UiThreadRunRequest): Promise<void>;
+}
+
 /** Handler for `installations` client global API methods. */
 /** @experimental */
 export interface InstallationsHandler {
@@ -43083,6 +43125,7 @@ export interface ClientGlobalApiHandlers {
     llmInference?: LlmInferenceHandler;
     gitHubTelemetry?: GitHubTelemetryHandler;
     gitHubToken?: GitHubTokenHandler;
+    uiThread?: UiThreadHandler;
     installations?: InstallationsHandler;
 }
 
@@ -43126,6 +43169,11 @@ export function registerClientGlobalApiHandlers(
         const handler = handlers.gitHubToken;
         if (!handler) throw new Error("No gitHubToken client-global handler registered");
         return handler.getToken(params);
+    });
+    connection.onRequest("uiThread.run", async (params: UiThreadRunRequest) => {
+        const handler = handlers.uiThread;
+        if (!handler) throw new Error("No uiThread client-global handler registered");
+        return handler.run(params);
     });
     connection.onRequest("installations.confirm", async (params: InstallationsConfirmRequest) => {
         const handler = handlers.installations;

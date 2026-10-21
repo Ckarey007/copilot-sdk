@@ -177,6 +177,7 @@ type Client struct {
 	useStdio                           bool     // resolved value from options
 	useInProcess                       bool     // true for InProcessConnection (FFI transport)
 	ffiHost                            inProcessHost
+	runOnUiThread                      func(action func() error) error
 	// resolved process options for the spawned runtime (zero values for URIConnection)
 	cliPath            string
 	cliArgs            []string
@@ -296,6 +297,7 @@ func NewClient(options *ClientOptions) *Client {
 	case InProcessConnection:
 		client.useStdio = false
 		client.useInProcess = true
+		client.runOnUiThread = conn.RunOnUiThread
 	default:
 		panic(fmt.Sprintf("unknown RuntimeConnection type: %T", connection))
 	}
@@ -972,6 +974,7 @@ func (c *Client) createSession(ctx context.Context, config *SessionConfig, runti
 	req.EnableCitations = config.EnableCitations
 	req.EnableFileChangeTracking = config.EnableFileChangeTracking
 	req.SessionLimits = config.SessionLimits
+	req.Autopilot = config.Autopilot
 	req.IsExperimentalMode = config.EnableExperimentalMode
 	req.SkipCustomInstructions = config.SkipCustomInstructions
 	req.RefreshCustomInstructions = config.RefreshCustomInstructions
@@ -1431,6 +1434,7 @@ func (c *Client) resumeSession(ctx context.Context, sessionID string, config *Re
 	req.EnableCitations = config.EnableCitations
 	req.EnableFileChangeTracking = config.EnableFileChangeTracking
 	req.SessionLimits = config.SessionLimits
+	req.Autopilot = config.Autopilot
 	if config.Streaming != nil {
 		req.Streaming = config.Streaming
 	}
@@ -2499,7 +2503,7 @@ func (c *Client) startInProcess(ctx context.Context) error {
 	c.internalRPC = rpc.NewInternalServerRPC(c.client)
 	c.setupNotificationHandler()
 	c.client.Start()
-	return nil
+	return host.ConfigureUiThread(c.runOnUiThread != nil)
 }
 
 func (c *Client) inProcessHostConfig(cliLoginSyncIntegrationID string) inProcessHostConfig {
@@ -2687,6 +2691,7 @@ func (c *Client) setupNotificationHandler() {
 		ExtensionLaunchProvider: c.options.ExtensionLaunchProvider,
 		Hooks:                   &hooksAdapter{client: c},
 		GitHubToken:             &gitHubTokenAdapter{client: c},
+		UIThread:                &uiThreadAdapter{host: c.ffiHost, runOnUiThread: c.runOnUiThread},
 	}
 
 	if c.options.RequestHandler != nil {
@@ -2818,6 +2823,24 @@ func (c *Client) lockSessionOperation(sessionID string) func() {
 		}
 		c.sessionOperationsMux.Unlock()
 	}
+}
+
+type uiThreadAdapter struct {
+	host          inProcessHost
+	runOnUiThread func(action func() error) error
+}
+
+func (a *uiThreadAdapter) Run(request *rpc.UIThreadRunRequest) (*rpc.UIThreadRunResult, error) {
+	if a.runOnUiThread == nil || a.host == nil {
+		return nil, fmt.Errorf("no in-process RunOnUiThread handler is configured")
+	}
+	if request.ActionID < 0 || uint64(request.ActionID) > 0xffffffff {
+		return nil, fmt.Errorf("UI action ID must be an unsigned 32-bit integer")
+	}
+	err := a.runOnUiThread(func() error {
+		return a.host.RunUiAction(uint32(request.ActionID))
+	})
+	return nil, err
 }
 
 type gitHubTokenAdapter struct {

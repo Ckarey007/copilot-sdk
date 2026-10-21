@@ -156,6 +156,8 @@ Omitted values preserve the current setting. Re-supply consent on cold resume. *
     /** Context tier for models with tiered pricing. The session uses this to derive effective `modelCapabilitiesOverrides` so compaction, truncation, token display, and request limits honor the selected tier. */
     @JsonProperty("contextTier") OptionsUpdateContextTier contextTier,
     /** Optional session limits. Pass null to clear the session limits. */
-    @JsonProperty("sessionLimits") SessionLimitsConfig sessionLimits
+    @JsonProperty("sessionLimits") SessionLimitsConfig sessionLimits,
+    /** Patch the Autopilot policy. Omitted fields retain their current values; an empty object makes no changes. Does not change the session mode. */
+    @JsonProperty("autopilot") AutopilotOptions autopilot
 ) {
 }

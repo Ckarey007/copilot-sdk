@@ -33,6 +33,14 @@ unsafe extern "C" fn test_connection_close(_connection_id: u32) -> bool {
     TEST_ALLOW_CLOSE.load(Ordering::SeqCst)
 }
 
+unsafe extern "C" fn test_set_ui_thread_handler(connection_id: u32, enabled: bool) -> bool {
+    connection_id == 21 && enabled
+}
+
+unsafe extern "C" fn test_run_ui_action(connection_id: u32, action_id: u32) -> bool {
+    connection_id == 21 && action_id == 42
+}
+
 #[test]
 fn argv_without_entrypoint_contains_only_client_options() {
     let argv: Vec<String> = serde_json::from_slice(&build_argv_json(
@@ -121,6 +129,8 @@ fn callback_state_is_retained_until_connection_close_succeeds() {
         owns_host: true,
         connection_write: test_connection_write,
         connection_close: test_connection_close,
+        connection_set_ui_thread_handler: test_set_ui_thread_handler,
+        connection_run_ui_action: test_run_ui_action,
         server_id: AtomicU32::new(11),
         connection_id: AtomicU32::new(21),
         callback_state: AtomicPtr::new(state_ptr),

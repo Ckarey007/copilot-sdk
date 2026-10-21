@@ -412,7 +412,7 @@ public sealed partial class CopilotSession : IAsyncDisposable
     }
 
     /// <summary>
-    /// Sends a message to the Copilot session and waits until the session becomes idle.
+    /// Sends a message to the Copilot session and waits for response completion.
     /// </summary>
     /// <param name="options">Options for the message to be sent, including the prompt and optional attachments.</param>
     /// <param name="timeout">Timeout duration (default: 60 seconds). Controls how long to wait; does not abort in-flight agent work.</param>
@@ -420,13 +420,17 @@ public sealed partial class CopilotSession : IAsyncDisposable
     /// <returns>A task that resolves with the final assistant message event, or null if none was received.</returns>
     /// <exception cref="TimeoutException">Thrown if the timeout is reached before the session becomes idle.</exception>
     /// <exception cref="OperationCanceledException">Thrown if the <paramref name="cancellationToken"/> is cancelled.</exception>
-    /// <exception cref="InvalidOperationException">Thrown if the session has been disposed.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown if the session has been disposed or the Autopilot request is aborted.
+    /// </exception>
     /// <exception cref="IOException">Thrown if session event delivery stops before a final response arrives.</exception>
     /// <remarks>
     /// <para>
     /// This is a convenience method that combines <see cref="SendAsync(MessageOptions, CancellationToken)"/> with waiting for
-    /// the <c>session.idle</c> event. Use this when you want to block until the assistant
-    /// has finished processing the message.
+    /// non-Autopilot <c>session.idle</c> or the request-correlated
+    /// <c>session.autopilot_stopped</c> event. Autopilot completion does not wait
+    /// for or stop attached shells. Idle is accepted only after a correlated
+    /// user message, assistant message, or policy-block warning starts this request.
     /// </para>
     /// <para>
     /// Events are still delivered to handlers registered via <see cref="On{T}"/> while waiting.
@@ -459,12 +463,36 @@ public sealed partial class CopilotSession : IAsyncDisposable
         var tcs = new TaskCompletionSource<AssistantMessageEvent?>(TaskCreationOptions.RunContinuationsAsynchronously);
         AssistantMessageEvent? lastAssistantMessage = null;
         var firstAssistantMessageLogged = false;
+        var gate = new object();
+        string? messageId = null;
+        var admitted = false;
+        var requestStarted = false;
+        var pendingEvents = new List<SessionEvent>();
 
-        void Handler(SessionEvent evt)
+        void ProcessEvent(SessionEvent evt)
         {
+            if (tcs.Task.IsCompleted) return;
             switch (evt)
             {
-                case AssistantMessageEvent assistantMessage:
+                case UserMessageEvent userMessage when userMessage.Data.MessageId == messageId:
+                    requestStarted = true;
+                    break;
+
+                case SessionWarningEvent warningEvent
+                    when !string.IsNullOrEmpty(messageId)
+                        && warningEvent.Data.WarningType == "policy_blocked"
+                        && warningEvent.Data.OriginatingMessageId == messageId:
+                    requestStarted = true;
+                    break;
+
+                case AssistantMessageEvent assistantMessage
+                    when string.IsNullOrEmpty(messageId)
+                        || assistantMessage.Data.OriginatingMessageId == messageId
+                        || (string.IsNullOrEmpty(assistantMessage.Data.OriginatingMessageId) && requestStarted):
+                    if (!string.IsNullOrEmpty(messageId) && assistantMessage.Data.OriginatingMessageId == messageId)
+                    {
+                        requestStarted = true;
+                    }
                     lastAssistantMessage = assistantMessage;
                     if (!firstAssistantMessageLogged)
                     {
@@ -476,24 +504,68 @@ public sealed partial class CopilotSession : IAsyncDisposable
                     }
                     break;
 
-                case SessionIdleEvent idleEvent when idleEvent.Data.Mode != SessionMode.Autopilot:
+                case SessionIdleEvent idleEvent
+                    when requestStarted && idleEvent.Data.Mode != SessionMode.Autopilot:
                     LoggingHelpers.LogTiming(_logger, LogLevel.Debug, null,
                         "CopilotSession.SendAndWaitAsync idle received. Elapsed={Elapsed}, SessionId={SessionId}",
                         totalTimestamp,
                         SessionId);
-                    tcs.TrySetResult(lastAssistantMessage);
+                    if (idleEvent.Data.Aborted == true)
+                    {
+                        tcs.TrySetException(new InvalidOperationException(
+                            "Session aborted before SendAndWaitAsync completed"));
+                    }
+                    else
+                    {
+                        tcs.TrySetResult(lastAssistantMessage);
+                    }
+                    break;
+
+                case SessionAutopilotStoppedEvent stopped when !string.IsNullOrEmpty(messageId) && stopped.Data.RequestId == messageId:
+                    if (stopped.Data.Reason == "error")
+                        tcs.TrySetException(new InvalidOperationException("Autopilot request failed"));
+                    else if (stopped.Data.Reason == "aborted")
+                        tcs.TrySetException(new InvalidOperationException(
+                            "Session aborted before SendAndWaitAsync completed"));
+                    else
+                        tcs.TrySetResult(lastAssistantMessage);
                     break;
 
                 case SessionErrorEvent errorEvent:
-                    var message = errorEvent.Data?.Message ?? "session error";
-                    tcs.TrySetException(new InvalidOperationException($"Session error: {message}"));
+                    var originatingMessageId = errorEvent.Data?.OriginatingMessageId;
+                    if (string.IsNullOrEmpty(originatingMessageId) || originatingMessageId == messageId)
+                    {
+                        var message = errorEvent.Data?.Message ?? "session error";
+                        tcs.TrySetException(new InvalidOperationException($"Session error: {message}"));
+                    }
                     break;
+            }
+        }
+
+        void Handler(SessionEvent evt)
+        {
+            if (evt is not (UserMessageEvent or SessionWarningEvent or AssistantMessageEvent
+                or SessionIdleEvent or SessionAutopilotStoppedEvent or SessionErrorEvent))
+            {
+                return;
+            }
+            lock (gate)
+            {
+                if (!admitted) pendingEvents.Add(evt);
+                else ProcessEvent(evt);
             }
         }
 
         using var subscription = OnCore<SessionEvent>(Handler, rootAgentOnly: true);
 
-        await SendAsync(options, cancellationToken);
+        var sentMessageId = await SendAsync(options, cancellationToken);
+        lock (gate)
+        {
+            messageId = sentMessageId;
+            admitted = true;
+            foreach (var evt in pendingEvents) ProcessEvent(evt);
+            pendingEvents.Clear();
+        }
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(effectiveTimeout);

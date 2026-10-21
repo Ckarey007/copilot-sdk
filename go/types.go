@@ -110,6 +110,17 @@ func (URIConnection) runtimeConnection() {}
 // behavior may change in a future release. Build the application with the
 // copilot_inprocess build tag to enable this transport.
 type InProcessConnection struct {
+	// RunOnUiThread schedules the supplied native action exactly once on the UI
+	// thread (the process main thread on macOS), returning only after it completes.
+	// The action can block while native UI is open. No authentication data crosses
+	// this callback. Other in-process clients may share this process-wide capability.
+	//
+	// Required for OneAuth interactive authentication on macOS. This general-purpose
+	// scheduler may also be used for other runtime-owned native UI operations.
+	// Temporary OneAuth workaround; this API may be removed if no longer needed.
+	// See https://github.com/github/copilot-agent-runtime/issues/27032.
+	// Experimental.
+	RunOnUiThread func(action func() error) error
 }
 
 func (InProcessConnection) runtimeConnection() {}
@@ -1784,6 +1795,10 @@ type SessionConfig struct {
 	// Experimental: SessionLimits is part of an experimental runtime accounting
 	// surface and may change or be removed in future SDK or CLI releases.
 	SessionLimits *rpc.SessionLimitsConfig
+	// Autopilot configures continuation without changing the session mode.
+	// Omitted fields use defaults on create and preserve resident values on warm resume.
+	// Experimental: this policy may change in a future release.
+	Autopilot *rpc.AutopilotOptions
 	// EnableExperimentalMode controls whether the session enables experimental
 	// features. When nil, it defaults to false in [ModeEmpty]; otherwise the
 	// runtime decides.
@@ -2367,6 +2382,10 @@ type ResumeSessionConfig struct {
 	// Experimental: SessionLimits is part of an experimental runtime accounting
 	// surface and may change or be removed in future SDK or CLI releases.
 	SessionLimits *rpc.SessionLimitsConfig
+	// Autopilot patches resident policy on warm resume; re-supply on cold resume.
+	// Does not change the session mode.
+	// Experimental: this policy may change in a future release.
+	Autopilot *rpc.AutopilotOptions
 	// EnableExperimentalMode controls whether the session enables experimental
 	// features. When nil, it defaults to false in [ModeEmpty]; otherwise the
 	// runtime decides.
@@ -3115,6 +3134,7 @@ type createSessionRequest struct {
 	EnableCitations                    *bool                                  `json:"enableCitations,omitempty"`
 	EnableFileChangeTracking           *bool                                  `json:"enableFileChangeTracking,omitempty"`
 	SessionLimits                      *rpc.SessionLimitsConfig               `json:"sessionLimits,omitempty"`
+	Autopilot                          *rpc.AutopilotOptions                  `json:"autopilot,omitempty"`
 	IsExperimentalMode                 *bool                                  `json:"isExperimentalMode,omitempty"`
 	SkipCustomInstructions             *bool                                  `json:"skipCustomInstructions,omitempty"`
 	RefreshCustomInstructions          *bool                                  `json:"refreshCustomInstructions,omitempty"`
@@ -3225,6 +3245,7 @@ type resumeSessionRequest struct {
 	EnableCitations                    *bool                                  `json:"enableCitations,omitempty"`
 	EnableFileChangeTracking           *bool                                  `json:"enableFileChangeTracking,omitempty"`
 	SessionLimits                      *rpc.SessionLimitsConfig               `json:"sessionLimits,omitempty"`
+	Autopilot                          *rpc.AutopilotOptions                  `json:"autopilot,omitempty"`
 	IsExperimentalMode                 *bool                                  `json:"isExperimentalMode,omitempty"`
 	SkipCustomInstructions             *bool                                  `json:"skipCustomInstructions,omitempty"`
 	CustomAgentsLocalOnly              *bool                                  `json:"customAgentsLocalOnly,omitempty"`

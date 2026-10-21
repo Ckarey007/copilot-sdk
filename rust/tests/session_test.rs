@@ -4510,12 +4510,793 @@ async fn send_and_wait_returns_last_assistant_message_on_idle() {
     assert_eq!(event.data["message"], "Hello back!");
 }
 
+#[tokio::test]
+async fn send_and_wait_ignores_idle_from_an_earlier_request_during_trace_resolution() {
+    struct SendTraceGate {
+        calls: AtomicUsize,
+        waiting: Notify,
+        release: Notify,
+    }
+
+    #[async_trait]
+    impl github_copilot_sdk::types::TraceContextProvider for SendTraceGate {
+        async fn get_trace_context(&self) -> github_copilot_sdk::types::TraceContext {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 2 {
+                self.waiting.notify_one();
+                self.release.notified().await;
+            }
+            github_copilot_sdk::types::TraceContext::default()
+        }
+    }
+
+    let trace_gate = Arc::new(SendTraceGate {
+        calls: AtomicUsize::new(0),
+        waiting: Notify::new(),
+        release: Notify::new(),
+    });
+    let (client, server_read, server_write) = make_client_with_trace_provider(trace_gate.clone());
+    let mut server = FakeServer {
+        read: server_read,
+        write: server_write,
+        session_id: String::new(),
+    };
+    let creating = tokio::spawn({
+        let client = client.clone();
+        async move {
+            client
+                .create_session(SessionConfig::default())
+                .await
+                .unwrap()
+        }
+    });
+    let create_request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+    server.session_id = requested_session_id(&create_request).to_string();
+    server
+        .respond(
+            &create_request,
+            serde_json::json!({
+                "sessionId": server.session_id,
+                "workspacePath": "/tmp/workspace",
+            }),
+        )
+        .await;
+    let session = Arc::new(timeout(TIMEOUT, creating).await.unwrap().unwrap());
+
+    let first_send = tokio::spawn({
+        let session = session.clone();
+        async move { session.send("first request").await }
+    });
+    let first_request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+    server
+        .respond(&first_request, serde_json::json!({"messageId":"first-id"}))
+        .await;
+    timeout(TIMEOUT, first_send)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+
+    let mut observed = session.subscribe();
+    let send_waiting = trace_gate.waiting.notified();
+    let second_wait = tokio::spawn({
+        let session = session.clone();
+        async move {
+            session
+                .send_and_wait(MessageOptions::new("second request").with_wait_timeout(TIMEOUT))
+                .await
+        }
+    });
+    timeout(TIMEOUT, send_waiting).await.unwrap();
+
+    server
+        .send_event(
+            "assistant.message",
+            serde_json::json!({
+                "content":"first response"
+            }),
+        )
+        .await;
+    server
+        .send_event("session.idle", serde_json::json!({}))
+        .await;
+    for _ in 0..2 {
+        timeout(TIMEOUT, observed.recv()).await.unwrap().unwrap();
+    }
+
+    trace_gate.release.notify_one();
+    let second_request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+    server
+        .respond(
+            &second_request,
+            serde_json::json!({"messageId":"second-id"}),
+        )
+        .await;
+    server
+        .send_event("session.idle", serde_json::json!({}))
+        .await;
+    timeout(TIMEOUT, observed.recv()).await.unwrap().unwrap();
+    server
+        .send_event(
+            "user.message",
+            serde_json::json!({"content":"second request","messageId":"second-id"}),
+        )
+        .await;
+    server
+        .send_event(
+            "assistant.message",
+            serde_json::json!({
+                "content":"second response",
+                "originatingMessageId":"second-id"
+            }),
+        )
+        .await;
+    server
+        .send_event("session.idle", serde_json::json!({}))
+        .await;
+
+    let result = timeout(TIMEOUT, second_wait)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.data["content"], "second response");
+}
+
+#[tokio::test]
+async fn send_and_wait_rejects_aborted_idle_and_autopilot_terminals() {
+    for (terminal, data) in [
+        ("session.idle", serde_json::json!({"aborted":true})),
+        (
+            "session.autopilot_stopped",
+            serde_json::json!({"reason":"aborted","requestId":"user-1"}),
+        ),
+    ] {
+        let (session, mut server) = create_session_pair().await;
+        let waiting = tokio::spawn(async move {
+            session
+                .send_and_wait(MessageOptions::new("cancel me").with_wait_timeout(TIMEOUT))
+                .await
+        });
+        let request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+        server
+            .respond(&request, serde_json::json!({"messageId":"user-1"}))
+            .await;
+        server
+            .send_event(
+                "user.message",
+                serde_json::json!({"messageId":"user-1","content":"cancel me"}),
+            )
+            .await;
+        server
+            .send_event(
+                "assistant.message",
+                serde_json::json!({
+                    "content":"partial response",
+                    "originatingMessageId":"user-1"
+                }),
+            )
+            .await;
+        server.send_event(terminal, data).await;
+
+        let error = timeout(TIMEOUT, waiting)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("aborted"),
+            "expected aborted error, got {error}"
+        );
+    }
+}
+
 #[cfg(feature = "derive")]
 #[derive(Debug, PartialEq, serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct StructuredInventory {
     count: i32,
     color: String,
+}
+
+#[tokio::test]
+async fn autopilot_terminal_preserves_pre_ack_outcome_through_retirement() {
+    for terminal in ["session.idle", "session.autopilot_stopped", "session.error"] {
+        let (session, mut server) = create_session_pair().await;
+        let session = Arc::new(session);
+        let mut observed = session.subscribe();
+        let waiting = {
+            let session = session.clone();
+            tokio::spawn(async move {
+                session
+                    .send_and_wait(MessageOptions::new("finish").with_wait_timeout(TIMEOUT))
+                    .await
+            })
+        };
+        let request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+        server
+            .send_event(
+                "assistant.message",
+                serde_json::json!({
+                    "messageId":"final", "originatingMessageId":"user-1", "content":"finished"
+                }),
+            )
+            .await;
+        server
+            .send_event(
+                terminal,
+                serde_json::json!({
+                    "reason":"task_complete", "requestId":"user-1",
+                    "errorType":"test", "message":"original failure"
+                }),
+            )
+            .await;
+        for _ in 0..2 {
+            timeout(TIMEOUT, observed.recv()).await.unwrap().unwrap();
+        }
+        session.stop_event_loop().await;
+        server
+            .respond(&request, serde_json::json!({"messageId":"user-1"}))
+            .await;
+        let result = timeout(TIMEOUT, waiting).await.unwrap().unwrap();
+        if terminal == "session.error" {
+            assert!(result.unwrap_err().to_string().contains("original failure"));
+        } else {
+            assert_eq!(result.unwrap().unwrap().data["content"], "finished");
+        }
+    }
+}
+
+#[tokio::test]
+async fn autopilot_terminal_correlates_without_idle_before_or_after_ack() {
+    for structured in [false, true] {
+        for before_ack in [false, true] {
+            let (session, mut server) = create_session_pair().await;
+            let mut observed = session.subscribe();
+            let waiting = tokio::spawn(async move {
+                let mut options = MessageOptions::new("inventory").with_wait_timeout(TIMEOUT);
+                if structured {
+                    options = options.with_response_schema(serde_json::json!({"type":"object"}));
+                }
+                session.send_and_wait(options).await
+            });
+            let request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+            if !before_ack {
+                server
+                    .respond(&request, serde_json::json!({"messageId":"user-1"}))
+                    .await;
+            }
+            server
+                .send_event(
+                    "assistant.message",
+                    serde_json::json!({
+                        "messageId":"early", "originatingMessageId":"user-1", "content":"early"
+                    }),
+                )
+                .await;
+            server
+                .send_event(
+                    "user.message",
+                    serde_json::json!({
+                        "content":"Continue", "messageId":"other",
+                        "source":"autopilot", "isAutopilotContinuation":true
+                    }),
+                )
+                .await;
+            server
+                .send_event(
+                    "session.autopilot_stopped",
+                    serde_json::json!({
+                        "reason":"task_complete", "requestId":"other"
+                    }),
+                )
+                .await;
+            server
+                .send_event(
+                    "session.autopilot_stopped",
+                    serde_json::json!({
+                        "reason":"task_complete"
+                    }),
+                )
+                .await;
+            server
+                .send_event_from_agent(
+                    "session.autopilot_stopped",
+                    serde_json::json!({
+                        "reason":"task_complete", "requestId":"user-1"
+                    }),
+                    "child",
+                )
+                .await;
+            server
+                .send_event("session.idle", serde_json::json!({"mode":"autopilot"}))
+                .await;
+            server
+                .send_event(
+                    "assistant.message",
+                    serde_json::json!({
+                        "messageId":"final", "originatingMessageId":"user-1", "content":"final"
+                    }),
+                )
+                .await;
+            server
+                .send_event(
+                    "session.autopilot_stopped",
+                    serde_json::json!({
+                        "reason":"task_complete", "requestId":"user-1"
+                    }),
+                )
+                .await;
+            // The event loop has processed every notification before admission is released.
+            for _ in 0..8 {
+                timeout(TIMEOUT, observed.recv()).await.unwrap().unwrap();
+            }
+            if before_ack {
+                server
+                    .respond(&request, serde_json::json!({"messageId":"user-1"}))
+                    .await;
+            }
+            let result = timeout(TIMEOUT, waiting)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                result.data["content"], "final",
+                "structured={structured}, pre_ack={before_ack}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn send_during_plain_wait_preserves_request_isolation() {
+    for before_ack in [false, true] {
+        let (session, mut server) = create_session_pair().await;
+        let session = Arc::new(session);
+        let mut observed = session.subscribe();
+        let waiting = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session
+                    .send_and_wait(MessageOptions::new("waited").with_wait_timeout(TIMEOUT))
+                    .await
+            }
+        });
+        let waited_request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+        if !before_ack {
+            server
+                .respond(&waited_request, serde_json::json!({"messageId":"waited"}))
+                .await;
+        }
+
+        let sending = tokio::spawn({
+            let session = session.clone();
+            async move { session.send("queued").await }
+        });
+        let queued_request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+        assert_eq!(queued_request["params"]["prompt"], "queued");
+        server
+            .respond(&queued_request, serde_json::json!({"messageId":"queued"}))
+            .await;
+        assert_eq!(
+            timeout(TIMEOUT, sending).await.unwrap().unwrap().unwrap(),
+            "queued"
+        );
+
+        for (event_type, data) in [
+            (
+                "assistant.message",
+                serde_json::json!({
+                    "messageId":"queued-answer", "originatingMessageId":"queued", "content":"queued"
+                }),
+            ),
+            (
+                "session.autopilot_stopped",
+                serde_json::json!({"reason":"task_complete", "requestId":"queued"}),
+            ),
+            ("session.idle", serde_json::json!({})),
+        ] {
+            server.send_event(event_type, data).await;
+            timeout(TIMEOUT, observed.recv()).await.unwrap().unwrap();
+        }
+        assert!(!waiting.is_finished());
+        if before_ack {
+            server
+                .respond(&waited_request, serde_json::json!({"messageId":"waited"}))
+                .await;
+        }
+        server
+            .send_event(
+                "assistant.message",
+                serde_json::json!({
+                    "messageId":"waited-answer", "originatingMessageId":"waited", "content":"waited"
+                }),
+            )
+            .await;
+        server
+            .send_event("session.idle", serde_json::json!({}))
+            .await;
+        let result = timeout(TIMEOUT, waiting)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.data["content"], "waited", "pre_ack={before_ack}");
+    }
+}
+
+#[tokio::test]
+async fn queued_send_error_does_not_fail_another_request_wait() {
+    for structured in [false, true] {
+        for before_ack in [false, true] {
+            let (session, mut server) = create_session_pair().await;
+            let session = Arc::new(session);
+            let mut observed = session.subscribe();
+            let waiting = tokio::spawn({
+                let session = session.clone();
+                async move {
+                    let mut options = MessageOptions::new("waited").with_wait_timeout(TIMEOUT);
+                    if structured {
+                        options =
+                            options.with_response_schema(serde_json::json!({"type":"object"}));
+                    }
+                    session.send_and_wait(options).await
+                }
+            });
+            let waited_request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+            if !before_ack {
+                server
+                    .respond(&waited_request, serde_json::json!({"messageId":"waited"}))
+                    .await;
+            }
+            let sending = tokio::spawn({
+                let session = session.clone();
+                async move { session.send("queued").await }
+            });
+            let queued_request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+            server
+                .respond(&queued_request, serde_json::json!({"messageId":"queued"}))
+                .await;
+            assert_eq!(
+                timeout(TIMEOUT, sending).await.unwrap().unwrap().unwrap(),
+                "queued"
+            );
+            for (event_type, data) in [
+                (
+                    "assistant.message",
+                    serde_json::json!({
+                        "messageId":"waited-answer", "originatingMessageId":"waited",
+                        "content":"{\"ok\":true}"
+                    }),
+                ),
+                (
+                    "user.message",
+                    serde_json::json!({"messageId":"queued", "content":"queued"}),
+                ),
+                (
+                    "session.error",
+                    serde_json::json!({
+                        "errorType":"query", "message":"queued failed", "originatingMessageId":"queued"
+                    }),
+                ),
+            ] {
+                server.send_event(event_type, data).await;
+                timeout(TIMEOUT, observed.recv()).await.unwrap().unwrap();
+            }
+            if before_ack {
+                server
+                    .respond(&waited_request, serde_json::json!({"messageId":"waited"}))
+                    .await;
+            }
+            server
+                .send_event("session.idle", serde_json::json!({}))
+                .await;
+            let result = timeout(TIMEOUT, waiting)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                result.data["content"], "{\"ok\":true}",
+                "structured={structured}, pre_ack={before_ack}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn correlated_errors_ignore_interleaved_message_events() {
+    for structured in [false, true] {
+        for before_ack in [false, true] {
+            for source in [
+                "autopilot",
+                "system",
+                "session-memory-rollover",
+                "continuation",
+                "pre-message",
+                "steering",
+            ] {
+                let (session, mut server) = create_session_pair().await;
+                let waiting = tokio::spawn(async move {
+                    let mut options = MessageOptions::new("waited").with_wait_timeout(TIMEOUT);
+                    if structured {
+                        options =
+                            options.with_response_schema(serde_json::json!({"type":"object"}));
+                    }
+                    session.send_and_wait(options).await
+                });
+                let request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+                if !before_ack {
+                    server
+                        .respond(&request, serde_json::json!({"messageId":"waited"}))
+                        .await;
+                }
+                server
+                .send_event(
+                    "assistant.message",
+                    serde_json::json!({
+                        "messageId":"waited-answer",
+                        "originatingMessageId": if source == "pre-message" { "prior" } else { "waited" },
+                        "content":"{\"ok\":true}"
+                    }),
+                )
+                .await;
+                server
+                .send_event(
+                    "user.message",
+                    serde_json::json!({
+                        "messageId":"internal", "content":"continue",
+                        "source": if matches!(source, "steering" | "pre-message") { "sdk" } else { source },
+                        "isAutopilotContinuation":source == "continuation"
+                    }),
+                )
+                .await;
+                server
+                .send_event(
+                    "session.error",
+                    serde_json::json!({
+                        "errorType":"query", "message":"own request failed", "originatingMessageId":"waited"
+                    }),
+                )
+                .await;
+                if before_ack {
+                    server
+                        .respond(&request, serde_json::json!({"messageId":"waited"}))
+                        .await;
+                }
+                let error = timeout(TIMEOUT, waiting)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap_err();
+                assert!(
+                    error.to_string().contains("own request failed"),
+                    "structured={structured}, pre_ack={before_ack}, source={source}: {error}"
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn autopilot_terminal_isolates_concurrent_structured_waits() {
+    let (session, mut server) = create_session_pair().await;
+    let session = Arc::new(session);
+    let mut waiting = Vec::new();
+    for id in ["first", "second"] {
+        let session = session.clone();
+        waiting.push(tokio::spawn(async move {
+            session
+                .send_and_wait(
+                    MessageOptions::new(id)
+                        .with_response_schema(serde_json::json!({"type":"object"}))
+                        .with_wait_timeout(TIMEOUT),
+                )
+                .await
+        }));
+        let request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+        server
+            .respond(&request, serde_json::json!({"messageId":id}))
+            .await;
+    }
+    for id in ["first", "second"] {
+        server
+            .send_event(
+                "assistant.message",
+                serde_json::json!({
+                    "messageId":format!("{id}-assistant"), "originatingMessageId":id, "content":id
+                }),
+            )
+            .await;
+        server
+            .send_event(
+                "session.autopilot_stopped",
+                serde_json::json!({
+                    "reason":"task_complete", "requestId":id
+                }),
+            )
+            .await;
+    }
+    for (id, wait) in ["first", "second"].into_iter().zip(waiting) {
+        let result = timeout(TIMEOUT, wait)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.data["content"], id);
+    }
+}
+
+#[tokio::test]
+async fn autopilot_terminal_isolates_concurrent_plain_and_structured_waits() {
+    let (session, mut server) = create_session_pair().await;
+    let session = Arc::new(session);
+
+    let first = tokio::spawn({
+        let session = session.clone();
+        async move {
+            session
+                .send_and_wait(MessageOptions::new("first").with_wait_timeout(TIMEOUT))
+                .await
+        }
+    });
+    let first_request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+    server
+        .respond(&first_request, serde_json::json!({"messageId":"first"}))
+        .await;
+
+    let second = tokio::spawn({
+        let session = session.clone();
+        async move {
+            session
+                .send_and_wait(MessageOptions::new("second").with_wait_timeout(TIMEOUT))
+                .await
+        }
+    });
+    let second_request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+    server
+        .respond(&second_request, serde_json::json!({"messageId":"second"}))
+        .await;
+
+    let structured = tokio::spawn({
+        let session = session.clone();
+        async move {
+            session
+                .send_and_wait(
+                    MessageOptions::new("structured")
+                        .with_response_schema(serde_json::json!({"type":"object"}))
+                        .with_wait_timeout(TIMEOUT),
+                )
+                .await
+        }
+    });
+    let structured_request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+    server
+        .respond(
+            &structured_request,
+            serde_json::json!({"messageId":"structured"}),
+        )
+        .await;
+
+    server
+        .send_event(
+            "assistant.message",
+            serde_json::json!({
+                "messageId":"second-answer", "originatingMessageId":"second", "content":"second"
+            }),
+        )
+        .await;
+    server
+        .send_event(
+            "session.autopilot_stopped",
+            serde_json::json!({"reason":"task_complete", "requestId":"second"}),
+        )
+        .await;
+    let second_result = timeout(TIMEOUT, second)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(second_result.data["content"], "second");
+    assert!(
+        !first.is_finished(),
+        "the second request's terminal must not complete the first waiter"
+    );
+    assert!(
+        !structured.is_finished(),
+        "the second request's terminal must not complete the structured waiter"
+    );
+
+    server
+        .send_event(
+            "assistant.message",
+            serde_json::json!({
+                "messageId":"structured-answer",
+                "originatingMessageId":"structured",
+                "content":"{}"
+            }),
+        )
+        .await;
+    server
+        .send_event(
+            "session.autopilot_stopped",
+            serde_json::json!({"reason":"task_complete", "requestId":"structured"}),
+        )
+        .await;
+    let structured_result = timeout(TIMEOUT, structured)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(structured_result.data["content"], "{}");
+    assert!(
+        !first.is_finished(),
+        "the structured request's terminal must not complete the first waiter"
+    );
+
+    server
+        .send_event(
+            "assistant.message",
+            serde_json::json!({
+                "messageId":"first-answer", "originatingMessageId":"first", "content":"first"
+            }),
+        )
+        .await;
+    server
+        .send_event(
+            "session.autopilot_stopped",
+            serde_json::json!({"reason":"task_complete", "requestId":"first"}),
+        )
+        .await;
+    let first_result = timeout(TIMEOUT, first)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(first_result.data["content"], "first");
+}
+
+#[tokio::test]
+async fn autopilot_terminal_error_does_not_require_session_error() {
+    for structured in [false, true] {
+        let (session, mut server) = create_session_pair().await;
+        let waiting = tokio::spawn(async move {
+            let mut options = MessageOptions::new("fail").with_wait_timeout(TIMEOUT);
+            if structured {
+                options = options.with_response_schema(serde_json::json!({"type":"object"}));
+            }
+            session.send_and_wait(options).await
+        });
+        let request = timeout(TIMEOUT, server.read_request()).await.unwrap();
+        server
+            .respond(&request, serde_json::json!({"messageId":"user-1"}))
+            .await;
+        server
+            .send_event(
+                "session.autopilot_stopped",
+                serde_json::json!({
+                    "reason":"error", "requestId":"user-1"
+                }),
+            )
+            .await;
+        let error = timeout(TIMEOUT, waiting)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("autopilot request failed"),
+            "{error}"
+        );
+    }
 }
 
 #[cfg(feature = "derive")]
@@ -4843,6 +5624,16 @@ async fn send_and_wait_agent_source_preserves_mode_and_optional_reply() {
             server
                 .respond(&request, serde_json::json!({"messageId": "agent-message"}))
                 .await;
+            server
+                .send_event(
+                    "user.message",
+                    serde_json::json!({
+                        "messageId": "agent-message",
+                        "content": "Review complete",
+                        "source": "agent-sender-id",
+                    }),
+                )
+                .await;
             if has_reply {
                 server
                     .send_event(
@@ -4887,6 +5678,12 @@ async fn send_and_wait_system_source_returns_none_on_idle_without_assistant() {
         .respond(&request, serde_json::json!({"messageId": "system-message"}))
         .await;
     server
+        .send_event(
+            "user.message",
+            serde_json::json!({"content":"Context updated","messageId":"system-message"}),
+        )
+        .await;
+    server
         .send_event("session.idle", serde_json::json!({}))
         .await;
     assert!(
@@ -4908,6 +5705,73 @@ async fn send_and_wait_system_source_returns_none_on_idle_without_assistant() {
         timeout(TIMEOUT, handle).await.unwrap().unwrap().unwrap(),
         "human-message"
     );
+}
+
+#[tokio::test]
+async fn send_and_wait_correlates_blocked_prompts_without_user_messages() {
+    for before_ack in [false, true] {
+        let (session, mut server) = create_session_pair().await;
+        let mut events = session.subscribe();
+        let mut waiting = tokio::spawn(async move {
+            session
+                .send_and_wait(MessageOptions::new("blocked").with_wait_timeout(TIMEOUT))
+                .await
+        });
+        let request = server.read_request().await;
+        if !before_ack {
+            server
+                .respond(
+                    &request,
+                    serde_json::json!({"messageId": "blocked-message"}),
+                )
+                .await;
+        }
+        let warning = serde_json::json!({
+            "warningType": "policy_blocked",
+            "message": "Blocked by policy",
+            "originatingMessageId": "other",
+        });
+        server.send_event("session.warning", warning.clone()).await;
+        let mut correlated = warning;
+        correlated["originatingMessageId"] = serde_json::json!("blocked-message");
+        server
+            .send_event_from_agent("session.warning", correlated.clone(), "child")
+            .await;
+        server
+            .send_event("session.idle", serde_json::json!({}))
+            .await;
+        for expected in ["session.warning", "session.warning", "session.idle"] {
+            let event = timeout(TIMEOUT, events.recv()).await.unwrap().unwrap();
+            assert_eq!(event.event_type, expected);
+        }
+        assert!(
+            timeout(Duration::from_millis(20), &mut waiting)
+                .await
+                .is_err(),
+            "unrelated and child warnings must not admit the blocked request"
+        );
+
+        server.send_event("session.warning", correlated).await;
+        server
+            .send_event("session.idle", serde_json::json!({}))
+            .await;
+        if before_ack {
+            server
+                .respond(
+                    &request,
+                    serde_json::json!({"messageId": "blocked-message"}),
+                )
+                .await;
+        }
+        assert!(
+            timeout(TIMEOUT, waiting)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap()
+                .is_none()
+        );
+    }
 }
 
 #[tokio::test]
@@ -5120,7 +5984,15 @@ async fn send_and_wait_ignores_child_events_even_when_child_was_not_announced() 
 
     let request = server.read_request().await;
     assert_eq!(request["method"], "session.send");
-    server.respond(&request, serde_json::json!({})).await;
+    server
+        .respond(&request, serde_json::json!({"messageId": "parent-message"}))
+        .await;
+    server
+        .send_event(
+            "user.message",
+            serde_json::json!({"messageId": "parent-message", "content": "delegate"}),
+        )
+        .await;
 
     server
         .send_event_from_agent(
@@ -5162,6 +6034,7 @@ async fn send_and_wait_ignores_child_events_even_when_child_was_not_announced() 
         .await;
 
     for expected in [
+        "user.message",
         "subagent.started",
         "assistant.message",
         "session.error",

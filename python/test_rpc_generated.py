@@ -37,6 +37,7 @@ from copilot.rpc import (
     SessionList,
     SessionModelList,
     SessionRpc,
+    SlashCommandAgentPromptResult,
     SlashCommandTextResult,
     TaskAgentInfo,
     UIElicitationSchemaType,
@@ -155,6 +156,26 @@ def test_sandbox_config_round_trips_allow_bypass_and_omits_when_absent():
     assert configured.to_dict() == {"enabled": True, "allowBypass": True}
     assert SandboxConfig.from_dict(configured.to_dict()).allow_bypass is True
     assert SandboxConfig(enabled=True).to_dict() == {"enabled": True}
+
+
+def test_slash_command_prompt_preserves_existing_positional_parameters():
+    result = SlashCommandAgentPromptResult("Display prompt", "Agent prompt", None, None, True)
+
+    assert result.runtime_settings_changed is True
+    assert result.reservation_token is None
+    payload = {
+        "displayPrompt": "Display prompt",
+        "kind": "agent-prompt",
+        "prompt": "Agent prompt",
+        "runtimeSettingsChanged": True,
+    }
+    assert result.to_dict() == payload
+
+    payload["reservationToken"] = "reservation-token"
+    restored = SlashCommandAgentPromptResult.from_dict(payload)
+    assert restored.runtime_settings_changed is True
+    assert restored.reservation_token == "reservation-token"
+    assert restored.to_dict() == payload
 
 
 def test_mcp_oauth_scopes_preserve_existing_positional_parameters():

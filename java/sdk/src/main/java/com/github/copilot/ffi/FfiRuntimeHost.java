@@ -175,6 +175,31 @@ public final class FfiRuntimeHost implements AutoCloseable {
         return sendStream;
     }
 
+    /**
+     * Configures this connection's experimental UI scheduler.
+     *
+     * @param enabled
+     *            whether the SDK supplies a scheduler
+     */
+    public void configureUiThread(boolean enabled) {
+        if (closing.get() || !nativeBinding.connectionSetUiThreadHandler(connectionId.get(), enabled)) {
+            throw new IllegalStateException("Failed to configure the in-process UI dispatcher.");
+        }
+    }
+
+    /**
+     * Enters a native action synchronously on the calling UI thread.
+     *
+     * @param actionId
+     *            the one-shot action identifier
+     */
+    public void runUiAction(int actionId) {
+        if (closing.get() || !nativeBinding.connectionRunUiAction(connectionId.get(), actionId)) {
+            throw new IllegalStateException(
+                    "Native UI action is retired, already executed, or not on the process main thread.");
+        }
+    }
+
     @Override
     public void close() {
         if (!disposed.compareAndSet(false, true)) {

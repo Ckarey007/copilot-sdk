@@ -15,6 +15,7 @@ import com.github.copilot.CopilotExperimental;
 import com.github.copilot.generated.rpc.DiagnosticsConfiguration;
 import com.github.copilot.generated.rpc.SandboxConfig;
 import com.github.copilot.generated.rpc.SessionLimitsConfig;
+import com.github.copilot.generated.rpc.AutopilotOptions;
 
 /**
  * Internal request object for resuming an existing session.
@@ -98,6 +99,9 @@ public final class ResumeSessionRequest {
 
     @JsonProperty("sessionLimits")
     private SessionLimitsConfig sessionLimits;
+
+    @JsonProperty("autopilot")
+    private AutopilotOptions autopilot;
 
     @JsonProperty("requestPermission")
     private Boolean requestPermission;
@@ -559,6 +563,18 @@ public final class ResumeSessionRequest {
     /** Sets the session limits. @param sessionLimits the session limits */
     public void setSessionLimits(SessionLimitsConfig sessionLimits) {
         this.sessionLimits = sessionLimits;
+    }
+
+    /** Gets the Autopilot policy patch. @return the policy, or null */
+    @CopilotExperimental
+    public AutopilotOptions getAutopilot() {
+        return autopilot;
+    }
+
+    /** Sets the Autopilot policy patch. @param autopilot the policy */
+    @CopilotExperimental
+    public void setAutopilot(AutopilotOptions autopilot) {
+        this.autopilot = autopilot;
     }
 
     /**

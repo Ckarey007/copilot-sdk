@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -18,6 +19,42 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 
 #[path = "factory_tests.rs"]
 mod factory_tests;
+
+#[test]
+fn autopilot_settings_round_trip_through_ahp_create_and_resume() {
+    let settings = HashMap::from([(
+        "autopilot".to_owned(),
+        json!({"continuationEnabled": false, "maxContinues": 4_294_967_296i64}),
+    )]);
+    let config = config_from_host(&settings).expect("decode AHP create settings");
+    let autopilot = config
+        .autopilot
+        .as_ref()
+        .expect("retain Autopilot settings");
+    assert_eq!(autopilot.continuation_enabled, Some(false));
+    assert_eq!(autopilot.max_continues, Some(4_294_967_296));
+    assert_eq!(
+        config_for_host(&config).expect("encode AHP create settings")["autopilot"],
+        settings["autopilot"]
+    );
+
+    let resume_settings = HashMap::from([
+        ("sessionId".to_owned(), json!("resume-session")),
+        ("autopilot".to_owned(), settings["autopilot"].clone()),
+    ]);
+    let resume_config =
+        resume_config_from_host(&resume_settings).expect("decode AHP resume settings");
+    let autopilot = resume_config
+        .autopilot
+        .as_ref()
+        .expect("retain resume Autopilot settings");
+    assert_eq!(autopilot.continuation_enabled, Some(false));
+    assert_eq!(autopilot.max_continues, Some(4_294_967_296));
+    assert_eq!(
+        resume_config_for_host(&resume_config).expect("encode AHP resume settings")["autopilot"],
+        settings["autopilot"]
+    );
+}
 
 // Same Content-Length duplex protocol fixture as tests/prepared_session_test.rs.
 struct Peer {

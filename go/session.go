@@ -507,15 +507,15 @@ func (s *Session) SendPrompt(ctx context.Context, prompt string) (string, error)
 	return s.Send(ctx, MessageOptions{Prompt: prompt})
 }
 
-// SendAndWait sends a message to this session and waits until the session becomes idle.
+// SendAndWait sends a message and waits for its response to complete.
 //
 // This is a convenience method that combines [Session.Send] with waiting for
-// the session.idle event. Use this when you want to block until the assistant
-// has finished processing the message.
+// non-Autopilot session.idle or the request-correlated session.autopilot_stopped
+// event. Autopilot completion does not wait for or stop attached shells.
 //
 // Events are still delivered to handlers registered via [Session.On] while waiting.
 // Synchronous handlers registered before this call finish processing the completing
-// root session.idle event before it returns successfully, unless the session retires.
+// root terminal event before it returns successfully, unless the session retires.
 // This does not wait for asynchronous work started by a handler.
 // Sub-agent events with a non-empty AgentID do not complete the wait or supply its reply.
 //
@@ -525,7 +525,8 @@ func (s *Session) SendPrompt(ctx context.Context, prompt string) (string, error)
 //     Controls how long to wait; does not abort in-flight agent work.
 //
 // Returns the final assistant message event, or nil if none was received.
-// Returns an error if the timeout is reached, the session is closed, or the connection fails.
+// Returns an error if the request is aborted, the timeout is reached, the
+// session is closed, or the connection fails.
 //
 // Example:
 //
@@ -558,6 +559,16 @@ func (s *Session) SendAndWait(ctx context.Context, options MessageOptions) (*Ses
 	dispatchedCh := make(chan struct{}, 1)
 	var lastAssistantMessage *SessionEvent
 	completed := false
+	var waitMu sync.Mutex
+	var messageID string
+	var requestStarted bool
+	var admitted bool
+	var observed, dispatched, completionSequence uint64
+	type recordedEvent struct {
+		event    SessionEvent
+		sequence uint64
+	}
+	var pending []recordedEvent
 	finish := func(result outcome) {
 		if !completed {
 			completed = true
@@ -565,49 +576,125 @@ func (s *Session) SendAndWait(ctx context.Context, options MessageOptions) (*Ses
 		}
 	}
 
-	// Observe the result before user callbacks can retire the current dispatch.
-	unobserve := s.on(func(event SessionEvent) {
+	process := func(event SessionEvent) {
 		if completed || (event.AgentID != nil && *event.AgentID != "") {
 			return
 		}
 		switch d := event.Data.(type) {
+		case *UserMessageData:
+			if messageID != "" && d.MessageID != nil && *d.MessageID == messageID {
+				requestStarted = true
+			}
+		case *SessionWarningData:
+			if messageID != "" && d.WarningType == "policy_blocked" &&
+				d.OriginatingMessageID != nil && *d.OriginatingMessageID == messageID {
+				requestStarted = true
+			}
 		case *AssistantMessageData:
+			if messageID != "" {
+				if d.OriginatingMessageID != nil && *d.OriginatingMessageID != messageID {
+					return
+				}
+				if d.OriginatingMessageID == nil && !requestStarted {
+					return
+				}
+			}
+			if messageID != "" && d.OriginatingMessageID != nil && *d.OriginatingMessageID == messageID {
+				requestStarted = true
+			}
 			eventCopy := event
 			lastAssistantMessage = &eventCopy
+		case *SessionAutopilotStoppedData:
+			if messageID != "" && d.RequestID != nil && *d.RequestID == messageID {
+				switch d.Reason {
+				case "error":
+					finish(outcome{err: errors.New("autopilot request failed")})
+				case "aborted":
+					finish(outcome{err: errors.New("session aborted before SendAndWait completed")})
+				default:
+					finish(outcome{event: lastAssistantMessage})
+				}
+			}
 		case *SessionIdleData:
 			if d.Mode != nil && *d.Mode == SessionModeAutopilot {
 				break
 			}
+			if !requestStarted {
+				break
+			}
+			if d.Aborted != nil && *d.Aborted {
+				finish(outcome{err: errors.New("session aborted before SendAndWait completed")})
+				break
+			}
 			finish(outcome{event: lastAssistantMessage})
 		case *SessionErrorData:
-			finish(outcome{err: fmt.Errorf("session error: %s", d.Message)})
+			if d.OriginatingMessageID == nil || *d.OriginatingMessageID == "" || *d.OriginatingMessageID == messageID {
+				finish(outcome{err: fmt.Errorf("session error: %s", d.Message)})
+			}
+		}
+	}
+	isWaitEvent := func(event SessionEvent) bool {
+		if event.AgentID != nil && *event.AgentID != "" {
+			return false
+		}
+		switch event.Data.(type) {
+		case *UserMessageData, *SessionWarningData, *AssistantMessageData,
+			*SessionAutopilotStoppedData, *SessionIdleData, *SessionErrorData:
+			return true
+		default:
+			return false
+		}
+	}
+	signalDispatched := func() {
+		if completed && dispatched >= completionSequence {
+			select {
+			case dispatchedCh <- struct{}{}:
+			default:
+			}
+		}
+	}
+	// Observe the result before user callbacks can retire the current dispatch.
+	unobserve := s.on(func(event SessionEvent) {
+		waitMu.Lock()
+		defer waitMu.Unlock()
+		observed++
+		if !isWaitEvent(event) {
+			return
+		}
+		if !admitted {
+			pending = append(pending, recordedEvent{event, observed})
+		} else if !completed {
+			process(event)
+			if completed {
+				completionSequence = observed
+			}
 		}
 	}, true)
 	defer unobserve()
 	unsubscribe := s.On(func(event SessionEvent) {
-		if event.AgentID != nil && *event.AgentID != "" {
-			return
-		}
-		switch data := event.Data.(type) {
-		case *SessionIdleData:
-			if data.Mode != nil && *data.Mode == SessionModeAutopilot {
-				return
-			}
-		case *SessionErrorData:
-		default:
-			return
-		}
-		select {
-		case dispatchedCh <- struct{}{}:
-		default:
-		}
+		waitMu.Lock()
+		defer waitMu.Unlock()
+		dispatched = observed
+		signalDispatched()
 	})
 	defer unsubscribe()
 
-	_, err := s.Send(ctx, options)
+	id, err := s.Send(ctx, options)
 	if err != nil {
 		return nil, err
 	}
+	waitMu.Lock()
+	messageID, admitted = id, true
+	for _, item := range pending {
+		process(item.event)
+		if completed {
+			completionSequence = item.sequence
+			break
+		}
+	}
+	pending = nil
+	signalDispatched()
+	waitMu.Unlock()
 
 	select {
 	case <-dispatchedCh:
@@ -623,7 +710,7 @@ func (s *Session) SendAndWait(ctx context.Context, options MessageOptions) (*Ses
 			}
 		}
 	case <-ctx.Done():
-		return nil, fmt.Errorf("waiting for session.idle: %w", ctx.Err())
+		return nil, fmt.Errorf("waiting for response completion: %w", ctx.Err())
 	}
 	select {
 	case result := <-terminalCh:

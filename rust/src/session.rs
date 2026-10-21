@@ -163,6 +163,141 @@ struct IdleWaiter {
     last_assistant_message: Option<SessionEvent>,
     started_at: Instant,
     first_assistant_message_seen: bool,
+    message_id: Option<String>,
+    request_started: bool,
+    pending: Vec<SessionEvent>,
+    closed: bool,
+}
+
+type IdleWaiterId = u64;
+type IdleWaiters = Arc<ParkingLotMutex<HashMap<IdleWaiterId, IdleWaiter>>>;
+
+static NEXT_IDLE_WAITER_ID: AtomicU64 = AtomicU64::new(1);
+
+impl IdleWaiter {
+    fn close(slot: &ParkingLotMutex<HashMap<IdleWaiterId, Self>>) {
+        let mut waiters = slot.lock();
+        let mut close_now = Vec::new();
+        for (id, waiter) in waiters.iter_mut() {
+            if waiter.message_id.is_none() {
+                waiter.closed = true;
+            } else {
+                close_now.push(*id);
+            }
+        }
+        for id in close_now {
+            if let Some(waiter) = waiters.remove(&id) {
+                let _ = waiter.tx.send(Err(
+                    ErrorKind::Session(SessionErrorKind::EventLoopClosed).into()
+                ));
+            }
+        }
+    }
+
+    fn observe(&mut self, event: &SessionEvent) -> Option<Result<Option<SessionEvent>, Error>> {
+        if !is_root_agent_event(event) {
+            return None;
+        }
+        let Some(message_id) = &self.message_id else {
+            self.pending.push(event.clone());
+            return None;
+        };
+        match event.parsed_type() {
+            SessionEventType::UserMessage => {
+                if !message_id.is_empty()
+                    && event.data.get("messageId").and_then(Value::as_str)
+                        == Some(message_id.as_str())
+                {
+                    self.request_started = true;
+                }
+            }
+            SessionEventType::SessionWarning
+                if !message_id.is_empty()
+                    && event.data.get("warningType").and_then(Value::as_str)
+                        == Some("policy_blocked")
+                    && event
+                        .data
+                        .get("originatingMessageId")
+                        .and_then(Value::as_str)
+                        == Some(message_id.as_str()) =>
+            {
+                self.request_started = true;
+            }
+            SessionEventType::AssistantMessage => {
+                let originating_message_id = event
+                    .data
+                    .get("originatingMessageId")
+                    .and_then(Value::as_str);
+                if !message_id.is_empty()
+                    && originating_message_id.is_some_and(|origin| origin != message_id)
+                {
+                    return None;
+                }
+                if !message_id.is_empty()
+                    && originating_message_id.is_none()
+                    && !self.request_started
+                {
+                    return None;
+                }
+                if message_id.is_empty() || originating_message_id == Some(message_id.as_str()) {
+                    self.request_started = true;
+                }
+                if !self.first_assistant_message_seen {
+                    self.first_assistant_message_seen = true;
+                    tracing::debug!(
+                        elapsed_ms = self.started_at.elapsed().as_millis(),
+                        "Session::send_and_wait first assistant message"
+                    );
+                }
+                self.last_assistant_message = Some(event.clone());
+            }
+            SessionEventType::SessionIdle
+                if self.request_started && !is_autopilot_continuation_idle(event) =>
+            {
+                if event
+                    .typed_data::<SessionIdleData>()
+                    .is_some_and(|data| data.aborted == Some(true))
+                {
+                    return Some(Err(structured_output_error(
+                        "session aborted before send_and_wait completed",
+                    )));
+                }
+                return Some(Ok(self.last_assistant_message.take()));
+            }
+            SessionEventType::SessionAutopilotStopped
+                if !message_id.is_empty()
+                    && event.data.get("requestId").and_then(Value::as_str)
+                        == Some(message_id.as_str()) =>
+            {
+                if event.data.get("reason").and_then(Value::as_str) == Some("error") {
+                    return Some(Err(structured_output_error("autopilot request failed")));
+                }
+                if event.data.get("reason").and_then(Value::as_str) == Some("aborted") {
+                    return Some(Err(structured_output_error(
+                        "session aborted before send_and_wait completed",
+                    )));
+                }
+                return Some(Ok(self.last_assistant_message.take()));
+            }
+            SessionEventType::SessionError
+                if event
+                    .data
+                    .get("originatingMessageId")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                    .is_none_or(|origin| origin == message_id) =>
+            {
+                let message = event
+                    .data
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("session error");
+                return Some(Err(structured_output_error(message)));
+            }
+            _ => {}
+        }
+        None
+    }
 }
 
 fn structured_output_error(message: impl Into<String>) -> Error {
@@ -178,6 +313,7 @@ fn is_structured_output_event(event: &SessionEvent) -> bool {
         SessionEventType::UserMessage
             | SessionEventType::AssistantMessage
             | SessionEventType::SessionIdle
+            | SessionEventType::SessionAutopilotStopped
             | SessionEventType::SessionError
     )
 }
@@ -228,19 +364,34 @@ impl StructuredOutputState {
                         "session aborted before structured output completed",
                     ));
                 }
-                let result = self.final_message.take().ok_or_else(|| {
-                    structured_output_error("run completed without a structured assistant response")
-                })?;
-                let data: crate::session_events::AssistantMessageData =
-                    crate::session_events::AssistantMessageData::deserialize(&result.data)?;
-                if data.content.trim().is_empty() {
+                return self.complete();
+            }
+            SessionEventType::SessionAutopilotStopped
+                if !self.message_id.is_empty()
+                    && event.data.get("requestId").and_then(Value::as_str)
+                        == Some(self.message_id.as_str()) =>
+            {
+                if event.data.get("reason").and_then(Value::as_str) == Some("error") {
+                    return Err(structured_output_error("autopilot request failed"));
+                }
+                if event.data.get("reason").and_then(Value::as_str) == Some("aborted") {
                     return Err(structured_output_error(
-                        "run completed without a structured assistant response",
+                        "session aborted before structured output completed",
                     ));
                 }
-                return Ok(Some(result));
+                return self.complete();
             }
-            SessionEventType::SessionError if self.started => {
+            SessionEventType::SessionError
+                if match event
+                    .data
+                    .get("originatingMessageId")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                {
+                    Some(origin) => origin == self.message_id,
+                    None => self.started,
+                } =>
+            {
                 let data: SessionErrorData = serde_json::from_value(event.data)?;
                 return Err(structured_output_error(format!(
                     "session error: {}",
@@ -251,26 +402,39 @@ impl StructuredOutputState {
         }
         Ok(None)
     }
+
+    fn complete(&mut self) -> Result<Option<SessionEvent>, Error> {
+        let result = self.final_message.take().ok_or_else(|| {
+            structured_output_error("run completed without a structured assistant response")
+        })?;
+        let data: crate::session_events::AssistantMessageData =
+            crate::session_events::AssistantMessageData::deserialize(&result.data)?;
+        if data.content.trim().is_empty() {
+            return Err(structured_output_error(
+                "run completed without a structured assistant response",
+            ));
+        }
+        Ok(Some(result))
+    }
 }
 
-/// RAII guard that clears the [`Session::idle_waiter`] slot on drop. Used
-/// by [`Session::send_and_wait`] to ensure the slot doesn't leak if the
-/// caller's future is cancelled (outer `tokio::time::timeout` / `select!`
-/// / dropped JoinHandle). Synchronous clear via `parking_lot::Mutex` —
-/// no async drop needed.
+/// RAII guard that clears one [`Session::idle_waiter`] entry on drop. Used by
+/// [`Session::send_and_wait`] to ensure the entry doesn't leak if the caller's
+/// future is cancelled (outer `tokio::time::timeout` / `select!` / dropped
+/// JoinHandle). Synchronous clear via `parking_lot::Mutex` — no async drop
+/// needed.
 ///
 /// Without this, an outer cancellation between "install waiter" and
-/// "drain channel" would leave the slot occupied, causing all subsequent
-/// `send` and `send_and_wait` calls on the session to return
-/// [`SendWhileWaiting`](SessionErrorKind::SendWhileWaiting). Closes RFD-400
-/// review finding #2.
+/// "drain channel" would retain the cancelled request's state until a later
+/// terminal event.
 struct WaiterGuard {
-    slot: Arc<ParkingLotMutex<Option<IdleWaiter>>>,
+    slot: IdleWaiters,
+    waiter_id: IdleWaiterId,
 }
 
 impl Drop for WaiterGuard {
     fn drop(&mut self) {
-        self.slot.lock().take();
+        self.slot.lock().remove(&self.waiter_id);
     }
 }
 
@@ -569,13 +733,13 @@ pub struct Session {
     /// the session's own tools. Read and written only under `tool_handlers`'
     /// write lock.
     installed_tools_generation: Arc<AtomicU64>,
-    /// Only populated while a `send_and_wait` call is in flight.
+    /// Pending unformatted `send_and_wait` calls, keyed by local waiter ID.
     ///
     /// Sync `parking_lot::Mutex` because the lock is never held across an
     /// `.await`, and synchronous access lets the `WaiterGuard` RAII helper
-    /// in `send_and_wait` clear the slot from a `Drop` impl on caller-side
+    /// in `send_and_wait` remove its entry from a `Drop` impl on caller-side
     /// cancellation. See RFD-400 review (cancel-safety hardening).
-    idle_waiter: Arc<ParkingLotMutex<Option<IdleWaiter>>>,
+    idle_waiter: IdleWaiters,
     /// Capabilities negotiated with the CLI, updated on `capabilities.changed` events.
     capabilities: Arc<parking_lot::RwLock<SessionCapabilities>>,
     /// Canvas instances currently known to be open for this session.
@@ -816,11 +980,7 @@ impl Session {
             let _ = handle.await;
         }
         // Fail any pending send_and_wait so it returns immediately.
-        if let Some(waiter) = self.idle_waiter.lock().take() {
-            let _ = waiter.tx.send(Err(
-                ErrorKind::Session(SessionErrorKind::EventLoopClosed).into()
-            ));
-        }
+        IdleWaiter::close(&self.idle_waiter);
     }
 
     /// Send a user message to the agent.
@@ -834,8 +994,8 @@ impl Session {
     /// send with later [`SessionEvent`]s emitted in
     /// response (assistant messages, tool requests, etc.).
     ///
-    /// Returns an error if a [`send_and_wait`](Self::send_and_wait) call is
-    /// currently in flight, since the plain send would race with the waiter.
+    /// May be called while [`send_and_wait`](Self::send_and_wait) calls are in
+    /// flight; each wait remains correlated with its own message ID.
     ///
     /// # Cancel safety
     ///
@@ -848,9 +1008,6 @@ impl Session {
     /// it and emit events normally; the caller just won't see the returned
     /// message ID.
     pub async fn send(&self, opts: impl Into<MessageOptions>) -> Result<String, Error> {
-        if self.idle_waiter.lock().is_some() {
-            return Err(ErrorKind::Session(SessionErrorKind::SendWhileWaiting).into());
-        }
         self.send_inner(opts.into()).await
     }
 
@@ -915,8 +1072,11 @@ impl Session {
     ///
     /// Accepts anything convertible to [`MessageOptions`] — pass a `&str` for the
     /// trivial case, or build a `MessageOptions` for mode/attachments/timeout.
-    /// Blocks until `session.idle` (success) or `session.error` (failure),
-    /// returning the last `assistant.message` event captured during streaming.
+    /// Blocks until non-Autopilot `session.idle` or a request-correlated
+    /// `session.autopilot_stopped`, without waiting for or stopping attached
+    /// shells on Autopilot completion. Aborted and error terminals fail the
+    /// wait; successful completion returns the last `assistant.message` event
+    /// captured during streaming.
     /// Times out after `MessageOptions::wait_timeout` (default 60 seconds).
     ///
     /// Child events with a non-empty `agentId` are still delivered to
@@ -925,19 +1085,19 @@ impl Session {
     /// The terminal event is queued to existing subscriptions before this wait
     /// completes; subscribers need not have consumed it yet.
     ///
-    /// Only one unformatted `send_and_wait` may be active per session. Calling
-    /// [`send`](Self::send) during that wait also returns an error. Schema-bearing
-    /// waits instead correlate by originating message ID and support concurrency.
-    /// They select the last root message without tool requests at non-autopilot
-    /// idle, failing on aborted idle, session errors after starting, or no result.
+    /// Unformatted waits are correlated by originating message ID and may run
+    /// concurrently with each other and with [`send`](Self::send) calls.
+    /// Schema-bearing waits also correlate by message ID
+    /// and support concurrency. They select the last root message without tool
+    /// requests at non-autopilot idle, failing on aborted idle, session errors
+    /// after starting, or no result.
     ///
     /// # Cancel safety
     ///
-    /// **Cancel-safe.** A `WaiterGuard` clears the in-flight slot on every
+    /// **Cancel-safe.** A `WaiterGuard` clears the waiter entry on every
     /// exit path (success, internal failure, internal timeout, *and*
     /// external cancellation via `tokio::time::timeout` / `select!` /
-    /// dropped JoinHandle). Subsequent `send` and `send_and_wait` calls on
-    /// this session will succeed normally — the slot is never leaked.
+    /// dropped JoinHandle). The waiter entry is removed on every exit path.
     pub async fn send_and_wait(
         &self,
         opts: impl Into<MessageOptions>,
@@ -949,30 +1109,61 @@ impl Session {
         }
         let timeout_duration = opts.wait_timeout.unwrap_or(Duration::from_secs(60));
         let (tx, rx) = oneshot::channel();
+        let waiter_id = NEXT_IDLE_WAITER_ID.fetch_add(1, Ordering::Relaxed);
 
         {
-            let mut guard = self.idle_waiter.lock();
-            if guard.is_some() {
-                return Err(ErrorKind::Session(SessionErrorKind::SendWhileWaiting).into());
-            }
-            *guard = Some(IdleWaiter {
-                tx,
-                last_assistant_message: None,
-                started_at: total_start,
-                first_assistant_message_seen: false,
-            });
+            let mut waiters = self.idle_waiter.lock();
+            waiters.insert(
+                waiter_id,
+                IdleWaiter {
+                    tx,
+                    last_assistant_message: None,
+                    started_at: total_start,
+                    first_assistant_message_seen: false,
+                    message_id: None,
+                    request_started: false,
+                    pending: Vec::new(),
+                    closed: false,
+                },
+            );
         }
 
-        // RAII: clears the idle_waiter slot on every exit path, including
+        // RAII: clears this waiter entry on every exit path, including
         // external cancellation (caller's outer `select!` / `timeout` /
         // dropped future). Without this, an outer cancellation would leak
-        // the slot and brick subsequent `send`/`send_and_wait` calls.
+        // state and block subsequent plain sends.
         let _waiter_guard = WaiterGuard {
             slot: self.idle_waiter.clone(),
+            waiter_id,
         };
 
         let result = tokio::time::timeout(timeout_duration, async {
-            self.send_inner(opts).await?;
+            let message_id = self.send_inner(opts).await?;
+            {
+                let mut waiters = self.idle_waiter.lock();
+                let mut completion = None;
+                if let Some(waiter) = waiters.get_mut(&waiter_id) {
+                    waiter.message_id = Some(message_id);
+                    let pending = std::mem::take(&mut waiter.pending);
+                    for event in pending {
+                        if let Some(result) = waiter.observe(&event) {
+                            completion = Some(result);
+                            break;
+                        }
+                    }
+                    if completion.is_none() && waiter.closed {
+                        completion = Some(Err(ErrorKind::Session(
+                            SessionErrorKind::EventLoopClosed,
+                        )
+                        .into()));
+                    }
+                }
+                if let Some(result) = completion
+                    && let Some(waiter) = waiters.remove(&waiter_id)
+                {
+                    let _ = waiter.tx.send(result);
+                }
+            }
             match rx.await {
                 Ok(result) => result,
                 Err(_) => Err(ErrorKind::Session(SessionErrorKind::EventLoopClosed).into()),
@@ -1045,7 +1236,7 @@ impl Session {
                 structured_output_error("session closed before structured output completed")
             })?;
         let wait = async {
-            let mut admission = Box::pin(self.send(opts));
+            let mut admission = Box::pin(self.send_inner(opts));
             let mut pending = Vec::new();
             let message_id = loop {
                 tokio::select! {
@@ -1919,7 +2110,7 @@ impl Client {
 
         let setup_start = Instant::now();
         let capabilities = Arc::new(parking_lot::RwLock::new(SessionCapabilities::default()));
-        let idle_waiter = Arc::new(ParkingLotMutex::new(None));
+        let idle_waiter = Arc::new(ParkingLotMutex::new(HashMap::new()));
         let open_canvases = Arc::new(parking_lot::RwLock::new(Vec::new()));
         let external_tools_shutdown = self.inner.rpc.connection_closed_token();
 
@@ -2272,7 +2463,7 @@ impl Client {
         let (registration, replaced) = self.replace_session_registration(&session_id);
         let registration_token = registration.token;
         let channels = registration.channels;
-        let idle_waiter = Arc::new(ParkingLotMutex::new(None));
+        let idle_waiter = Arc::new(ParkingLotMutex::new(HashMap::new()));
         let open_canvases = Arc::new(parking_lot::RwLock::new(Vec::new()));
         let external_tools_shutdown = self.inner.rpc.connection_closed_token();
         let registration = PendingSessionRegistration::new(
@@ -2696,7 +2887,7 @@ fn spawn_event_loop(
     session_fs_provider: Option<Arc<dyn SessionFsProvider>>,
     bearer_token_providers: HashMap<String, Arc<dyn BearerTokenProvider>>,
     channels: crate::router::SessionChannels,
-    idle_waiter: Arc<ParkingLotMutex<Option<IdleWaiter>>>,
+    idle_waiter: IdleWaiters,
     capabilities: Arc<parking_lot::RwLock<SessionCapabilities>>,
     open_canvases: Arc<parking_lot::RwLock<Vec<OpenCanvasInstance>>>,
     event_tx: tokio::sync::broadcast::Sender<SessionEvent>,
@@ -2823,11 +3014,7 @@ fn spawn_event_loop(
             }
             // Channels closed or shutdown signaled — fail any pending
             // send_and_wait so the caller observes a clean error.
-            if let Some(waiter) = idle_waiter.lock().take() {
-                let _ = waiter
-                    .tx
-                    .send(Err(ErrorKind::Session(SessionErrorKind::EventLoopClosed).into()));
-            }
+            IdleWaiter::close(&idle_waiter);
         }
         .instrument(span),
     )
@@ -2934,7 +3121,7 @@ async fn handle_notification(
     handlers: &SessionHandlers,
     command_handlers: &Arc<CommandHandlerMap>,
     notification: SessionEventNotification,
-    idle_waiter: &Arc<ParkingLotMutex<Option<IdleWaiter>>>,
+    idle_waiter: &IdleWaiters,
     capabilities: &Arc<parking_lot::RwLock<SessionCapabilities>>,
     open_canvases: &Arc<parking_lot::RwLock<Vec<OpenCanvasInstance>>>,
     event_tx: &tokio::sync::broadcast::Sender<SessionEvent>,
@@ -2955,62 +3142,25 @@ async fn handle_notification(
         );
     }
 
-    // Signal send_and_wait if active. The lock is only contended when
-    // a send_and_wait call is in flight (idle_waiter is Some).
-    let mut completion = None;
+    // Signal every send_and_wait whose request matches this terminal event.
+    let mut completions = Vec::new();
     match event_type {
         SessionEventType::AssistantMessage
+        | SessionEventType::UserMessage
+        | SessionEventType::SessionWarning
         | SessionEventType::SessionIdle
+        | SessionEventType::SessionAutopilotStopped
         | SessionEventType::SessionError
             if is_root_agent_event(event) =>
         {
-            let mut guard = idle_waiter.lock();
-            if let Some(waiter) = guard.as_mut() {
-                match event_type {
-                    SessionEventType::AssistantMessage => {
-                        if !waiter.first_assistant_message_seen {
-                            waiter.first_assistant_message_seen = true;
-                            tracing::debug!(
-                                elapsed_ms = waiter.started_at.elapsed().as_millis(),
-                                session_id = %session_id,
-                                "Session::send_and_wait first assistant message"
-                            );
-                        }
-                        waiter.last_assistant_message = Some(event.clone());
-                    }
-                    SessionEventType::SessionIdle if is_autopilot_continuation_idle(event) => {}
-                    SessionEventType::SessionIdle | SessionEventType::SessionError => {
-                        if let Some(waiter) = guard.take() {
-                            if event_type == SessionEventType::SessionIdle {
-                                tracing::debug!(
-                                    elapsed_ms = waiter.started_at.elapsed().as_millis(),
-                                    session_id = %session_id,
-                                    "Session::send_and_wait idle received"
-                                );
-                                completion = Some((waiter.tx, Ok(waiter.last_assistant_message)));
-                            } else {
-                                let error_msg = event
-                                    .typed_data::<SessionErrorData>()
-                                    .map(|d| d.message)
-                                    .or_else(|| {
-                                        event
-                                            .data
-                                            .get("message")
-                                            .and_then(|v| v.as_str())
-                                            .map(|s| s.to_string())
-                                    })
-                                    .unwrap_or_else(|| "session error".to_string());
-                                completion = Some((
-                                    waiter.tx,
-                                    Err(Error::with_message(
-                                        ErrorKind::Session(SessionErrorKind::AgentError),
-                                        error_msg,
-                                    )),
-                                ));
-                            }
-                        }
-                    }
-                    _ => {}
+            let mut waiters = idle_waiter.lock();
+            let completed = waiters
+                .iter_mut()
+                .filter_map(|(id, waiter)| waiter.observe(event).map(|result| (*id, result)))
+                .collect::<Vec<_>>();
+            for (id, result) in completed {
+                if let Some(waiter) = waiters.remove(&id) {
+                    completions.push((waiter.tx, result));
                 }
             }
         }
@@ -3053,7 +3203,7 @@ async fn handle_notification(
         // No receivers is normal before any consumer subscribes.
         let _ = event_tx.send(event.clone());
     }
-    if let Some((tx, result)) = completion {
+    for (tx, result) in completions {
         let _ = tx.send(result);
     }
 

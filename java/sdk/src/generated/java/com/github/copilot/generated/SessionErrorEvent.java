@@ -34,6 +34,8 @@ public final class SessionErrorEvent extends SessionEvent {
     @JsonIgnoreProperties(ignoreUnknown = true)
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record SessionErrorEventData(
+        /** Original root user-message ID of the failed request, including failures before user.message is emitted. Absent for session-wide errors or legacy hosts. */
+        @JsonProperty("originatingMessageId") String originatingMessageId,
         /** Category of error (e.g., "authentication", "authorization", "policy", "quota", "rate_limit", "context_limit", "query") */
         @JsonProperty("errorType") String errorType,
         /** Fine-grained error code from the upstream provider, when available. For `errorType: "rate_limit"`, this is one of the `RateLimitErrorCode` values (e.g., `"user_weekly_rate_limited"`, `"user_global_rate_limited"`, `"rate_limited"`, `"user_model_rate_limited"`, `"integration_rate_limited"`). For `errorType: "quota"`, this is the CAPI quota error code (e.g., `"quota_exceeded"`, `"session_quota_exceeded"`, `"billing_not_configured"`). */

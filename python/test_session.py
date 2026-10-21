@@ -21,6 +21,8 @@ from copilot.session_events import (
     SessionEventType,
     SessionIdleData,
     SessionMode,
+    SessionWarningData,
+    UserMessageData,
 )
 from copilot.tools import Tool, ToolNamespace, ToolResult
 
@@ -93,16 +95,24 @@ async def test_completion_captures_live_idle_before_send_reply_without_idle_in_h
     client = Mock()
     session = CopilotSession("session-1", client)
     intermediate = _event(
-        AssistantMessageData(content="working", message_id="assistant-1"),
+        AssistantMessageData(
+            content="working", message_id="assistant-1", originating_message_id="message-1"
+        ),
         SessionEventType.ASSISTANT_MESSAGE,
     )
     assistant = _event(
-        AssistantMessageData(content="done", message_id="assistant-2"),
+        AssistantMessageData(
+            content="done", message_id="assistant-2", originating_message_id="message-1"
+        ),
         SessionEventType.ASSISTANT_MESSAGE,
+    )
+    user = _event(
+        UserMessageData(content="hello", message_id="message-1"),
+        SessionEventType.USER_MESSAGE,
     )
     idle = _event(SessionIdleData(), SessionEventType.SESSION_IDLE)
     idle.ephemeral = True
-    history = [intermediate, assistant]
+    history = [user, intermediate, assistant]
     received = []
     unsubscribe = session.on(received.append)
 
@@ -112,6 +122,7 @@ async def test_completion_captures_live_idle_before_send_reply_without_idle_in_h
             return {"events": [event.to_dict() for event in history]}
         assert method == "session.send"
         # No suspension: even a create_task(async_waiter()) cannot subscribe in time.
+        session._dispatch_event(user)
         session._dispatch_event(intermediate)
         session._dispatch_event(assistant)
         session._dispatch_event(idle)
@@ -127,7 +138,7 @@ async def test_completion_captures_live_idle_before_send_reply_without_idle_in_h
             idle_task = get_next_event_of_type(session, "session.idle", timeout=1)
             try:
                 assert await session.send("hello") == "message-1"
-                assert received == [intermediate, assistant, idle]
+                assert received == [user, intermediate, assistant, idle]
                 assert await idle_task is idle
                 messages = [
                     event for event in received if event.type == SessionEventType.ASSISTANT_MESSAGE
@@ -140,6 +151,7 @@ async def test_completion_captures_live_idle_before_send_reply_without_idle_in_h
         client.request.assert_awaited_once()
         persisted = await session.get_events()
         assert [event.type for event in persisted] == [
+            SessionEventType.USER_MESSAGE,
             SessionEventType.ASSISTANT_MESSAGE,
             SessionEventType.ASSISTANT_MESSAGE,
         ]
@@ -352,6 +364,12 @@ async def test_send_and_wait_source_allows_idle_without_assistant(
         if mode is not None:
             expected["mode"] = mode
         assert params == expected
+        session._dispatch_event(
+            _event(
+                UserMessageData(content="context updated", message_id="message-1"),
+                SessionEventType.USER_MESSAGE,
+            )
+        )
         session._dispatch_event(_event(SessionIdleData(), SessionEventType.SESSION_IDLE))
         return {"messageId": "message-1"}
 
@@ -359,6 +377,65 @@ async def test_send_and_wait_source_allows_idle_without_assistant(
     assert (
         await session.send_and_wait("context updated", source=source, mode=mode, timeout=1) is None
     )
+
+
+@pytest.mark.asyncio
+async def test_send_and_wait_waits_for_matching_request_before_idle():
+    client = Mock()
+    client.request = AsyncMock(return_value={"messageId": "message-1"})
+    session = CopilotSession("session-1", client)
+
+    pending = asyncio.create_task(session.send_and_wait("queued", timeout=1))
+    await asyncio.sleep(0)
+    client.request.assert_awaited_once()
+
+    session._dispatch_event(_event(SessionIdleData(), SessionEventType.SESSION_IDLE))
+    assert not pending.done()
+
+    session._dispatch_event(
+        _event(
+            UserMessageData(content="queued", message_id="message-1"),
+            SessionEventType.USER_MESSAGE,
+        )
+    )
+    session._dispatch_event(_event(SessionIdleData(), SessionEventType.SESSION_IDLE))
+    assert await asyncio.wait_for(pending, timeout=1) is None
+
+
+@pytest.mark.asyncio
+async def test_send_and_wait_completes_policy_blocked_prompt_on_correlated_warning():
+    client = Mock()
+    client.request = AsyncMock(return_value={"messageId": "message-1"})
+    session = CopilotSession("session-1", client)
+
+    pending = asyncio.create_task(session.send_and_wait("blocked", timeout=1))
+    await asyncio.sleep(0)
+
+    session._dispatch_event(
+        _event(
+            SessionWarningData(
+                message="blocked",
+                warning_type="policy_blocked",
+                originating_message_id="other",
+            ),
+            SessionEventType.SESSION_WARNING,
+        )
+    )
+    session._dispatch_event(_event(SessionIdleData(), SessionEventType.SESSION_IDLE))
+    assert not pending.done()
+
+    session._dispatch_event(
+        _event(
+            SessionWarningData(
+                message="blocked",
+                warning_type="policy_blocked",
+                originating_message_id="message-1",
+            ),
+            SessionEventType.SESSION_WARNING,
+        )
+    )
+    session._dispatch_event(_event(SessionIdleData(), SessionEventType.SESSION_IDLE))
+    assert await asyncio.wait_for(pending, timeout=1) is None
 
 
 @pytest.mark.parametrize("mode", [None, "enqueue", "immediate"])
@@ -379,7 +456,9 @@ async def test_send_and_wait_forwards_agent_source_and_other_options(mode, monke
         "request_headers": {"X-Tag": "review"},
     }
     assistant = _event(
-        AssistantMessageData(content="done", message_id="assistant-1"),
+        AssistantMessageData(
+            content="done", message_id="assistant-1", originating_message_id="message-1"
+        ),
         SessionEventType.ASSISTANT_MESSAGE,
     )
 
@@ -398,6 +477,12 @@ async def test_send_and_wait_forwards_agent_source_and_other_options(mode, monke
             expected["mode"] = mode
         assert method == "session.send"
         assert params == expected
+        session._dispatch_event(
+            _event(
+                UserMessageData(content="Review complete", message_id="message-1"),
+                SessionEventType.USER_MESSAGE,
+            )
+        )
         session._dispatch_event(assistant)
         session._dispatch_event(_event(SessionIdleData(), SessionEventType.SESSION_IDLE))
         return {"messageId": "message-1"}
@@ -453,6 +538,12 @@ async def test_send_and_wait_skips_autopilot_continuation_idle():
     await asyncio.wait_for(request_sent.wait(), timeout=1)
     client.request.assert_awaited_once()
 
+    session._dispatch_event(
+        _event(
+            UserMessageData(content="keep going", message_id="message-1"),
+            SessionEventType.USER_MESSAGE,
+        )
+    )
     session._dispatch_event(
         _event(
             AssistantMessageData(content="intermediate", message_id="assistant-1"),
@@ -522,6 +613,12 @@ async def test_send_and_wait_ignores_child_events():
         await asyncio.sleep(0)
         assert not pending.done()
 
+        session._dispatch_event(
+            _event(
+                UserMessageData(content="delegate", message_id="message-1"),
+                SessionEventType.USER_MESSAGE,
+            )
+        )
         session._dispatch_event(_event(SessionIdleData(), SessionEventType.SESSION_IDLE))
         assert await asyncio.wait_for(pending, timeout=1) is None
     finally:

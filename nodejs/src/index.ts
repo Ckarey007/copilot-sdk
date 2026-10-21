@@ -15,6 +15,7 @@ export type {
     ModelGetReasoningSummariesRequest,
     ModelGetReasoningSummariesResult,
     SandboxConfig,
+    AutopilotOptions,
 } from "./generated/rpc.js";
 export {
     AhpHost,

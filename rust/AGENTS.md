@@ -67,7 +67,7 @@ and the facade's environment applies only to its child process; it does not
 persist for later shell commands. The CLI consumes this crate through the
 same-checkout `//src/sdk/rust:github-copilot-sdk-local-runtime` Bazel target,
 with default features disabled. That `local-runtime` mode enables in-process
-transport without SDK-managed acquisition because the CLI supplies the adjacent
+transport without SDK-managed acquisition because the CLI supplies its loaded
 `runtime.node`; `bundled-cli` takes precedence in all-feature builds.
 
 Use this crate's `rust-toolchain.toml`, `Cargo.toml`, and rustfmt configuration,

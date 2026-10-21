@@ -1303,6 +1303,7 @@ func assertCanvasProviderForwarded(t *testing.T, params json.RawMessage, wantID,
 }
 
 func TestClient_ForwardsNewSessionOptionsToSessionRequests(t *testing.T) {
+	zeroContinues, twoContinues := int64(0), int64(2)
 	rpcClient, server, _ := newRuntimeShutdownRpcPair(t)
 	t.Cleanup(server.Stop)
 	client := &Client{
@@ -1323,6 +1324,7 @@ func TestClient_ForwardsNewSessionOptionsToSessionRequests(t *testing.T) {
 		EnableCitations:          Bool(true),
 		EnableFileChangeTracking: Bool(true),
 		SessionLimits:            &rpc.SessionLimitsConfig{MaxAiCredits: float64Ptr(30)},
+		Autopilot:                &rpc.AutopilotOptions{ContinuationEnabled: Bool(false), MaxContinues: &zeroContinues},
 		SandboxConfig: &rpc.SandboxConfig{
 			Enabled:                    true,
 			AddCurrentWorkingDirectory: Bool(false),
@@ -1332,7 +1334,8 @@ func TestClient_ForwardsNewSessionOptionsToSessionRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
-	assertNewSessionOptions(t, <-createParams, true, true, "explore", 30, true)
+	assertNewSessionOptions(t, <-createParams, true, true, "explore", 30, true,
+		map[string]any{"continuationEnabled": false, "maxContinues": float64(0)})
 
 	resumeParams := make(chan json.RawMessage, 1)
 	server.SetRequestHandler("session.resume", func(params json.RawMessage) (json.RawMessage, *jsonrpc2.Error) {
@@ -1345,6 +1348,7 @@ func TestClient_ForwardsNewSessionOptionsToSessionRequests(t *testing.T) {
 		EnableCitations:          Bool(false),
 		EnableFileChangeTracking: Bool(false),
 		SessionLimits:            &rpc.SessionLimitsConfig{MaxAiCredits: float64Ptr(15)},
+		Autopilot:                &rpc.AutopilotOptions{MaxContinues: &twoContinues},
 		SandboxConfig: &rpc.SandboxConfig{
 			Enabled:                    false,
 			AddCurrentWorkingDirectory: Bool(false),
@@ -1354,7 +1358,8 @@ func TestClient_ForwardsNewSessionOptionsToSessionRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResumeSessionWithOptions failed: %v", err)
 	}
-	assertNewSessionOptions(t, <-resumeParams, false, false, "task", 15, false)
+	assertNewSessionOptions(t, <-resumeParams, false, false, "task", 15, false,
+		map[string]any{"maxContinues": float64(2)})
 }
 
 func assertCapiOptions(t *testing.T, params json.RawMessage, want map[string]any) {
@@ -1388,6 +1393,7 @@ func assertNewSessionOptions(
 	expectedAgent string,
 	expectedCredits float64,
 	expectedSandboxEnabled bool,
+	expectedAutopilot map[string]any,
 ) {
 	t.Helper()
 
@@ -1411,6 +1417,9 @@ func assertNewSessionOptions(
 	}
 	if limits["maxAiCredits"] != expectedCredits {
 		t.Fatalf("expected sessionLimits.maxAiCredits=%v, got %v", expectedCredits, limits["maxAiCredits"])
+	}
+	if !reflect.DeepEqual(decoded["autopilot"], expectedAutopilot) {
+		t.Fatalf("expected autopilot %v, got %v", expectedAutopilot, decoded["autopilot"])
 	}
 	expectedSandbox := map[string]any{
 		"enabled":                    expectedSandboxEnabled,

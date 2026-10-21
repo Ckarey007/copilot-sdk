@@ -965,6 +965,7 @@ macro_rules! host_settings {
             "model" => model,
             "reasoningEffort" => reasoning_effort,
             "contextTier" => context_tier,
+            "autopilot" => autopilot,
         }
     };
 }

@@ -339,6 +339,17 @@ pub struct ClientOptions {
     pub builtin_plugin_directories: Vec<PathBuf>,
     /// Transport mode used to communicate with the CLI server.
     pub transport: Transport,
+    /// Experimental UI scheduling for [`Transport::InProcess`] only.
+    ///
+    /// Execute the supplied native action exactly once on the host's UI thread
+    /// (the process main thread on macOS), completing only after it returns.
+    /// Other in-process clients may share this process-wide capability.
+    ///
+    /// Required for OneAuth interactive authentication on macOS. This general-purpose
+    /// scheduler may also be used for other runtime-owned native UI operations.
+    /// Temporary OneAuth workaround; this API may be removed if no longer needed.
+    /// See <https://github.com/github/copilot-agent-runtime/issues/27032>.
+    pub run_on_ui_thread: Option<Arc<dyn UiThreadHandler>>,
     /// GitHub token for authentication. When set, the SDK passes the token
     /// to the CLI via `--auth-token-env COPILOT_SDK_AUTH_TOKEN` and exports
     /// the token in that env var. When set, the CLI defaults to *not*
@@ -431,8 +442,8 @@ pub struct ClientOptions {
     /// Only used with [`Transport::InProcess`].
     #[doc(hidden)]
     pub in_process_server_id: Option<u32>,
-    /// Native image the embedding host already loaded for an attached server.
-    /// Standalone clients keep the SDK's ordinary runtime resolver.
+    /// Native image the embedding host already loaded, required for an attached server.
+    /// Otherwise defaults to the SDK's ordinary runtime resolver.
     #[doc(hidden)]
     pub in_process_runtime_library_path: Option<PathBuf>,
     /// Enable remote session support (Mission Control integration).
@@ -577,6 +588,10 @@ impl std::fmt::Debug for ClientOptions {
             )
             .field("transport", &self.transport)
             .field(
+                "run_on_ui_thread",
+                &self.run_on_ui_thread.as_ref().map(|_| "<set>"),
+            )
+            .field(
                 "github_token",
                 &self.github_token.as_ref().map(|_| "<redacted>"),
             )
@@ -640,6 +655,32 @@ impl std::fmt::Debug for ClientOptions {
 pub trait ListModelsHandler: Send + Sync + 'static {
     /// Return the list of available models.
     async fn list_models(&self) -> Result<Vec<Model>>;
+}
+
+/// One runtime-owned native operation. Calling it can block while native UI is open.
+pub type UiThreadAction = Box<dyn FnOnce() -> Result<()> + Send + 'static>;
+
+/// Experimental UI scheduling supplied by an in-process SDK host.
+///
+/// The host supplies the scheduler, not the action. No authentication data
+/// crosses this boundary. On macOS the action must run on the process main thread.
+/// Required for OneAuth interactive authentication on macOS, but not limited to
+/// authentication: other runtime-owned native UI operations may also use it.
+#[async_trait]
+pub trait UiThreadHandler: Send + Sync + 'static {
+    /// Schedule `action` exactly once, and complete only after it returns.
+    async fn run_on_ui_thread(&self, action: UiThreadAction) -> Result<()>;
+}
+
+#[async_trait]
+impl<F, Fut> UiThreadHandler for F
+where
+    F: Fn(UiThreadAction) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = Result<()>> + Send,
+{
+    async fn run_on_ui_thread(&self, action: UiThreadAction) -> Result<()> {
+        self(action).await
+    }
 }
 
 /// Log verbosity for the CLI server (passed via `--log-level`).
@@ -858,6 +899,7 @@ impl Default for ClientOptions {
             extra_args: Vec::new(),
             builtin_plugin_directories: Vec::new(),
             transport: Transport::default(),
+            run_on_ui_thread: None,
             github_token: None,
             use_logged_in_user: None,
             log_level: None,
@@ -1384,6 +1426,13 @@ impl Client {
         if matches!(options.transport, Transport::Default) {
             options.transport = resolve_default_transport(&options)?;
         }
+        if options.run_on_ui_thread.is_some() && !matches!(options.transport, Transport::InProcess)
+        {
+            return Err(Error::with_message(
+                ErrorKind::InvalidConfig,
+                "run_on_ui_thread is supported only with Transport::InProcess",
+            ));
+        }
         if matches!(options.transport, Transport::InProcess) {
             #[cfg(not(feature = "in-process"))]
             {
@@ -1717,6 +1766,36 @@ impl Client {
                         options.client_info,
                         false,
                     )?;
+                    let ui_handler = options.run_on_ui_thread;
+                    if let Some(handler) = ui_handler.as_ref() {
+                        let handler = Arc::clone(handler);
+                        let shared = Arc::clone(&shared);
+                        client.register_request_handler(
+                            "uiThread.run",
+                            move |params, _client| {
+                                let handler = Arc::clone(&handler);
+                                let shared = Arc::clone(&shared);
+                                async move {
+                                    let request: crate::generated::api_types::UiThreadRunRequest =
+                                        serde_json::from_value(params)?;
+                                    let action_id =
+                                        u32::try_from(request.action_id).map_err(|_| {
+                                            Error::with_message(
+                                                ErrorKind::InvalidConfig,
+                                                "Invalid native UI action identifier",
+                                            )
+                                        })?;
+                                    handler
+                                        .run_on_ui_thread(Box::new(move || {
+                                            shared.run_ui_action(action_id)
+                                        }))
+                                        .await?;
+                                    Ok(serde_json::Value::Null)
+                                }
+                            },
+                        )?;
+                    }
+                    shared.configure_ui_thread(ui_handler.is_some())?;
                     *client.inner.ffi_host.lock() = Some(shared);
                     client
                 }

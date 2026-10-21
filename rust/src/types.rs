@@ -24,11 +24,11 @@ pub use crate::copilot_request_handler::{
 pub use crate::copilot_request_handler::{
     CopilotWebSocketForwarder, CopilotWebSocketForwarderBuilder, forward_http,
 };
-use crate::generated::api_types::{CurrentToolMetadata, OpenCanvasInstance, SandboxConfig};
 pub use crate::generated::api_types::{
-    DiagnosticLogLevel, DiagnosticSourcesConfiguration, DiagnosticsConfiguration,
+    AutopilotOptions, DiagnosticLogLevel, DiagnosticSourcesConfiguration, DiagnosticsConfiguration,
     McpDiagnosticSourceConfiguration,
 };
+use crate::generated::api_types::{CurrentToolMetadata, OpenCanvasInstance, SandboxConfig};
 /// Acknowledgement and Auto preference snapshot returned by an Auto tier switch.
 pub use crate::generated::api_types::{ModelSwitchAutoTierResult, ModelSwitchAutoTierStatus};
 pub use crate::generated::session_events::AgentModelPolicy;
@@ -2424,6 +2424,9 @@ pub struct SessionConfig {
     pub enable_file_change_tracking: Option<bool>,
     /// **Experimental.** Limits applied to this session's current accounting window.
     pub session_limits: Option<SessionLimitsConfig>,
+    /// **Experimental.** Autopilot policy, independent of the session mode.
+    /// Omitted fields use runtime defaults on create.
+    pub autopilot: Option<AutopilotOptions>,
     /// Per-property overrides for model capabilities, deep-merged over
     /// runtime defaults.
     pub model_capabilities: Option<crate::generated::api_types::ModelCapabilitiesOverride>,
@@ -2683,6 +2686,7 @@ impl std::fmt::Debug for SessionConfig {
                 &self.enable_file_change_tracking,
             )
             .field("session_limits", &self.session_limits)
+            .field("autopilot", &self.autopilot)
             .field("model_capabilities", &self.model_capabilities)
             .field("memory", &self.memory)
             .field("config_directory", &self.config_directory)
@@ -2827,6 +2831,7 @@ impl Default for SessionConfig {
             enable_citations: None,
             enable_file_change_tracking: None,
             session_limits: None,
+            autopilot: None,
             model_capabilities: None,
             memory: None,
             config_directory: None,
@@ -3006,6 +3011,7 @@ impl SessionConfig {
             enable_citations: self.enable_citations,
             enable_file_change_tracking: self.enable_file_change_tracking,
             session_limits: self.session_limits,
+            autopilot: self.autopilot,
             model_capabilities: self.model_capabilities,
             memory: self.memory,
             config_dir: self.config_directory,
@@ -3638,6 +3644,12 @@ impl SessionConfig {
         self
     }
 
+    /// **Experimental.** Configure Autopilot without changing the session mode.
+    pub fn with_autopilot(mut self, options: AutopilotOptions) -> Self {
+        self.autopilot = Some(options);
+        self
+    }
+
     /// Set per-property overrides for model capabilities.
     pub fn with_model_capabilities(
         mut self,
@@ -4025,6 +4037,9 @@ pub struct ResumeSessionConfig {
     pub enable_file_change_tracking: Option<bool>,
     /// **Experimental.** Limits applied to this session's current accounting window.
     pub session_limits: Option<SessionLimitsConfig>,
+    /// **Experimental.** Patch resident Autopilot policy on warm resume.
+    /// Omitted fields preserve resident values. Re-supply on cold resume.
+    pub autopilot: Option<AutopilotOptions>,
     /// Per-property model capability overrides on resume.
     pub model_capabilities: Option<crate::generated::api_types::ModelCapabilitiesOverride>,
     /// Per-session configuration for the runtime memory feature on resume.
@@ -4233,6 +4248,7 @@ impl std::fmt::Debug for ResumeSessionConfig {
                 &self.enable_file_change_tracking,
             )
             .field("session_limits", &self.session_limits)
+            .field("autopilot", &self.autopilot)
             .field("model_capabilities", &self.model_capabilities)
             .field("memory", &self.memory)
             .field("config_directory", &self.config_directory)
@@ -4412,6 +4428,7 @@ impl ResumeSessionConfig {
             enable_citations: self.enable_citations,
             enable_file_change_tracking: self.enable_file_change_tracking,
             session_limits: self.session_limits,
+            autopilot: self.autopilot,
             model_capabilities: self.model_capabilities,
             memory: self.memory,
             config_dir: self.config_directory,
@@ -4526,6 +4543,7 @@ impl ResumeSessionConfig {
             enable_citations: None,
             enable_file_change_tracking: None,
             session_limits: None,
+            autopilot: None,
             model_capabilities: None,
             memory: None,
             config_directory: None,
@@ -5111,6 +5129,12 @@ impl ResumeSessionConfig {
     /// **Experimental.** Set limits for this session's current accounting window.
     pub fn with_session_limits(mut self, limits: SessionLimitsConfig) -> Self {
         self.session_limits = Some(limits);
+        self
+    }
+
+    /// **Experimental.** Patch Autopilot policy without changing the session mode.
+    pub fn with_autopilot(mut self, options: AutopilotOptions) -> Self {
+        self.autopilot = Some(options);
         self
     }
 

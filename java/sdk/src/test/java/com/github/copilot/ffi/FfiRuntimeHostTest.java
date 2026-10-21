@@ -36,9 +36,21 @@ class FfiRuntimeHostTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    private abstract static class TestBinding implements NativeBinding {
+        @Override
+        public boolean connectionSetUiThreadHandler(int connectionId, boolean enabled) {
+            throw new UnsupportedOperationException("UI scheduling is not exercised by this test");
+        }
+
+        @Override
+        public boolean connectionRunUiAction(int connectionId, int actionId) {
+            throw new UnsupportedOperationException("UI scheduling is not exercised by this test");
+        }
+    }
+
     @Test
     void startBuildsExpectedArgvAndEnvJson() throws Exception {
-        class RecordingBinding implements NativeBinding {
+        class RecordingBinding extends TestBinding {
             byte[] argv;
             byte[] env;
 
@@ -104,7 +116,7 @@ class FfiRuntimeHostTest {
     @Test
     void startWithoutEntrypointPassesOnlyRuntimeOptions() throws Exception {
         AtomicReference<byte[]> argvJson = new AtomicReference<>();
-        NativeBinding binding = new NativeBinding() {
+        NativeBinding binding = new TestBinding() {
             @Override
             public int hostStart(byte[] argv, int argvLen, byte[] env, int envLen) {
                 argvJson.set(argv);
@@ -145,7 +157,7 @@ class FfiRuntimeHostTest {
     @Test
     void callbackExceptionIsContainedAndDoesNotEscapeAcrossFfiBoundary() {
         AtomicBoolean callbackReturned = new AtomicBoolean(false);
-        NativeBinding binding = new NativeBinding() {
+        NativeBinding binding = new TestBinding() {
             @Override
             public int hostStart(byte[] argvJson, int argvJsonLen, byte[] envJson, int envJsonLen) {
                 return 1;
@@ -191,7 +203,7 @@ class FfiRuntimeHostTest {
 
     @Test
     void closeNeverThrowsEvenWhenNativeCloseFails() {
-        NativeBinding binding = new NativeBinding() {
+        NativeBinding binding = new TestBinding() {
             @Override
             public int hostStart(byte[] argvJson, int argvJsonLen, byte[] envJson, int envJsonLen) {
                 return 5;
@@ -228,7 +240,7 @@ class FfiRuntimeHostTest {
     void failedConnectionOpenReleasesHostForSequentialStartup() {
         AtomicInteger starts = new AtomicInteger();
         AtomicInteger shutdowns = new AtomicInteger();
-        NativeBinding binding = new NativeBinding() {
+        NativeBinding binding = new TestBinding() {
             @Override
             public int hostStart(byte[] argvJson, int argvJsonLen, byte[] envJson, int envJsonLen) {
                 return starts.incrementAndGet();
@@ -275,7 +287,7 @@ class FfiRuntimeHostTest {
         CountDownLatch allowWriteToFinish = new CountDownLatch(1);
         AtomicInteger writes = new AtomicInteger(0);
 
-        NativeBinding binding = new NativeBinding() {
+        NativeBinding binding = new TestBinding() {
             @Override
             public int hostStart(byte[] argvJson, int argvJsonLen, byte[] envJson, int envJsonLen) {
                 return 3;
@@ -342,7 +354,7 @@ class FfiRuntimeHostTest {
         AtomicInteger shutdownCalls = new AtomicInteger(0);
         AtomicReference<OutboundCallback> callbackRef = new AtomicReference<>();
 
-        NativeBinding binding = new NativeBinding() {
+        NativeBinding binding = new TestBinding() {
             @Override
             public int hostStart(byte[] argvJson, int argvJsonLen, byte[] envJson, int envJsonLen) {
                 return 7;

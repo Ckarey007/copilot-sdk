@@ -140,6 +140,7 @@ const (
 	// that may change or be removed.
 	SessionEventTypeSessionAutoModeResolved          SessionEventType = "session.auto_mode_resolved"
 	SessionEventTypeSessionAutopilotObjectiveChanged SessionEventType = "session.autopilot_objective_changed"
+	SessionEventTypeSessionAutopilotStopped          SessionEventType = "session.autopilot_stopped"
 	// Experimental: SessionEventTypeSessionAutoTierRecommendation identifies an experimental
 	// event that may change or be removed.
 	SessionEventTypeSessionAutoTierRecommendation SessionEventType = "session.auto_tier_recommendation"
@@ -1082,6 +1083,8 @@ type SessionErrorData struct {
 	ErrorType string `json:"errorType"`
 	// Human-readable error message
 	Message string `json:"message"`
+	// Original root user-message ID of the failed request, including failures before user.message is emitted. Absent for session-wide errors or legacy hosts.
+	OriginatingMessageID *string `json:"originatingMessageId,omitempty"`
 	// GitHub request tracing ID (x-github-request-id header) for correlating with server-side logs
 	ProviderCallID *string `json:"providerCallId,omitempty"`
 	// Sanitized provider-defined error parameter preserved from a structured upstream error envelope, when available.
@@ -3359,6 +3362,19 @@ func (*SessionModelDeselectedData) Type() SessionEventType {
 	return SessionEventTypeSessionModelDeselected
 }
 
+// The runtime has stopped continuing one Autopilot request. Attached background work may remain active; this is not session-wide idle.
+type SessionAutopilotStoppedData struct {
+	// The terminal policy reason, such as task_complete, aborted, error, or background_timeout.
+	Reason string `json:"reason"`
+	// Original root user message ID for this request, absent when no root request is available.
+	RequestID *string `json:"requestId,omitempty"`
+}
+
+func (*SessionAutopilotStoppedData) sessionEventData() {}
+func (*SessionAutopilotStoppedData) Type() SessionEventType {
+	return SessionEventTypeSessionAutopilotStopped
+}
+
 // Tool execution completion results including success status, detailed output, and error information
 type ToolExecutionCompleteData struct {
 	// Error details when the tool execution failed
@@ -3578,6 +3594,8 @@ func (*ToolUserRequestedData) Type() SessionEventType { return SessionEventTypeT
 type SessionWarningData struct {
 	// Human-readable warning message for display in the timeline
 	Message string `json:"message"`
+	// Logical ID returned by session.send for the request this warning concerns. Set for policy-blocked prompts, which do not emit a user.message event.
+	OriginatingMessageID *string `json:"originatingMessageId,omitempty"`
 	// What the user must do to recover, when the runtime knows of an action. The `message` never names a client affordance, so a client that offers one — a slash command, a settings pane, a link — renders it from this value.
 	Remediation *RemediationAction `json:"remediation,omitempty"`
 	// Optional URL associated with this warning that the user can open in a browser

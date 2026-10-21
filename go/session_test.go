@@ -1461,6 +1461,10 @@ func checkSendAndWaitSkipsSubagentAndAutopilotContinuationIdle(t *testing.T, roo
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for session.send request")
 	}
+	session.dispatchEvent(SessionEvent{Data: &UserMessageData{
+		Content:   "keep going",
+		MessageID: ptr("message-1"),
+	}})
 
 	continuationIdleProcessed := make(chan struct{})
 	childMessageProcessed := make(chan struct{})

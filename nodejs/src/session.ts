@@ -813,10 +813,12 @@ export class CopilotSession {
     }
 
     /**
-     * Sends a message to this session and waits until the session becomes idle.
+     * Sends a message and waits for its response to complete.
      *
      * This is a convenience method that combines {@link send} with waiting for
-     * the `session.idle` event. Use this when you want to block until the
+     * non-Autopilot `session.idle` or the request-correlated `session.autopilot_stopped`
+     * event. Autopilot completion does not wait for or stop attached shells.
+     * Use this when you want to block until the
      * assistant has finished processing the message.
      *
      * Events are still delivered to handlers registered via {@link on} while waiting.
@@ -827,9 +829,10 @@ export class CopilotSession {
      *
      * @param options - The message options including the prompt and optional attachments
      * @param timeout - Timeout in milliseconds (default: 60000). Controls how long to wait; does not abort in-flight agent work.
-     * @returns A promise that resolves with the final assistant message when the session becomes idle,
+     * @returns A promise that resolves with the final assistant message on completion,
      *          or undefined if no assistant message was received
-     * @throws Error if the timeout is reached before the session becomes idle
+     * @throws Error if the run is aborted before completion
+     * @throws Error if the timeout is reached before response completion
      * @throws Error if the session has been disconnected or the connection fails
      *
      * @example
@@ -892,41 +895,116 @@ export class CopilotSession {
             return message;
         }
 
-        type SessionOutcome = { kind: "idle" } | { kind: "error"; error: Error };
+        type SessionOutcome =
+            | { kind: "idle"; message: AssistantMessageEvent | undefined }
+            | { kind: "error"; error: Error };
         let resolveOutcome: (outcome: SessionOutcome) => void;
         const outcomePromise = new Promise<SessionOutcome>((resolve) => {
             resolveOutcome = resolve;
         });
 
         let lastAssistantMessage: AssistantMessageEvent | undefined;
+        let messageId: string | undefined;
+        let requestStarted = false;
+        let admitted = false;
+        const buffered: (SessionEvent | Error)[] = [];
 
         // Register event handler BEFORE calling send to avoid race condition
-        // where session.idle fires before we start listening
-        const unsubscribe = this.on((event) => {
+        // where completion fires before the send response supplies its request ID.
+        const observe = (event: SessionEvent) => {
             if (event.agentId) return;
-            if (event.type === "assistant.message") {
+            if (event.type === "user.message" && event.data.messageId === messageId) {
+                requestStarted = true;
+            } else if (
+                event.type === "session.warning" &&
+                event.data.warningType === "policy_blocked" &&
+                event.data.originatingMessageId === messageId
+            ) {
+                requestStarted = true;
+            } else if (
+                event.type === "assistant.message" &&
+                (event.data.originatingMessageId === messageId ||
+                    (!event.data.originatingMessageId && requestStarted))
+            ) {
                 lastAssistantMessage = event;
-            } else if (event.type === "session.idle" && event.data.mode !== "autopilot") {
-                resolveOutcome({ kind: "idle" });
-            } else if (event.type === "session.error") {
+                if (event.data.originatingMessageId === messageId) requestStarted = true;
+            } else if (
+                event.type === "session.idle" &&
+                requestStarted &&
+                event.data.mode !== "autopilot"
+            ) {
+                resolveOutcome(
+                    event.data.aborted
+                        ? {
+                              kind: "error",
+                              error: new Error("The requested run was aborted before completion."),
+                          }
+                        : { kind: "idle", message: lastAssistantMessage }
+                );
+            } else if (
+                event.type === "session.autopilot_stopped" &&
+                messageId &&
+                event.data.requestId === messageId
+            ) {
+                if (event.data.reason === "error") {
+                    resolveOutcome({
+                        kind: "error",
+                        error: new Error("Autopilot request failed"),
+                    });
+                } else if (event.data.reason === "aborted") {
+                    resolveOutcome({
+                        kind: "error",
+                        error: new Error("The requested run was aborted before completion."),
+                    });
+                } else {
+                    resolveOutcome({ kind: "idle", message: lastAssistantMessage });
+                }
+            } else if (
+                event.type === "session.error" &&
+                (!event.data.originatingMessageId || event.data.originatingMessageId === messageId)
+            ) {
                 const error = new Error(event.data.message);
                 error.stack = event.data.stack;
                 resolveOutcome({ kind: "error", error });
             }
+        };
+        const unsubscribe = this.on((event) => {
+            if (
+                event.agentId ||
+                (event.type !== "assistant.message" &&
+                    event.type !== "user.message" &&
+                    event.type !== "session.warning" &&
+                    event.type !== "session.idle" &&
+                    event.type !== "session.autopilot_stopped" &&
+                    event.type !== "session.error")
+            ) {
+                return;
+            }
+            if (!admitted) buffered.push(event);
+            else observe(event);
         });
-        const fail = (error: Error) => resolveOutcome({ kind: "error", error });
+        const fail = (error: Error) => {
+            if (!admitted) buffered.push(error);
+            else resolveOutcome({ kind: "error", error });
+        };
         this.pendingResponseWaits.add(fail);
 
         let timeoutId: ReturnType<typeof setTimeout> | undefined;
         try {
-            await this.send(options);
+            messageId = await this.send(options);
+            admitted = true;
+            for (const event of buffered) {
+                if (event instanceof Error) fail(event);
+                else observe(event);
+            }
+            buffered.length = 0;
 
             const timeoutPromise = new Promise<never>((_, reject) => {
                 timeoutId = setTimeout(
                     () =>
                         reject(
                             new Error(
-                                `Timeout after ${effectiveTimeout}ms waiting for session.idle`
+                                `Timeout after ${effectiveTimeout}ms waiting for response completion`
                             )
                         ),
                     effectiveTimeout
@@ -937,12 +1015,13 @@ export class CopilotSession {
                 throw outcome.error;
             }
 
-            return lastAssistantMessage;
+            return outcome.message;
         } finally {
             if (timeoutId !== undefined) {
                 clearTimeout(timeoutId);
             }
             unsubscribe();
+            buffered.length = 0;
             this.pendingResponseWaits.delete(fail);
         }
     }
@@ -977,11 +1056,15 @@ export class CopilotSession {
                 consumed = true;
                 lastMessage = event.data.toolRequests?.length ? undefined : event;
             } else if (
-                consumed &&
-                event.type === "session.idle" &&
-                event.data.mode !== "autopilot"
+                (consumed && event.type === "session.idle" && event.data.mode !== "autopilot") ||
+                (event.type === "session.autopilot_stopped" && event.data.requestId === messageId)
             ) {
-                if (event.data.aborted) {
+                if (event.type === "session.autopilot_stopped" && event.data.reason === "error") {
+                    fail(new Error("Autopilot request failed"));
+                } else if (
+                    (event.type === "session.idle" && event.data.aborted) ||
+                    (event.type === "session.autopilot_stopped" && event.data.reason === "aborted")
+                ) {
                     fail(
                         new Error(
                             "The requested run was aborted before a structured result was completed."
@@ -990,7 +1073,12 @@ export class CopilotSession {
                 } else {
                     resolveOutcome({ kind: "idle", message: lastMessage });
                 }
-            } else if (consumed && event.type === "session.error") {
+            } else if (
+                event.type === "session.error" &&
+                (event.data.originatingMessageId
+                    ? event.data.originatingMessageId === messageId
+                    : consumed)
+            ) {
                 const error = new Error(event.data.message);
                 error.stack = event.data.stack;
                 fail(error);
@@ -1001,6 +1089,7 @@ export class CopilotSession {
                 event.type !== "user.message" &&
                 event.type !== "assistant.message" &&
                 event.type !== "session.idle" &&
+                event.type !== "session.autopilot_stopped" &&
                 event.type !== "session.error"
             ) {
                 return;

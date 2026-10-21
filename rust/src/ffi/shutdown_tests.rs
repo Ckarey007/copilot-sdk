@@ -39,6 +39,14 @@ unsafe extern "C" fn connection_close(_connection_id: u32) -> bool {
     true
 }
 
+unsafe extern "C" fn connection_set_ui_thread_handler(_connection_id: u32, _enabled: bool) -> bool {
+    true
+}
+
+unsafe extern "C" fn connection_run_ui_action(_connection_id: u32, _action_id: u32) -> bool {
+    true
+}
+
 unsafe extern "C" fn connection_write(
     _connection_id: u32,
     _bytes: *const u8,
@@ -72,6 +80,8 @@ fn async_stop_keeps_current_thread_executor_responsive_during_native_shutdown() 
                     owns_host: true,
                     connection_write,
                     connection_close,
+                    connection_set_ui_thread_handler,
+                    connection_run_ui_action,
                     server_id: AtomicU32::new(11),
                     connection_id: AtomicU32::new(0),
                     callback_state: AtomicPtr::new(std::ptr::null_mut()),
@@ -113,6 +123,8 @@ fn attached_client_closes_only_its_connection() {
         owns_host: false,
         connection_write,
         connection_close,
+        connection_set_ui_thread_handler,
+        connection_run_ui_action,
         server_id: AtomicU32::new(11),
         connection_id: AtomicU32::new(12),
         callback_state: AtomicPtr::new(std::ptr::null_mut()),
@@ -140,6 +152,8 @@ async fn stopping_attached_client_does_not_shutdown_the_cli_engine() {
         owns_host: false,
         connection_write,
         connection_close,
+        connection_set_ui_thread_handler,
+        connection_run_ui_action,
         server_id: AtomicU32::new(11),
         connection_id: AtomicU32::new(12),
         callback_state: AtomicPtr::new(std::ptr::null_mut()),

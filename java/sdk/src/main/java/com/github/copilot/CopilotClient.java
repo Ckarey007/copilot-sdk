@@ -565,6 +565,33 @@ public final class CopilotClient implements AutoCloseable {
             RpcHandlerDispatcher dispatcher = new RpcHandlerDispatcher(sessions, lifecycleManager::dispatch, executor,
                     gitHubTokenProviders);
             dispatcher.registerHandlers(connectedRpc);
+            if (inProcessTransport != null && inProcessTransport.host() instanceof FfiRuntimeHost nativeHost) {
+                var uiHandler = ((InProcessRuntimeConnection) runtimeConnection).getRunOnUiThread();
+                if (uiHandler != null) {
+                    connectedRpc.registerMethodHandler("uiThread.run", (requestId, params) -> {
+                        var responseId = Long.valueOf(requestId);
+                        var request = JsonRpcClient.getObjectMapper().convertValue(params,
+                                com.github.copilot.generated.rpc.UiThreadRunRequest.class);
+                        var actionId = request.actionId();
+                        if (actionId < 0 || actionId > 0xffff_ffffL) {
+                            throw new IllegalArgumentException("UI action ID must be an unsigned 32-bit integer.");
+                        }
+                        uiHandler.apply(() -> nativeHost.runUiAction(actionId.intValue()))
+                                .whenComplete((result, error) -> {
+                                    try {
+                                        if (error == null) {
+                                            connectedRpc.sendResponse(responseId, null);
+                                        } else {
+                                            connectedRpc.sendErrorResponse(responseId, -32603, error.toString());
+                                        }
+                                    } catch (IOException e) {
+                                        LOG.log(Level.WARNING, "Failed to send UI dispatcher response", e);
+                                    }
+                                });
+                    });
+                }
+                nativeHost.configureUiThread(uiHandler != null);
+            }
             ahpHosts.register(connectedRpc);
 
             // Register the LLM inference request handler when configured.
@@ -1477,7 +1504,8 @@ public final class CopilotClient implements AutoCloseable {
                 null, // enableSessionStore
                 null, // enableSkills
                 null, // contextTier
-                null // sessionLimits
+                null, // sessionLimits
+                null // autopilot
         );
 
         return session.getRpc().options.update(params).<Void>thenCompose(result -> {

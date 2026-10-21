@@ -288,6 +288,15 @@ spawned UI work should observe this signal and retire itself when it completes.
 Dropping an outbound installation or OAuth future does not cancel that
 operation.
 
+`SessionConfig.setAutopilot(AutopilotOptions)` and the corresponding
+`ResumeSessionConfig` setter configure experimental Autopilot policy.
+`continuationEnabled` defaults to true and does not change session mode.
+`maxContinues` limits continuations outside an active objective: a non-negative
+integer, default five, with zero allowing none. Options updates and warm resumes
+preserve omitted fields; an empty
+policy changes nothing. Re-supply on cold resume. Pause state, prompt overrides,
+and no-progress detection remain internal.
+
 `SessionConfig.setAskUserVariant(AskUserVariant.ELICITATION)` selects the
 structured form-based `ask_user` tool when an elicitation handler is also set.
 The default is `AskUserVariant.LEGACY`. Re-supply the option and handler through
@@ -478,7 +487,13 @@ options, and reject explicit schemas and immediate delivery.
 Schemas apply to one run, including tools, steering, and stop-hook corrections;
 independent sends and subagents do not inherit them. Streaming stays text.
 Structured waits return the last correlated root message without tool requests at
-non-autopilot idle. Concurrent waits keep their own results; queued work can delay
+non-autopilot idle or the matching root `session.autopilot_stopped`.
+All `sendAndWait` variants accept this authoritative Autopilot terminal without
+waiting for or stopping attached shells. Its `requestId` must match the original
+send ID; continuation messages do not change ownership. Missing, unrelated, or
+subagent terminals cannot complete the wait. `session.idle` remains whole-session
+quiescence; `assistant.idle` and `session.task_complete` alone are not completion.
+Concurrent waits keep their own results; queued work can delay
 idle. Aborts, session errors after the run starts, and missing final output fail.
 Cancellation and timeout stop waiting without aborting the agent.
 

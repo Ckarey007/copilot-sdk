@@ -4186,6 +4186,24 @@ pub struct AutopilotObjectiveGetStateResult {
     pub state: Option<AutopilotObjectiveState>,
 }
 
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutopilotOptions {
+    /// Enable runtime-owned automatic continuation while in Autopilot mode. Defaults to true for SDK sessions; does not change the session mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub continuation_enabled: Option<bool>,
+    /// Maximum automatic continuations outside an active objective. Zero allows none; defaults to five. Omitted values preserve the current limit on update or warm resume.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_continues: Option<i64>,
+}
+
 /// Server-driven promotion for an Auto routing preference. It can be announced before it starts.
 ///
 /// <div class="warning">
@@ -27574,6 +27592,9 @@ pub struct SessionOpenOptions {
     /// Initial authentication info for the session.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_info: Option<AuthInfo>,
+    /// Autopilot policy. Defaults to runtime-owned continuation with at most five automatic continuations. Does not change the session mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub autopilot: Option<AutopilotOptions>,
     /// Whether a CLI host explicitly requested the initial Auto preference. False preserves a settings-derived preference without validating availability during creation; execution still validates it. Defaults to true and is ignored for non-CLI callers.
     #[doc(hidden)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -29456,6 +29477,9 @@ pub struct SessionUpdateOptionsParams {
     /// Whether to disable the `ask_user` tool (encourages autonomous behavior).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ask_user_disabled: Option<bool>,
+    /// Patch the Autopilot policy. Omitted fields retain their current values; an empty object makes no changes. Does not change the session mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub autopilot: Option<AutopilotOptions>,
     /// Allowlist of tool names available to this session.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub available_tools: Option<Vec<String>>,
@@ -30661,7 +30685,7 @@ pub struct SlashCommandAddTimelineEntryResult {
     pub runtime_settings_changed: Option<bool>,
 }
 
-/// Slash-command invocation result that submits an agent prompt, with display prompt, optional mode, optional user-facing notice, and settings-change flag.
+/// Slash-command invocation result that submits an agent prompt, with display prompt, optional mode, optional user-facing notice, settings-change flag, and opaque reservation finalization token.
 ///
 /// <div class="warning">
 ///
@@ -30684,6 +30708,9 @@ pub struct SlashCommandAgentPromptResult {
     pub notice: Option<String>,
     /// Prompt to submit to the agent
     pub prompt: String,
+    /// Opaque token used to finalize this invocation's objective prompt reservation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reservation_token: Option<String>,
     /// True when the invocation mutated user runtime settings; consumers caching settings should refresh
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_settings_changed: Option<bool>,
@@ -32766,6 +32793,21 @@ pub struct UIHandlePendingUserInputRequest {
 pub struct UIRegisterDirectAutoModeSwitchHandlerResult {
     /// Opaque handle representing the registration. Pass this same handle to `unregisterDirectAutoModeSwitchHandler` when the in-process handler is no longer active. Multiple registrations are reference-counted; the server bridge will only dispatch auto-mode-switch requests when no handles are active.
     pub handle: String,
+}
+
+/// Identifies one runtime-owned native action for an in-process SDK UI dispatcher.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiThreadRunRequest {
+    /// Opaque, one-shot action identifier scoped to the receiving native connection. Execute only through the synchronous native UI-action entry point.
+    pub action_id: i64,
 }
 
 /// Opaque handle previously returned by `registerDirectAutoModeSwitchHandler` to release.

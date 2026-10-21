@@ -20,6 +20,7 @@ import com.github.copilot.generated.rpc.DiagnosticsConfiguration;
 import com.github.copilot.generated.rpc.McpDiagnosticSourceConfiguration;
 import com.github.copilot.generated.rpc.SandboxConfig;
 import com.github.copilot.generated.rpc.SessionLimitsConfig;
+import com.github.copilot.generated.rpc.AutopilotOptions;
 import com.github.copilot.rpc.AskUserVariant;
 import com.github.copilot.rpc.AutoModeSwitchResponse;
 import com.github.copilot.rpc.CloudSessionOptions;
@@ -496,8 +497,9 @@ public class SessionRequestBuilderTest {
     @Test
     void testBuildCreateRequestForwardsSessionPolicyOptions() {
         var sessionLimits = new SessionLimitsConfig(30.0);
+        var autopilot = new AutopilotOptions(false, 0L);
         var config = new SessionConfig().setExcludedBuiltInAgents(List.of("explore")).setEnableCitations(true)
-                .setEnableFileChangeTracking(true).setSessionLimits(sessionLimits);
+                .setEnableFileChangeTracking(true).setSessionLimits(sessionLimits).setAutopilot(autopilot);
 
         CreateSessionRequest request = SessionRequestBuilder.buildCreateRequest(config, "session-policy");
 
@@ -505,6 +507,7 @@ public class SessionRequestBuilderTest {
         assertTrue(request.getEnableCitations());
         assertTrue(request.getEnableFileChangeTracking());
         assertSame(sessionLimits, request.getSessionLimits());
+        assertSame(autopilot, request.getAutopilot());
     }
 
     @Test
@@ -767,8 +770,9 @@ public class SessionRequestBuilderTest {
     @Test
     void testBuildResumeRequestForwardsSessionPolicyOptions() {
         var sessionLimits = new SessionLimitsConfig(30.0);
+        var autopilot = new AutopilotOptions(null, 2L);
         var config = new ResumeSessionConfig().setExcludedBuiltInAgents(List.of("explore")).setEnableCitations(true)
-                .setEnableFileChangeTracking(true).setSessionLimits(sessionLimits);
+                .setEnableFileChangeTracking(true).setSessionLimits(sessionLimits).setAutopilot(autopilot);
 
         ResumeSessionRequest request = SessionRequestBuilder.buildResumeRequest("sid-policy", config);
 
@@ -776,6 +780,7 @@ public class SessionRequestBuilderTest {
         assertTrue(request.getEnableCitations());
         assertTrue(request.getEnableFileChangeTracking());
         assertSame(sessionLimits, request.getSessionLimits());
+        assertSame(autopilot, request.getAutopilot());
     }
 
     @Test

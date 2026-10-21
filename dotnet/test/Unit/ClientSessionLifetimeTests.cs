@@ -2469,6 +2469,19 @@ public sealed partial class ClientSessionLifetimeTests
     private static async Task<(CopilotSession Session, WeakReference<object> Capture)> CreateCapturedSessionAsync(
         CopilotClient client, string registration)
     {
+        var scheduler = new ConcurrentExclusiveSchedulerPair(TaskScheduler.Default, maxConcurrencyLevel: 1);
+        var factory = new TaskFactory(CancellationToken.None, TaskCreationOptions.None, TaskContinuationOptions.None, scheduler.ExclusiveScheduler);
+        var result = await factory.StartNew(() => CreateCapturedSessionCoreAsync(client, registration)).Unwrap();
+        // Task completion can inline the caller while CreateSessionAsync still roots its config.
+        // A queued fence runs only after those creation frames unwind.
+        await factory.StartNew(static () => { });
+        return result;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static async Task<(CopilotSession Session, WeakReference<object> Capture)> CreateCapturedSessionCoreAsync(
+        CopilotClient client, string registration)
+    {
         var capture = new object();
         var weak = new WeakReference<object>(capture);
         var config = new SessionConfig { OnPermissionRequest = PermissionHandler.ApproveAll };
@@ -3160,6 +3173,11 @@ public sealed partial class ClientSessionLifetimeTests
             Assert.Equal(mode, request.Params.GetProperty("mode").GetString());
         }
 
+        await server.SendSessionEventAsync(session.SessionId, "user.message", new()
+        {
+            ["messageId"] = "message-1",
+            ["content"] = "Context"
+        });
         if (hasAssistantMessage)
         {
             await server.SendSessionEventAsync(session.SessionId, "assistant.message", new()
@@ -3183,6 +3201,72 @@ public sealed partial class ClientSessionLifetimeTests
         {
             Assert.Null(result);
         }
+    }
+
+    [Fact]
+    public async Task SendAndWaitAsync_Ignores_Stale_Aborted_Idle_But_Rejects_Current_Abort()
+    {
+        await using var server = await FakeCopilotServer.StartAsync();
+        server.UniqueMessageIds = true;
+        await using var client = new CopilotClient(new CopilotClientOptions { Connection = RuntimeConnection.ForUri(server.Url) });
+        await using var session = await client.CreateSessionAsync(new SessionConfig());
+
+        var staleWait = session.SendAndWaitAsync(new MessageOptions { Prompt = "queued" });
+        await WaitForRequestAsync(server, "session.send");
+        await server.SendAndDrainSessionEventAsync(
+            session, "session.idle", new() { ["aborted"] = true }, TimeSpan.FromSeconds(5));
+        await server.SendAndDrainSessionEventAsync(
+            session, "session.idle", new(), TimeSpan.FromSeconds(5));
+        Assert.False(staleWait.IsCompleted);
+        await server.SendSessionEventAsync(session.SessionId, "user.message", new()
+        {
+            ["messageId"] = "message-1",
+            ["content"] = "queued"
+        });
+        await server.SendSessionEventAsync(session.SessionId, "session.idle", new());
+        Assert.Null(await staleWait.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        var currentWait = session.SendAndWaitAsync(new MessageOptions { Prompt = "cancel" });
+        await WaitForRequestAsync(server, "session.send");
+        await server.SendSessionEventAsync(session.SessionId, "user.message", new()
+        {
+            ["messageId"] = "message-2",
+            ["content"] = "cancel"
+        });
+        await server.SendSessionEventAsync(session.SessionId, "session.idle", new() { ["aborted"] = true });
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            currentWait.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Contains("aborted", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SendAndWaitAsync_Completes_Policy_Blocked_Prompt_On_Correlated_Warning()
+    {
+        await using var server = await FakeCopilotServer.StartAsync();
+        await using var client = new CopilotClient(
+            new CopilotClientOptions { Connection = RuntimeConnection.ForUri(server.Url) });
+        await using var session = await client.CreateSessionAsync(new SessionConfig());
+
+        var sendTask = session.SendAndWaitAsync(new MessageOptions { Prompt = "blocked" });
+        await WaitForRequestAsync(server, "session.send");
+        var timeout = TimeSpan.FromSeconds(5);
+        await server.SendAndDrainSessionEventAsync(session, "session.warning", new()
+        {
+            ["warningType"] = "policy_blocked",
+            ["message"] = "blocked",
+            ["originatingMessageId"] = "other"
+        }, timeout);
+        await server.SendAndDrainSessionEventAsync(session, "session.idle", new(), timeout);
+        Assert.False(sendTask.IsCompleted);
+
+        await server.SendSessionEventAsync(session.SessionId, "session.warning", new()
+        {
+            ["warningType"] = "policy_blocked",
+            ["message"] = "blocked",
+            ["originatingMessageId"] = "message-1"
+        });
+        await server.SendSessionEventAsync(session.SessionId, "session.idle", new());
+        Assert.Null(await sendTask.WaitAsync(timeout));
     }
 
     [Theory]
@@ -3297,6 +3381,7 @@ public sealed partial class ClientSessionLifetimeTests
                 Assert.Equal("What is 2+2?", request.Params.GetProperty("prompt").GetString());
                 await server.SendSessionEventAsync(session.SessionId, "user.message", new()
                 {
+                    ["messageId"] = "message-1",
                     ["content"] = request.Params.GetProperty("prompt").GetString()
                 });
                 await server.SendAndDrainSessionEventAsync(session, "assistant.message", new()
@@ -3349,7 +3434,11 @@ public sealed partial class ClientSessionLifetimeTests
             if (request.Method == "session.send")
             {
                 var prompt = request.Params.GetProperty("prompt").GetString();
-                await server.SendSessionEventAsync(session.SessionId, "user.message", new() { ["content"] = prompt });
+                await server.SendSessionEventAsync(session.SessionId, "user.message", new()
+                {
+                    ["messageId"] = "message-1",
+                    ["content"] = prompt
+                });
                 if (prompt == "previous turn")
                 {
                     await server.SendAndDrainSessionEventAsync(session, "assistant.message", new()
@@ -3393,6 +3482,7 @@ public sealed partial class ClientSessionLifetimeTests
                 sendCount++;
                 await server.SendSessionEventAsync(session.SessionId, "user.message", new()
                 {
+                    ["messageId"] = "message-1",
                     ["content"] = request.Params.GetProperty("prompt").GetString()
                 });
                 if (sendCount == 1)
@@ -3459,6 +3549,11 @@ public sealed partial class ClientSessionLifetimeTests
 
         var sendTask = session.SendAndWaitAsync(new MessageOptions { Prompt = "keep going" });
         await WaitForRequestAsync(server, "session.send");
+        await server.SendSessionEventAsync(session.SessionId, "user.message", new()
+        {
+            ["messageId"] = "message-1",
+            ["content"] = "keep going"
+        });
 
         var continuationIdleProcessed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var subscription = session.On<SessionIdleEvent>(idle =>
@@ -3475,7 +3570,8 @@ public sealed partial class ClientSessionLifetimeTests
             Data = new AssistantMessageData
             {
                 Content = "intermediate",
-                MessageId = "assistant-1"
+                MessageId = "assistant-1",
+                OriginatingMessageId = "message-1"
             }
         });
         DispatchEvent(session, new SessionIdleEvent
@@ -3555,6 +3651,11 @@ public sealed partial class ClientSessionLifetimeTests
         await childIdleReceived.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.False(sendTask.IsCompleted);
 
+        await server.SendSessionEventAsync(session.SessionId, "user.message", new()
+        {
+            ["messageId"] = "message-1",
+            ["content"] = "delegate"
+        });
         await server.SendSessionEventAsync(session.SessionId, "session.idle", new());
         var result = await sendTask.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Null(result);
@@ -3579,6 +3680,11 @@ public sealed partial class ClientSessionLifetimeTests
         await WaitForRequestAsync(server, "session.send");
         try
         {
+            await server.SendSessionEventAsync(session.SessionId, "user.message", new()
+            {
+                ["messageId"] = "message-1",
+                ["content"] = "hello"
+            });
             await server.SendSessionEventAsync(session.SessionId, "session.idle", new());
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await Assert.ThrowsAsync<TimeoutException>(() =>
@@ -3623,6 +3729,7 @@ public sealed partial class ClientSessionLifetimeTests
         await server.SendSessionEventAsync(session.SessionId, "assistant.message", new()
         {
             ["messageId"] = "root-message",
+            ["originatingMessageId"] = "message-1",
             ["content"] = "root reply"
         });
         await server.SendSessionEventAsync(session.SessionId, "session.idle", new());

@@ -24606,6 +24606,19 @@ public sealed class OptionsUpdateAdditionalContentExclusionPolicy
     public OptionsUpdateAdditionalContentExclusionPolicyScope Scope { get; set; }
 }
 
+/// <summary>RPC data type for AutopilotOptions operations.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class AutopilotOptions
+{
+    /// <summary>Enable runtime-owned automatic continuation while in Autopilot mode. Defaults to true for SDK sessions; does not change the session mode.</summary>
+    [JsonPropertyName("continuationEnabled")]
+    public bool? ContinuationEnabled { get; set; }
+
+    /// <summary>Maximum automatic continuations outside an active objective. Zero allows none; defaults to five. Omitted values preserve the current limit on update or warm resume.</summary>
+    [JsonPropertyName("maxContinues")]
+    public long? MaxContinues { get; set; }
+}
+
 /// <summary>Options scoped to the built-in CAPI (Copilot API) provider.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public sealed class CapiSessionOptions
@@ -24876,6 +24889,10 @@ internal sealed class SessionUpdateOptionsParams
     /// <summary>Whether to disable the `ask_user` tool (encourages autonomous behavior).</summary>
     [JsonPropertyName("askUserDisabled")]
     public bool? AskUserDisabled { get; set; }
+
+    /// <summary>Patch the Autopilot policy. Omitted fields retain their current values; an empty object makes no changes. Does not change the session mode.</summary>
+    [JsonPropertyName("autopilot")]
+    public AutopilotOptions? Autopilot { get; set; }
 
     /// <summary>Allowlist of tool names available to this session.</summary>
     [JsonPropertyName("availableTools")]
@@ -26711,7 +26728,7 @@ public partial class SlashCommandInvocationResultText : SlashCommandInvocationRe
     public required string Text { get; set; }
 }
 
-/// <summary>Slash-command invocation result that submits an agent prompt, with display prompt, optional mode, optional user-facing notice, and settings-change flag.</summary>
+/// <summary>Slash-command invocation result that submits an agent prompt, with display prompt, optional mode, optional user-facing notice, settings-change flag, and opaque reservation finalization token.</summary>
 /// <remarks>The <c>agent-prompt</c> variant of <see cref="SlashCommandInvocationResult"/>.</remarks>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public partial class SlashCommandInvocationResultAgentPrompt : SlashCommandInvocationResult
@@ -26737,6 +26754,11 @@ public partial class SlashCommandInvocationResultAgentPrompt : SlashCommandInvoc
     /// <summary>Prompt to submit to the agent.</summary>
     [JsonPropertyName("prompt")]
     public required string Prompt { get; set; }
+
+    /// <summary>Opaque token used to finalize this invocation's objective prompt reservation.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("reservationToken")]
+    public string? ReservationToken { get; set; }
 
     /// <summary>True when the invocation mutated user runtime settings; consumers caching settings should refresh.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -32715,6 +32737,15 @@ public sealed class GitHubTokenAcquireRequest
     /// <summary>Session receiving the token. Absent only before a cloud session has been assigned its id.</summary>
     [JsonPropertyName("sessionId")]
     public string? SessionId { get; set; }
+}
+
+/// <summary>Identifies one runtime-owned native action for an in-process SDK UI dispatcher.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public sealed class UiThreadRunRequest
+{
+    /// <summary>Opaque, one-shot action identifier scoped to the receiving native connection. Execute only through the synchronous native UI-action entry point.</summary>
+    [JsonPropertyName("actionId")]
+    public long ActionId { get; set; }
 }
 
 /// <summary>A response is meaningful only on the connection and request that issued its challenge.</summary>
@@ -58338,13 +58369,14 @@ public sealed class OptionsApi
     /// <param name="enableSkills">Whether skill loading is enabled. Explicit false disables every source, including explicit SDK roots and a bound SDK provider; changing the value invalidates the loaded skill snapshot. When omitted, creation falls back to enableConfigDiscovery unless explicit SDK skill roots or an SDK skill provider are supplied.</param>
     /// <param name="contextTier">Context tier for models with tiered pricing. The session uses this to derive effective `modelCapabilitiesOverrides` so compaction, truncation, token display, and request limits honor the selected tier.</param>
     /// <param name="sessionLimits">Optional session limits. Pass null to clear the session limits.</param>
+    /// <param name="autopilot">Patch the Autopilot policy. Omitted fields retain their current values; an empty object makes no changes. Does not change the session mode.</param>
     /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
     /// <returns>Indicates whether the session options patch was applied successfully.</returns>
-    public async Task<SessionUpdateOptionsResult> UpdateAsync(ProtocolImageGenerationOptions? imageGeneration = null, string? model = null, ModelCapabilitiesOverride? modelCapabilitiesOverrides = null, string? reasoningEffort = null, OptionsUpdateReasoningSummary? reasoningSummary = null, Verbosity? verbosity = null, string? clientName = null, string? lspClientName = null, string? integrationId = null, IDictionary<string, bool>? featureFlags = null, bool? isExperimentalMode = null, ProviderConfig? provider = null, CapiSessionOptions? capi = null, string? workingDirectory = null, IList<string>? availableTools = null, IList<string>? excludedTools = null, IList<string>? includedBuiltinAgents = null, IList<string>? excludedBuiltinAgents = null, OptionsUpdateToolFilterPrecedence? toolFilterPrecedence = null, bool? enableScriptSafety = null, ShellOptions? shell = null, string? shellInitProfile = null, IList<string>? shellProcessFlags = null, SandboxConfig? sandboxConfig = null, SandboxConfigSource? sandboxConfigSource = null, bool? logInteractiveShells = null, OptionsUpdateEnvValueMode? envValueMode = null, bool? allowAllMcpServerInstructions = null, IList<string>? skillDirectories = null, IList<string>? agentDirectories = null, IList<string>? instructionDirectories = null, IList<string>? hookDirectories = null, IList<string>? ignoredSkillsLocations = null, IList<string>? includedBuiltinSkills = null, IList<string>? disabledSkills = null, bool? enableOnDemandInstructionDiscovery = null, long? maxInlineBinaryBytes = null, IList<SessionInstalledPlugin>? installedPlugins = null, bool? customAgentsLocalOnly = null, bool? suppressCustomAgentPrompt = null, bool? skipCustomInstructions = null, IList<string>? disabledInstructionSources = null, bool? coauthorEnabled = null, string? trajectoryFile = null, bool? enableStreaming = null, string? copilotUrl = null, bool? askUserDisabled = null, bool? continueOnAutoMode = null, bool? runningInInteractiveMode = null, bool? enableReasoningSummaries = null, string? agentContext = null, string? eventsLogDirectory = null, bool? eventsLogIncludesSubagents = null, IList<OptionsUpdateAdditionalContentExclusionPolicy>? additionalContentExclusionPolicies = null, bool? manageScheduleEnabled = null, IList<SessionCapability>? sessionCapabilities = null, bool? skipEmbeddingRetrieval = null, string? organizationCustomInstructions = null, bool? enableFileHooks = null, bool? enableHostGitOperations = null, bool? enableSessionStore = null, bool? enableSkills = null, OptionsUpdateContextTier? contextTier = null, SessionLimitsConfig? sessionLimits = null, CancellationToken cancellationToken = default)
+    public async Task<SessionUpdateOptionsResult> UpdateAsync(ProtocolImageGenerationOptions? imageGeneration = null, string? model = null, ModelCapabilitiesOverride? modelCapabilitiesOverrides = null, string? reasoningEffort = null, OptionsUpdateReasoningSummary? reasoningSummary = null, Verbosity? verbosity = null, string? clientName = null, string? lspClientName = null, string? integrationId = null, IDictionary<string, bool>? featureFlags = null, bool? isExperimentalMode = null, ProviderConfig? provider = null, CapiSessionOptions? capi = null, string? workingDirectory = null, IList<string>? availableTools = null, IList<string>? excludedTools = null, IList<string>? includedBuiltinAgents = null, IList<string>? excludedBuiltinAgents = null, OptionsUpdateToolFilterPrecedence? toolFilterPrecedence = null, bool? enableScriptSafety = null, ShellOptions? shell = null, string? shellInitProfile = null, IList<string>? shellProcessFlags = null, SandboxConfig? sandboxConfig = null, SandboxConfigSource? sandboxConfigSource = null, bool? logInteractiveShells = null, OptionsUpdateEnvValueMode? envValueMode = null, bool? allowAllMcpServerInstructions = null, IList<string>? skillDirectories = null, IList<string>? agentDirectories = null, IList<string>? instructionDirectories = null, IList<string>? hookDirectories = null, IList<string>? ignoredSkillsLocations = null, IList<string>? includedBuiltinSkills = null, IList<string>? disabledSkills = null, bool? enableOnDemandInstructionDiscovery = null, long? maxInlineBinaryBytes = null, IList<SessionInstalledPlugin>? installedPlugins = null, bool? customAgentsLocalOnly = null, bool? suppressCustomAgentPrompt = null, bool? skipCustomInstructions = null, IList<string>? disabledInstructionSources = null, bool? coauthorEnabled = null, string? trajectoryFile = null, bool? enableStreaming = null, string? copilotUrl = null, bool? askUserDisabled = null, bool? continueOnAutoMode = null, bool? runningInInteractiveMode = null, bool? enableReasoningSummaries = null, string? agentContext = null, string? eventsLogDirectory = null, bool? eventsLogIncludesSubagents = null, IList<OptionsUpdateAdditionalContentExclusionPolicy>? additionalContentExclusionPolicies = null, bool? manageScheduleEnabled = null, IList<SessionCapability>? sessionCapabilities = null, bool? skipEmbeddingRetrieval = null, string? organizationCustomInstructions = null, bool? enableFileHooks = null, bool? enableHostGitOperations = null, bool? enableSessionStore = null, bool? enableSkills = null, OptionsUpdateContextTier? contextTier = null, SessionLimitsConfig? sessionLimits = null, AutopilotOptions? autopilot = null, CancellationToken cancellationToken = default)
     {
         _session.ThrowIfDisposed();
 
-        var request = new SessionUpdateOptionsParams { SessionId = _session.SessionId, ImageGeneration = imageGeneration, Model = model, ModelCapabilitiesOverrides = modelCapabilitiesOverrides, ReasoningEffort = reasoningEffort, ReasoningSummary = reasoningSummary, Verbosity = verbosity, ClientName = clientName, LspClientName = lspClientName, IntegrationId = integrationId, FeatureFlags = featureFlags, IsExperimentalMode = isExperimentalMode, Provider = provider, Capi = capi, WorkingDirectory = workingDirectory, AvailableTools = availableTools, ExcludedTools = excludedTools, IncludedBuiltinAgents = includedBuiltinAgents, ExcludedBuiltinAgents = excludedBuiltinAgents, ToolFilterPrecedence = toolFilterPrecedence, EnableScriptSafety = enableScriptSafety, Shell = shell, ShellInitProfile = shellInitProfile, ShellProcessFlags = shellProcessFlags, SandboxConfig = sandboxConfig, SandboxConfigSource = sandboxConfigSource, LogInteractiveShells = logInteractiveShells, EnvValueMode = envValueMode, AllowAllMcpServerInstructions = allowAllMcpServerInstructions, SkillDirectories = skillDirectories, AgentDirectories = agentDirectories, InstructionDirectories = instructionDirectories, HookDirectories = hookDirectories, IgnoredSkillsLocations = ignoredSkillsLocations, IncludedBuiltinSkills = includedBuiltinSkills, DisabledSkills = disabledSkills, EnableOnDemandInstructionDiscovery = enableOnDemandInstructionDiscovery, MaxInlineBinaryBytes = maxInlineBinaryBytes, InstalledPlugins = installedPlugins, CustomAgentsLocalOnly = customAgentsLocalOnly, SuppressCustomAgentPrompt = suppressCustomAgentPrompt, SkipCustomInstructions = skipCustomInstructions, DisabledInstructionSources = disabledInstructionSources, CoauthorEnabled = coauthorEnabled, TrajectoryFile = trajectoryFile, EnableStreaming = enableStreaming, CopilotUrl = copilotUrl, AskUserDisabled = askUserDisabled, ContinueOnAutoMode = continueOnAutoMode, RunningInInteractiveMode = runningInInteractiveMode, EnableReasoningSummaries = enableReasoningSummaries, AgentContext = agentContext, EventsLogDirectory = eventsLogDirectory, EventsLogIncludesSubagents = eventsLogIncludesSubagents, AdditionalContentExclusionPolicies = additionalContentExclusionPolicies, ManageScheduleEnabled = manageScheduleEnabled, SessionCapabilities = sessionCapabilities, SkipEmbeddingRetrieval = skipEmbeddingRetrieval, OrganizationCustomInstructions = organizationCustomInstructions, EnableFileHooks = enableFileHooks, EnableHostGitOperations = enableHostGitOperations, EnableSessionStore = enableSessionStore, EnableSkills = enableSkills, ContextTier = contextTier, SessionLimits = sessionLimits };
+        var request = new SessionUpdateOptionsParams { SessionId = _session.SessionId, ImageGeneration = imageGeneration, Model = model, ModelCapabilitiesOverrides = modelCapabilitiesOverrides, ReasoningEffort = reasoningEffort, ReasoningSummary = reasoningSummary, Verbosity = verbosity, ClientName = clientName, LspClientName = lspClientName, IntegrationId = integrationId, FeatureFlags = featureFlags, IsExperimentalMode = isExperimentalMode, Provider = provider, Capi = capi, WorkingDirectory = workingDirectory, AvailableTools = availableTools, ExcludedTools = excludedTools, IncludedBuiltinAgents = includedBuiltinAgents, ExcludedBuiltinAgents = excludedBuiltinAgents, ToolFilterPrecedence = toolFilterPrecedence, EnableScriptSafety = enableScriptSafety, Shell = shell, ShellInitProfile = shellInitProfile, ShellProcessFlags = shellProcessFlags, SandboxConfig = sandboxConfig, SandboxConfigSource = sandboxConfigSource, LogInteractiveShells = logInteractiveShells, EnvValueMode = envValueMode, AllowAllMcpServerInstructions = allowAllMcpServerInstructions, SkillDirectories = skillDirectories, AgentDirectories = agentDirectories, InstructionDirectories = instructionDirectories, HookDirectories = hookDirectories, IgnoredSkillsLocations = ignoredSkillsLocations, IncludedBuiltinSkills = includedBuiltinSkills, DisabledSkills = disabledSkills, EnableOnDemandInstructionDiscovery = enableOnDemandInstructionDiscovery, MaxInlineBinaryBytes = maxInlineBinaryBytes, InstalledPlugins = installedPlugins, CustomAgentsLocalOnly = customAgentsLocalOnly, SuppressCustomAgentPrompt = suppressCustomAgentPrompt, SkipCustomInstructions = skipCustomInstructions, DisabledInstructionSources = disabledInstructionSources, CoauthorEnabled = coauthorEnabled, TrajectoryFile = trajectoryFile, EnableStreaming = enableStreaming, CopilotUrl = copilotUrl, AskUserDisabled = askUserDisabled, ContinueOnAutoMode = continueOnAutoMode, RunningInInteractiveMode = runningInInteractiveMode, EnableReasoningSummaries = enableReasoningSummaries, AgentContext = agentContext, EventsLogDirectory = eventsLogDirectory, EventsLogIncludesSubagents = eventsLogIncludesSubagents, AdditionalContentExclusionPolicies = additionalContentExclusionPolicies, ManageScheduleEnabled = manageScheduleEnabled, SessionCapabilities = sessionCapabilities, SkipEmbeddingRetrieval = skipEmbeddingRetrieval, OrganizationCustomInstructions = organizationCustomInstructions, EnableFileHooks = enableFileHooks, EnableHostGitOperations = enableHostGitOperations, EnableSessionStore = enableSessionStore, EnableSkills = enableSkills, ContextTier = contextTier, SessionLimits = sessionLimits, Autopilot = autopilot };
         return await CopilotClient.InvokeRpcAsync<SessionUpdateOptionsResult>(_session.Rpc, "session.options.update", [request], cancellationToken);
     }
 }
@@ -60718,6 +60750,16 @@ public interface IGitHubTokenHandler
     Task<GitHubTokenAcquireResult> GetTokenAsync(GitHubTokenAcquireRequest request, CancellationToken cancellationToken = default);
 }
 
+/// <summary>Handles `uiThread` client global API methods.</summary>
+[Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
+public interface IUiThreadHandler
+{
+    /// <summary>Schedules a runtime-owned native action through an in-process SDK host's runOnUiThread callback. The SDK supplies an action that enters the native C ABI synchronously; the host executes it exactly once on its UI thread (the process main thread on macOS) and completes only after it returns. Never sent to out-of-process clients.</summary>
+    /// <param name="request">Identifies one runtime-owned native action for an in-process SDK UI dispatcher.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    Task RunAsync(UiThreadRunRequest request, CancellationToken cancellationToken = default);
+}
+
 /// <summary>Handles `installations` client global API methods.</summary>
 [Experimental(global::GitHub.Copilot.Diagnostics.Experimental)]
 public interface IInstallationsHandler
@@ -60746,6 +60788,9 @@ public sealed class ClientGlobalApiHandlers
 
     /// <summary>Optional handler for GitHubToken client global API methods.</summary>
     public IGitHubTokenHandler? GitHubToken { get; set; }
+
+    /// <summary>Optional handler for UiThread client global API methods.</summary>
+    public IUiThreadHandler? UiThread { get; set; }
 
     /// <summary>Optional handler for Installations client global API methods.</summary>
     public IInstallationsHandler? Installations { get; set; }
@@ -60791,6 +60836,11 @@ internal static class ClientGlobalApiRegistration
         {
             var handler = handlers.GitHubToken ?? throw new InvalidOperationException("No gitHubToken client-global handler registered");
             return await handler.GetTokenAsync(request, cancellationToken);
+        }), singleObjectParam: true);
+        rpc.SetLocalRpcMethod("uiThread.run", (Func<UiThreadRunRequest, CancellationToken, ValueTask>)(async (request, cancellationToken) =>
+        {
+            var handler = handlers.UiThread ?? throw new InvalidOperationException("No uiThread client-global handler registered");
+            await handler.RunAsync(request, cancellationToken);
         }), singleObjectParam: true);
         rpc.SetLocalRpcMethod("installations.confirm", (Func<InstallationsConfirmRequest, CancellationToken, ValueTask<InstallationsConfirmResult>>)(async (request, cancellationToken) =>
         {
@@ -61394,6 +61444,7 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(AutopilotObjectiveCreditLimit))]
 [JsonSerializable(typeof(AutopilotObjectiveGetStateResult))]
 [JsonSerializable(typeof(AutopilotObjectiveState))]
+[JsonSerializable(typeof(AutopilotOptions))]
 [JsonSerializable(typeof(AzureMlAcquireFamilyRequest))]
 [JsonSerializable(typeof(AzureMlAcquireFamilyResult))]
 [JsonSerializable(typeof(AzureMlCancelRequest))]
@@ -62603,6 +62654,7 @@ internal static class ClientGlobalApiRegistration
 [JsonSerializable(typeof(UIUnregisterDirectAutoModeSwitchHandlerRequest))]
 [JsonSerializable(typeof(UIUnregisterDirectAutoModeSwitchHandlerResult))]
 [JsonSerializable(typeof(UIUserInputResponse))]
+[JsonSerializable(typeof(UiThreadRunRequest))]
 [JsonSerializable(typeof(UpdateSubagentSettingsRequest))]
 [JsonSerializable(typeof(UpdateSubagentSettingsRequestSubagents))]
 [JsonSerializable(typeof(UserRequestedShellCommandResult))]

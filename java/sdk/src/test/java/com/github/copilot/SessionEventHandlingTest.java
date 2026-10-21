@@ -261,6 +261,7 @@ public class SessionEventHandlingTest {
         try {
             var pending = session.sendAndWait(new MessageOptions().setPrompt("keep going"));
 
+            dispatchEvent(createUserMessageEvent("keep going"));
             dispatchEvent(createAssistantMessageEvent("intermediate"));
             dispatchEvent(createSessionIdleEvent(SessionMode.AUTOPILOT));
             assertFalse(pending.isDone(), "Autopilot continuation idle must not complete sendAndWait");
@@ -295,7 +296,7 @@ public class SessionEventHandlingTest {
             dispatchEvent(childMessage);
             var childError = new SessionErrorEvent();
             childError.setAgentId("child-1");
-            childError.setData(new SessionErrorEvent.SessionErrorEventData("query", null, null, null, null,
+            childError.setData(new SessionErrorEvent.SessionErrorEventData("message-1", "query", null, null, null, null,
                     "child failed", null, null, null, null, null, null));
             dispatchEvent(childError);
             var childIdle = createSessionIdleEvent();
@@ -304,6 +305,7 @@ public class SessionEventHandlingTest {
             assertEquals(List.of(childMessage, childError, childIdle), received);
             assertFalse(pending.isDone(), "Child events must not complete the parent wait");
 
+            dispatchEvent(createUserMessageEvent("delegate"));
             dispatchEvent(createSessionIdleEvent());
             assertNull(pending.get(5, TimeUnit.SECONDS), "Child reply must not supply the parent result");
         } finally {
@@ -1095,6 +1097,12 @@ public class SessionEventHandlingTest {
                 null, null, null, null, null, null, null, null, null, null);
         event.setData(data);
         return event;
+    }
+
+    private SessionEvent createUserMessageEvent(String content) {
+        return JsonRpcClient.getObjectMapper().convertValue(
+                Map.of("type", "user.message", "data", Map.of("messageId", "message-1", "content", content)),
+                SessionEvent.class);
     }
 
     private AssistantMessageEvent createAssistantMessageEvent(String content) {

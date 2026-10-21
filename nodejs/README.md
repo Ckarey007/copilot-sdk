@@ -383,6 +383,16 @@ Initial acquisition runs during session creation or resume. Cancellation, provid
 
 ##### `resumeSession(sessionId: string, config?: ResumeSessionConfig): Promise<CopilotSession>`
 
+Both create and resume accept experimental `autopilot: AutopilotOptions`, and
+`session.rpc.options.update({ autopilot: ... })` patches the same policy.
+`continuationEnabled` controls runtime-owned continuation, not the session mode;
+it defaults to `true`. `maxContinues` limits continuations outside an active
+objective: a non-negative integer, default five, with zero allowing none.
+Updates and warm resumes preserve
+omitted fields; `{}` changes nothing. The policy is not persisted, so re-supply
+it on cold resume. Pause state, prompt overrides, and no-progress detection are
+internal runtime controls, not SDK options.
+
 Resume an existing session. Returns the session with `workspacePath` populated if infinite sessions were enabled.
 `allowTranscriptRecovery` controls whether the runtime may repair a damaged transcript during
 resume. It defaults to `true` in all modes; set it to `false` to reject recovery.
@@ -502,7 +512,11 @@ Source is independent of delivery mode. Leaving it unset preserves the existing 
 
 ##### `sendAndWait(options: MessageOptions, timeout?: number): Promise<AssistantMessageEvent | undefined>`
 
-Send a message and wait until the session becomes idle.
+Send a message and wait for response completion: non-Autopilot `session.idle`,
+or the request's root `session.autopilot_stopped` event in Autopilot.
+The latter does not wait for attached shells to finish and does not stop them.
+`session.idle` still means whole-session quiescence; neither `assistant.idle`
+nor `session.task_complete` alone completes the wait.
 Sub-agent events are still delivered to listeners, but do not complete the wait or supply its reply.
 
 **Options:**
@@ -574,15 +588,25 @@ guarantee the schema plus conversation and tools fits the provider's budget.
 
 Structured waits select the last root-agent message whose `originatingMessageId`
 matches the ID returned by their send, then return at a non-autopilot
-`session.idle`. Other queued work can delay that idle, but cannot replace the
-selected result. The existing unformatted overload retains its session-wide
-behavior. `turnId` identifies an individual model/tool iteration, not the whole
+`session.idle` or a root `session.autopilot_stopped` whose `requestId` matches
+that original send ID. Automatic continuation messages do not change ownership.
+An absent or different `requestId` cannot complete a correlated wait.
+Other queued work can delay idle, but cannot replace the selected result.
+Unformatted waits also isolate their replies and accept idle only after their
+own request starts. Both forms ignore child-agent events and `session.error`
+events whose `originatingMessageId` belongs to another request. A matching error
+fails its own wait even before a user message is emitted. Errors without an ID
+retain legacy handling: unformatted waits treat them as session-wide, while
+structured waits require their request to have started. Older hosts that omit
+error IDs cannot provide concurrent request-error isolation.
+`turnId` identifies an individual model/tool iteration, not the whole
 run; telemetry interaction IDs are not unique run identifiers.
 
 For event-driven consumption with `send`, subscribe before sending and collect
 root `assistant.message` events whose `data.originatingMessageId` matches the ID
 returned by `send`; events may arrive before that acknowledgement. Wait for
-`session.idle`, then parse the last matching message without tool requests.
+non-autopilot `session.idle`, or the matching `session.autopilot_stopped`, then
+parse the last matching message without tool requests.
 An earlier response may be superseded by a stop-hook correction. Handle
 `session.error` and aborted idle events rather than returning a partial result.
 

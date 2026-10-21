@@ -15,6 +15,7 @@ export type SessionEvent =
   | RemoteSteerableChangedEvent
   | ErrorEvent
   | IdleEvent
+  | AutopilotStoppedEvent
   | TitleChangedEvent
   | ScheduleCreatedEvent
   | ScheduleCancelledEvent
@@ -2217,6 +2218,10 @@ export interface ErrorData {
    */
   message: string;
   /**
+   * Original root user-message ID of the failed request, including failures before user.message is emitted. Absent for session-wide errors or legacy hosts.
+   */
+  originatingMessageId?: string;
+  /**
    * GitHub request tracing ID (x-github-request-id header) for correlating with server-side logs
    */
   providerCallId?: string;
@@ -2285,6 +2290,49 @@ export interface IdleData {
    */
   aborted?: boolean;
   mode?: SessionMode;
+}
+/**
+ * Session event "session.autopilot_stopped". The runtime has stopped continuing one Autopilot request. Attached background work may remain active; this is not session-wide idle.
+ */
+export interface AutopilotStoppedEvent {
+  /**
+   * Sub-agent instance identifier. Absent for events from the root/main agent and session-level events.
+   */
+  agentId?: string;
+  data: AutopilotStoppedData;
+  /**
+   * Always true for events that are transient and not persisted to the session event log on disk.
+   */
+  ephemeral: true;
+  /**
+   * Unique event identifier (UUID v4), generated when the event is emitted
+   */
+  id: string;
+  /**
+   * ID of the chronologically preceding event in the session, forming a linked chain. Null for the first event.
+   */
+  parentId: string | null;
+  /**
+   * ISO 8601 timestamp when the event was created
+   */
+  timestamp: string;
+  /**
+   * Type discriminator. Always "session.autopilot_stopped".
+   */
+  type: "session.autopilot_stopped";
+}
+/**
+ * The runtime has stopped continuing one Autopilot request. Attached background work may remain active; this is not session-wide idle.
+ */
+export interface AutopilotStoppedData {
+  /**
+   * The terminal policy reason, such as task_complete, aborted, error, or background_timeout.
+   */
+  reason: string;
+  /**
+   * Original root user message ID for this request, absent when no root request is available.
+   */
+  requestId?: string;
 }
 /**
  * Session event "session.title_changed". Session title change payload containing the new display title
@@ -2639,6 +2687,10 @@ export interface WarningData {
    * Human-readable warning message for display in the timeline
    */
   message: string;
+  /**
+   * Logical ID returned by session.send for the request this warning concerns. Set for policy-blocked prompts, which do not emit a user.message event.
+   */
+  originatingMessageId?: string;
   remediation?: RemediationAction;
   /**
    * Optional URL associated with this warning that the user can open in a browser

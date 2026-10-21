@@ -643,7 +643,8 @@ public class SerializationTests
             ("EnableCitations", true),
             ("EnableFileChangeTracking", true),
             ("ExcludedBuiltInAgents", excludedAgents),
-            ("SessionLimits", new SessionLimitsConfig { MaxAiCredits = 12.5 }));
+            ("SessionLimits", new SessionLimitsConfig { MaxAiCredits = 12.5 }),
+            ("Autopilot", new AutopilotOptions { ContinuationEnabled = false, MaxContinues = 0 }));
 
         var createJson = JsonSerializer.Serialize(createRequest, createRequestType, options);
         using var createDocument = JsonDocument.Parse(createJson);
@@ -652,6 +653,8 @@ public class SerializationTests
         Assert.True(createRoot.GetProperty("enableFileChangeTracking").GetBoolean());
         Assert.Equal("explore", createRoot.GetProperty("excludedBuiltinAgents")[0].GetString());
         Assert.Equal(12.5, createRoot.GetProperty("sessionLimits").GetProperty("maxAiCredits").GetDouble());
+        Assert.False(createRoot.GetProperty("autopilot").GetProperty("continuationEnabled").GetBoolean());
+        Assert.Equal(0, createRoot.GetProperty("autopilot").GetProperty("maxContinues").GetInt64());
 
         var resumeRequestType = GetNestedType(typeof(CopilotClient), "ResumeSessionRequest");
         var resumeRequest = CreateInternalRequest(
@@ -660,7 +663,8 @@ public class SerializationTests
             ("EnableCitations", true),
             ("EnableFileChangeTracking", true),
             ("ExcludedBuiltInAgents", excludedAgents),
-            ("SessionLimits", new SessionLimitsConfig { MaxAiCredits = 7.25 }));
+            ("SessionLimits", new SessionLimitsConfig { MaxAiCredits = 7.25 }),
+            ("Autopilot", new AutopilotOptions { MaxContinues = 2 }));
 
         var resumeJson = JsonSerializer.Serialize(resumeRequest, resumeRequestType, options);
         using var resumeDocument = JsonDocument.Parse(resumeJson);
@@ -669,6 +673,8 @@ public class SerializationTests
         Assert.True(resumeRoot.GetProperty("enableFileChangeTracking").GetBoolean());
         Assert.Equal("task", resumeRoot.GetProperty("excludedBuiltinAgents")[1].GetString());
         Assert.Equal(7.25, resumeRoot.GetProperty("sessionLimits").GetProperty("maxAiCredits").GetDouble());
+        Assert.Equal(2, resumeRoot.GetProperty("autopilot").GetProperty("maxContinues").GetInt64());
+        Assert.False(resumeRoot.GetProperty("autopilot").TryGetProperty("continuationEnabled", out _));
     }
 
     [Fact]

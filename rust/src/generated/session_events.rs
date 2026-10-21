@@ -21,6 +21,8 @@ pub enum SessionEventType {
     SessionError,
     #[serde(rename = "session.idle")]
     SessionIdle,
+    #[serde(rename = "session.autopilot_stopped")]
+    SessionAutopilotStopped,
     #[serde(rename = "session.title_changed")]
     SessionTitleChanged,
     #[serde(rename = "session.schedule_created")]
@@ -599,6 +601,8 @@ pub enum SessionEventData {
     SessionError(SessionErrorData),
     #[serde(rename = "session.idle")]
     SessionIdle(SessionIdleData),
+    #[serde(rename = "session.autopilot_stopped")]
+    SessionAutopilotStopped(SessionAutopilotStoppedData),
     #[serde(rename = "session.title_changed")]
     SessionTitleChanged(SessionTitleChangedData),
     #[serde(rename = "session.schedule_created")]
@@ -1368,6 +1372,9 @@ pub struct SessionErrorData {
     pub error_type: String,
     /// Human-readable error message
     pub message: String,
+    /// Original root user-message ID of the failed request, including failures before user.message is emitted. Absent for session-wide errors or legacy hosts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub originating_message_id: Option<String>,
     /// GitHub request tracing ID (x-github-request-id header) for correlating with server-side logs
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_call_id: Option<String>,
@@ -1404,6 +1411,17 @@ pub struct SessionIdleData {
     /// The session mode the agent was operating in when it went idle, when the mode is known. Lets turn-scoped consumers distinguish an autopilot continuation boundary (where the agent keeps working after this idle) from a genuine turn completion.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<SessionMode>,
+}
+
+/// Session event "session.autopilot_stopped". The runtime has stopped continuing one Autopilot request. Attached background work may remain active; this is not session-wide idle.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionAutopilotStoppedData {
+    /// The terminal policy reason, such as task_complete, aborted, error, or background_timeout.
+    pub reason: String,
+    /// Original root user message ID for this request, absent when no root request is available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<RequestId>,
 }
 
 /// Session event "session.title_changed". Session title change payload containing the new display title
@@ -1583,6 +1601,9 @@ pub struct IndexedSearchDataIncremental {
 pub struct SessionWarningData {
     /// Human-readable warning message for display in the timeline
     pub message: String,
+    /// Logical ID returned by session.send for the request this warning concerns. Set for policy-blocked prompts, which do not emit a user.message event.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub originating_message_id: Option<String>,
     /// What the user must do to recover, when the runtime knows of an action. The `message` never names a client affordance, so a client that offers one — a slash command, a settings pane, a link — renders it from this value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remediation: Option<RemediationAction>,

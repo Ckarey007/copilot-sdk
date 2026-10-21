@@ -239,6 +239,7 @@ Create a new conversation session.
 - `Provider` - Custom API provider configuration (BYOK)
 - `Streaming` - Enable streaming of response chunks (default: false)
 - `InfiniteSessions` - Configure automatic context compaction (see below)
+- `Autopilot` - Experimental `AutopilotOptions`, also accepted on resume and by `session.Rpc.Options.UpdateAsync`. `ContinuationEnabled` defaults to true and does not change session mode; `MaxContinues` limits continuations outside an active objective (non-negative integer, default five, zero allows none). Updates and warm resumes preserve omitted fields; an empty object changes nothing. Re-supply on cold resume.
 - `WorkingDirectory` - Working directory for the session. When not set, the runtime uses its own process working directory.
 - `EnableSessionStore` - Enables the cross-session store for search and retrieval across sessions. When unset in `CopilotClientMode.CopilotCli`, the runtime default applies (enabled). In `CopilotClientMode.Empty`, defaults to disabled.
 - `GitHubTokenProvider` - Acquires session-scoped GitHub tokens on demand. Return `GitHubTokenProviderResult.FromToken` with a positive `ExpiresIn` value (production GitHub tokens typically use `8 * 60 * 60` seconds), or `GitHubTokenProviderResult.Cancel()`. Cannot be combined with `GitHubToken`.
@@ -447,8 +448,8 @@ Returns the message ID.
 Use `MessageSource.System` for application-generated system context and
 `MessageSource.Agent(id)` for messages from an identified agent. This marks the
 message's origin; it does not replace the session's system prompt or change
-delivery mode. `SendAndWaitAsync` accepts the same option and still waits for
-session idle, returning null if no assistant message was received.
+delivery mode. `SendAndWaitAsync` accepts the same option and waits for
+response completion, returning null if no assistant message was received.
 Sub-agent events remain visible to listeners but do not complete the wait or
 supply its reply.
 Synchronous listeners registered before `SendAndWaitAsync` finish processing
@@ -521,7 +522,13 @@ properties; nullable properties can still contain JSON null.
 
 The helper waits for non-autopilot session idle after the requested user message
 is consumed, selecting only root assistant messages with that originating message
-ID. This can wait for other queued work to drain, but other messages and subagent
+ID, or for a matching root `session.autopilot_stopped` event.
+All `SendAndWaitAsync` variants accept this authoritative Autopilot terminal
+without waiting for or stopping attached shells. Its `RequestId` must match the
+original send ID; continuation messages do not change ownership. Missing,
+unrelated, or subagent terminals cannot complete the wait. `session.idle` remains
+whole-session quiescence; `assistant.idle` and `session.task_complete` alone are
+not completion. Idle can wait for other queued work to drain, but other messages and subagent
 responses cannot replace the result. Session errors or an aborted idle after the
 requested run starts conservatively fail the wait, even if later queued work
 caused them. It throws `InvalidOperationException` when there is no final response,

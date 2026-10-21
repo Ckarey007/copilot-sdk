@@ -92,7 +92,12 @@ and resume callbacks, resident-session publication, ownership, and shared-snapsh
 import asyncio
 
 from copilot import CopilotClient
-from copilot.session_events import AssistantMessageData, SessionIdleData
+from copilot.session_events import (
+    AssistantMessageData,
+    SessionAutopilotStoppedData,
+    SessionIdleData,
+    SessionMode,
+)
 from copilot.session import PermissionHandler
 
 
@@ -104,20 +109,37 @@ async def main():
             on_permission_request=PermissionHandler.approve_all,
             model="gpt-5",
         ) as session:
-            # Wait for response using session.idle event
+            # Wait for non-Autopilot idle or this request's Autopilot stop
+            request_id = None
+            pending = []
             done = asyncio.Event()
 
-            def on_event(event):
+            def observe(event):
                 match event.data:
                     case AssistantMessageData() as data:
                         print(data.content)
-                    case SessionIdleData():
+                    case SessionIdleData() as data if data.mode != SessionMode.AUTOPILOT:
+                        done.set()
+                    case SessionAutopilotStoppedData() as data if (
+                        request_id and data.request_id == request_id
+                    ):
                         done.set()
 
-            session.on(on_event)
+            def on_event(event):
+                if event.agent_id:
+                    return
+                if request_id is None and isinstance(
+                    event.data, (SessionIdleData, SessionAutopilotStoppedData)
+                ):
+                    pending.append(event)
+                else:
+                    observe(event)
 
-            # Send a message and wait for completion
-            await session.send("What is 2+2?")
+            session.on(on_event)
+            request_id = await session.send("What is 2+2?")
+            for event in pending:
+                observe(event)
+            pending.clear()
             await done.wait()
 
 
@@ -148,7 +170,8 @@ Leave source unset (or `None`) for ordinary human sends so the field stays omitt
 Use `"user"` when you need to set it explicitly. Source is independent of delivery
 mode and does not replace the session's `system_message` configuration, set billing
 flags, or use the notification API. `send_and_wait` can return `None` when the
-session goes idle without an assistant message; errors still propagate.
+request completes without an assistant message, at non-Autopilot idle or its
+matching Autopilot stop; errors still propagate.
 Sub-agent events remain visible to listeners but do not complete the wait
 or supply its reply.
 
@@ -169,7 +192,12 @@ Disconnected sessions reject new event subscriptions.
 import asyncio
 
 from copilot import CopilotClient
-from copilot.session_events import AssistantMessageData, SessionIdleData
+from copilot.session_events import (
+    AssistantMessageData,
+    SessionAutopilotStoppedData,
+    SessionIdleData,
+    SessionMode,
+)
 from copilot.session import PermissionHandler
 
 
@@ -183,17 +211,36 @@ async def main():
         model="gpt-5",
     )
 
+    request_id = None
+    pending = []
     done = asyncio.Event()
 
-    def on_event(event):
+    def observe(event):
         match event.data:
             case AssistantMessageData() as data:
                 print(data.content)
-            case SessionIdleData():
+            case SessionIdleData() as data if data.mode != SessionMode.AUTOPILOT:
+                done.set()
+            case SessionAutopilotStoppedData() as data if (
+                request_id and data.request_id == request_id
+            ):
                 done.set()
 
+    def on_event(event):
+        if event.agent_id:
+            return
+        if request_id is None and isinstance(
+            event.data, (SessionIdleData, SessionAutopilotStoppedData)
+        ):
+            pending.append(event)
+        else:
+            observe(event)
+
     session.on(on_event)
-    await session.send("What is 2+2?")
+    request_id = await session.send("What is 2+2?")
+    for event in pending:
+        observe(event)
+    pending.clear()
     await done.wait()
 
     # Clean up manually
@@ -468,6 +515,7 @@ These are passed as keyword arguments to `create_session()`:
 - `streaming` (bool): Enable streaming delta events
 - `provider` (ProviderConfig): Custom API provider configuration (BYOK). See [Custom Providers](#custom-providers) section.
 - `infinite_sessions` (InfiniteSessionConfig): Automatic context compaction configuration
+- `autopilot` (AutopilotOptions, experimental): Autopilot policy, also accepted by `resume_session()`. `continuation_enabled` defaults to `True` and does not change session mode; `max_continues` limits continuations outside an active objective (non-negative integer, default five, zero allows none). Omitted fields preserve resident values on warm resume. Re-supply on cold resume.
 - `working_directory` (str | None): Working directory for the session (default: runtime process working directory).
 - `enable_session_store` (bool): Enables the cross-session store for search and retrieval across sessions. When unset in `"copilot-cli"` mode, the runtime default applies (enabled). In `"empty"` mode, defaults to disabled.
 - `github_token_provider` (callable): Acquires rotating, session-scoped GitHub tokens. Token results require a positive `expiresIn` value in seconds remaining when the callback completes; production tokens typically last eight hours. Cannot be combined with `github_token`.
@@ -775,7 +823,13 @@ response_schema=schema)`; the latter returns the ordinary message event.
 The schema applies to one run, including tools, steering, and stop-hook
 corrections, not subsequent independent sends or subagents. Streaming remains
 text. Structured waits select the last root message without tool requests whose
-`originating_message_id` matches the admitted message, at non-autopilot idle.
+`originating_message_id` matches the admitted message, at non-autopilot idle
+or the matching root `session.autopilot_stopped` event.
+All `send_and_wait` variants accept this authoritative Autopilot terminal without
+waiting for or stopping attached shells. Its `request_id` must match the original
+send ID; continuation messages do not change ownership. Missing, unrelated, or
+subagent terminals cannot complete the wait. `session.idle` remains whole-session
+quiescence; `assistant.idle` and `session.task_complete` alone are not completion.
 Concurrent structured waits keep their own results; later queued work can delay
 idle. Aborts, session errors after the run starts, or missing final output fail
 the wait. Timeout/cancellation only stops waiting, not agent work. Immediate
@@ -799,7 +853,9 @@ from copilot.session_events import (
     AssistantMessageDeltaData,
     AssistantReasoningData,
     AssistantReasoningDeltaData,
+    SessionAutopilotStoppedData,
     SessionIdleData,
+    SessionMode,
 )
 from copilot.session import PermissionHandler
 
@@ -811,10 +867,12 @@ async def main():
             model="gpt-5",
             streaming=True,
         ) as session:
-            # Use asyncio.Event to wait for completion
+            # Wait for non-Autopilot idle or this request's Autopilot stop
+            request_id = None
+            pending = []
             done = asyncio.Event()
 
-            def on_event(event):
+            def observe(event):
                 match event.data:
                     case AssistantMessageDeltaData() as data:
                         # Streaming message chunk - print incrementally
@@ -832,12 +890,30 @@ async def main():
                         # Final reasoning content (if model supports reasoning)
                         print("--- Reasoning ---")
                         print(data.content)
-                    case SessionIdleData():
-                        # Session finished processing
+                    case SessionIdleData() as data if data.mode != SessionMode.AUTOPILOT:
+                        # Non-Autopilot request finished processing
+                        done.set()
+                    case SessionAutopilotStoppedData() as data if (
+                        request_id and data.request_id == request_id
+                    ):
+                        # This Autopilot request settled; attached shells may continue
                         done.set()
 
+            def on_event(event):
+                if event.agent_id:
+                    return
+                if request_id is None and isinstance(
+                    event.data, (SessionIdleData, SessionAutopilotStoppedData)
+                ):
+                    pending.append(event)
+                else:
+                    observe(event)
+
             session.on(on_event)
-            await session.send("Tell me a short story")
+            request_id = await session.send("Tell me a short story")
+            for event in pending:
+                observe(event)
+            pending.clear()
             await done.wait()  # Wait for streaming to complete
 
 

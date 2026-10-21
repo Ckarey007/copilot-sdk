@@ -20,6 +20,7 @@ import com.github.copilot.generated.SessionEvent;
 import com.github.copilot.generated.rpc.DiagnosticsConfiguration;
 import com.github.copilot.generated.rpc.SandboxConfig;
 import com.github.copilot.generated.rpc.SessionLimitsConfig;
+import com.github.copilot.generated.rpc.AutopilotOptions;
 
 /**
  * Configuration for creating a new Copilot session.
@@ -64,6 +65,7 @@ public class SessionConfig {
     private Boolean enableCitations;
     private Boolean enableFileChangeTracking;
     private SessionLimitsConfig sessionLimits;
+    private AutopilotOptions autopilot;
     private Boolean enableExperimentalMode;
     private Boolean skipCustomInstructions;
     private Boolean customAgentsLocalOnly;
@@ -691,6 +693,40 @@ public class SessionConfig {
     @CopilotExperimental
     public SessionConfig clearSessionLimits() {
         this.sessionLimits = null;
+        return this;
+    }
+
+    /**
+     * Gets the Autopilot policy, independently of the session mode.
+     *
+     * @return the policy, or {@code null} for runtime defaults
+     */
+    @CopilotExperimental
+    public AutopilotOptions getAutopilot() {
+        return autopilot;
+    }
+
+    /**
+     * Sets the Autopilot policy before the first turn.
+     *
+     * @param autopilot
+     *            the policy; omitted fields use runtime defaults
+     * @return this instance for method chaining
+     */
+    @CopilotExperimental
+    public SessionConfig setAutopilot(AutopilotOptions autopilot) {
+        this.autopilot = autopilot;
+        return this;
+    }
+
+    /**
+     * Omits the Autopilot policy, using runtime defaults.
+     *
+     * @return this instance for method chaining
+     */
+    @CopilotExperimental
+    public SessionConfig clearAutopilot() {
+        this.autopilot = null;
         return this;
     }
 
@@ -2597,6 +2633,7 @@ public class SessionConfig {
         copy.enableCitations = this.enableCitations;
         copy.enableFileChangeTracking = this.enableFileChangeTracking;
         copy.sessionLimits = this.sessionLimits;
+        copy.autopilot = this.autopilot;
         copy.enableExperimentalMode = this.enableExperimentalMode;
         copy.skipCustomInstructions = this.skipCustomInstructions;
         copy.customAgentsLocalOnly = this.customAgentsLocalOnly;

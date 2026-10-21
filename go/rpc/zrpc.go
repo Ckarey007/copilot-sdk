@@ -1837,6 +1837,17 @@ type AutopilotObjectiveState struct {
 	TurnCount int64 `json:"turnCount"`
 }
 
+// Experimental: AutopilotOptions is part of an experimental API and may change or be
+// removed.
+type AutopilotOptions struct {
+	// Enable runtime-owned automatic continuation while in Autopilot mode. Defaults to true for
+	// SDK sessions; does not change the session mode.
+	ContinuationEnabled *bool `json:"continuationEnabled,omitempty"`
+	// Maximum automatic continuations outside an active objective. Zero allows none; defaults
+	// to five. Omitted values preserve the current limit on update or warm resume.
+	MaxContinues *int64 `json:"maxContinues,omitempty"`
+}
+
 // Billing information for a server-advertised routing preference.
 // Experimental: AutoTierBilling is part of an experimental API and may change or be removed.
 type AutoTierBilling struct {
@@ -19859,6 +19870,9 @@ type SessionOpenOptions struct {
 	AuthClientIDMetadataURL *string `json:"authClientIdMetadataUrl,omitempty"`
 	// Initial authentication info for the session.
 	AuthInfo AuthInfo `json:"authInfo,omitempty"`
+	// Autopilot policy. Defaults to runtime-owned continuation with at most five automatic
+	// continuations. Does not change the session mode.
+	Autopilot *AutopilotOptions `json:"autopilot,omitempty"`
 	// Whether a CLI host explicitly requested the initial Auto preference. False preserves a
 	// settings-derived preference without validating availability during creation; execution
 	// still validates it. Defaults to true and is ignored for non-CLI callers.
@@ -21451,6 +21465,9 @@ type SessionUpdateOptionsParams struct {
 	AllowAllMCPServerInstructions *bool `json:"allowAllMcpServerInstructions,omitempty"`
 	// Whether to disable the `ask_user` tool (encourages autonomous behavior).
 	AskUserDisabled *bool `json:"askUserDisabled,omitempty"`
+	// Patch the Autopilot policy. Omitted fields retain their current values; an empty object
+	// makes no changes. Does not change the session mode.
+	Autopilot *AutopilotOptions `json:"autopilot,omitempty"`
 	// Allowlist of tool names available to this session.
 	AvailableTools []string `json:"availableTools,omitzero"`
 	// Options scoped to the built-in CAPI (Copilot API) provider.
@@ -22971,7 +22988,8 @@ func (SlashCommandAddTimelineEntryResult) Kind() SlashCommandInvocationResultKin
 }
 
 // Slash-command invocation result that submits an agent prompt, with display prompt,
-// optional mode, optional user-facing notice, and settings-change flag.
+// optional mode, optional user-facing notice, settings-change flag, and opaque reservation
+// finalization token.
 // Experimental: SlashCommandAgentPromptResult is part of an experimental API and may change
 // or be removed.
 type SlashCommandAgentPromptResult struct {
@@ -22983,6 +23001,8 @@ type SlashCommandAgentPromptResult struct {
 	Notice *string `json:"notice,omitempty"`
 	// Prompt to submit to the agent
 	Prompt string `json:"prompt"`
+	// Opaque token used to finalize this invocation's objective prompt reservation
+	ReservationToken *string `json:"reservationToken,omitempty"`
 	// True when the invocation mutated user runtime settings; consumers caching settings should
 	// refresh
 	RuntimeSettingsChanged *bool `json:"runtimeSettingsChanged,omitempty"`
@@ -24513,6 +24533,20 @@ type UISessionLimitsExhaustedResponse struct {
 	AdditionalAiCredits *float64 `json:"additionalAiCredits,omitempty"`
 	// New absolute max AI Credits when action is 'set'.
 	MaxAiCredits *float64 `json:"maxAiCredits,omitempty"`
+}
+
+// Identifies one runtime-owned native action for an in-process SDK UI dispatcher.
+// Experimental: UIThreadRunRequest is part of an experimental API and may change or be
+// removed.
+type UIThreadRunRequest struct {
+	// Opaque, one-shot action identifier scoped to the receiving native connection. Execute
+	// only through the synchronous native UI-action entry point.
+	ActionID int64 `json:"actionId"`
+}
+
+// Experimental: UIThreadRunResult is part of an experimental API and may change or be
+// removed.
+type UIThreadRunResult struct {
 }
 
 // Opaque handle previously returned by `registerDirectAutoModeSwitchHandler` to release.
@@ -42619,6 +42653,9 @@ func (a *OptionsAPI) Update(ctx context.Context, params *SessionUpdateOptionsPar
 		if params.AskUserDisabled != nil {
 			req["askUserDisabled"] = *params.AskUserDisabled
 		}
+		if params.Autopilot != nil {
+			req["autopilot"] = *params.Autopilot
+		}
 		if params.AvailableTools != nil {
 			req["availableTools"] = params.AvailableTools
 		}
@@ -49216,6 +49253,21 @@ type LlmInferenceHandler interface {
 	HttpRequestStart(request *LlmInferenceHTTPRequestStartRequest) (*LlmInferenceHTTPRequestStartResult, error)
 }
 
+// Experimental: UIThreadHandler contains experimental APIs that may change or be removed.
+type UIThreadHandler interface {
+	// Run schedules a runtime-owned native action through an in-process SDK host's
+	// runOnUiThread callback. The SDK supplies an action that enters the native C ABI
+	// synchronously; the host executes it exactly once on its UI thread (the process main
+	// thread on macOS) and completes only after it returns. Never sent to out-of-process
+	// clients.
+	//
+	// RPC method: uiThread.run.
+	//
+	// Parameters: Identifies one runtime-owned native action for an in-process SDK UI
+	// dispatcher.
+	Run(request *UIThreadRunRequest) (*UIThreadRunResult, error)
+}
+
 // ClientGlobalAPIHandlers provides all client-global API handler groups.
 //
 // Unlike client-session handlers these carry no implicit session id dispatch
@@ -49228,6 +49280,7 @@ type ClientGlobalAPIHandlers struct {
 	Host                    HostHandler
 	Installations           InstallationsHandler
 	LlmInference            LlmInferenceHandler
+	UIThread                UIThreadHandler
 }
 
 func clientGlobalHandlerError(err error) *jsonrpc2.Error {
@@ -49454,6 +49507,24 @@ func RegisterClientGlobalAPIHandlers(client *jsonrpc2.Client, handlers *ClientGl
 			return nil, &jsonrpc2.Error{Code: -32603, Message: "No llmInference client-global handler registered"}
 		}
 		result, err := handlers.LlmInference.HttpRequestStart(&request)
+		if err != nil {
+			return nil, clientGlobalHandlerError(err)
+		}
+		raw, err := json.Marshal(result)
+		if err != nil {
+			return nil, &jsonrpc2.Error{Code: -32603, Message: fmt.Sprintf("Failed to marshal response: %v", err)}
+		}
+		return raw, nil
+	})
+	client.SetRequestHandler("uiThread.run", func(params json.RawMessage) (json.RawMessage, *jsonrpc2.Error) {
+		var request UIThreadRunRequest
+		if err := json.Unmarshal(params, &request); err != nil {
+			return nil, &jsonrpc2.Error{Code: -32602, Message: fmt.Sprintf("Invalid params: %v", err)}
+		}
+		if handlers == nil || handlers.UIThread == nil {
+			return nil, &jsonrpc2.Error{Code: -32603, Message: "No uiThread client-global handler registered"}
+		}
+		result, err := handlers.UIThread.Run(&request)
 		if err != nil {
 			return nil, clientGlobalHandlerError(err)
 		}

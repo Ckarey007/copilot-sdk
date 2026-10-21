@@ -20,6 +20,7 @@ import com.github.copilot.generated.SessionEvent;
 import com.github.copilot.generated.rpc.DiagnosticsConfiguration;
 import com.github.copilot.generated.rpc.SandboxConfig;
 import com.github.copilot.generated.rpc.SessionLimitsConfig;
+import com.github.copilot.generated.rpc.AutopilotOptions;
 
 /**
  * Configuration for resuming an existing Copilot session.
@@ -58,6 +59,7 @@ public class ResumeSessionConfig {
     private Boolean enableCitations;
     private Boolean enableFileChangeTracking;
     private SessionLimitsConfig sessionLimits;
+    private AutopilotOptions autopilot;
     private Boolean enableExperimentalMode;
     private Boolean continuePendingWork;
     private Boolean allowTranscriptRecovery;
@@ -605,6 +607,40 @@ public class ResumeSessionConfig {
     @CopilotExperimental
     public ResumeSessionConfig clearSessionLimits() {
         this.sessionLimits = null;
+        return this;
+    }
+
+    /**
+     * Gets the Autopilot policy patch, independently of the session mode.
+     *
+     * @return the policy, or {@code null} to preserve resident values
+     */
+    @CopilotExperimental
+    public AutopilotOptions getAutopilot() {
+        return autopilot;
+    }
+
+    /**
+     * Patches resident policy on warm resume. Re-supply on cold resume.
+     *
+     * @param autopilot
+     *            the policy; omitted fields preserve resident values
+     * @return this instance for method chaining
+     */
+    @CopilotExperimental
+    public ResumeSessionConfig setAutopilot(AutopilotOptions autopilot) {
+        this.autopilot = autopilot;
+        return this;
+    }
+
+    /**
+     * Omits the Autopilot patch, preserving resident values on warm resume.
+     *
+     * @return this instance for method chaining
+     */
+    @CopilotExperimental
+    public ResumeSessionConfig clearAutopilot() {
+        this.autopilot = null;
         return this;
     }
 
@@ -2416,6 +2452,7 @@ public class ResumeSessionConfig {
         copy.enableCitations = this.enableCitations;
         copy.enableFileChangeTracking = this.enableFileChangeTracking;
         copy.sessionLimits = this.sessionLimits;
+        copy.autopilot = this.autopilot;
         copy.enableExperimentalMode = this.enableExperimentalMode;
         copy.continuePendingWork = this.continuePendingWork;
         copy.allowTranscriptRecovery = this.allowTranscriptRecovery;

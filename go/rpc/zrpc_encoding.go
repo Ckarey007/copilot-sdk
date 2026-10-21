@@ -8831,6 +8831,7 @@ func (r *SessionOpenOptions) UnmarshalJSON(data []byte) error {
 		AskUserDisabled                        *bool                                                `json:"askUserDisabled,omitempty"`
 		AuthClientIDMetadataURL                *string                                              `json:"authClientIdMetadataUrl,omitempty"`
 		AuthInfo                               json.RawMessage                                      `json:"authInfo,omitempty"`
+		Autopilot                              *AutopilotOptions                                    `json:"autopilot,omitempty"`
 		AutoTierIsExplicit                     *bool                                                `json:"autoTierIsExplicit,omitempty"`
 		AvailableTools                         []string                                             `json:"availableTools,omitzero"`
 		Capi                                   *CapiSessionOptions                                  `json:"capi,omitempty"`
@@ -8924,6 +8925,7 @@ func (r *SessionOpenOptions) UnmarshalJSON(data []byte) error {
 		}
 		r.AuthInfo = value
 	}
+	r.Autopilot = raw.Autopilot
 	r.AutoTierIsExplicit = raw.AutoTierIsExplicit
 	r.AvailableTools = raw.AvailableTools
 	r.Capi = raw.Capi

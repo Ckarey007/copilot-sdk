@@ -181,6 +181,8 @@ class ForceStopSessionTest {
             });
             try (var gate = (AutoCloseable) release::countDown) {
                 client.ping("first send acknowledgment").get(5, TimeUnit.SECONDS);
+                server.emitEvent(session.getSessionId(), "user.message",
+                        Map.of("messageId", "occupy scheduler", "content", "occupy scheduler"));
                 server.emitIdle(session.getSessionId());
                 assertTrue(entered.await(5, TimeUnit.SECONDS), "A continuation must occupy the session scheduler");
 
@@ -191,7 +193,8 @@ class ForceStopSessionTest {
                             Map.of("errorType", "query", "message", "original terminal failure"));
                 } else {
                     server.emitEvent(session.getSessionId(), "assistant.message",
-                            Map.of("messageId", "terminal-message", "content", "completed before retirement"));
+                            Map.of("messageId", "terminal-message", "content", "completed before retirement",
+                                    "originatingMessageId", "completed terminal"));
                     server.emitIdle(session.getSessionId());
                 }
                 client.ping("terminal dispatch acknowledgment").get(5, TimeUnit.SECONDS);

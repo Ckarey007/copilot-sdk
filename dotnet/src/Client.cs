@@ -1310,6 +1310,7 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
                 config.DisabledSkills,
                 config.InfiniteSessions,
                 config.SessionLimits,
+                config.Autopilot,
                 Commands: config.Commands?.Select(c => new CommandWireDefinition(c.Name, c.Description ?? string.Empty)).ToList(),
                 RequestElicitation: config.OnElicitationRequest != null,
                 RequestMcpApps: config.EnableMcpApps ? true : null,
@@ -1595,6 +1596,7 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
                 config.DisabledSkills,
                 config.InfiniteSessions,
                 config.SessionLimits,
+                config.Autopilot,
                 Commands: config.Commands?.Select(c => new CommandWireDefinition(c.Name, c.Description ?? string.Empty)).ToList(),
                 RequestElicitation: config.OnElicitationRequest != null,
                 RequestMcpApps: config.EnableMcpApps ? true : null,
@@ -2148,6 +2150,7 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
             LlmInference = handler is null ? null : new LlmInferenceAdapter(handler, () => _serverRpc),
             GitHubTelemetry = onGitHubTelemetry is null ? null : new GitHubTelemetryAdapter(onGitHubTelemetry, _logger),
             GitHubToken = new GitHubTokenAdapter(this),
+            UiThread = new UiThreadAdapter(this),
             Installations = installationConfirmationHandler is null
                 ? null
                 : new InstallationConfirmationAdapter(installationConfirmationHandler),
@@ -2184,6 +2187,19 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
         => _gitHubTokenProviders.TryRemove(registrationId, out _);
 
     private void ClearGitHubTokenProviders() => _gitHubTokenProviders.Clear();
+
+    private sealed class UiThreadAdapter(CopilotClient client) : IUiThreadHandler
+    {
+        public async Task RunAsync(UiThreadRunRequest request, CancellationToken cancellationToken = default)
+        {
+            var host = client._ffiHost;
+            if (client._connection is not InProcessRuntimeConnection { RunOnUiThread: { } handler } || host is null)
+            {
+                throw new InvalidOperationException("No in-process RunOnUiThread handler is configured.");
+            }
+            await handler(() => host.RunUiAction(checked((uint)request.ActionId))).ConfigureAwait(false);
+        }
+    }
 
     private sealed class GitHubTokenAdapter(CopilotClient client) : IGitHubTokenHandler
     {
@@ -2851,6 +2867,8 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
                 RegisterRpcProcessExit(cliProcess, rpc);
             }
             rpc.StartListening();
+            ffiHost?.ConfigureUiThread(
+                _connection is InProcessRuntimeConnection { RunOnUiThread: not null });
             _ = CancelExternalToolsWhenConnectionClosesAsync(rpc);
             LoggingHelpers.LogTiming(_logger, LogLevel.Debug, null,
                 "CopilotClient.ConnectToServerAsync transport setup complete. Elapsed={Elapsed}",
@@ -3288,6 +3306,7 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
         IList<string>? DisabledSkills,
         InfiniteSessionConfig? InfiniteSessions,
         SessionLimitsConfig? SessionLimits,
+        AutopilotOptions? Autopilot,
         IList<CommandWireDefinition>? Commands = null,
         bool? RequestElicitation = null,
         bool? RequestMcpApps = null,
@@ -3422,6 +3441,7 @@ public sealed partial class CopilotClient : IDisposable, IAsyncDisposable
         IList<string>? DisabledSkills,
         InfiniteSessionConfig? InfiniteSessions,
         SessionLimitsConfig? SessionLimits,
+        AutopilotOptions? Autopilot,
         IList<CommandWireDefinition>? Commands = null,
         bool? RequestElicitation = null,
         bool? RequestMcpApps = null,

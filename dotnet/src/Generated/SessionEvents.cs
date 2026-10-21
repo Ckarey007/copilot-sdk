@@ -94,6 +94,7 @@ namespace GitHub.Copilot;
 [JsonDerivedType(typeof(SessionAutoTierRecommendationEvent), "session.auto_tier_recommendation")]
 [JsonDerivedType(typeof(SessionAutoTierSwitchFailedEvent), "session.auto_tier_switch_failed")]
 [JsonDerivedType(typeof(SessionAutopilotObjectiveChangedEvent), "session.autopilot_objective_changed")]
+[JsonDerivedType(typeof(SessionAutopilotStoppedEvent), "session.autopilot_stopped")]
 [JsonDerivedType(typeof(SessionBackgroundTasksChangedEvent), "session.background_tasks_changed")]
 [JsonDerivedType(typeof(SessionBinaryAssetEvent), "session.binary_asset")]
 [JsonDerivedType(typeof(SessionCanvasClosedEvent), "session.canvas.closed")]
@@ -485,6 +486,8 @@ internal sealed partial class SessionEventJsonConverter : JsonConverter<SessionE
                     return SessionEventsJsonContext.Default.PermissionAssentDetectedEvent;
                 if (type.SequenceEqual("permission.carriedForward"u8))
                     return SessionEventsJsonContext.Default.PermissionCarriedForwardEvent;
+                if (type.SequenceEqual("session.autopilot_stopped"u8))
+                    return SessionEventsJsonContext.Default.SessionAutopilotStoppedEvent;
                 if (type.SequenceEqual("session.extensions_loaded"u8))
                     return SessionEventsJsonContext.Default.SessionExtensionsLoadedEvent;
                 if (type.SequenceEqual("session.quota_observation"u8))
@@ -807,6 +810,19 @@ public sealed partial class SessionIdleEvent : SessionEvent
     /// <summary>The <c>session.idle</c> event payload.</summary>
     [JsonPropertyName("data")]
     public required SessionIdleData Data { get; set; }
+}
+
+/// <summary>The runtime has stopped continuing one Autopilot request. Attached background work may remain active; this is not session-wide idle.</summary>
+/// <remarks>Represents the <c>session.autopilot_stopped</c> event.</remarks>
+public sealed partial class SessionAutopilotStoppedEvent : SessionEvent
+{
+    /// <inheritdoc />
+    [JsonIgnore]
+    public override string Type => "session.autopilot_stopped";
+
+    /// <summary>The <c>session.autopilot_stopped</c> event payload.</summary>
+    [JsonPropertyName("data")]
+    public required SessionAutopilotStoppedData Data { get; set; }
 }
 
 /// <summary>Session title change payload containing the new display title.</summary>
@@ -3054,6 +3070,11 @@ public sealed partial class SessionErrorData
     [JsonPropertyName("message")]
     public required string Message { get; set; }
 
+    /// <summary>Original root user-message ID of the failed request, including failures before user.message is emitted. Absent for session-wide errors or legacy hosts.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("originatingMessageId")]
+    public string? OriginatingMessageId { get; set; }
+
     /// <summary>GitHub request tracing ID (x-github-request-id header) for correlating with server-side logs.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("providerCallId")]
@@ -3107,6 +3128,19 @@ public sealed partial class SessionIdleData
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [JsonPropertyName("mode")]
     public SessionMode? Mode { get; set; }
+}
+
+/// <summary>The runtime has stopped continuing one Autopilot request. Attached background work may remain active; this is not session-wide idle.</summary>
+public sealed partial class SessionAutopilotStoppedData
+{
+    /// <summary>The terminal policy reason, such as task_complete, aborted, error, or background_timeout.</summary>
+    [JsonPropertyName("reason")]
+    public required string Reason { get; set; }
+
+    /// <summary>Original root user message ID for this request, absent when no root request is available.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("requestId")]
+    public string? RequestId { get; set; }
 }
 
 /// <summary>Session title change payload containing the new display title.</summary>
@@ -3253,6 +3287,11 @@ public sealed partial class SessionWarningData
     /// <summary>Human-readable warning message for display in the timeline.</summary>
     [JsonPropertyName("message")]
     public required string Message { get; set; }
+
+    /// <summary>Logical ID returned by session.send for the request this warning concerns. Set for policy-blocked prompts, which do not emit a user.message event.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonPropertyName("originatingMessageId")]
+    public string? OriginatingMessageId { get; set; }
 
     /// <summary>What the user must do to recover, when the runtime knows of an action. The `message` never names a client affordance, so a client that offers one — a slash command, a settings pane, a link — renders it from this value.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -24226,6 +24265,8 @@ public readonly struct ExtensionsLoadedExtensionStatus : IEquatable<ExtensionsLo
 [JsonSerializable(typeof(SessionAutoTierSwitchFailedEvent))]
 [JsonSerializable(typeof(SessionAutopilotObjectiveChangedData))]
 [JsonSerializable(typeof(SessionAutopilotObjectiveChangedEvent))]
+[JsonSerializable(typeof(SessionAutopilotStoppedData))]
+[JsonSerializable(typeof(SessionAutopilotStoppedEvent))]
 [JsonSerializable(typeof(SessionBackgroundTasksChangedData))]
 [JsonSerializable(typeof(SessionBackgroundTasksChangedEvent))]
 [JsonSerializable(typeof(SessionBinaryAssetData))]

@@ -171,6 +171,8 @@ public record SessionOpenOptions(
     @JsonProperty("modelCapabilitiesOverrides") ModelCapabilitiesOverride modelCapabilitiesOverrides,
     /** Initial session limits. */
     @JsonProperty("sessionLimits") SessionLimitsConfig sessionLimits,
+    /** Autopilot policy. Defaults to runtime-owned continuation with at most five automatic continuations. Does not change the session mode. */
+    @JsonProperty("autopilot") AutopilotOptions autopilot,
     /** Runtime context discriminator for agent filtering. */
     @JsonProperty("agentContext") String agentContext,
     /** Override directory for session event logs. */
