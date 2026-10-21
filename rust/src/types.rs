@@ -1115,6 +1115,20 @@ impl InfiniteSessionConfig {
     }
 }
 
+/// Where retrieved memories enter the model conversation.
+///
+/// **Experimental.** This type may change or be removed in a future release.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum MemoryMode {
+    /// Include memories in the system prompt (default).
+    #[default]
+    SystemPrompt,
+    /// Include memories in user messages.
+    UserPrompt,
+}
+
 /// Per-session configuration for the runtime memory feature.
 ///
 /// Supplied via [`SessionConfig::with_memory`] /
@@ -1122,31 +1136,49 @@ impl InfiniteSessionConfig {
 /// without a memory configuration, the runtime applies its own default for the
 /// memory feature.
 ///
-/// The type is extensible: today it carries [`enabled`](Self::enabled), and
-/// further tuning knobs can be added as optional fields without a breaking
-/// change.
+/// Omitted [`mode`](Self::mode) preserves the runtime's system-prompt injection.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 #[non_exhaustive]
 pub struct MemoryConfiguration {
     /// Whether the memory feature is enabled for this session.
     pub enabled: bool,
+    /// "system-prompt" (default) places memories in the system prompt.
+    /// "user-prompt" places memories in generated user-role messages.
+    ///
+    /// **Experimental.** This option may change or be removed in a future release.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<MemoryMode>,
 }
 
 impl MemoryConfiguration {
     /// A configuration with the memory feature enabled.
     pub fn enabled() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            mode: None,
+        }
     }
 
     /// A configuration with the memory feature disabled.
     pub fn disabled() -> Self {
-        Self { enabled: false }
+        Self {
+            enabled: false,
+            mode: None,
+        }
     }
 
     /// Set whether the memory feature is enabled.
     pub fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
+        self
+    }
+
+    /// Choose where retrieved memories enter the model conversation.
+    ///
+    /// **Experimental.** This method may change or be removed in a future release.
+    pub fn with_mode(mut self, mode: MemoryMode) -> Self {
+        self.mode = Some(mode);
         self
     }
 }

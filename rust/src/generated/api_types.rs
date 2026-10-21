@@ -18215,6 +18215,16 @@ pub(crate) struct McpUnregisterExternalClientRequest {
 pub struct MemoryConfiguration {
     /// Whether memory is enabled for the session.
     pub enabled: bool,
+    /// Memory injection mode: system-prompt (default) includes memories in the system prompt; user-prompt includes them in user messages.
+    ///
+    /// <div class="warning">
+    ///
+    /// **Experimental.** This type is part of an experimental wire-protocol surface
+    /// and may change or be removed in future SDK or CLI releases.
+    ///
+    /// </div>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<MemoryMode>,
 }
 
 /// The six normalized `/context` header buckets, computed from the same tokenization as `entries` so the two never disagree. Convenience rollups: `freeSpace` and `buffer` describe window capacity rather than occupied context, so the values do not sum to `totalTokens`.
@@ -50594,6 +50604,28 @@ pub enum OptionsUpdateToolFilterPrecedence {
     /// A tool is enabled if and only if it matches the allowlist (or the allowlist is unset) AND it does not match the denylist. Makes 'all except X' expressible by combining the two lists.
     #[serde(rename = "excluded")]
     Excluded,
+    /// Unknown variant for forward compatibility.
+    #[default]
+    #[serde(other)]
+    Unknown,
+}
+
+/// Memory injection mode. Defaults to system-prompt.
+///
+/// <div class="warning">
+///
+/// **Experimental.** This type is part of an experimental wire-protocol surface
+/// and may change or be removed in future SDK or CLI releases.
+///
+/// </div>
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MemoryMode {
+    /// Include memories in the system prompt (default).
+    #[serde(rename = "system-prompt")]
+    SystemPrompt,
+    /// Include memories in user messages.
+    #[serde(rename = "user-prompt")]
+    UserPrompt,
     /// Unknown variant for forward compatibility.
     #[default]
     #[serde(other)]

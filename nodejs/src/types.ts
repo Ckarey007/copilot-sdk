@@ -2219,6 +2219,12 @@ export interface MemoryConfiguration {
      * Whether the memory feature is enabled for this session.
      */
     enabled: boolean;
+    /**
+     * "system-prompt" (default) places memories in the system prompt.
+     * "user-prompt" places memories in generated user-role messages.
+     * @experimental This option may change or be removed in a future release.
+     */
+    mode?: "system-prompt" | "user-prompt";
 }
 
 /**

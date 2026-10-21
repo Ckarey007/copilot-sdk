@@ -3561,6 +3561,21 @@ public sealed class ToolSearchConfig
 }
 
 /// <summary>
+/// Selects where retrieved memories are included in the model conversation.
+/// </summary>
+[Experimental(Diagnostics.Experimental)]
+[JsonConverter(typeof(JsonStringEnumConverter<MemoryMode>))]
+public enum MemoryMode
+{
+    /// <summary>Include memories in the system prompt (the default).</summary>
+    [JsonStringEnumMemberName("system-prompt")]
+    SystemPrompt,
+    /// <summary>Include memories in user messages.</summary>
+    [JsonStringEnumMemberName("user-prompt")]
+    UserPrompt
+}
+
+/// <summary>
 /// Configuration for session memory.
 /// </summary>
 public sealed class MemoryConfiguration
@@ -3570,6 +3585,15 @@ public sealed class MemoryConfiguration
     /// </summary>
     [JsonPropertyName("enabled")]
     public bool Enabled { get; set; }
+
+    /// <summary>
+    /// "system-prompt" (default) places memories in the system prompt.
+    /// "user-prompt" places memories in generated user-role messages.
+    /// </summary>
+    [Experimental(Diagnostics.Experimental)]
+    [JsonPropertyName("mode")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MemoryMode? Mode { get; set; }
 }
 
 /// <summary>

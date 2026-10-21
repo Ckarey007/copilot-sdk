@@ -1598,6 +1598,10 @@ class MemoryConfiguration(TypedDict):
 
     # Whether memory is enabled for the session.
     enabled: bool
+    # "system-prompt" (default) places memories in the system prompt.
+    # "user-prompt" places memories in generated user-role messages.
+    # Experimental: this option may change or be removed in a future release.
+    mode: NotRequired[Literal["system-prompt", "user-prompt"]]
 
 
 # ============================================================================

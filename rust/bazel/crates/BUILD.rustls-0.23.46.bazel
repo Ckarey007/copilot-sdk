@@ -70,7 +70,7 @@ rust_library(
         ":build_script_build",
         "@sdk_vendor__once_cell-1.21.4//:once_cell",
         "@sdk_vendor__rustls-pki-types-1.15.1//:rustls_pki_types",
-        "@sdk_vendor__rustls-webpki-0.103.15//:webpki",
+        "@sdk_vendor__rustls-webpki-0.103.16//:webpki",
         "@sdk_vendor__subtle-2.6.1//:subtle",
         "@sdk_vendor__zeroize-1.9.1//:zeroize",
     ],

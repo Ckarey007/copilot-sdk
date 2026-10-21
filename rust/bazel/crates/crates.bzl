@@ -2171,12 +2171,12 @@ def crate_repositories():
 
     maybe(
         http_archive,
-        name = "sdk_vendor__rustls-webpki-0.103.15",
-        sha256 = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2",
+        name = "sdk_vendor__rustls-webpki-0.103.16",
+        sha256 = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281",
         type = "tar.gz",
-        urls = ["https://static.crates.io/crates/rustls-webpki/0.103.15/download"],
-        strip_prefix = "rustls-webpki-0.103.15",
-        build_file = Label("//src/sdk/rust/bazel/crates:BUILD.rustls-webpki-0.103.15.bazel"),
+        urls = ["https://static.crates.io/crates/rustls-webpki/0.103.16/download"],
+        strip_prefix = "rustls-webpki-0.103.16",
+        build_file = Label("//src/sdk/rust/bazel/crates:BUILD.rustls-webpki-0.103.16.bazel"),
     )
 
     maybe(
@@ -2961,12 +2961,12 @@ def crate_repositories():
 
     maybe(
         http_archive,
-        name = "sdk_vendor__webpki-root-certs-1.0.9",
-        sha256 = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b",
+        name = "sdk_vendor__webpki-root-certs-1.0.10",
+        sha256 = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb",
         type = "tar.gz",
-        urls = ["https://static.crates.io/crates/webpki-root-certs/1.0.9/download"],
-        strip_prefix = "webpki-root-certs-1.0.9",
-        build_file = Label("//src/sdk/rust/bazel/crates:BUILD.webpki-root-certs-1.0.9.bazel"),
+        urls = ["https://static.crates.io/crates/webpki-root-certs/1.0.10/download"],
+        strip_prefix = "webpki-root-certs-1.0.10",
+        build_file = Label("//src/sdk/rust/bazel/crates:BUILD.webpki-root-certs-1.0.10.bazel"),
     )
 
     maybe(

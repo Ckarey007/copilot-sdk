@@ -12368,6 +12368,10 @@ type MCPUnregisterExternalClientRequest struct {
 type MemoryConfiguration struct {
 	// Whether memory is enabled for the session.
 	Enabled bool `json:"enabled"`
+	// Memory injection mode: system-prompt (default) includes memories in the system prompt;
+	// user-prompt includes them in user messages.
+	// Experimental: Mode is part of an experimental API and may change or be removed.
+	Mode *MemoryMode `json:"mode,omitempty"`
 }
 
 // Per-source attribution breakdown for the session's current context window, or null if
@@ -30079,6 +30083,17 @@ const (
 	MCPToolUIVisibilityApp MCPToolUIVisibility = "app"
 	// The model may call the tool.
 	MCPToolUIVisibilityModel MCPToolUIVisibility = "model"
+)
+
+// Memory injection mode. Defaults to system-prompt.
+// Experimental: MemoryMode is part of an experimental API and may change or be removed.
+type MemoryMode string
+
+const (
+	// Include memories in the system prompt (default).
+	MemoryModeSystemPrompt MemoryMode = "system-prompt"
+	// Include memories in user messages.
+	MemoryModeUserPrompt MemoryMode = "user-prompt"
 )
 
 // The current agent mode for this session (e.g., 'interactive', 'plan', 'autopilot')
