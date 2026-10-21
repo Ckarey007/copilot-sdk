@@ -4228,18 +4228,6 @@ export type OptionsUpdateToolFilterPrecedence =
   /** A tool is enabled if and only if it matches the allowlist (or the allowlist is unset) AND it does not match the denylist. Makes 'all except X' expressible by combining the two lists. */
   | "excluded";
 /**
- * Memory injection mode. Defaults to system-prompt.
- *
- * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
- * via the `definition` "MemoryMode".
- */
-/** @experimental */
-export type MemoryMode =
-  /** Include memories in the system prompt (default). */
-  | "system-prompt"
-  /** Include memories in user messages. */
-  | "user-prompt";
-/**
  * Per-source context-window attribution, or null if the session has not yet been initialized (no system prompt or tool metadata cached).
  *
  * This interface was referenced by `_RpcSchemaRoot`'s JSON-Schema
@@ -21290,12 +21278,6 @@ export interface MemoryConfiguration {
    * Whether memory is enabled for the session.
    */
   enabled: boolean;
-  /**
-   * Memory injection mode: system-prompt (default) includes memories in the system prompt; user-prompt includes them in user messages.
-   *
-   * @experimental
-   */
-  mode?: MemoryMode;
 }
 /**
  * Per-source attribution breakdown for the session's current context window, or null if uninitialized.

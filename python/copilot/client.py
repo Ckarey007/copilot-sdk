@@ -492,10 +492,7 @@ def _large_output_to_wire(config: Mapping[str, Any]) -> dict[str, Any]:
 
 def _memory_to_wire(config: Mapping[str, Any]) -> dict[str, Any]:
     """Convert a ``MemoryConfiguration`` mapping to wire format."""
-    wire: dict[str, Any] = {"enabled": config["enabled"]}
-    if "mode" in config:
-        wire["mode"] = config["mode"]
-    return wire
+    return {"enabled": config["enabled"]}
 
 
 def _autopilot_to_wire(config: AutopilotOptions) -> dict[str, Any]:

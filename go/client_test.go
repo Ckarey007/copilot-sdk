@@ -2828,7 +2828,7 @@ func TestSessionRequests_SandboxConfig(t *testing.T) {
 
 func TestSessionRequests_Memory(t *testing.T) {
 	t.Run("create includes memory in JSON when enabled", func(t *testing.T) {
-		req := createSessionRequest{Memory: &MemoryConfiguration{Enabled: true, Mode: MemoryModeUserPrompt}}
+		req := createSessionRequest{Memory: &MemoryConfiguration{Enabled: true}}
 		data, err := json.Marshal(req)
 		if err != nil {
 			t.Fatalf("Failed to marshal: %v", err)
@@ -2837,14 +2837,14 @@ func TestSessionRequests_Memory(t *testing.T) {
 		if err := json.Unmarshal(data, &m); err != nil {
 			t.Fatalf("Failed to unmarshal: %v", err)
 		}
-		expected := map[string]any{"enabled": true, "mode": "user-prompt"}
+		expected := map[string]any{"enabled": true}
 		if !reflect.DeepEqual(m["memory"], expected) {
 			t.Errorf("Expected memory %v, got %v", expected, m["memory"])
 		}
 	})
 
 	t.Run("resume includes memory in JSON when disabled", func(t *testing.T) {
-		req := resumeSessionRequest{SessionID: "s1", Memory: &MemoryConfiguration{Enabled: false, Mode: MemoryModeSystemPrompt}}
+		req := resumeSessionRequest{SessionID: "s1", Memory: &MemoryConfiguration{Enabled: false}}
 		data, err := json.Marshal(req)
 		if err != nil {
 			t.Fatalf("Failed to marshal: %v", err)
@@ -2853,7 +2853,7 @@ func TestSessionRequests_Memory(t *testing.T) {
 		if err := json.Unmarshal(data, &m); err != nil {
 			t.Fatalf("Failed to unmarshal: %v", err)
 		}
-		expected := map[string]any{"enabled": false, "mode": "system-prompt"}
+		expected := map[string]any{"enabled": false}
 		if !reflect.DeepEqual(m["memory"], expected) {
 			t.Errorf("Expected memory %v, got %v", expected, m["memory"])
 		}

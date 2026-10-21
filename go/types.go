@@ -1443,26 +1443,10 @@ type InfiniteSessionConfig struct {
 	BufferExhaustionThreshold *float64 `json:"bufferExhaustionThreshold,omitempty"`
 }
 
-// MemoryMode selects where retrieved memories are included in the model conversation.
-// Experimental: this type may change or be removed in a future release.
-type MemoryMode = rpc.MemoryMode
-
-const (
-	// MemoryModeSystemPrompt includes memories in the system prompt (the default).
-	MemoryModeSystemPrompt = rpc.MemoryModeSystemPrompt
-	// MemoryModeUserPrompt includes memories in user messages.
-	MemoryModeUserPrompt = rpc.MemoryModeUserPrompt
-)
-
 // MemoryConfiguration configures the memory feature for a session.
 type MemoryConfiguration struct {
 	// Enabled controls whether the memory feature is enabled for this session.
 	Enabled bool `json:"enabled"`
-	// Mode selects where memories are placed.
-	// "system-prompt" (default) places memories in the system prompt.
-	// "user-prompt" places memories in generated user-role messages.
-	// Experimental: this option may change or be removed in a future release.
-	Mode MemoryMode `json:"mode,omitempty"`
 }
 
 // LargeToolOutputConfig configures handling of large tool outputs. When a tool

@@ -583,68 +583,6 @@ fn memory_configuration_constructors_and_serde() {
 
     let json = serde_json::to_value(MemoryConfiguration::enabled()).unwrap();
     assert_eq!(json, serde_json::json!({ "enabled": true }));
-    let user_prompt = MemoryConfiguration::enabled().with_mode(super::MemoryMode::UserPrompt);
-    assert_eq!(
-        serde_json::to_value(user_prompt).unwrap(),
-        serde_json::json!({ "enabled": true, "mode": "user-prompt" })
-    );
-}
-
-#[test]
-fn review_memory_request_default_serializes_a_supported_mode() {
-    let memory = MemoryConfiguration::enabled().with_mode(super::MemoryMode::default());
-    let (create, _) = SessionConfig::default()
-        .with_memory(memory.clone())
-        .into_wire(Some(SessionId::from("default-memory-mode")))
-        .unwrap();
-    let (resume, _) = ResumeSessionConfig::new(SessionId::from("default-memory-mode"))
-        .with_memory(memory)
-        .into_wire()
-        .unwrap();
-    for request in [
-        serde_json::to_value(create).unwrap(),
-        serde_json::to_value(resume).unwrap(),
-    ] {
-        assert_eq!(request["memory"]["mode"], "system-prompt");
-    }
-}
-
-#[test]
-fn review_memory_request_rejects_unsupported_modes() {
-    for mode in ["Unknown", "sidekick", "future-mode"] {
-        assert!(
-            serde_json::from_value::<MemoryConfiguration>(
-                serde_json::json!({ "enabled": true, "mode": mode }),
-            )
-            .is_err(),
-            "{mode}"
-        );
-    }
-}
-
-#[test]
-fn memory_mode_is_forwarded_on_create_and_resume() {
-    let memory = MemoryConfiguration::enabled().with_mode(super::MemoryMode::UserPrompt);
-    let (create, _) = SessionConfig::default()
-        .with_memory(memory.clone())
-        .into_wire(Some(SessionId::from("create-user-memory")))
-        .unwrap();
-    let (resume, _) = ResumeSessionConfig::new(SessionId::from("resume-user-memory"))
-        .with_memory(memory)
-        .into_wire()
-        .unwrap();
-    for request in [
-        serde_json::to_value(create).unwrap(),
-        serde_json::to_value(resume).unwrap(),
-    ] {
-        assert_eq!(
-            request["memory"],
-            serde_json::json!({
-                "enabled": true,
-                "mode": "user-prompt",
-            })
-        );
-    }
 }
 
 #[test]
