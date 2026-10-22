@@ -441,6 +441,64 @@ const client = new CopilotClient({
 
 ## Tool execution issues
 
+### Interactive commands keep running without progress
+
+The runtime's built-in terminal tools can execute commands without a
+pseudo-terminal (PTY). In that mode, an interactive program cannot be operated
+by typing into an unrelated terminal window. A tool call returning a background
+task also does not mean that the command has finished.
+
+Some build tools launch interactive configuration menus implicitly when a
+configuration file is missing. For example, OpenWrt's prerequisite target can
+invoke `menuconfig` in an unconfigured source tree. With non-terminal input, an
+interactive program can wait indefinitely, exit, or repeatedly retry input.
+Check process state and CPU usage as well as output; an unchanged log alone
+does not establish that a process has stopped.
+
+To prevent this failure:
+
+1. Use the command's documented non-interactive configuration mode. Initialize
+   and verify required configuration before running the build or prerequisite
+   target. Redirecting output does not disable an interactive fallback.
+1. If a command requires terminal input, check for a terminal inside the
+   process that will run it, not just in the application hosting the SDK.
+   For a POSIX command that requires terminal input, prepend this guard:
+
+   ```sh
+   if [ ! -t 0 ]; then
+       printf '%s\n' 'This command requires a terminal; use its non-interactive mode.' >&2
+       exit 2
+   fi
+   ```
+
+   Do not add this guard to commands that are designed to read piped input.
+1. Set an execution deadline using a mechanism that terminates the command,
+   not just the wait for a tool result. An initial wait that returns a
+   background task is not an execution deadline. On Linux with GNU coreutils,
+   `timeout --kill-after=5s 60s your-command` bounds ordinary commands and
+   escalates from TERM to KILL if needed. Descendants that escape the timeout's
+   process group require separate lifecycle management.
+1. Use an execution channel with a PTY and user input support when interaction
+   is essential. A separate terminal cannot supply input to a process that is
+   already running with a pipe as its standard input.
+
+To recover an existing task, use the host's task-specific stop operation, if
+available, and verify that the task and its owned child processes have exited.
+Aborting a model turn is not a substitute for checking process termination.
+On Windows with WSL, check the Linux descendants as well as the Windows
+launcher. Do not assume that restarting the editor stopped them.
+
+Keep intentionally detached services separate from work owned by the current
+session. If manual cleanup is necessary, verify process identity and ownership
+before targeting individual processes. Do not terminate all processes with the
+same executable name or shut down a shared WSL instance.
+
+When reporting a persistent task, include the SDK and runtime versions,
+execution and attachment modes if available, whether stdin is a terminal, and
+the result of the task-specific stop operation. Use a bounded reproduction in a
+disposable directory. Replace local paths and session identifiers with
+placeholders, and omit credentials and private command output.
+
 ### Custom tool not being called
 
 1. **Verify tool registration:**
